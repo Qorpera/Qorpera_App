@@ -1,0 +1,53 @@
+import { PrismaClient } from "@prisma/client";
+import { seedEntities } from "./entity-seed";
+
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log("Seeding QorperaAPP database...");
+
+  // Create default operator
+  const operator = await prisma.operator.upsert({
+    where: { id: "default-operator" },
+    create: { id: "default-operator", displayName: "Operator", email: "operator@qorpera.local" },
+    update: {},
+  });
+  console.log(`Operator: ${operator.id}`);
+
+  // Default governance config
+  await prisma.governanceConfig.upsert({
+    where: { operatorId: operator.id },
+    create: {
+      operatorId: operator.id,
+      requireApprovalAboveAmount: 10000,
+      autoApproveReadActions: true,
+      maxPendingProposals: 50,
+      approvalExpiryHours: 72,
+    },
+    update: {},
+  });
+
+  // Default app settings
+  const defaults: [string, string][] = [
+    ["ai_provider", "ollama"],
+    ["ollama_base_url", "http://localhost:11434"],
+    ["ollama_model", "llama3.2"],
+    ["setup_completed", "false"],
+  ];
+  for (const [key, value] of defaults) {
+    await prisma.appSetting.upsert({
+      where: { key },
+      create: { key, value },
+      update: {},
+    });
+  }
+
+  // Seed entity types, entities, relationships, policies
+  await seedEntities(prisma, operator.id);
+
+  console.log("Seed complete.");
+}
+
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

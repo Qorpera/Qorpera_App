@@ -1,0 +1,34 @@
+appId: com.qorpera.app
+productName: Qorpera
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - electron/**/*.js
+  - prisma/**/*
+  - node_modules/.prisma/**/*
+  - node_modules/@prisma/client/**/*
+mac:
+  category: public.app-category.business
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
+    - deb
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+extraResources:
+  - from: _standalone
+    to: standalone
+    filter:
+      - "**/*"
+  - from: prisma
+    to: prisma
+  - from: node_modules/.prisma
+    to: node_modules/.prisma

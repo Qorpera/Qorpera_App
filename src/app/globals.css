@@ -1,0 +1,183 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0e1418;
+  --foreground: #f0f4f7;
+  --card: #182027;
+  --muted: #b8c5ce;
+  --border: #2f3b45;
+  --accent: #a855f7;
+  --accent-ink: #f3e8ff;
+  --warn: #b45309;
+  --warn-strong: #9a3412;
+  --danger: #b42318;
+  --ok: #15803d;
+  --info: #2563eb;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--foreground);
+  -webkit-box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.04) inset;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+@keyframes wf-think {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 18px rgba(147, 51, 234, 0.45); }
+  50% { box-shadow: 0 0 36px rgba(147, 51, 234, 0.85), 0 0 64px rgba(147, 51, 234, 0.25); }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "EB Garamond", serif;
+}
+
+body {
+  min-height: 100vh;
+  color-scheme: dark;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(168, 85, 247, 0.14), transparent 45%),
+    radial-gradient(circle at 100% 0%, rgba(180, 83, 9, 0.1), transparent 50%),
+    var(--background);
+  color: var(--foreground);
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
+}
+
+button, a, input, select, textarea {
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+::selection {
+  background: rgba(126, 34, 206, 0.18);
+}
+
+/* ─── Shell & Panel ─────────────────────── */
+
+.wf-shell {
+  background:
+    linear-gradient(rgba(10, 14, 17, 0.65), rgba(10, 14, 17, 0.65)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(47, 59, 69, 0.3) 0,
+      rgba(47, 59, 69, 0.3) 1px,
+      transparent 1px,
+      transparent 36px
+    );
+}
+
+.wf-panel {
+  background: transparent;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: none;
+  border-radius: 0 !important;
+}
+
+.wf-soft {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px !important;
+}
+
+.wf-muted { color: var(--muted); }
+
+.wf-chip {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.35rem 0.55rem;
+}
+
+/* ─── Buttons ───────────────────────────── */
+
+.wf-btn {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  color: var(--foreground);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+.wf-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+
+.wf-btn-primary {
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 70%, black);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.wf-btn-primary:hover {
+  background: color-mix(in srgb, var(--accent) 92%, black);
+}
+
+.wf-btn-success {
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ok) 70%, black);
+  background: var(--ok);
+  color: #ecfdf5;
+}
+.wf-btn-success:hover {
+  background: color-mix(in srgb, var(--ok) 90%, black);
+}
+
+.wf-btn-danger {
+  border-radius: 999px;
+  border: 1px solid rgba(220, 38, 38, 0.5);
+  background: rgba(220, 38, 38, 0.15);
+  color: #fca5a5;
+}
+.wf-btn-danger:hover {
+  background: rgba(220, 38, 38, 0.25);
+}
+
+.wf-btn-muted {
+  border-radius: 999px;
+  border: 1px solid #475569;
+  background: #1f2937;
+  color: #e5e7eb;
+}
+.wf-btn-muted:hover { background: #273244; }
+
+/* ─── Contrast fixes ────────────────────── */
+
+.text-white\/25 { color: rgba(255, 255, 255, 0.44) !important; }
+.text-white\/30 { color: rgba(255, 255, 255, 0.50) !important; }
+.text-white\/40 { color: rgba(255, 255, 255, 0.62) !important; }
+.text-white\/50 { color: rgba(255, 255, 255, 0.74) !important; }
+
+/* ─── Scrollbar ─────────────────────────── */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
