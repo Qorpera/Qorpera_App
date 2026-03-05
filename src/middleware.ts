@@ -18,8 +18,11 @@ export function middleware(req: NextRequest) {
   // Check for session cookie
   const sessionCookie = req.cookies.get("qorpera_session");
   if (!sessionCookie?.value) {
-    // No session cookie — redirect to login
-    // The login page will redirect to /setup if no operator exists
+    // API routes: let through — getOperatorId() will redirect server-side
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.next();
+    }
+    // Page routes: redirect to login
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
