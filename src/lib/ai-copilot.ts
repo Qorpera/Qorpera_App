@@ -73,7 +73,7 @@ const COPILOT_TOOLS: AITool[] = [
 
 // ── System Prompt Builder ────────────────────────────────────────────────────
 
-async function buildSystemPrompt(operatorId: string): Promise<string> {
+async function buildSystemPrompt(operatorId: string, userRole?: string): Promise<string> {
   const [entityTypes, pendingCount, govConfig, actionRules] = await Promise.all([
     listEntityTypes(operatorId),
     prisma.actionProposal.count({ where: { operatorId, status: "PENDING" } }),
@@ -137,6 +137,21 @@ CAPABILITIES:
 - Propose actions (create, update, delete entities) that go through governance review
 - Surface active recommendations for data quality and operational insights
 
+USER CONTEXT:
+- Role: ${userRole || "admin"}
+- ${(() => {
+    const role = userRole || "admin";
+    const descriptions: Record<string, string> = {
+      admin: "Full access. Can manage all entities, types, policies, and governance settings.",
+      supervisor: "Can view all situations, approve proposals, and manage entity data.",
+      finance: "Focused on financial entities — invoices, payments, revenue data.",
+      sales: "Focused on sales entities — deals, contacts, pipeline data.",
+      support: "Focused on customer support — tickets, customer issues, resolution tracking.",
+      viewer: "Read-only access. Can view entities and ask questions but cannot propose changes.",
+    };
+    return descriptions[role] || descriptions.admin;
+  })()}
+${userRole === "viewer" ? "\nIMPORTANT: The user has read-only access. Do NOT use the propose_action tool for this user. If they ask to make changes, explain that they need to contact an admin.\n" : ""}
 GUIDELINES:
 - Be concise and direct in responses
 - When referencing entities, include their type and key properties
@@ -255,8 +270,9 @@ export async function chat(
   operatorId: string,
   userMessage: string,
   history: AIMessage[],
+  userRole?: string,
 ): Promise<ReadableStream> {
-  const systemPrompt = await buildSystemPrompt(operatorId);
+  const systemPrompt = await buildSystemPrompt(operatorId, userRole);
 
   const messages: AIMessage[] = [
     { role: "system", content: systemPrompt },

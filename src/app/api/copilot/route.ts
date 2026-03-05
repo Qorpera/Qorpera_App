@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserRole } from "@/lib/auth";
 import { chat } from "@/lib/ai-copilot";
 import type { AIMessage } from "@/lib/ai-provider";
 
 export async function POST(req: NextRequest) {
   const operatorId = await getOperatorId();
+  const userRole = await getUserRole();
   const body = await req.json();
 
   const message = body.message as string | undefined;
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const stream = await chat(operatorId, message, history);
+  const stream = await chat(operatorId, message, history, userRole);
 
   return new Response(stream, {
     headers: {

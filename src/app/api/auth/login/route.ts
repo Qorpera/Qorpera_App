@@ -11,17 +11,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "email and password are required" }, { status: 400 });
   }
 
-  const operator = await prisma.operator.findFirst({ where: { email } });
-  if (!operator || !operator.passwordHash) {
+  // Authenticate against User, not Operator
+  const user = await prisma.user.findFirst({ where: { email } });
+  if (!user) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
-  const valid = await verifyPassword(password, operator.passwordHash);
+  const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
-  const token = await createSession(operator.id);
+  const token = await createSession(user.operatorId, user.id);
   const cookieStore = await cookies();
   const cookieOpts = setSessionCookie(token);
   cookieStore.set(cookieOpts.name, cookieOpts.value, {
@@ -33,8 +34,10 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({
-    id: operator.id,
-    displayName: operator.displayName,
-    email: operator.email,
+    id: user.id,
+    operatorId: user.operatorId,
+    displayName: user.displayName,
+    email: user.email,
+    role: user.role,
   });
 }

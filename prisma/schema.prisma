@@ -40,6 +40,23 @@ model Operator {
   copilotMessages     CopilotMessage[]
   actionCapabilities  ActionCapability[]
   notifications       Notification[]
+  users               User[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  operatorId   String
+  email        String
+  passwordHash String
+  displayName  String
+  role         String   @default("viewer") // admin, supervisor, finance, sales, support, viewer
+  invitedBy    String?
+  createdAt    DateTime @default(now())
+
+  operator     Operator @relation(fields: [operatorId], references: [id])
+  sessions     Session[]
+
+  @@unique([operatorId, email])
 }
 
 model AppSetting {
@@ -52,11 +69,13 @@ model AppSetting {
 model Session {
   id         String   @id @default(cuid())
   operatorId String
+  userId     String?
   token      String   @unique
   expiresAt  DateTime
   createdAt  DateTime @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id])
+  user     User?    @relation(fields: [userId], references: [id])
 }
 
 // ─── Layer 2: Knowledge Graph Engine ─────────────────────
@@ -273,6 +292,7 @@ model AuditEntry {
   action         String
   actorType      String   @default("operator") // operator, system, ai
   actorId        String?
+  userId         String?
   entityId       String?
   entityTypeSlug String?
   inputSnapshot  String?  // JSON
@@ -404,8 +424,9 @@ model SituationType {
   approvalRate  Float  @default(0) // rolling approval rate
   totalProposed Int    @default(0)
   totalApproved Int    @default(0)
-  enabled       Boolean @default(true)
-  createdAt     DateTime @default(now())
+  enabled        Boolean @default(true)
+  visibleToRoles String? // JSON array of role strings
+  createdAt      DateTime @default(now())
 
   operator   Operator    @relation(fields: [operatorId], references: [id])
   situations Situation[]
@@ -427,6 +448,7 @@ model Situation {
   // Context snapshot at detection time
   contextSnapshot String?  // JSON - entities, events, priors
   triggerEventId  String?
+  assignedUserId  String?
 
   // AI reasoning
   reasoning       String?  // JSON - analysis, considered actions, justification
@@ -479,6 +501,7 @@ model OrientationSession {
 model CopilotMessage {
   id         String   @id @default(cuid())
   operatorId String
+  userId     String?
   sessionId  String
   role       String   // user, assistant, tool, system
   content    String
@@ -511,6 +534,7 @@ model ActionCapability {
 model Notification {
   id         String   @id @default(cuid())
   operatorId String
+  userId     String?
   title      String
   body       String
   read       Boolean  @default(false)
