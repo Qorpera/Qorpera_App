@@ -50,7 +50,7 @@ export type EntityFilters = {
 // ── Entity Types ─────────────────────────────────────────────────────────────
 
 export async function listEntityTypes(operatorId: string) {
-  return prisma.oemEntityType.findMany({
+  return prisma.entityType.findMany({
     where: { operatorId },
     include: {
       properties: { orderBy: { displayOrder: "asc" } },
@@ -61,7 +61,7 @@ export async function listEntityTypes(operatorId: string) {
 }
 
 export async function getEntityType(operatorId: string, idOrSlug: string) {
-  return prisma.oemEntityType.findFirst({
+  return prisma.entityType.findFirst({
     where: {
       operatorId,
       OR: [{ id: idOrSlug }, { slug: idOrSlug }],
@@ -74,7 +74,7 @@ export async function getEntityType(operatorId: string, idOrSlug: string) {
 }
 
 export async function createEntityType(operatorId: string, input: EntityTypeInput) {
-  return prisma.oemEntityType.create({
+  return prisma.entityType.create({
     data: {
       operatorId,
       name: input.name,
@@ -92,7 +92,7 @@ export async function createEntityTypeWithProperties(
   input: EntityTypeInput,
   properties: PropertyInput[],
 ) {
-  return prisma.oemEntityType.create({
+  return prisma.entityType.create({
     data: {
       operatorId,
       name: input.name,
@@ -122,12 +122,12 @@ export async function updateEntityType(
   entityTypeId: string,
   fields: Partial<EntityTypeInput>,
 ) {
-  const existing = await prisma.oemEntityType.findFirst({
+  const existing = await prisma.entityType.findFirst({
     where: { id: entityTypeId, operatorId },
   });
   if (!existing) return null;
 
-  return prisma.oemEntityType.update({
+  return prisma.entityType.update({
     where: { id: entityTypeId },
     data: {
       ...(fields.name !== undefined && { name: fields.name }),
@@ -144,18 +144,18 @@ export async function updateEntityType(
 }
 
 export async function deleteEntityType(operatorId: string, entityTypeId: string) {
-  const existing = await prisma.oemEntityType.findFirst({
+  const existing = await prisma.entityType.findFirst({
     where: { id: entityTypeId, operatorId },
   });
   if (!existing) return false;
-  await prisma.oemEntityType.delete({ where: { id: entityTypeId } });
+  await prisma.entityType.delete({ where: { id: entityTypeId } });
   return true;
 }
 
 // ── Entity Properties (schema definitions) ───────────────────────────────────
 
 export async function addProperty(entityTypeId: string, input: PropertyInput) {
-  return prisma.oemEntityProperty.create({
+  return prisma.entityProperty.create({
     data: {
       entityTypeId,
       name: input.name,
@@ -175,12 +175,12 @@ export async function updateProperty(
   propertyId: string,
   fields: Partial<PropertyInput>,
 ) {
-  const existing = await prisma.oemEntityProperty.findFirst({
+  const existing = await prisma.entityProperty.findFirst({
     where: { id: propertyId, entityTypeId },
   });
   if (!existing) return null;
 
-  return prisma.oemEntityProperty.update({
+  return prisma.entityProperty.update({
     where: { id: propertyId },
     data: {
       ...(fields.name !== undefined && { name: fields.name }),
@@ -198,11 +198,11 @@ export async function updateProperty(
 }
 
 export async function deleteProperty(entityTypeId: string, propertyId: string) {
-  const existing = await prisma.oemEntityProperty.findFirst({
+  const existing = await prisma.entityProperty.findFirst({
     where: { id: propertyId, entityTypeId },
   });
   if (!existing) return false;
-  await prisma.oemEntityProperty.delete({ where: { id: propertyId } });
+  await prisma.entityProperty.delete({ where: { id: propertyId } });
   return true;
 }
 
@@ -228,7 +228,7 @@ export async function listEntities(operatorId: string, filters: EntityFilters = 
   }
 
   const [entities, total] = await Promise.all([
-    prisma.oemEntity.findMany({
+    prisma.entity.findMany({
       where,
       include: {
         entityType: { select: { id: true, name: true, slug: true, icon: true, color: true } },
@@ -240,14 +240,14 @@ export async function listEntities(operatorId: string, filters: EntityFilters = 
       take: Math.min(limit, 100),
       skip: offset,
     }),
-    prisma.oemEntity.count({ where }),
+    prisma.entity.count({ where }),
   ]);
 
   return { entities, total };
 }
 
 export async function getEntity(operatorId: string, entityId: string) {
-  return prisma.oemEntity.findFirst({
+  return prisma.entity.findFirst({
     where: { id: entityId, operatorId },
     include: {
       entityType: {
@@ -288,7 +288,7 @@ export async function getEntity(operatorId: string, entityId: string) {
 
 export async function createEntity(operatorId: string, input: EntityInput) {
   const entityId = await prisma.$transaction(async (tx) => {
-    const entity = await tx.oemEntity.create({
+    const entity = await tx.entity.create({
       data: {
         operatorId,
         entityTypeId: input.entityTypeId,
@@ -300,7 +300,7 @@ export async function createEntity(operatorId: string, input: EntityInput) {
     });
 
     if (input.properties) {
-      const props = await tx.oemEntityProperty.findMany({
+      const props = await tx.entityProperty.findMany({
         where: { entityTypeId: input.entityTypeId },
       });
       const slugToId = new Map(props.map((p) => [p.slug, p.id]));
@@ -309,7 +309,7 @@ export async function createEntity(operatorId: string, input: EntityInput) {
       for (const [slug, value] of Object.entries(input.properties)) {
         const propertyId = slugToId.get(slug);
         if (propertyId) {
-          await tx.oemEntityPropertyValue.create({
+          await tx.propertyValue.create({
             data: { entityId: entity.id, propertyId, value: String(value) },
           });
         }
@@ -332,13 +332,13 @@ export async function updateEntity(
     properties?: Record<string, string>;
   },
 ) {
-  const existing = await prisma.oemEntity.findFirst({
+  const existing = await prisma.entity.findFirst({
     where: { id: entityId, operatorId },
   });
   if (!existing) return null;
 
   await prisma.$transaction(async (tx) => {
-    await tx.oemEntity.update({
+    await tx.entity.update({
       where: { id: entityId },
       data: {
         ...(fields.displayName !== undefined && { displayName: fields.displayName }),
@@ -348,7 +348,7 @@ export async function updateEntity(
     });
 
     if (fields.properties) {
-      const props = await tx.oemEntityProperty.findMany({
+      const props = await tx.entityProperty.findMany({
         where: { entityTypeId: existing.entityTypeId },
       });
       const slugToId = new Map(props.map((p) => [p.slug, p.id]));
@@ -356,7 +356,7 @@ export async function updateEntity(
       for (const [slug, value] of Object.entries(fields.properties)) {
         const propertyId = slugToId.get(slug);
         if (!propertyId) continue;
-        await tx.oemEntityPropertyValue.upsert({
+        await tx.propertyValue.upsert({
           where: { entityId_propertyId: { entityId, propertyId } },
           create: { entityId, propertyId, value: String(value) },
           update: { value: String(value) },
@@ -369,18 +369,18 @@ export async function updateEntity(
 }
 
 export async function deleteEntity(operatorId: string, entityId: string) {
-  const existing = await prisma.oemEntity.findFirst({
+  const existing = await prisma.entity.findFirst({
     where: { id: entityId, operatorId },
   });
   if (!existing) return false;
-  await prisma.oemEntity.delete({ where: { id: entityId } });
+  await prisma.entity.delete({ where: { id: entityId } });
   return true;
 }
 
 // ── Relationships ────────────────────────────────────────────────────────────
 
 export async function listRelationshipTypes(operatorId: string) {
-  return prisma.oemRelationshipType.findMany({
+  return prisma.relationshipType.findMany({
     where: { operatorId },
     include: {
       fromType: { select: { id: true, name: true, slug: true } },
@@ -392,7 +392,7 @@ export async function listRelationshipTypes(operatorId: string) {
 }
 
 export async function createRelationshipType(operatorId: string, input: RelationshipTypeInput) {
-  return prisma.oemRelationshipType.create({
+  return prisma.relationshipType.create({
     data: {
       operatorId,
       name: input.name,
@@ -405,13 +405,13 @@ export async function createRelationshipType(operatorId: string, input: Relation
 }
 
 export async function getEntityRelationships(operatorId: string, entityId: string) {
-  const entity = await prisma.oemEntity.findFirst({
+  const entity = await prisma.entity.findFirst({
     where: { id: entityId, operatorId },
   });
   if (!entity) return null;
 
   const [outgoing, incoming] = await Promise.all([
-    prisma.oemEntityRelationship.findMany({
+    prisma.relationship.findMany({
       where: { fromEntityId: entityId },
       include: {
         relationshipType: { select: { id: true, name: true, slug: true } },
@@ -423,7 +423,7 @@ export async function getEntityRelationships(operatorId: string, entityId: strin
         },
       },
     }),
-    prisma.oemEntityRelationship.findMany({
+    prisma.relationship.findMany({
       where: { toEntityId: entityId },
       include: {
         relationshipType: { select: { id: true, name: true, slug: true } },
@@ -450,12 +450,12 @@ export async function createRelationship(
   },
 ) {
   const [from, to] = await Promise.all([
-    prisma.oemEntity.findFirst({ where: { id: input.fromEntityId, operatorId } }),
-    prisma.oemEntity.findFirst({ where: { id: input.toEntityId, operatorId } }),
+    prisma.entity.findFirst({ where: { id: input.fromEntityId, operatorId } }),
+    prisma.entity.findFirst({ where: { id: input.toEntityId, operatorId } }),
   ]);
   if (!from || !to) return null;
 
-  return prisma.oemEntityRelationship.upsert({
+  return prisma.relationship.upsert({
     where: {
       relationshipTypeId_fromEntityId_toEntityId: {
         relationshipTypeId: input.relationshipTypeId,
@@ -481,12 +481,12 @@ export async function createRelationship(
 }
 
 export async function deleteRelationship(operatorId: string, relationshipId: string) {
-  const rel = await prisma.oemEntityRelationship.findFirst({
+  const rel = await prisma.relationship.findFirst({
     where: { id: relationshipId },
     include: { fromEntity: { select: { operatorId: true } } },
   });
   if (!rel || rel.fromEntity.operatorId !== operatorId) return false;
-  await prisma.oemEntityRelationship.delete({ where: { id: relationshipId } });
+  await prisma.relationship.delete({ where: { id: relationshipId } });
   return true;
 }
 
@@ -494,7 +494,7 @@ export async function deleteRelationship(operatorId: string, relationshipId: str
 
 export async function getGraphData(operatorId: string) {
   const [entities, relationships] = await Promise.all([
-    prisma.oemEntity.findMany({
+    prisma.entity.findMany({
       where: { operatorId, status: "active" },
       include: {
         entityType: { select: { name: true, slug: true, icon: true, color: true } },
@@ -503,7 +503,7 @@ export async function getGraphData(operatorId: string) {
         },
       },
     }),
-    prisma.oemEntityRelationship.findMany({
+    prisma.relationship.findMany({
       where: { fromEntity: { operatorId } },
       include: {
         relationshipType: { select: { name: true, slug: true } },
@@ -538,9 +538,9 @@ export async function getGraphData(operatorId: string) {
 
 export async function getEntityCounts(operatorId: string) {
   const [totalEntities, totalTypes, totalRelationships] = await Promise.all([
-    prisma.oemEntity.count({ where: { operatorId, status: "active" } }),
-    prisma.oemEntityType.count({ where: { operatorId } }),
-    prisma.oemEntityRelationship.count({ where: { fromEntity: { operatorId } } }),
+    prisma.entity.count({ where: { operatorId, status: "active" } }),
+    prisma.entityType.count({ where: { operatorId } }),
+    prisma.relationship.count({ where: { fromEntity: { operatorId } } }),
   ]);
   return { totalEntities, totalTypes, totalRelationships };
 }

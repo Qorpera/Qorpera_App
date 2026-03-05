@@ -178,7 +178,7 @@ async function executeRuleAction(
       try { config = JSON.parse(rule.actionConfig); } catch { /* empty */ }
       const properties = config.properties as Record<string, string> | undefined;
       if (properties) {
-        const { updateEntityGoverned } = await import("@/lib/oem-policy-gateway");
+        const { updateEntityGoverned } = await import("@/lib/policy-gateway");
         await updateEntityGoverned(
           operatorId,
           entity.id,
@@ -241,7 +241,7 @@ export async function evaluateRulesForEntity(
   if (rules.length === 0) return;
 
   // Load full entity with property values
-  const fullEntity = await prisma.oemEntity.findFirst({
+  const fullEntity = await prisma.entity.findFirst({
     where: { id: entity.id, operatorId },
     include: {
       propertyValues: {
@@ -294,7 +294,7 @@ export async function evaluateTickRules(operatorId: string) {
 
   for (const rule of rules) {
     // Load entities of the matching type
-    const entities = await prisma.oemEntity.findMany({
+    const entities = await prisma.entity.findMany({
       where: { operatorId, entityType: { slug: rule.entityTypeSlug }, status: "active" },
       include: {
         propertyValues: {

@@ -14,15 +14,12 @@ const NAV_GROUPS = [
     label: "Data",
     items: [
       { href: "/entity-map", label: "Map Of Operations", icon: "map" },
-      { href: "/schema", label: "Data Config", icon: "layers" },
-      { href: "/import", label: "Import Data", icon: "upload" },
     ],
   },
   {
     label: "Intelligence",
     items: [
       { href: "/copilot", label: "AI Co-pilot", icon: "sparkles" },
-      { href: "/workflows", label: "Workflows", icon: "workflow" },
     ],
   },
   {

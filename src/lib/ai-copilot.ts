@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { callLLM, streamLLM, type AIMessage, type AITool } from "@/lib/ai-provider";
-import { getOemEntityContext, searchOemEntities } from "@/lib/oem-entity-resolution";
+import { getEntityContext, searchEntities } from "@/lib/entity-resolution";
 import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
 import { listEntityTypes } from "@/lib/entity-model-store";
 
@@ -157,7 +157,7 @@ async function executeTool(
     case "lookup_entity": {
       const query = String(args.query ?? "");
       const typeSlug = args.typeSlug ? String(args.typeSlug) : undefined;
-      const context = await getOemEntityContext(operatorId, query, typeSlug);
+      const context = await getEntityContext(operatorId, query, typeSlug);
       if (!context) return `No entity found matching "${query}".`;
 
       const propsStr = Object.entries(context.properties)
@@ -185,7 +185,7 @@ async function executeTool(
       const query = String(args.query ?? "");
       const typeSlug = args.typeSlug ? String(args.typeSlug) : undefined;
       const limit = typeof args.limit === "number" ? args.limit : 10;
-      const results = await searchOemEntities(operatorId, query, typeSlug, limit);
+      const results = await searchEntities(operatorId, query, typeSlug, limit);
 
       if (results.length === 0) return `No entities found matching "${query}".`;
 

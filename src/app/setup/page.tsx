@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
-type Step = 1 | 2 | 3;
+type Step = 0 | 1 | 2 | 3;
 
 const PROVIDER_OPTIONS = [
   { value: "ollama", label: "Ollama (Local)" },
@@ -16,7 +16,14 @@ const PROVIDER_OPTIONS = [
 
 export default function SetupPage() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>(1);
+  const [step, setStep] = useState<Step | null>(null);
+
+  // Step 0 state (account creation)
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [registerError, setRegisterError] = useState("");
+  const [registering, setRegistering] = useState(false);
 
   // Step 2 state
   const [provider, setProvider] = useState("ollama");
@@ -29,6 +36,50 @@ export default function SetupPage() {
   // Step 3 state
   const [seedData, setSeedData] = useState(true);
   const [finishing, setFinishing] = useState(false);
+
+  // On mount, check if an operator already exists
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/check");
+        const data = await res.json();
+        setStep(data.firstRun ? 0 : 1);
+      } catch {
+        setStep(0);
+      }
+    })();
+  }, []);
+
+  const handleRegister = async () => {
+    setRegisterError("");
+    setRegistering(true);
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName, email, password }),
+      });
+
+      if (res.status === 409) {
+        // Operator already exists — skip to step 1
+        setStep(1);
+        return;
+      }
+
+      if (!res.ok) {
+        const data = await res.json();
+        setRegisterError(data.error || "Registration failed");
+        return;
+      }
+
+      // Success — move to step 1
+      setStep(1);
+    } catch {
+      setRegisterError("Connection error");
+    } finally {
+      setRegistering(false);
+    }
+  };
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -78,12 +129,21 @@ export default function SetupPage() {
     }
   };
 
+  // Show nothing while checking if operator exists
+  if (step === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
+        <div className="text-white/30 text-sm">Loading...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
       <div className="w-full max-w-lg px-6">
         {/* Step indicator */}
         <div className="flex items-center justify-center gap-2 mb-10">
-          {[1, 2, 3].map((s) => (
+          {[0, 1, 2, 3].map((s) => (
             <div
               key={s}
               className={`h-1.5 rounded-full transition-all ${
@@ -96,6 +156,82 @@ export default function SetupPage() {
             />
           ))}
         </div>
+
+        {/* Step 0: Account Creation */}
+        {step === 0 && (
+          <div className="space-y-6">
+            <div className="text-center">
+              {/* Logo */}
+              <div className="flex justify-center mb-6">
+                <div className="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="w-10 h-10 text-[#0e1418]"
+                    fill="currentColor"
+                  >
+                    <circle cx="12" cy="12" r="3" />
+                    <path
+                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"
+                      opacity="0.3"
+                    />
+                  </svg>
+                </div>
+              </div>
+
+              <h1 className="font-heading text-3xl font-semibold tracking-[-0.02em] text-white/90 mb-2">
+                Create Your Account
+              </h1>
+              <p className="text-sm text-white/50 max-w-sm mx-auto">
+                Set up the operator account for your Qorpera workspace.
+              </p>
+            </div>
+
+            <div className="wf-soft p-6 space-y-5">
+              <Input
+                label="Display Name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Your name"
+              />
+              <Input
+                label="Email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+              />
+              <Input
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+              />
+
+              {registerError && (
+                <p className="text-sm text-red-400 text-center">{registerError}</p>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={handleRegister}
+                disabled={registering || !displayName || !email || !password}
+              >
+                {registering ? "Creating..." : "Create Account"}
+              </Button>
+            </div>
+
+            <p className="text-center text-sm text-white/30">
+              Already set up?{" "}
+              <a href="/login" className="text-purple-400 hover:text-purple-300">
+                Sign in
+              </a>
+            </p>
+          </div>
+        )}
 
         {/* Step 1: Welcome */}
         {step === 1 && (

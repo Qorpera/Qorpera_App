@@ -1,4 +1,4 @@
-// OEM data types used across components and API routes
+// Entity graph data types used across components and API routes
 
 export interface GraphNode {
   id: string;

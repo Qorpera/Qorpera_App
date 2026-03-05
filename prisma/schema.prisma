@@ -18,9 +18,9 @@ model Operator {
   passwordHash String?
   createdAt    DateTime @default(now())
 
-  entityTypes       OemEntityType[]
-  entities          OemEntity[]
-  relationshipTypes OemRelationshipType[]
+  entityTypes       EntityType[]
+  entities          Entity[]
+  relationshipTypes RelationshipType[]
   connectors        SourceConnector[]
   policyRules       PolicyRule[]
   actionRules       ActionRule[]
@@ -30,6 +30,16 @@ model Operator {
   importJobs        ImportJob[]
   workflows         Workflow[]
   governanceConfig  GovernanceConfig?
+
+  // v2: Situation-driven architecture
+  sessions            Session[]
+  events              Event[]
+  situationTypes      SituationType[]
+  situations          Situation[]
+  orientationSessions OrientationSession[]
+  copilotMessages     CopilotMessage[]
+  actionCapabilities  ActionCapability[]
+  notifications       Notification[]
 }
 
 model AppSetting {
@@ -37,9 +47,21 @@ model AppSetting {
   value String
 }
 
-// ─── Layer 3: Operational Entity Model ───────────────────
+// ─── Auth ────────────────────────────────────────────────
 
-model OemEntityType {
+model Session {
+  id         String   @id @default(cuid())
+  operatorId String
+  token      String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  operator Operator @relation(fields: [operatorId], references: [id])
+}
+
+// ─── Layer 2: Knowledge Graph Engine ─────────────────────
+
+model EntityType {
   id          String @id @default(cuid())
   operatorId  String
   name        String
@@ -49,15 +71,15 @@ model OemEntityType {
   color       String @default("#a855f7")
 
   operator    Operator            @relation(fields: [operatorId], references: [id])
-  properties  OemEntityProperty[]
-  entities    OemEntity[]
-  fromLinks   OemRelationshipType[] @relation("FromType")
-  toLinks     OemRelationshipType[] @relation("ToType")
+  properties  EntityProperty[]
+  entities    Entity[]
+  fromLinks   RelationshipType[] @relation("FromType")
+  toLinks     RelationshipType[] @relation("ToType")
 
   @@unique([operatorId, slug])
 }
 
-model OemEntityProperty {
+model EntityProperty {
   id           String  @id @default(cuid())
   entityTypeId String
   name         String
@@ -69,13 +91,13 @@ model OemEntityProperty {
   enumValues   String? // JSON array for ENUM type
   identityRole String? // email, domain, phone
 
-  entityType OemEntityType          @relation(fields: [entityTypeId], references: [id], onDelete: Cascade)
-  values     OemEntityPropertyValue[]
+  entityType EntityType          @relation(fields: [entityTypeId], references: [id], onDelete: Cascade)
+  values     PropertyValue[]
 
   @@unique([entityTypeId, slug])
 }
 
-model OemEntity {
+model Entity {
   id           String   @id @default(cuid())
   entityTypeId String
   operatorId   String
@@ -88,31 +110,31 @@ model OemEntity {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  entityType    OemEntityType          @relation(fields: [entityTypeId], references: [id])
+  entityType    EntityType          @relation(fields: [entityTypeId], references: [id])
   operator      Operator               @relation(fields: [operatorId], references: [id])
-  mergedInto    OemEntity?             @relation("MergedEntities", fields: [mergedIntoId], references: [id])
-  mergedFrom    OemEntity[]            @relation("MergedEntities")
-  propertyValues OemEntityPropertyValue[]
-  mentions       OemEntityMention[]
-  fromRelations  OemEntityRelationship[] @relation("FromEntity")
-  toRelations    OemEntityRelationship[] @relation("ToEntity")
+  mergedInto    Entity?             @relation("MergedEntities", fields: [mergedIntoId], references: [id])
+  mergedFrom    Entity[]            @relation("MergedEntities")
+  propertyValues PropertyValue[]
+  mentions       EntityMention[]
+  fromRelations  Relationship[] @relation("FromEntity")
+  toRelations    Relationship[] @relation("ToEntity")
   proposals      ActionProposal[]
   recommendations Recommendation[]
 }
 
-model OemEntityPropertyValue {
+model PropertyValue {
   id         String @id @default(cuid())
   entityId   String
   propertyId String
   value      String
 
-  entity   OemEntity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  property OemEntityProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  entity   Entity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  property EntityProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@unique([entityId, propertyId])
 }
 
-model OemEntityMention {
+model EntityMention {
   id         String   @id @default(cuid())
   entityId   String
   sourceType String
@@ -120,12 +142,12 @@ model OemEntityMention {
   snippet    String?
   createdAt  DateTime @default(now())
 
-  entity OemEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
 }
 
 // ─── Relationships ───────────────────────────────────────
 
-model OemRelationshipType {
+model RelationshipType {
   id              String @id @default(cuid())
   operatorId      String
   name            String
@@ -135,14 +157,14 @@ model OemRelationshipType {
   description     String @default("")
 
   operator Operator    @relation(fields: [operatorId], references: [id])
-  fromType OemEntityType @relation("FromType", fields: [fromEntityTypeId], references: [id])
-  toType   OemEntityType @relation("ToType", fields: [toEntityTypeId], references: [id])
-  relationships OemEntityRelationship[]
+  fromType EntityType @relation("FromType", fields: [fromEntityTypeId], references: [id])
+  toType   EntityType @relation("ToType", fields: [toEntityTypeId], references: [id])
+  relationships Relationship[]
 
   @@unique([operatorId, slug])
 }
 
-model OemEntityRelationship {
+model Relationship {
   id                 String   @id @default(cuid())
   relationshipTypeId String
   fromEntityId       String
@@ -150,9 +172,9 @@ model OemEntityRelationship {
   metadata           String?  // JSON
   createdAt          DateTime @default(now())
 
-  relationshipType OemRelationshipType @relation(fields: [relationshipTypeId], references: [id])
-  fromEntity       OemEntity           @relation("FromEntity", fields: [fromEntityId], references: [id])
-  toEntity         OemEntity           @relation("ToEntity", fields: [toEntityId], references: [id])
+  relationshipType RelationshipType @relation(fields: [relationshipTypeId], references: [id])
+  fromEntity       Entity           @relation("FromEntity", fields: [fromEntityId], references: [id])
+  toEntity         Entity           @relation("ToEntity", fields: [toEntityId], references: [id])
 
   @@unique([relationshipTypeId, fromEntityId, toEntityId])
 }
@@ -170,6 +192,7 @@ model SourceConnector {
 
   operator Operator  @relation(fields: [operatorId], references: [id])
   syncLogs SyncLog[]
+  actionCapabilities ActionCapability[]
 }
 
 model SyncLog {
@@ -238,7 +261,7 @@ model ActionProposal {
   reviewedAt     DateTime?
 
   operator Operator     @relation(fields: [operatorId], references: [id])
-  entity   OemEntity?   @relation(fields: [entityId], references: [id])
+  entity   Entity?   @relation(fields: [entityId], references: [id])
   auditEntries AuditEntry[]
 }
 
@@ -295,7 +318,7 @@ model Recommendation {
   createdAt      DateTime @default(now())
 
   operator Operator   @relation(fields: [operatorId], references: [id])
-  entity   OemEntity? @relation(fields: [entityId], references: [id])
+  entity   Entity? @relation(fields: [entityId], references: [id])
 }
 
 // ─── Data Import ─────────────────────────────────────────
@@ -344,4 +367,158 @@ model WorkflowRun {
   result      String?   // JSON
 
   workflow Workflow @relation(fields: [workflowId], references: [id])
+}
+
+// ─── Layer 1: Event Stream ───────────────────────────
+
+model Event {
+  id          String   @id @default(cuid())
+  operatorId  String
+  source      String   // "hubspot", "stripe", "gmail", "sheets", "manual"
+  eventType   String   // "contact.synced", "invoice.created", "row.synced"
+  payload     String   // JSON - raw event data from the source
+  entityRefs  String?  // JSON - resolved entity IDs (populated by materializer)
+  processedAt DateTime?
+  materializationError String? // Error message if materialization failed (enables retry)
+  createdAt   DateTime @default(now())
+
+  operator   Operator    @relation(fields: [operatorId], references: [id])
+  situations SituationEvent[]
+
+  @@index([operatorId, createdAt(sort: Desc)])
+  @@index([operatorId, source, eventType])
+  @@index([operatorId, processedAt])
+}
+
+// ─── Layer 3: Situations ─────────────────────────────
+
+model SituationType {
+  id           String  @id @default(cuid())
+  operatorId   String
+  slug         String
+  name         String
+  description  String  // natural language description from orientation
+  detectionLogic String // JSON - signals, thresholds, patterns
+  responseStrategy String? // JSON - default response template
+  autonomyLevel String @default("supervised") // supervised, notify, autonomous
+  approvalRate  Float  @default(0) // rolling approval rate
+  totalProposed Int    @default(0)
+  totalApproved Int    @default(0)
+  enabled       Boolean @default(true)
+  createdAt     DateTime @default(now())
+
+  operator   Operator    @relation(fields: [operatorId], references: [id])
+  situations Situation[]
+
+  @@unique([operatorId, slug])
+}
+
+model Situation {
+  id              String   @id @default(cuid())
+  operatorId      String
+  situationTypeId String
+  severity        Float    @default(0.5) // 0-1
+  confidence      Float    @default(0.5) // 0-1
+  status          String   @default("detected")
+  // detected → reasoning → proposed → approved → executing → resolved
+  // detected → reasoning → proposed → rejected → closed
+  // detected → auto_executing → resolved (autonomous mode)
+
+  // Context snapshot at detection time
+  contextSnapshot String?  // JSON - entities, events, priors
+  triggerEventId  String?
+
+  // AI reasoning
+  reasoning       String?  // JSON - analysis, considered actions, justification
+  proposedAction  String?  // JSON - what the AI wants to do
+
+  // Outcome tracking
+  actionTaken     String?  // JSON - what actually happened
+  outcome         String?  // positive, negative, neutral, unknown
+  outcomeDetails  String?  // JSON
+  feedback        String?  // human feedback text
+  feedbackRating  Int?     // 1-5
+
+  resolvedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  operator      Operator       @relation(fields: [operatorId], references: [id])
+  situationType SituationType  @relation(fields: [situationTypeId], references: [id])
+  events        SituationEvent[]
+
+  @@index([operatorId, status])
+  @@index([situationTypeId, createdAt(sort: Desc)])
+}
+
+model SituationEvent {
+  situationId String
+  eventId     String
+
+  situation Situation @relation(fields: [situationId], references: [id])
+  event     Event     @relation(fields: [eventId], references: [id])
+
+  @@id([situationId, eventId])
+}
+
+// ─── Orientation / Onboarding ────────────────────────
+
+model OrientationSession {
+  id         String   @id @default(cuid())
+  operatorId String
+  phase      String   @default("connecting") // connecting, learning, confirming, active
+  context    String?  // JSON - accumulated business understanding
+  messages   String?  // JSON - conversation history
+  completedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  operator Operator @relation(fields: [operatorId], references: [id])
+}
+
+// ─── Copilot Memory ──────────────────────────────────
+
+model CopilotMessage {
+  id         String   @id @default(cuid())
+  operatorId String
+  sessionId  String
+  role       String   // user, assistant, tool, system
+  content    String
+  createdAt  DateTime @default(now())
+
+  operator Operator @relation(fields: [operatorId], references: [id])
+
+  @@index([operatorId, sessionId, createdAt])
+}
+
+// ─── Action Capabilities ─────────────────────────────
+
+model ActionCapability {
+  id           String  @id @default(cuid())
+  operatorId   String
+  connectorId  String?
+  name         String   // "send_email", "create_invoice", "update_crm_field"
+  description  String
+  inputSchema  String?  // JSON schema
+  sideEffects  String?  // JSON - what happens when this runs
+  reversible   Boolean  @default(false)
+  enabled      Boolean  @default(true)
+
+  operator  Operator         @relation(fields: [operatorId], references: [id])
+  connector SourceConnector? @relation(fields: [connectorId], references: [id])
+}
+
+// ─── Notifications ───────────────────────────────────
+
+model Notification {
+  id         String   @id @default(cuid())
+  operatorId String
+  title      String
+  body       String
+  read       Boolean  @default(false)
+  sourceType String?  // situation, system, orientation
+  sourceId   String?
+  createdAt  DateTime @default(now())
+
+  operator Operator @relation(fields: [operatorId], references: [id])
+
+  @@index([operatorId, read, createdAt(sort: Desc)])
 }

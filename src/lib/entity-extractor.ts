@@ -27,7 +27,7 @@ export async function extractEntitiesFromText(
   text: string,
 ): Promise<ExtractionResult> {
   // Read entity types from DB so the LLM knows valid types + properties
-  const entityTypes = await prisma.oemEntityType.findMany({
+  const entityTypes = await prisma.entityType.findMany({
     where: { operatorId },
     include: {
       properties: {
@@ -37,7 +37,7 @@ export async function extractEntitiesFromText(
     },
   });
 
-  const relationshipTypes = await prisma.oemRelationshipType.findMany({
+  const relationshipTypes = await prisma.relationshipType.findMany({
     where: { operatorId },
     select: { slug: true, name: true },
   });

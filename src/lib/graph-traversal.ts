@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import type { GraphNode, GraphEdge } from "./oem-data";
+import type { GraphNode, GraphEdge } from "./entity-data";
 
 // ── BFS Graph Traversal ──────────────────────────────────────────────────────
 
@@ -30,11 +30,11 @@ export async function searchAround(
 
     // Get all relationships from/to frontier entities
     const [outgoing, incoming] = await Promise.all([
-      prisma.oemEntityRelationship.findMany({
+      prisma.relationship.findMany({
         where: { fromEntityId: { in: frontier }, fromEntity: { operatorId, status: "active" } },
         select: { id: true, fromEntityId: true, toEntityId: true, relationshipTypeId: true },
       }),
-      prisma.oemEntityRelationship.findMany({
+      prisma.relationship.findMany({
         where: { toEntityId: { in: frontier }, toEntity: { operatorId, status: "active" } },
         select: { id: true, fromEntityId: true, toEntityId: true, relationshipTypeId: true },
       }),
@@ -61,7 +61,7 @@ export async function searchAround(
   }
 
   // Fetch full entity data for all visited nodes
-  const entities = await prisma.oemEntity.findMany({
+  const entities = await prisma.entity.findMany({
     where: { id: { in: [...visited] }, operatorId, status: "active" },
     include: {
       entityType: { select: { name: true, slug: true, icon: true, color: true } },
@@ -80,7 +80,7 @@ export async function searchAround(
   }));
 
   // Fetch edges between visited nodes
-  const edges = await prisma.oemEntityRelationship.findMany({
+  const edges = await prisma.relationship.findMany({
     where: {
       fromEntityId: { in: [...visited] },
       toEntityId: { in: [...visited] },

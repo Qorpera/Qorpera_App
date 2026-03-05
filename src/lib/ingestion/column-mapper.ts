@@ -188,7 +188,7 @@ export type ColumnMappingSuggestion = {
 };
 
 /**
- * Suggest column mappings from source CSV/JSON headers to target OEM properties.
+ * Suggest column mappings from source CSV/JSON headers to target entity properties.
  * Each header gets at most one property; each property is used at most once.
  */
 export function suggestColumnMapping(

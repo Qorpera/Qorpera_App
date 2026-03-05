@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { evaluatePolicy } from "./policy-engine";
 import { logAction } from "./audit-logger";
-import type { ActorInfo } from "./oem-entity-resolution";
+import type { ActorInfo } from "./entity-resolution";
 
 type GatewayResult = {
   status: "allowed" | "proposed" | "denied";
@@ -109,7 +109,7 @@ export async function updateEntityGoverned(
   fields: { properties?: Record<string, string>; displayName?: string },
   actor: ActorInfo,
 ): Promise<GatewayResult> {
-  const entity = await prisma.oemEntity.findFirst({
+  const entity = await prisma.entity.findFirst({
     where: { id: entityId, operatorId },
     include: { entityType: { select: { slug: true } } },
   });

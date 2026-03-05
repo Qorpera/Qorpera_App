@@ -1,4 +1,4 @@
-// ─── OEM Types ────────────────────────────────────────────
+// ─── Entity Types ─────────────────────────────────────────
 
 export type DataType = "STRING" | "NUMBER" | "DATE" | "BOOLEAN" | "ENUM" | "CURRENCY";
 export type IdentityRole = "email" | "domain" | "phone" | null;

@@ -1,6 +1,4 @@
 import { PrismaClient } from "@prisma/client";
-import { seedEntities } from "./entity-seed";
-
 const prisma = new PrismaClient();
 
 async function main() {
@@ -41,9 +39,6 @@ async function main() {
       update: {},
     });
   }
-
-  // Seed entity types, entities, relationships, policies
-  await seedEntities(prisma, operator.id);
 
   console.log("Seed complete.");
 }

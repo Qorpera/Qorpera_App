@@ -20,7 +20,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import dagre from "@dagrejs/dagre";
 import Link from "next/link";
-import type { GraphNode, GraphEdge, GraphData, FocusedSubgraph } from "@/lib/oem-data";
+import type { GraphNode, GraphEdge, GraphData, FocusedSubgraph } from "@/lib/entity-data";
 
 /* ---------- Dagre layout ---------- */
 

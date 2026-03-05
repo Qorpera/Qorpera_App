@@ -7,14 +7,14 @@ export type ActorInfo = {
   id: string;
 };
 
-export type OemEntityHints = {
+export type EntityHints = {
   displayName?: string;
   sourceSystem?: string;
   externalId?: string;
   identityValues?: Record<string, string>;
 };
 
-export type OemEntityInput = {
+export type EntityInput = {
   displayName: string;
   sourceSystem?: string;
   externalId?: string;
@@ -22,12 +22,12 @@ export type OemEntityInput = {
   properties?: Record<string, string>;
 };
 
-export type OemExternalRef = {
+export type ExternalRef = {
   sourceSystem: string;
   externalId: string;
 };
 
-export type OemEntityContext = {
+export type EntityContext = {
   id: string;
   displayName: string;
   typeName: string;
@@ -50,7 +50,7 @@ export type OemEntityContext = {
   }[];
 };
 
-export type OemEntitySearchResult = {
+export type EntitySearchResult = {
   id: string;
   displayName: string;
   typeName: string;
@@ -72,7 +72,7 @@ async function getIdentityProperties(operatorId: string): Promise<IdentityPropEn
   const cached = identityPropCache.get(operatorId);
   if (cached && cached.expiresAt > now) return cached.props;
 
-  const props = await prisma.oemEntityProperty.findMany({
+  const props = await prisma.entityProperty.findMany({
     where: {
       entityType: { operatorId },
       identityRole: { not: null },
@@ -97,13 +97,13 @@ async function validateInputProperties(
   typeSlug: string,
   properties: Record<string, string>,
 ): Promise<Record<string, string>> {
-  const entityType = await prisma.oemEntityType.findFirst({
+  const entityType = await prisma.entityType.findFirst({
     where: { operatorId, slug: typeSlug },
     select: { id: true },
   });
   if (!entityType) return properties;
 
-  const schemaDefs = await prisma.oemEntityProperty.findMany({
+  const schemaDefs = await prisma.entityProperty.findMany({
     where: { entityTypeId: entityType.id },
     select: { slug: true, dataType: true, enumValues: true, required: true },
   });
@@ -116,7 +116,7 @@ async function validateInputProperties(
     const parsedEnumValues = def.enumValues ? JSON.parse(def.enumValues) as string[] : undefined;
     const error = validatePropertyValue(value, def.dataType, parsedEnumValues);
     if (error) {
-      console.warn(`[oem-resolution] Dropping invalid property "${slug}": ${error}`);
+      console.warn(`[entity-resolution] Dropping invalid property "${slug}": ${error}`);
       continue;
     }
     validated[slug] = value;
@@ -127,13 +127,13 @@ async function validateInputProperties(
 
 // ── Resolution — 4-step cascade ──────────────────────────────────────────────
 
-export async function resolveOemEntity(
+export async function resolveEntity(
   operatorId: string,
-  hints: OemEntityHints,
+  hints: EntityHints,
 ): Promise<string | null> {
   // 1. ExternalRef
   if (hints.sourceSystem && hints.externalId) {
-    const entity = await prisma.oemEntity.findFirst({
+    const entity = await prisma.entity.findFirst({
       where: {
         operatorId,
         sourceSystem: hints.sourceSystem,
@@ -158,7 +158,7 @@ export async function resolveOemEntity(
       const propsForRole = identityProps.filter((p) => p.identityRole === role);
       if (propsForRole.length === 0) continue;
 
-      const match = await prisma.oemEntityPropertyValue.findFirst({
+      const match = await prisma.propertyValue.findFirst({
         where: {
           propertyId: { in: propsForRole.map((p) => p.propertyId) },
           value: normalizedValue,
@@ -172,7 +172,7 @@ export async function resolveOemEntity(
 
   // 4. DisplayName — SQLite: contains is case-insensitive by default
   if (hints.displayName) {
-    const matches = await prisma.oemEntity.findMany({
+    const matches = await prisma.entity.findMany({
       where: {
         operatorId,
         displayName: { contains: hints.displayName },
@@ -190,20 +190,20 @@ export async function resolveOemEntity(
 
 // ── Upsert ───────────────────────────────────────────────────────────────────
 
-export async function upsertOemEntity(
+export async function upsertEntity(
   operatorId: string,
   typeSlug: string,
-  input: OemEntityInput,
-  externalRef?: OemExternalRef,
+  input: EntityInput,
+  externalRef?: ExternalRef,
 ): Promise<string> {
   const identityValues: Record<string, string> = {};
   if (input.properties) {
-    const entityType = await prisma.oemEntityType.findFirst({
+    const entityType = await prisma.entityType.findFirst({
       where: { operatorId, slug: typeSlug },
       select: { id: true },
     });
     if (entityType) {
-      const propsForType = await prisma.oemEntityProperty.findMany({
+      const propsForType = await prisma.entityProperty.findMany({
         where: { entityTypeId: entityType.id, identityRole: { not: null } },
         select: { slug: true, identityRole: true },
       });
@@ -216,26 +216,26 @@ export async function upsertOemEntity(
     }
   }
 
-  const hints: OemEntityHints = {
+  const hints: EntityHints = {
     displayName: input.displayName,
     sourceSystem: externalRef?.sourceSystem ?? input.sourceSystem,
     externalId: externalRef?.externalId ?? input.externalId,
     identityValues: Object.keys(identityValues).length > 0 ? identityValues : undefined,
   };
 
-  const existingId = await resolveOemEntity(operatorId, hints);
+  const existingId = await resolveEntity(operatorId, hints);
   const validatedProperties = input.properties
     ? await validateInputProperties(operatorId, typeSlug, input.properties)
     : undefined;
 
   if (existingId) {
     if (validatedProperties && Object.keys(validatedProperties).length > 0) {
-      const existing = await prisma.oemEntity.findUnique({
+      const existing = await prisma.entity.findUnique({
         where: { id: existingId },
         select: { entityTypeId: true },
       });
       if (existing) {
-        const props = await prisma.oemEntityProperty.findMany({
+        const props = await prisma.entityProperty.findMany({
           where: { entityTypeId: existing.entityTypeId },
         });
         const slugToId = new Map(props.map((p) => [p.slug, p.id]));
@@ -243,7 +243,7 @@ export async function upsertOemEntity(
         for (const [slug, value] of Object.entries(validatedProperties)) {
           const propertyId = slugToId.get(slug);
           if (!propertyId) continue;
-          await prisma.oemEntityPropertyValue.upsert({
+          await prisma.propertyValue.upsert({
             where: { entityId_propertyId: { entityId: existingId, propertyId } },
             create: { entityId: existingId, propertyId, value: String(value) },
             update: { value: String(value) },
@@ -253,12 +253,12 @@ export async function upsertOemEntity(
     }
 
     if (externalRef) {
-      const entity = await prisma.oemEntity.findUnique({
+      const entity = await prisma.entity.findUnique({
         where: { id: existingId },
         select: { sourceSystem: true },
       });
       if (entity && !entity.sourceSystem) {
-        await prisma.oemEntity.update({
+        await prisma.entity.update({
           where: { id: existingId },
           data: { sourceSystem: externalRef.sourceSystem, externalId: externalRef.externalId },
         });
@@ -269,7 +269,7 @@ export async function upsertOemEntity(
   }
 
   // Create new entity
-  const entityType = await prisma.oemEntityType.findFirst({
+  const entityType = await prisma.entityType.findFirst({
     where: { operatorId, slug: typeSlug },
     select: { id: true },
   });
@@ -290,11 +290,11 @@ export async function upsertOemEntity(
 
 // ── Entity Context ───────────────────────────────────────────────────────────
 
-export async function getOemEntityContext(
+export async function getEntityContext(
   operatorId: string,
   entityIdOrName: string,
   typeSlug?: string,
-): Promise<OemEntityContext | null> {
+): Promise<EntityContext | null> {
   const includeBlock = {
     entityType: { select: { name: true, slug: true } },
     propertyValues: { include: { property: { select: { slug: true, name: true } } } },
@@ -319,13 +319,13 @@ export async function getOemEntityContext(
 
   const typeFilter = typeSlug ? { entityType: { slug: typeSlug } } : {};
 
-  let entity = await prisma.oemEntity.findFirst({
+  let entity = await prisma.entity.findFirst({
     where: { id: entityIdOrName, operatorId, ...typeFilter },
     include: includeBlock,
   });
 
   if (!entity) {
-    entity = await prisma.oemEntity.findFirst({
+    entity = await prisma.entity.findFirst({
       where: {
         operatorId,
         displayName: { contains: entityIdOrName },
@@ -341,7 +341,7 @@ export async function getOemEntityContext(
 
   let resolved = entity;
   for (let i = 0; i < 3 && resolved.mergedIntoId; i++) {
-    const merged = await prisma.oemEntity.findFirst({
+    const merged = await prisma.entity.findFirst({
       where: { id: resolved.mergedIntoId, operatorId },
       include: includeBlock,
     });
@@ -349,7 +349,7 @@ export async function getOemEntityContext(
     resolved = merged;
   }
 
-  const relationships: OemEntityContext["relationships"] = [];
+  const relationships: EntityContext["relationships"] = [];
   for (const r of resolved.fromRelations) {
     relationships.push({
       direction: "from",
@@ -385,13 +385,13 @@ export async function getOemEntityContext(
 
 // ── Search ───────────────────────────────────────────────────────────────────
 
-export async function searchOemEntities(
+export async function searchEntities(
   operatorId: string,
   query: string,
   typeSlug?: string,
   limit = 20,
-): Promise<OemEntitySearchResult[]> {
-  const entities = await prisma.oemEntity.findMany({
+): Promise<EntitySearchResult[]> {
+  const entities = await prisma.entity.findMany({
     where: {
       operatorId,
       mergedIntoId: null,
@@ -424,7 +424,7 @@ export async function searchOemEntities(
 
 // ── Relate ───────────────────────────────────────────────────────────────────
 
-export async function relateOemEntities(
+export async function relateEntities(
   operatorId: string,
   fromId: string,
   toId: string,
@@ -432,18 +432,18 @@ export async function relateOemEntities(
   label?: string,
 ): Promise<void> {
   const [from, to] = await Promise.all([
-    prisma.oemEntity.findFirst({ where: { id: fromId, operatorId }, select: { id: true, entityTypeId: true } }),
-    prisma.oemEntity.findFirst({ where: { id: toId, operatorId }, select: { id: true, entityTypeId: true } }),
+    prisma.entity.findFirst({ where: { id: fromId, operatorId }, select: { id: true, entityTypeId: true } }),
+    prisma.entity.findFirst({ where: { id: toId, operatorId }, select: { id: true, entityTypeId: true } }),
   ]);
   if (!from || !to) return;
 
-  let relType = await prisma.oemRelationshipType.findFirst({
+  let relType = await prisma.relationshipType.findFirst({
     where: { operatorId, slug: relationshipTypeSlug },
     select: { id: true },
   });
 
   if (!relType) {
-    relType = await prisma.oemRelationshipType.create({
+    relType = await prisma.relationshipType.create({
       data: {
         operatorId,
         name: relationshipTypeSlug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -455,7 +455,7 @@ export async function relateOemEntities(
     });
   }
 
-  await prisma.oemEntityRelationship.upsert({
+  await prisma.relationship.upsert({
     where: {
       relationshipTypeId_fromEntityId_toEntityId: {
         relationshipTypeId: relType.id,
@@ -475,19 +475,19 @@ export async function relateOemEntities(
 
 // ── Mention ──────────────────────────────────────────────────────────────────
 
-export async function recordOemEntityMention(
+export async function recordEntityMention(
   operatorId: string,
   entityId: string,
   sourceType: string,
   sourceId: string,
   snippet?: string,
 ): Promise<void> {
-  const entity = await prisma.oemEntity.findFirst({
+  const entity = await prisma.entity.findFirst({
     where: { id: entityId, operatorId },
     select: { id: true },
   });
   if (!entity) return;
-  await prisma.oemEntityMention.create({
+  await prisma.entityMention.create({
     data: { entityId, sourceType, sourceId, snippet: snippet?.slice(0, 240) ?? null },
   });
 }

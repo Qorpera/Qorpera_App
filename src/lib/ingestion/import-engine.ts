@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { parseCSV } from "@/lib/connectors/csv-connector";
 import { parseJSON } from "@/lib/connectors/json-connector";
 import { normalizeValue } from "@/lib/ingestion/normalizer";
-import { upsertOemEntity } from "@/lib/oem-entity-resolution";
+import { upsertEntity } from "@/lib/entity-resolution";
 import type { ColumnMapping, ImportJobView } from "@/lib/types";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -144,7 +144,7 @@ export async function processImportJob(
   });
 
   // Get entity type info
-  const entityType = await prisma.oemEntityType.findUnique({
+  const entityType = await prisma.entityType.findUnique({
     where: { id: entityTypeId },
     include: { properties: true },
   });
@@ -221,14 +221,14 @@ export async function processImportJob(
         const displayName = displayNameSource?.trim() || `Import row ${rowIndex}`;
 
         // Check if this is a create or update by trying to resolve first
-        const { resolveOemEntity } = await import("@/lib/oem-entity-resolution");
-        const existingId = await resolveOemEntity(operatorId, {
+        const { resolveEntity } = await import("@/lib/entity-resolution");
+        const existingId = await resolveEntity(operatorId, {
           displayName,
           identityValues: extractIdentityValues(properties, entityType.properties),
         });
 
         // Upsert the entity
-        await upsertOemEntity(operatorId, entityType.slug, {
+        await upsertEntity(operatorId, entityType.slug, {
           displayName,
           sourceSystem: "import",
           properties,

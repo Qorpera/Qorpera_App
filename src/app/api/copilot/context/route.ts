@@ -11,7 +11,7 @@ export async function GET() {
       listEntityTypes(operatorId),
       prisma.actionProposal.count({ where: { operatorId, status: "PENDING" } }),
       prisma.recommendation.count({ where: { operatorId, status: "active" } }),
-      prisma.oemEntityRelationship.count({ where: { fromEntity: { operatorId } } }),
+      prisma.relationship.count({ where: { fromEntity: { operatorId } } }),
     ]);
 
   const types = entityTypes.map((t) => ({

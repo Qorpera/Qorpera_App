@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { executeApprovedProposal } from "./oem-policy-gateway";
+import { executeApprovedProposal } from "./policy-gateway";
 import { logAction } from "./audit-logger";
 
 /**
