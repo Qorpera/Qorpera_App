@@ -8,18 +8,16 @@ import { prisma } from "@/lib/db";
 export async function GET() {
   const operatorId = await getOperatorId();
 
-  const [counts, pendingApprovals, recentAudit, activeWorkflows, recommendations] = await Promise.all([
+  const [counts, pendingApprovals, recentAudit, recommendations] = await Promise.all([
     getEntityCounts(operatorId),
     getPendingProposalCount(operatorId),
     listAuditEntries(operatorId, { limit: 10 }),
-    prisma.workflow.count({ where: { operatorId, status: "active" } }),
     prisma.recommendation.count({ where: { operatorId, status: "active" } }),
   ]);
 
   return NextResponse.json({
     ...counts,
     pendingApprovals,
-    activeWorkflows,
     activeRecommendations: recommendations,
     recentAudit: recentAudit.entries,
   });

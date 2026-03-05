@@ -133,28 +133,6 @@ export interface AuditEntryView {
   proposalId: string | null;
 }
 
-// ─── Import Types ─────────────────────────────────────────
-
-export interface ColumnMapping {
-  sourceColumn: string;
-  targetProperty: string | null; // null = skip
-  targetPropertyId: string | null;
-}
-
-export interface ImportJobView {
-  id: string;
-  fileName: string;
-  fileType: string;
-  targetTypeSlug: string | null;
-  status: string;
-  rowsTotal: number;
-  rowsProcessed: number;
-  rowsSkipped: number;
-  errors: string[] | null;
-  columnMapping: ColumnMapping[] | null;
-  createdAt: string;
-}
-
 // ─── Recommendation Types ─────────────────────────────────
 
 export interface RecommendationView {
@@ -169,18 +147,6 @@ export interface RecommendationView {
   priority: string;
   status: string;
   createdAt: string;
-}
-
-// ─── Workflow Types ───────────────────────────────────────
-
-export interface WorkflowView {
-  id: string;
-  name: string;
-  description: string;
-  triggerType: string;
-  status: string;
-  lastRunAt: string | null;
-  runCount: number;
 }
 
 // ─── Electron API ─────────────────────────────────────────

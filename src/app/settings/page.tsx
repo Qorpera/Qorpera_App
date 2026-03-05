@@ -6,8 +6,36 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { useSearchParams } from "next/navigation";
 
-type Tab = "ai" | "governance" | "data";
+type Tab = "ai" | "governance" | "connections" | "data";
+
+type ConnectorItem = {
+  id: string;
+  provider: string;
+  providerName: string;
+  name: string;
+  status: string;
+  lastSyncAt: string | null;
+  lastSyncResult?: {
+    eventsCreated: number;
+    status: string;
+    createdAt: string;
+  };
+};
+
+type ProviderInfo = {
+  id: string;
+  name: string;
+  configured: boolean;
+  configSchema: Array<{
+    key: string;
+    label: string;
+    type: string;
+    required: boolean;
+    placeholder?: string;
+  }>;
+};
 
 const PROVIDER_OPTIONS = [
   { value: "ollama", label: "Ollama (Local)" },
@@ -17,7 +45,13 @@ const PROVIDER_OPTIONS = [
 
 export default function SettingsPage() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<Tab>("ai");
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const googleParam = searchParams.get("google");
+
+  const [activeTab, setActiveTab] = useState<Tab>(
+    tabParam === "connections" ? "connections" : "ai"
+  );
 
   // AI state
   const [aiProvider, setAiProvider] = useState("ollama");
@@ -34,13 +68,29 @@ export default function SettingsPage() {
   const [govExpiryHours, setGovExpiryHours] = useState("72");
   const [govSaving, setGovSaving] = useState(false);
 
+  // Connections state
+  const [connectors, setConnectors] = useState<ConnectorItem[]>([]);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<{
+    id: string;
+    eventsCreated: number;
+    durationMs: number;
+    errors: string[];
+  } | null>(null);
+  const [pendingConfig, setPendingConfig] = useState<{
+    id: string;
+    name: string;
+    spreadsheet_id: string;
+  } | null>(null);
+  const [savingPending, setSavingPending] = useState(false);
+
   // Data state
   const [dataAction, setDataAction] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
 
-  // Load settings
+  // Load governance config
   useEffect(() => {
-    // Load governance config
     fetch("/api/governance")
       .then((r) => r.json())
       .then((data) => {
@@ -54,12 +104,48 @@ export default function SettingsPage() {
       .catch(() => {});
   }, []);
 
+  // Load connectors and providers
+  const loadConnectors = useCallback(() => {
+    fetch("/api/connectors")
+      .then((r) => r.json())
+      .then((data) => setConnectors(data.connectors || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadConnectors();
+    fetch("/api/connectors/providers")
+      .then((r) => r.json())
+      .then((data) => setProviders(data.providers || []))
+      .catch(() => {});
+  }, [loadConnectors]);
+
+  // Handle google=connected flash
+  useEffect(() => {
+    if (googleParam === "connected") {
+      toast("Google account connected. Configure your spreadsheet below.", "success");
+      loadConnectors();
+    } else if (googleParam === "error") {
+      toast("Google authorization failed. Please try again.", "error");
+    }
+  }, [googleParam]);
+
+  // Set pending config for pending connectors
+  useEffect(() => {
+    const pending = connectors.find((c) => c.status === "pending");
+    if (pending && !pendingConfig) {
+      setPendingConfig({
+        id: pending.id,
+        name: pending.name || "",
+        spreadsheet_id: "",
+      });
+    }
+  }, [connectors, pendingConfig]);
+
   // Save AI settings
   const handleSaveAi = async () => {
     setAiSaving(true);
     try {
-      // Save settings via individual PUT calls or a settings endpoint
-      // For now, we'll store them via a simple approach
       const payload: Record<string, string> = { ai_provider: aiProvider };
       if (aiProvider === "ollama") {
         payload.ollama_base_url = aiBaseUrl;
@@ -71,7 +157,6 @@ export default function SettingsPage() {
         if (aiApiKey) payload.anthropic_api_key = aiApiKey;
         if (aiModel) payload.anthropic_model = aiModel;
       }
-
       await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -85,7 +170,6 @@ export default function SettingsPage() {
     }
   };
 
-  // Test AI connection
   const handleTestConnection = async () => {
     setAiTesting(true);
     try {
@@ -99,14 +183,13 @@ export default function SettingsPage() {
     } catch (err) {
       toast(
         `Connection failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-        "error",
+        "error"
       );
     } finally {
       setAiTesting(false);
     }
   };
 
-  // Save governance settings
   const handleSaveGovernance = async () => {
     setGovSaving(true);
     try {
@@ -131,11 +214,108 @@ export default function SettingsPage() {
     }
   };
 
+  // Connections handlers
+  const handleConnectGoogle = async () => {
+    try {
+      const res = await fetch("/api/connectors/google-sheets/auth-url");
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast(data.error || "Failed to get auth URL", "error");
+      }
+    } catch {
+      toast("Failed to start Google authorization", "error");
+    }
+  };
+
+  const handleSync = async (connectorId: string) => {
+    setSyncingId(connectorId);
+    setSyncResult(null);
+    try {
+      const res = await fetch(`/api/connectors/${connectorId}/sync`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error || "Sync failed", "error");
+        return;
+      }
+      setSyncResult({
+        id: connectorId,
+        eventsCreated: data.eventsCreated,
+        durationMs: data.durationMs,
+        errors: data.errors || [],
+      });
+      toast(
+        `Synced ${data.eventsCreated} events in ${(data.durationMs / 1000).toFixed(1)}s`,
+        "success"
+      );
+      loadConnectors();
+    } catch {
+      toast("Sync failed", "error");
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
+  const handleRemoveConnector = async (connectorId: string) => {
+    try {
+      await fetch(`/api/connectors/${connectorId}`, { method: "DELETE" });
+      toast("Connector removed", "success");
+      setConnectors((prev) => prev.filter((c) => c.id !== connectorId));
+      if (pendingConfig?.id === connectorId) setPendingConfig(null);
+    } catch {
+      toast("Failed to remove connector", "error");
+    }
+  };
+
+  const handleSavePending = async () => {
+    if (!pendingConfig) return;
+    setSavingPending(true);
+    try {
+      const res = await fetch(`/api/connectors/${pendingConfig.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: pendingConfig.name,
+          spreadsheet_id: pendingConfig.spreadsheet_id,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast("Connector configured", "success");
+      setPendingConfig(null);
+      loadConnectors();
+    } catch {
+      toast("Failed to configure connector", "error");
+    } finally {
+      setSavingPending(false);
+    }
+  };
+
   const tabs: { key: Tab; label: string }[] = [
     { key: "ai", label: "AI Provider" },
     { key: "governance", label: "Governance" },
+    { key: "connections", label: "Connections" },
     { key: "data", label: "Data Management" },
   ];
+
+  const statusBadge = (status: string) => {
+    const colors: Record<string, string> = {
+      active: "bg-emerald-500/15 text-emerald-400",
+      pending: "bg-amber-500/15 text-amber-400",
+      error: "bg-red-500/15 text-red-400",
+      paused: "bg-white/10 text-white/50",
+      disconnected: "bg-red-500/15 text-red-400",
+    };
+    return (
+      <span
+        className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${colors[status] || "bg-white/10 text-white/50"}`}
+      >
+        {status}
+      </span>
+    );
+  };
 
   return (
     <AppShell>
@@ -276,6 +456,185 @@ export default function SettingsPage() {
               >
                 {govSaving ? "Saving..." : "Save"}
               </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Connections Tab */}
+        {activeTab === "connections" && (
+          <div className="space-y-5">
+            {/* Connected sources */}
+            <div className="wf-soft p-6 space-y-4">
+              <h2 className="text-lg font-medium text-white/80">
+                Connected Sources
+              </h2>
+
+              {connectors.length === 0 && (
+                <p className="text-sm text-white/35">
+                  No connectors configured. Add one below.
+                </p>
+              )}
+
+              {connectors.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between py-3 border-b border-white/[0.06] last:border-0"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-white/80">
+                        {c.name || c.providerName}
+                      </span>
+                      {statusBadge(c.status)}
+                    </div>
+                    <div className="text-xs text-white/35">
+                      {c.providerName}
+                      {c.lastSyncAt && (
+                        <>
+                          {" "}
+                          &middot; Last sync:{" "}
+                          {new Date(c.lastSyncAt).toLocaleString()}
+                        </>
+                      )}
+                      {c.lastSyncResult && (
+                        <>
+                          {" "}
+                          &middot; {c.lastSyncResult.eventsCreated} events
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {c.status === "active" && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => handleSync(c.id)}
+                        disabled={syncingId !== null}
+                      >
+                        {syncingId === c.id ? "Syncing..." : "Sync Now"}
+                      </Button>
+                    )}
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => handleRemoveConnector(c.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ))}
+
+              {/* Sync result flash */}
+              {syncResult && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 text-sm text-emerald-300">
+                  Synced {syncResult.eventsCreated} events in{" "}
+                  {(syncResult.durationMs / 1000).toFixed(1)}s. Processing...
+                  {syncResult.errors.length > 0 && (
+                    <div className="text-red-400 mt-1">
+                      Errors: {syncResult.errors.join(", ")}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Pending connector config */}
+            {pendingConfig && (
+              <div className="wf-soft p-6 space-y-4">
+                <h2 className="text-lg font-medium text-white/80">
+                  Configure Google Sheets Connection
+                </h2>
+                <p className="text-sm text-white/50">
+                  Google account connected. Enter your spreadsheet details to finish setup.
+                </p>
+                <Input
+                  label="Connector Name"
+                  value={pendingConfig.name}
+                  onChange={(e) =>
+                    setPendingConfig((prev) =>
+                      prev ? { ...prev, name: e.target.value } : null
+                    )
+                  }
+                  placeholder="e.g. Sales Pipeline Sheet"
+                />
+                <Input
+                  label="Spreadsheet ID or URL"
+                  value={pendingConfig.spreadsheet_id}
+                  onChange={(e) =>
+                    setPendingConfig((prev) =>
+                      prev
+                        ? { ...prev, spreadsheet_id: e.target.value }
+                        : null
+                    )
+                  }
+                  placeholder="Paste the Google Sheets URL or spreadsheet ID"
+                />
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    variant="primary"
+                    onClick={handleSavePending}
+                    disabled={
+                      savingPending || !pendingConfig.spreadsheet_id.trim()
+                    }
+                  >
+                    {savingPending ? "Saving..." : "Save & Connect"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      handleRemoveConnector(pendingConfig.id);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Add connector */}
+            <div className="wf-soft p-6 space-y-4">
+              <h2 className="text-lg font-medium text-white/80">
+                Add Connector
+              </h2>
+              <div className="grid gap-3">
+                {providers.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between py-3 border-b border-white/[0.06] last:border-0"
+                  >
+                    <div>
+                      <div className="text-sm font-medium text-white/70">
+                        {p.name}
+                      </div>
+                      {!p.configured && (
+                        <div className="text-xs text-amber-400/70">
+                          Not configured — add GOOGLE_CLIENT_ID to your
+                          environment
+                        </div>
+                      )}
+                    </div>
+                    {p.configured ? (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={
+                          p.id === "google-sheets"
+                            ? handleConnectGoogle
+                            : undefined
+                        }
+                      >
+                        Connect
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-white/25">
+                        Unavailable
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

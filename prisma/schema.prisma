@@ -27,8 +27,6 @@ model Operator {
   proposals         ActionProposal[]
   auditEntries      AuditEntry[]
   recommendations   Recommendation[]
-  importJobs        ImportJob[]
-  workflows         Workflow[]
   governanceConfig  GovernanceConfig?
 
   // v2: Situation-driven architecture
@@ -203,9 +201,10 @@ model Relationship {
 model SourceConnector {
   id         String   @id @default(cuid())
   operatorId String
-  provider   String   // csv, json, api
-  status     String   @default("active")
-  config     String?  // JSON
+  provider   String   // "google-sheets", "hubspot", "stripe", "gmail"
+  name       String   @default("")  // user-facing label
+  status     String   @default("active")  // active, paused, error, disconnected, pending
+  config     String?  // JSON - provider-specific config
   lastSyncAt DateTime?
   createdAt  DateTime @default(now())
 
@@ -215,13 +214,14 @@ model SourceConnector {
 }
 
 model SyncLog {
-  id              String   @id @default(cuid())
-  connectorId     String
-  status          String   // success, partial, failed
-  entitiesCreated Int      @default(0)
-  entitiesUpdated Int      @default(0)
-  errors          String?  // JSON
-  createdAt       DateTime @default(now())
+  id             String   @id @default(cuid())
+  connectorId    String
+  status         String   // success, partial, failed
+  eventsCreated  Int      @default(0)
+  eventsSkipped  Int      @default(0)
+  errors         String?  // JSON
+  durationMs     Int?     // how long the sync took
+  createdAt      DateTime @default(now())
 
   connector SourceConnector @relation(fields: [connectorId], references: [id])
 }
@@ -339,54 +339,6 @@ model Recommendation {
 
   operator Operator   @relation(fields: [operatorId], references: [id])
   entity   Entity? @relation(fields: [entityId], references: [id])
-}
-
-// ─── Data Import ─────────────────────────────────────────
-
-model ImportJob {
-  id            String   @id @default(cuid())
-  operatorId    String
-  fileName      String
-  fileType      String   // csv, json
-  targetTypeSlug String?
-  status        String   @default("pending") // pending, mapping, processing, completed, failed
-  rowsTotal     Int      @default(0)
-  rowsProcessed Int      @default(0)
-  rowsSkipped   Int      @default(0)
-  errors        String?  // JSON
-  columnMapping String?  // JSON
-  rawData       String?  // stored CSV/JSON content
-  createdAt     DateTime @default(now())
-
-  operator Operator @relation(fields: [operatorId], references: [id])
-}
-
-// ─── Workflows ───────────────────────────────────────────
-
-model Workflow {
-  id          String    @id @default(cuid())
-  operatorId  String
-  name        String
-  description String    @default("")
-  triggerType String    @default("manual") // manual, schedule, event
-  graph       String?   // JSON: nodes + edges
-  status      String    @default("draft") // draft, active, paused
-  lastRunAt   DateTime?
-  createdAt   DateTime  @default(now())
-
-  operator Operator      @relation(fields: [operatorId], references: [id])
-  runs     WorkflowRun[]
-}
-
-model WorkflowRun {
-  id          String    @id @default(cuid())
-  workflowId  String
-  status      String    @default("running") // running, completed, failed
-  startedAt   DateTime  @default(now())
-  completedAt DateTime?
-  result      String?   // JSON
-
-  workflow Workflow @relation(fields: [workflowId], references: [id])
 }
 
 // ─── Layer 1: Event Stream ───────────────────────────
