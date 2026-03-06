@@ -3,8 +3,16 @@ import { prisma } from "@/lib/db";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type AIMessage = {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  // OpenAI tool calling fields
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
+  tool_call_id?: string;  // for role: "tool" messages
+  name?: string;          // tool name for role: "tool" messages
 };
 
 export type AITool = {
@@ -15,7 +23,7 @@ export type AITool = {
 
 export type AIResponse = {
   content: string;
-  toolCalls?: { name: string; arguments: Record<string, unknown> }[];
+  toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[];
 };
 
 type AIConfig = {
@@ -138,7 +146,15 @@ async function callOpenAI(
   const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
   const body: Record<string, unknown> = {
     model: config.model,
-    messages,
+    messages: messages.map((m) => {
+      if (m.role === "tool") {
+        return { role: "tool", content: m.content, tool_call_id: m.tool_call_id };
+      }
+      if (m.role === "assistant" && m.tool_calls) {
+        return { role: "assistant", content: m.content || null, tool_calls: m.tool_calls };
+      }
+      return { role: m.role, content: m.content };
+    }),
     ...(options?.temperature !== undefined && { temperature: options.temperature }),
     ...(options?.maxTokens !== undefined && { max_tokens: options.maxTokens }),
   };
@@ -164,7 +180,8 @@ async function callOpenAI(
   const choice = data.choices?.[0];
   const message = choice?.message;
 
-  const toolCalls = message?.tool_calls?.map((tc: { function: { name: string; arguments: string } }) => ({
+  const toolCalls = message?.tool_calls?.map((tc: { id: string; function: { name: string; arguments: string } }) => ({
+    id: tc.id,
     name: tc.function.name,
     arguments: safeParseJSON(tc.function.arguments),
   }));
@@ -226,9 +243,38 @@ async function callAnthropic(
   const systemMsg = messages.find((m) => m.role === "system");
   const nonSystemMessages = messages.filter((m) => m.role !== "system");
 
+  const mappedMessages = nonSystemMessages.map((m) => {
+    if (m.role === "tool") {
+      // Anthropic expects tool results as user messages with tool_result content blocks
+      return {
+        role: "user" as const,
+        content: [{
+          type: "tool_result",
+          tool_use_id: m.tool_call_id,
+          content: m.content,
+        }],
+      };
+    }
+    if (m.role === "assistant" && m.tool_calls) {
+      // Anthropic expects tool_use content blocks in assistant messages
+      const content: Array<Record<string, unknown>> = [];
+      if (m.content) content.push({ type: "text", text: m.content });
+      for (const tc of m.tool_calls) {
+        content.push({
+          type: "tool_use",
+          id: tc.id,
+          name: tc.function.name,
+          input: safeParseJSON(tc.function.arguments),
+        });
+      }
+      return { role: "assistant" as const, content };
+    }
+    return { role: m.role, content: m.content };
+  });
+
   const body: Record<string, unknown> = {
     model: config.model,
-    messages: nonSystemMessages.map((m) => ({ role: m.role, content: m.content })),
+    messages: mappedMessages,
     max_tokens: options?.maxTokens ?? 4096,
     ...(systemMsg && { system: systemMsg.content }),
     ...(options?.temperature !== undefined && { temperature: options.temperature }),
@@ -254,13 +300,14 @@ async function callAnthropic(
 
   const data = await res.json();
   let content = "";
-  const toolCalls: { name: string; arguments: Record<string, unknown> }[] = [];
+  const toolCalls: { id: string; name: string; arguments: Record<string, unknown> }[] = [];
 
   for (const block of data.content ?? []) {
     if (block.type === "text") {
       content += block.text;
     } else if (block.type === "tool_use") {
       toolCalls.push({
+        id: block.id,
         name: block.name,
         arguments: block.input as Record<string, unknown>,
       });
@@ -352,13 +399,25 @@ async function callOllama(
 
   const body: Record<string, unknown> = {
     model: config.model,
-    messages,
+    messages: messages.map((m) => {
+      if (m.role === "tool") {
+        return { role: "tool", content: m.content, tool_call_id: m.tool_call_id };
+      }
+      if (m.role === "assistant" && m.tool_calls) {
+        return { role: "assistant", content: m.content || "", tool_calls: m.tool_calls };
+      }
+      return { role: m.role, content: m.content };
+    }),
     stream: false,
     options: {
       ...(options?.temperature !== undefined && { temperature: options.temperature }),
       ...(options?.maxTokens !== undefined && { num_predict: options.maxTokens }),
     },
   };
+
+  // Add tools if provided (Ollama supports OpenAI-compatible format)
+  const tools = buildOpenAITools(options?.tools);
+  if (tools) body.tools = tools;
 
   const res = await fetch(`${baseUrl}/api/chat`, {
     method: "POST",
@@ -372,8 +431,20 @@ async function callOllama(
   }
 
   const data = await res.json();
+  const message = data.message;
+
+  // Parse tool calls (same format as OpenAI)
+  const toolCalls = message?.tool_calls?.map((tc: { id?: string; function: { name: string; arguments: string | Record<string, unknown> } }) => ({
+    id: tc.id || `call_${Math.random().toString(36).slice(2)}`,
+    name: tc.function.name,
+    arguments: typeof tc.function.arguments === "string"
+      ? safeParseJSON(tc.function.arguments)
+      : (tc.function.arguments as Record<string, unknown>),
+  }));
+
   return {
-    content: data.message?.content ?? "",
+    content: message?.content ?? "",
+    toolCalls: toolCalls?.length ? toolCalls : undefined,
   };
 }
 

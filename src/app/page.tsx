@@ -19,7 +19,7 @@ export default async function Home() {
     redirect("/onboarding");
   }
 
-  if (orientation.phase === "orienting" || orientation.phase === "confirming") {
+  if (orientation.phase === "orienting") {
     redirect("/copilot");
   }
 

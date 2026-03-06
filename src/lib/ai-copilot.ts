@@ -10,7 +10,7 @@ import { buildOrientationSystemPrompt } from "@/lib/orientation-prompts";
 
 export type OrientationInfo = {
   sessionId: string;
-  phase: "orienting" | "confirming";
+  phase: "orienting";
 } | null;
 
 // ── Tool Definitions ─────────────────────────────────────────────────────────
@@ -121,22 +121,6 @@ const ORIENTATION_TOOLS: AITool[] = [
         outcomeDetails: { type: "string", description: "More detail on the result" },
       },
       required: ["situationTypeId", "entityDescription", "summary", "actionTaken", "outcome"],
-    },
-  },
-  {
-    name: "advance_to_confirming",
-    description: "Move the orientation from the discovery phase to the confirmation phase. Call when all pain points have been discussed and situation types created.",
-    parameters: { type: "object", properties: {} },
-  },
-  {
-    name: "complete_orientation",
-    description: "Complete the orientation process. Call after the user confirms the situation types and business understanding look correct.",
-    parameters: {
-      type: "object",
-      properties: {
-        businessSummary: { type: "string", description: "A concise summary of what you learned about the business" },
-      },
-      required: ["businessSummary"],
     },
   },
 ];
@@ -353,16 +337,10 @@ async function executeTool(
       const detectionLogic = args.detectionLogic ?? { mode: "natural", naturalLanguage: description };
       const responseStrategy = args.responseStrategy ?? null;
 
-      const situationType = await prisma.situationType.create({
-        data: {
-          operatorId,
-          name,
-          slug,
-          description,
-          detectionLogic: JSON.stringify(detectionLogic),
-          responseStrategy: responseStrategy ? JSON.stringify(responseStrategy) : null,
-          autonomyLevel: "supervised",
-        },
+      const situationType = await prisma.situationType.upsert({
+        where: { operatorId_slug: { operatorId, slug } },
+        update: { name, description, detectionLogic: JSON.stringify(detectionLogic), responseStrategy: responseStrategy ? JSON.stringify(responseStrategy) : null },
+        create: { operatorId, name, slug, description, detectionLogic: JSON.stringify(detectionLogic), responseStrategy: responseStrategy ? JSON.stringify(responseStrategy) : null, autonomyLevel: "supervised" },
       });
 
       // Update orientation session context if in orientation
@@ -408,42 +386,6 @@ async function executeTool(
       });
 
       return `Recorded retrospective example (ID: ${situation.id}): "${summary}" — outcome: ${outcome}. This helps me learn from your past experience.`;
-    }
-
-    case "advance_to_confirming": {
-      const session = await prisma.orientationSession.findFirst({
-        where: { operatorId, completedAt: null, phase: "orienting" },
-      });
-      if (!session) return "No active orientation session in orienting phase.";
-
-      await prisma.orientationSession.update({
-        where: { id: session.id },
-        data: { phase: "confirming" },
-      });
-
-      return "Advanced to confirmation phase. Now presenting summary for your review.";
-    }
-
-    case "complete_orientation": {
-      const businessSummary = String(args.businessSummary ?? "");
-      const session = await prisma.orientationSession.findFirst({
-        where: { operatorId, completedAt: null, phase: "confirming" },
-      });
-      if (!session) return "No active orientation session in confirming phase.";
-
-      const existingContext = session.context ? JSON.parse(session.context) : {};
-      const updatedContext = { ...existingContext, businessSummary };
-
-      await prisma.orientationSession.update({
-        where: { id: session.id },
-        data: {
-          phase: "active",
-          context: JSON.stringify(updatedContext),
-          completedAt: new Date(),
-        },
-      });
-
-      return "Orientation complete! The system is now active and monitoring your data.";
     }
 
     default:
@@ -510,12 +452,21 @@ export async function chat(
             break;
           }
 
-          // Execute tool calls and add results to message history
+          // Add assistant message WITH tool_calls preserved (for OpenAI protocol)
           currentMessages.push({
             role: "assistant",
-            content: response.content || `[Calling tools: ${response.toolCalls.map((t) => t.name).join(", ")}]`,
+            content: response.content || "",
+            tool_calls: response.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: "function" as const,
+              function: {
+                name: tc.name,
+                arguments: JSON.stringify(tc.arguments),
+              },
+            })),
           });
 
+          // Execute each tool and add results as proper tool messages
           for (const toolCall of response.toolCalls) {
             const result = await executeTool(
               operatorId,
@@ -524,8 +475,10 @@ export async function chat(
               orientation?.sessionId,
             );
             currentMessages.push({
-              role: "user",
-              content: `[Tool result for ${toolCall.name}]:\n${result}`,
+              role: "tool",
+              content: result,
+              tool_call_id: toolCall.id,
+              name: toolCall.name,
             });
           }
         }

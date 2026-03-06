@@ -29,13 +29,10 @@ export async function POST(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  if (
-    orientationSession &&
-    (orientationSession.phase === "orienting" || orientationSession.phase === "confirming")
-  ) {
+  if (orientationSession && orientationSession.phase === "orienting") {
     orientation = {
       sessionId: orientationSession.id,
-      phase: orientationSession.phase as "orienting" | "confirming",
+      phase: "orienting",
     };
     sessionId = orientationSession.id;
   }

@@ -20,6 +20,7 @@ export default function CopilotPage() {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [orientationMode, setOrientationMode] = useState<OrientationMode>(null);
+  const [completingOrientation, setCompletingOrientation] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -42,7 +43,7 @@ export default function CopilotPage() {
         const res = await fetch("/api/orientation/current");
         if (res.ok) {
           const { session } = await res.json();
-          if (session && (session.phase === "orienting" || session.phase === "confirming")) {
+          if (session && session.phase === "orienting") {
             setOrientationMode({ sessionId: session.id, phase: session.phase });
 
             // Load persisted messages for this orientation session
@@ -172,6 +173,24 @@ export default function CopilotPage() {
     }
   };
 
+  const handleCompleteOrientation = useCallback(async () => {
+    setCompletingOrientation(true);
+    try {
+      const res = await fetch("/api/orientation/complete", { method: "POST" });
+      if (res.ok) {
+        setOrientationMode(null);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "Orientation complete — I'm now watching your data. You'll see situations appear as I detect them. For the first while, I'll always ask before taking action." },
+        ]);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setCompletingOrientation(false);
+    }
+  }, []);
+
   const isOrientation = !!orientationMode;
 
   return (
@@ -180,11 +199,18 @@ export default function CopilotPage() {
         {/* Orientation banner */}
         {isOrientation && (
           <div className="px-6 py-2 bg-purple-500/10 border-b border-purple-500/20">
-            <div className="max-w-3xl mx-auto flex items-center gap-2 text-xs text-purple-300/70">
-              <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-              {orientationMode.phase === "orienting"
-                ? "Orientation — learning about your business"
-                : "Orientation — confirming what I've learned"}
+            <div className="max-w-3xl mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs text-purple-300/70">
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                Orientation — learning about your business
+              </div>
+              <button
+                onClick={handleCompleteOrientation}
+                disabled={completingOrientation || streaming}
+                className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors disabled:opacity-50"
+              >
+                {completingOrientation ? "Completing..." : "Complete orientation \u2192"}
+              </button>
             </div>
           </div>
         )}
