@@ -349,7 +349,7 @@ model Recommendation {
 model Event {
   id          String   @id @default(cuid())
   operatorId  String
-  connectorId String   // links event to its source connector
+  connectorId String?  // links event to its source connector (null for manual/system events)
   source      String   // "hubspot", "stripe", "gmail", "sheets", "manual"
   eventType   String   // "contact.synced", "invoice.created", "row.synced"
   payload     String   // JSON - raw event data from the source
@@ -359,7 +359,7 @@ model Event {
   createdAt   DateTime @default(now())
 
   operator   Operator         @relation(fields: [operatorId], references: [id])
-  connector  SourceConnector  @relation(fields: [connectorId], references: [id])
+  connector  SourceConnector? @relation(fields: [connectorId], references: [id])
   situations SituationEvent[]
 
   @@index([operatorId, createdAt(sort: Desc)])

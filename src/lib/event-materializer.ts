@@ -283,7 +283,7 @@ export async function materializeEvent(
   operatorId: string,
   event: {
     id: string;
-    connectorId?: string;
+    connectorId?: string | null;
     source: string;
     eventType: string;
     payload: string;
