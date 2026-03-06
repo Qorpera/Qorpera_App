@@ -228,7 +228,7 @@ async function ensureStripePropertiesOnContactType(operatorId: string): Promise<
   const needed: Array<{ slug: string; name: string; dataType: string }> = [
     { slug: "currency", name: "Currency", dataType: "STRING" },
     { slug: "stripe-customer-id", name: "Stripe Customer ID", dataType: "STRING" },
-    { slug: "balance", name: "Balance", dataType: "CURRENCY" },
+    { slug: "balance", name: "Balance", dataType: "NUMBER" },
     { slug: "delinquent", name: "Delinquent", dataType: "BOOLEAN" },
   ];
 
