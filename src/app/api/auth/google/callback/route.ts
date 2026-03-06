@@ -10,25 +10,32 @@ export async function GET(req: NextRequest) {
   const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
 
+  const cookieStore = await cookies();
+
+  // Determine return destination
+  const oauthReturn = cookieStore.get("oauth_return")?.value;
+  cookieStore.delete("oauth_return");
+  const returnBase = oauthReturn === "onboarding" ? "/onboarding" : "/settings?tab=connections";
+  const sep = returnBase.includes("?") ? "&" : "?";
+
   if (error) {
     return NextResponse.redirect(
-      new URL(`/settings?tab=connections&google=error&reason=${error}`, req.url)
+      new URL(`${returnBase}${sep}google=error&reason=${error}`, req.url)
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL("/settings?tab=connections&google=error&reason=missing_params", req.url)
+      new URL(`${returnBase}${sep}google=error&reason=missing_params`, req.url)
     );
   }
 
   // Verify CSRF state
-  const cookieStore = await cookies();
   const storedState = cookieStore.get("google_oauth_state")?.value;
 
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(
-      new URL("/settings?tab=connections&google=error&reason=invalid_state", req.url)
+      new URL(`${returnBase}${sep}google=error&reason=invalid_state`, req.url)
     );
   }
 
@@ -52,7 +59,7 @@ export async function GET(req: NextRequest) {
     const errBody = await tokenResp.text();
     console.error("Google token exchange failed:", errBody);
     return NextResponse.redirect(
-      new URL("/settings?tab=connections&google=error&reason=token_exchange", req.url)
+      new URL(`${returnBase}${sep}google=error&reason=token_exchange`, req.url)
     );
   }
 
@@ -77,6 +84,6 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.redirect(
-    new URL("/settings?tab=connections&google=connected", req.url)
+    new URL(`${returnBase}${sep}google=connected`, req.url)
   );
 }

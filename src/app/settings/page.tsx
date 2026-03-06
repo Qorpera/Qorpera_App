@@ -60,6 +60,15 @@ export default function SettingsPage() {
   const [aiModel, setAiModel] = useState("");
   const [aiSaving, setAiSaving] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{
+    ok: boolean;
+    provider?: string;
+    model?: string;
+    baseUrl?: string;
+    response?: string;
+    error?: string;
+  } | null>(null);
+  const [aiSaved, setAiSaved] = useState(false);
 
   // Governance state
   const [govApprovalThreshold, setGovApprovalThreshold] = useState("");
@@ -101,6 +110,19 @@ export default function SettingsPage() {
   // Data state
   const [dataAction, setDataAction] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+
+  // Load AI settings from DB
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((data: Record<string, string>) => {
+        if (data.ai_provider) setAiProvider(data.ai_provider);
+        if (data.ai_base_url) setAiBaseUrl(data.ai_base_url);
+        if (data.ai_api_key) setAiApiKey(data.ai_api_key);
+        if (data.ai_model) setAiModel(data.ai_model);
+      })
+      .catch(() => {});
+  }, []);
 
   // Load governance config
   useEffect(() => {
@@ -160,21 +182,21 @@ export default function SettingsPage() {
     setAiSaving(true);
     try {
       const payload: Record<string, string> = { ai_provider: aiProvider };
-      if (aiProvider === "ollama") {
-        payload.ollama_base_url = aiBaseUrl;
-        if (aiModel) payload.ollama_model = aiModel;
-      } else if (aiProvider === "openai") {
-        if (aiApiKey) payload.openai_api_key = aiApiKey;
-        if (aiModel) payload.openai_model = aiModel;
-      } else if (aiProvider === "anthropic") {
-        if (aiApiKey) payload.anthropic_api_key = aiApiKey;
-        if (aiModel) payload.anthropic_model = aiModel;
+      if (aiProvider === "ollama" && aiBaseUrl) payload.ai_base_url = aiBaseUrl;
+      if (aiProvider !== "ollama") {
+        // Clear base URL so provider default kicks in
+        payload.ai_base_url = "";
       }
+      if (aiApiKey) payload.ai_api_key = aiApiKey;
+      if (aiModel) payload.ai_model = aiModel;
       await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      setAiSaved(true);
+      setAiTestResult(null);
+      setTimeout(() => setAiSaved(false), 3000);
       toast("AI settings saved", "success");
     } catch {
       toast("Failed to save AI settings", "error");
@@ -185,19 +207,16 @@ export default function SettingsPage() {
 
   const handleTestConnection = async () => {
     setAiTesting(true);
+    setAiTestResult(null);
     try {
-      const res = await fetch("/api/copilot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "Hello, respond with OK" }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast("Connection successful", "success");
+      const res = await fetch("/api/settings/test-ai", { method: "POST" });
+      const data = await res.json();
+      setAiTestResult(data);
     } catch (err) {
-      toast(
-        `Connection failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-        "error"
-      );
+      setAiTestResult({
+        ok: false,
+        error: err instanceof Error ? err.message : "Request failed",
+      });
     } finally {
       setAiTesting(false);
     }
@@ -456,7 +475,7 @@ export default function SettingsPage() {
                     : "llama3.2"
               }
             />
-            <div className="flex gap-3 pt-2">
+            <div className="flex items-center gap-3 pt-2">
               <Button
                 variant="primary"
                 onClick={handleSaveAi}
@@ -471,7 +490,50 @@ export default function SettingsPage() {
               >
                 {aiTesting ? "Testing..." : "Test Connection"}
               </Button>
+              {aiSaved && (
+                <span className="text-xs text-emerald-400">Saved</span>
+              )}
             </div>
+
+            {/* Test result */}
+            {aiTestResult && (
+              <div
+                className={`rounded-lg p-4 text-sm space-y-1 ${
+                  aiTestResult.ok
+                    ? "bg-emerald-500/10 border border-emerald-500/20"
+                    : "bg-red-500/10 border border-red-500/20"
+                }`}
+              >
+                {aiTestResult.ok ? (
+                  <>
+                    <div className="flex items-center gap-2 text-emerald-400 font-medium">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      Connection successful
+                    </div>
+                    <div className="text-white/50 text-xs space-y-0.5 pt-1">
+                      <div>Provider: <span className="text-white/70">{aiTestResult.provider}</span></div>
+                      <div>Model: <span className="text-white/70">{aiTestResult.model}</span></div>
+                      {aiTestResult.baseUrl && (
+                        <div>URL: <span className="text-white/70">{aiTestResult.baseUrl}</span></div>
+                      )}
+                      <div>Response: <span className="text-white/70">&quot;{aiTestResult.response}&quot;</span></div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 text-red-400 font-medium">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Connection failed
+                    </div>
+                    <div className="text-red-300/70 text-xs pt-1">{aiTestResult.error}</div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 

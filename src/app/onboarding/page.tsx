@@ -30,15 +30,27 @@ type OntologyProposal = {
 
 const STEPS = ["Connect your tools", "Learning your business", "Start using Qorpera"];
 
+function extractSpreadsheetId(url: string): string | null {
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
+}
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const hasAdvancedToLearning = useRef(false);
 
   // Step 1 state
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
+  const [configTab, setConfigTab] = useState<"sheet" | "folder">("sheet");
+  const [sheetUrl, setSheetUrl] = useState("");
+  const [folderUrl, setFolderUrl] = useState("");
+  const [configuring, setConfiguring] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [discoverResult, setDiscoverResult] = useState<{ created: number; skipped: number } | null>(null);
 
   // Step 2 state
   const [syncing, setSyncing] = useState(false);
@@ -62,7 +74,8 @@ export default function OnboardingPage() {
           if (session.phase === "connecting") {
             setStep(0);
           } else if (session.phase === "learning") {
-            setStep(1);
+            setStep(0); // stay on step 0 so user can reconfigure if needed
+            hasAdvancedToLearning.current = true;
           } else {
             // orienting or later — redirect
             router.replace("/copilot");
@@ -107,7 +120,7 @@ export default function OnboardingPage() {
     })();
   }, [loadConnectors]);
 
-  // Poll connectors every 3s in step 1 (for OAuth return detection)
+  // Poll connectors every 3s in step 0 (for OAuth return detection)
   useEffect(() => {
     if (step !== 0) return;
     const interval = setInterval(loadConnectors, 3000);
@@ -115,10 +128,27 @@ export default function OnboardingPage() {
   }, [step, loadConnectors]);
 
   const hasActiveConnector = connectors.some((c) => c.status === "active");
+  const pendingConnectors = connectors.filter((c) => c.status === "pending");
+  const hasGoogleConnection = connectors.some((c) => c.provider === "google-sheets");
+
+  // Get or create a pending connector for sheet/folder config
+  const getOrCreatePendingConnector = async (): Promise<string | null> => {
+    const existing = connectors.find((c) => c.provider === "google-sheets" && c.status === "pending");
+    if (existing) return existing.id;
+    // Clone tokens from an active connector into a new pending one
+    try {
+      const res = await fetch("/api/connectors/google-sheets/clone-pending", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        return data.connector.id;
+      }
+    } catch { /* fall through */ }
+    return null;
+  };
 
   const handleConnect = async (providerId: string) => {
     if (providerId === "google-sheets") {
-      const res = await fetch("/api/connectors/google-sheets/auth-url");
+      const res = await fetch("/api/connectors/google-sheets/auth-url?from=onboarding");
       if (res.ok) {
         const data = await res.json();
         if (data.url) window.location.href = data.url;
@@ -126,15 +156,99 @@ export default function OnboardingPage() {
     }
   };
 
+  // Configure a pending connector with a sheet URL
+  const handleConfigureConnector = async () => {
+    const spreadsheetId = extractSpreadsheetId(sheetUrl);
+    if (!spreadsheetId) {
+      setConfigError("Please enter a valid Google Sheets URL");
+      return;
+    }
+    setConfiguring(true);
+    setConfigError(null);
+    const connectorId = await getOrCreatePendingConnector();
+    if (!connectorId) {
+      setConfigError("No Google connection available. Please connect Google first.");
+      setConfiguring(false);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/connectors/${connectorId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spreadsheet_id: spreadsheetId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setConfigError(data.error || "Failed to configure connector");
+      } else {
+        setSheetUrl("");
+        await loadConnectors();
+      }
+    } catch {
+      setConfigError("Failed to configure connector");
+    }
+    setConfiguring(false);
+  };
+
+  // Scan a Drive folder for spreadsheets
+  const handleScanFolder = async () => {
+    if (!folderUrl.trim()) return;
+    setConfiguring(true);
+    setConfigError(null);
+    setDiscoverResult(null);
+    const connectorId = await getOrCreatePendingConnector();
+    if (!connectorId) {
+      setConfigError("No Google connection available. Please connect Google first.");
+      setConfiguring(false);
+      return;
+    }
+    try {
+      const res = await fetch("/api/connectors/google-drive/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folderUrl, connectorId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setConfigError(data.error || "Failed to scan folder");
+      } else if (data.total === 0) {
+        setConfigError(data.message || "No spreadsheets found in this folder.");
+      } else {
+        setFolderUrl("");
+        setDiscoverResult({ created: data.total, skipped: data.skipped?.length ?? 0 });
+        await loadConnectors();
+      }
+    } catch {
+      setConfigError("Failed to scan folder");
+    }
+    setConfiguring(false);
+  };
+
   // Step 1 → Step 2
   const handleContinueToLearning = async () => {
-    await fetch("/api/orientation/advance", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
+    if (!hasAdvancedToLearning.current) {
+      await fetch("/api/orientation/advance", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      hasAdvancedToLearning.current = true;
+    }
     setStep(1);
     startLearning();
+  };
+
+  // Step 2 → Step 1 (back)
+  const handleBackToConnect = () => {
+    stopPolling();
+    setSyncing(false);
+    setSyncDone(false);
+    setInferring(false);
+    setBuilding(false);
+    setProposal(null);
+    setBuilt(false);
+    setLiveStats({ events: 0, entityTypes: 0, relationships: 0 });
+    setStep(0);
   };
 
   // Poll live stats
@@ -237,6 +351,9 @@ export default function OnboardingPage() {
   const isConnected = (providerId: string) =>
     connectors.some((c) => c.provider === providerId && c.status === "active");
 
+  const isPending = (providerId: string) =>
+    connectors.some((c) => c.provider === providerId && c.status === "pending");
+
   return (
     <div className="min-h-screen bg-[rgba(8,12,16,1)] flex flex-col items-center justify-center px-4">
       {/* Progress indicator */}
@@ -309,6 +426,10 @@ export default function OnboardingPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                           </svg>
                         </div>
+                      ) : isPending(p.id) ? (
+                        <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center">
+                          <div className="w-2 h-2 rounded-full bg-amber-400" />
+                        </div>
                       ) : (
                         <div className="w-5 h-5 rounded-full bg-white/[0.06]" />
                       )}
@@ -316,6 +437,8 @@ export default function OnboardingPage() {
                     </div>
                     {isConnected(p.id) ? (
                       <span className="text-xs text-emerald-400/70 font-medium">Connected</span>
+                    ) : isPending(p.id) ? (
+                      <span className="text-xs text-amber-400/70 font-medium">Needs setup</span>
                     ) : p.configured ? (
                       <Button variant="default" size="sm" onClick={() => handleConnect(p.id)}>
                         Connect
@@ -342,6 +465,94 @@ export default function OnboardingPage() {
                 </div>
               )}
             </div>
+
+            {/* Add data sources — visible whenever Google is connected (active or pending) */}
+            {hasGoogleConnection && (
+              <div className="wf-soft p-6 space-y-4">
+                <div className="text-xs text-white/30 uppercase tracking-wider">
+                  {hasActiveConnector ? "Add more data" : "Configure Google Sheets"}
+                </div>
+
+                {/* Tab toggle */}
+                <div className="flex gap-1 p-1 bg-white/[0.04] rounded-lg w-fit">
+                  <button
+                    type="button"
+                    onClick={() => { setConfigTab("sheet"); setConfigError(null); setDiscoverResult(null); }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      configTab === "sheet"
+                        ? "bg-white/[0.08] text-white/80"
+                        : "text-white/35 hover:text-white/50"
+                    }`}
+                  >
+                    Single Sheet
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setConfigTab("folder"); setConfigError(null); setDiscoverResult(null); }}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      configTab === "folder"
+                        ? "bg-white/[0.08] text-white/80"
+                        : "text-white/35 hover:text-white/50"
+                    }`}
+                  >
+                    Drive Folder
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {configTab === "sheet" ? (
+                    <>
+                      <p className="text-sm text-white/45">
+                        Paste a Google Sheets URL to connect a spreadsheet.
+                      </p>
+                      <input
+                        type="text"
+                        value={sheetUrl}
+                        onChange={(e) => { setSheetUrl(e.target.value); setConfigError(null); }}
+                        placeholder="https://docs.google.com/spreadsheets/d/..."
+                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-purple-500/40"
+                      />
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={handleConfigureConnector}
+                        disabled={configuring || !sheetUrl.trim()}
+                      >
+                        {configuring ? "Connecting..." : "Connect sheet"}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-white/45">
+                        Paste a Google Drive folder URL to import all spreadsheets in it.
+                      </p>
+                      <input
+                        type="text"
+                        value={folderUrl}
+                        onChange={(e) => { setFolderUrl(e.target.value); setConfigError(null); setDiscoverResult(null); }}
+                        placeholder="https://drive.google.com/drive/folders/..."
+                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-purple-500/40"
+                      />
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={handleScanFolder}
+                        disabled={configuring || !folderUrl.trim()}
+                      >
+                        {configuring ? "Scanning..." : "Scan folder"}
+                      </Button>
+                      {discoverResult && (
+                        <p className="text-xs text-emerald-400/70">
+                          Found {discoverResult.created} spreadsheet{discoverResult.created !== 1 ? "s" : ""}
+                          {discoverResult.skipped > 0 && ` (${discoverResult.skipped} already connected)`}
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {configError && <p className="text-xs text-red-400">{configError}</p>}
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-center">
               <Button
@@ -411,13 +622,20 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            {built && (
-              <div className="flex justify-center">
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={handleBackToConnect}
+                className="text-sm text-white/40 hover:text-white/60 transition-colors"
+              >
+                &larr; Back
+              </button>
+              {built && (
                 <Button variant="primary" size="lg" onClick={handleStartConversation}>
                   Start conversation
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 

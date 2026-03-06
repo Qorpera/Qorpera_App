@@ -39,12 +39,25 @@ export async function getAIConfig(): Promise<AIConfig> {
   });
   const map = new Map(settings.map((s) => [s.key, s.value]));
 
-  const provider = map.get("ai_provider") ?? process.env.AI_PROVIDER ?? "ollama";
-  const apiKey = map.get("ai_api_key") ?? process.env.AI_API_KEY;
-  const baseUrl = map.get("ai_base_url") ?? process.env.AI_BASE_URL ?? "http://localhost:11434";
-  const model = map.get("ai_model") ?? process.env.AI_MODEL ?? defaultModelForProvider(provider);
+  const provider = map.get("ai_provider") || process.env.AI_PROVIDER || "ollama";
+  const apiKey = map.get("ai_api_key") || process.env.AI_API_KEY;
+  const baseUrl = map.get("ai_base_url") || defaultBaseUrlForProvider(provider);
+  const model = map.get("ai_model") || process.env.AI_MODEL || defaultModelForProvider(provider);
 
   return { provider, apiKey, baseUrl, model };
+}
+
+function defaultBaseUrlForProvider(provider: string): string {
+  switch (provider) {
+    case "openai":
+      return "https://api.openai.com/v1";
+    case "anthropic":
+      return "https://api.anthropic.com/v1";
+    case "ollama":
+      return "http://localhost:11434";
+    default:
+      return "http://localhost:11434";
+  }
 }
 
 function defaultModelForProvider(provider: string): string {

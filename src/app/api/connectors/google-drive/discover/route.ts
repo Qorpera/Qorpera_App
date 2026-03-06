@@ -75,8 +75,7 @@ export async function POST(req: Request) {
     const files: Array<{ id: string; name: string }> = driveData.files || [];
 
     if (files.length === 0) {
-      // Clean up the pending connector
-      await prisma.sourceConnector.delete({ where: { id: connectorId } });
+      // Keep the pending connector so user can retry with a different folder
       return NextResponse.json({
         created: [],
         skipped: [],

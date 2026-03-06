@@ -3,6 +3,15 @@ import { callLLM, streamLLM, type AIMessage, type AITool } from "@/lib/ai-provid
 import { getEntityContext, searchEntities } from "@/lib/entity-resolution";
 import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
 import { listEntityTypes } from "@/lib/entity-model-store";
+import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
+import { buildOrientationSystemPrompt } from "@/lib/orientation-prompts";
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export type OrientationInfo = {
+  sessionId: string;
+  phase: "orienting" | "confirming";
+} | null;
 
 // ── Tool Definitions ─────────────────────────────────────────────────────────
 
@@ -69,16 +78,82 @@ const COPILOT_TOOLS: AITool[] = [
       },
     },
   },
+  {
+    name: "create_situation_type",
+    description: "Create a new situation type that the system will watch for. Use during orientation or anytime to define what operational scenarios matter.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Human-readable name" },
+        slug: { type: "string", description: "Kebab-case identifier" },
+        description: { type: "string", description: "Natural language description of the situation" },
+        detectionLogic: {
+          type: "object",
+          description: "Detection configuration with mode (structured/natural/hybrid), structured rules, and/or naturalLanguage description",
+          properties: {
+            mode: { type: "string", description: "Detection mode: structured, natural, or hybrid" },
+            structured: { type: "object", description: "Structured detection rules (signals, thresholds)" },
+            naturalLanguage: { type: "string", description: "Natural language description of what to watch for" },
+          },
+        },
+        responseStrategy: {
+          type: "object",
+          description: "Default response steps when this situation is detected",
+        },
+      },
+      required: ["name", "slug", "description", "detectionLogic"],
+    },
+  },
+];
+
+const ORIENTATION_TOOLS: AITool[] = [
+  {
+    name: "create_retrospective_situation",
+    description: "Record a retrospective example of a past situation the user describes. Used during orientation to learn from past experiences.",
+    parameters: {
+      type: "object",
+      properties: {
+        situationTypeId: { type: "string", description: "ID of the situation type this is an example of" },
+        entityDescription: { type: "string", description: "Describes the entity involved, e.g. 'Acme Corp invoice #1234'" },
+        summary: { type: "string", description: "What happened in 1-2 sentences" },
+        actionTaken: { type: "string", description: "What the user did" },
+        outcome: { type: "string", description: "positive, negative, or neutral" },
+        outcomeDetails: { type: "string", description: "More detail on the result" },
+      },
+      required: ["situationTypeId", "entityDescription", "summary", "actionTaken", "outcome"],
+    },
+  },
+  {
+    name: "advance_to_confirming",
+    description: "Move the orientation from the discovery phase to the confirmation phase. Call when all pain points have been discussed and situation types created.",
+    parameters: { type: "object", properties: {} },
+  },
+  {
+    name: "complete_orientation",
+    description: "Complete the orientation process. Call after the user confirms the situation types and business understanding look correct.",
+    parameters: {
+      type: "object",
+      properties: {
+        businessSummary: { type: "string", description: "A concise summary of what you learned about the business" },
+      },
+      required: ["businessSummary"],
+    },
+  },
 ];
 
 // ── System Prompt Builder ────────────────────────────────────────────────────
 
 async function buildSystemPrompt(operatorId: string, userRole?: string): Promise<string> {
-  const [entityTypes, pendingCount, govConfig, actionRules] = await Promise.all([
+  const [entityTypes, pendingCount, govConfig, actionRules, businessCtx, situationTypes] = await Promise.all([
     listEntityTypes(operatorId),
     prisma.actionProposal.count({ where: { operatorId, status: "PENDING" } }),
     prisma.governanceConfig.findUnique({ where: { operatorId } }),
     prisma.actionRule.findMany({ where: { operatorId, enabled: true }, select: { name: true, triggerOn: true } }),
+    getBusinessContext(operatorId),
+    prisma.situationType.findMany({
+      where: { operatorId, enabled: true },
+      select: { name: true, slug: true, description: true, autonomyLevel: true },
+    }),
   ]);
 
   const typesSummary = entityTypes
@@ -105,11 +180,19 @@ async function buildSystemPrompt(operatorId: string, userRole?: string): Promise
     ? policyRules.map((r) => `- "${r.name}": ${r.effect} on ${r.actionType} (${r.scope})`).join("\n")
     : "No custom policy rules configured.";
 
-  return `You are the Qorpera AI co-pilot, an intelligent assistant for the operator's entity graph and governance workflow engine.
+  const businessSection = businessCtx
+    ? `\nBUSINESS CONTEXT (learned during onboarding):\n${formatBusinessContext(businessCtx)}\n`
+    : "";
 
+  const situationSection = situationTypes.length > 0
+    ? `\nACTIVE SITUATION TYPES (${situationTypes.length} watching):\n${situationTypes.map((s) => `- ${s.name} (${s.slug}): ${s.description} [${s.autonomyLevel}]`).join("\n")}\n`
+    : "";
+
+  return `You are the Qorpera AI co-pilot, an intelligent assistant for the operator's entity graph and governance workflow engine.
+${businessSection}
 ENTITY MODEL:
 ${typesSummary || "No entity types configured yet."}
-
+${situationSection}
 GOVERNANCE STATUS:
 - Pending proposals awaiting review: ${pendingCount}
 ${governanceRules.length > 0 ? governanceRules.join("\n") : "Default governance settings active."}
@@ -136,6 +219,7 @@ CAPABILITIES:
 - Explore the entity graph to discover connections
 - Propose actions (create, update, delete entities) that go through governance review
 - Surface active recommendations for data quality and operational insights
+- Create new situation types to define what the system should watch for
 
 USER CONTEXT:
 - Role: ${userRole || "admin"}
@@ -167,6 +251,7 @@ async function executeTool(
   operatorId: string,
   toolName: string,
   args: Record<string, unknown>,
+  orientationSessionId?: string,
 ): Promise<string> {
   switch (toolName) {
     case "lookup_entity": {
@@ -259,6 +344,108 @@ async function executeTool(
       }).join("\n");
     }
 
+    // ── Orientation + Situation Tools ──────────────────────────────────────
+
+    case "create_situation_type": {
+      const name = String(args.name ?? "");
+      const slug = String(args.slug ?? "");
+      const description = String(args.description ?? "");
+      const detectionLogic = args.detectionLogic ?? { mode: "natural", naturalLanguage: description };
+      const responseStrategy = args.responseStrategy ?? null;
+
+      const situationType = await prisma.situationType.create({
+        data: {
+          operatorId,
+          name,
+          slug,
+          description,
+          detectionLogic: JSON.stringify(detectionLogic),
+          responseStrategy: responseStrategy ? JSON.stringify(responseStrategy) : null,
+          autonomyLevel: "supervised",
+        },
+      });
+
+      // Update orientation session context if in orientation
+      if (orientationSessionId) {
+        const session = await prisma.orientationSession.findUnique({
+          where: { id: orientationSessionId },
+        });
+        if (session) {
+          const ctx = session.context ? JSON.parse(session.context) : {};
+          const types = Array.isArray(ctx.situationTypes) ? ctx.situationTypes : [];
+          types.push({ id: situationType.id, name, slug, description });
+          ctx.situationTypes = types;
+          await prisma.orientationSession.update({
+            where: { id: orientationSessionId },
+            data: { context: JSON.stringify(ctx) },
+          });
+        }
+      }
+
+      return `Created situation type "${name}" (${slug}, ID: ${situationType.id}). It will run in supervised mode — I'll always ask before taking any action.`;
+    }
+
+    case "create_retrospective_situation": {
+      const situationTypeId = String(args.situationTypeId ?? "");
+      const entityDescription = String(args.entityDescription ?? "");
+      const summary = String(args.summary ?? "");
+      const actionTaken = String(args.actionTaken ?? "");
+      const outcome = String(args.outcome ?? "neutral");
+      const outcomeDetails = args.outcomeDetails ? String(args.outcomeDetails) : null;
+
+      const situation = await prisma.situation.create({
+        data: {
+          operatorId,
+          situationTypeId,
+          source: "retrospective",
+          status: "resolved",
+          contextSnapshot: JSON.stringify({ entityDescription, summary }),
+          actionTaken: JSON.stringify({ description: actionTaken }),
+          outcome,
+          outcomeDetails: outcomeDetails ? JSON.stringify({ details: outcomeDetails }) : null,
+          resolvedAt: new Date(),
+        },
+      });
+
+      return `Recorded retrospective example (ID: ${situation.id}): "${summary}" — outcome: ${outcome}. This helps me learn from your past experience.`;
+    }
+
+    case "advance_to_confirming": {
+      const session = await prisma.orientationSession.findFirst({
+        where: { operatorId, completedAt: null, phase: "orienting" },
+      });
+      if (!session) return "No active orientation session in orienting phase.";
+
+      await prisma.orientationSession.update({
+        where: { id: session.id },
+        data: { phase: "confirming" },
+      });
+
+      return "Advanced to confirmation phase. Now presenting summary for your review.";
+    }
+
+    case "complete_orientation": {
+      const businessSummary = String(args.businessSummary ?? "");
+      const session = await prisma.orientationSession.findFirst({
+        where: { operatorId, completedAt: null, phase: "confirming" },
+      });
+      if (!session) return "No active orientation session in confirming phase.";
+
+      const existingContext = session.context ? JSON.parse(session.context) : {};
+      const updatedContext = { ...existingContext, businessSummary };
+
+      await prisma.orientationSession.update({
+        where: { id: session.id },
+        data: {
+          phase: "active",
+          context: JSON.stringify(updatedContext),
+          completedAt: new Date(),
+        },
+      });
+
+      return "Orientation complete! The system is now active and monitoring your data.";
+    }
+
     default:
       return `Unknown tool: ${toolName}`;
   }
@@ -271,8 +458,27 @@ export async function chat(
   userMessage: string,
   history: AIMessage[],
   userRole?: string,
+  orientation?: OrientationInfo,
 ): Promise<ReadableStream> {
-  const systemPrompt = await buildSystemPrompt(operatorId, userRole);
+  // Build system prompt — orientation-aware or normal
+  let systemPrompt: string;
+  if (orientation) {
+    const session = await prisma.orientationSession.findUnique({
+      where: { id: orientation.sessionId },
+    });
+    if (session) {
+      systemPrompt = await buildOrientationSystemPrompt(operatorId, session);
+    } else {
+      systemPrompt = await buildSystemPrompt(operatorId, userRole);
+    }
+  } else {
+    systemPrompt = await buildSystemPrompt(operatorId, userRole);
+  }
+
+  // Select tools — orientation mode gets extra tools
+  const tools = orientation
+    ? [...COPILOT_TOOLS, ...ORIENTATION_TOOLS]
+    : COPILOT_TOOLS;
 
   const messages: AIMessage[] = [
     { role: "system", content: systemPrompt },
@@ -285,23 +491,18 @@ export async function chat(
       const encoder = new TextEncoder();
 
       try {
-        // First call — may produce tool calls
         let currentMessages = [...messages];
         let maxIterations = 5;
 
         while (maxIterations > 0) {
           maxIterations--;
 
-          const response = await callLLM(currentMessages, { tools: COPILOT_TOOLS, temperature: 0.3 });
+          const response = await callLLM(currentMessages, { tools, temperature: 0.3 });
 
           if (!response.toolCalls?.length) {
-            // No tool calls — stream the final response
             if (response.content) {
-              // Content was already returned non-streaming from the tool-calling round.
-              // Stream it out character-by-character to maintain streaming UX.
               controller.enqueue(encoder.encode(response.content));
             } else {
-              // Fallback: do a streaming call without tools for the final response
               for await (const chunk of streamLLM(currentMessages, { temperature: 0.3 })) {
                 controller.enqueue(encoder.encode(chunk));
               }
@@ -316,7 +517,12 @@ export async function chat(
           });
 
           for (const toolCall of response.toolCalls) {
-            const result = await executeTool(operatorId, toolCall.name, toolCall.arguments);
+            const result = await executeTool(
+              operatorId,
+              toolCall.name,
+              toolCall.arguments,
+              orientation?.sessionId,
+            );
             currentMessages.push({
               role: "user",
               content: `[Tool result for ${toolCall.name}]:\n${result}`,

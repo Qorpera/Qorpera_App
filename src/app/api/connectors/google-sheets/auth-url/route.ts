@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { cookies } from "next/headers";
 import crypto from "crypto";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   await getOperatorId(); // ensure authenticated
 
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -23,6 +23,18 @@ export async function GET() {
     secure: false,
     maxAge: 600, // 10 minutes
   });
+
+  // Track return destination for OAuth callback
+  const from = req.nextUrl.searchParams.get("from");
+  if (from === "onboarding") {
+    cookieStore.set("oauth_return", "onboarding", {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      secure: false,
+      maxAge: 600,
+    });
+  }
 
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
