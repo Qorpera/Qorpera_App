@@ -24,5 +24,5 @@ export default async function Home() {
   }
 
   // phase === "active" (completed) → normal app
-  redirect("/dashboard");
+  redirect("/situations");
 }

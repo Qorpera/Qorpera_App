@@ -384,6 +384,10 @@ model SituationType {
   totalApproved Int    @default(0)
   enabled        Boolean @default(true)
   visibleToRoles String? // JSON array of role strings
+  preFilterPassCount  Int       @default(0)
+  llmConfirmCount     Int       @default(0)
+  auditMissCount      Int       @default(0)
+  lastAuditAt         DateTime?
   createdAt      DateTime @default(now())
 
   operator   Operator    @relation(fields: [operatorId], references: [id])
@@ -406,6 +410,7 @@ model Situation {
 
   // Context snapshot at detection time
   contextSnapshot String?  // JSON - entities, events, priors
+  triggerEntityId String?   // the primary entity this situation is about
   triggerEventId  String?
   assignedUserId  String?
 
@@ -429,6 +434,7 @@ model Situation {
 
   @@index([operatorId, status])
   @@index([situationTypeId, createdAt(sort: Desc)])
+  @@index([situationTypeId, triggerEntityId])
 }
 
 model SituationEvent {

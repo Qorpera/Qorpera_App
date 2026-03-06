@@ -5,6 +5,7 @@ import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
 import { listEntityTypes } from "@/lib/entity-model-store";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { buildOrientationSystemPrompt } from "@/lib/orientation-prompts";
+import { generatePreFilter } from "@/lib/situation-prefilter";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -358,6 +359,12 @@ async function executeTool(
             data: { context: JSON.stringify(ctx) },
           });
         }
+      }
+
+      // Generate pre-filter for natural/hybrid modes (fire-and-forget)
+      const dl = detectionLogic as Record<string, unknown>;
+      if (dl.mode === "natural" || dl.mode === "hybrid") {
+        generatePreFilter(situationType.id).catch(() => {});
       }
 
       return `Created situation type "${name}" (${slug}, ID: ${situationType.id}). It will run in supervised mode — I'll always ask before taking any action.`;
