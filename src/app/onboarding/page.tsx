@@ -159,6 +159,12 @@ export default function OnboardingPage() {
         const data = await res.json();
         if (data.url) window.location.href = data.url;
       }
+    } else if (providerId === "stripe") {
+      const res = await fetch("/api/connectors/stripe/auth-url?from=onboarding");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) window.location.href = data.url;
+      }
     }
   };
 
@@ -466,6 +472,32 @@ export default function OnboardingPage() {
                       size="sm"
                       onClick={() => handleConnect("google-sheets")}
                       disabled={!providers.find((p) => p.id === "google-sheets")?.configured}
+                    >
+                      Connect
+                    </Button>
+                  )}
+                </div>
+
+                {/* Stripe card */}
+                <div className="wf-soft p-5 space-y-3" style={{ background: "rgba(103, 65, 217, 0.06)" }}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white/80">Stripe</span>
+                    {isConnected("stripe") ? (
+                      <span className="flex items-center gap-1 text-xs text-emerald-400/70 font-medium">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Connected
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-white/40">Sync customers, invoices, and payments</p>
+                  {isConnected("stripe") ? null : (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleConnect("stripe")}
+                      disabled={!providers.find((p) => p.id === "stripe")?.configured}
                     >
                       Connect
                     </Button>

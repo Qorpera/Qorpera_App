@@ -49,6 +49,7 @@ export default function SettingsPage() {
   const tabParam = searchParams.get("tab");
   const googleParam = searchParams.get("google");
   const hubspotParam = searchParams.get("hubspot");
+  const stripeParam = searchParams.get("stripe");
 
   const [activeTab, setActiveTab] = useState<Tab>(
     tabParam === "connections" ? "connections" : "ai"
@@ -176,6 +177,16 @@ export default function SettingsPage() {
     }
   }, [hubspotParam]);
 
+  // Handle stripe=connected flash
+  useEffect(() => {
+    if (stripeParam === "connected") {
+      toast("Stripe connected successfully.", "success");
+      loadConnectors();
+    } else if (stripeParam === "error") {
+      toast("Stripe authorization failed. Please try again.", "error");
+    }
+  }, [stripeParam]);
+
   // Set pending config for pending Google Sheets connectors (HubSpot is immediately active)
   useEffect(() => {
     const pending = connectors.find((c) => c.status === "pending" && c.provider === "google-sheets");
@@ -284,6 +295,28 @@ export default function SettingsPage() {
     } catch {
       toast("Failed to start HubSpot authorization", "error");
     }
+  };
+
+  const handleConnectStripe = async () => {
+    try {
+      const res = await fetch("/api/connectors/stripe/auth-url");
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast(data.error || "Failed to get auth URL", "error");
+      }
+    } catch {
+      toast("Failed to start Stripe authorization", "error");
+    }
+  };
+
+  const [copiedWebhook, setCopiedWebhook] = useState<string | null>(null);
+  const copyWebhookUrl = (connectorId: string) => {
+    const url = `${window.location.origin}/api/webhooks/${connectorId}`;
+    navigator.clipboard.writeText(url);
+    setCopiedWebhook(connectorId);
+    setTimeout(() => setCopiedWebhook(null), 2000);
   };
 
   const handleSync = async (connectorId: string) => {
@@ -641,51 +674,73 @@ export default function SettingsPage() {
               {connectors.map((c) => (
                 <div
                   key={c.id}
-                  className="flex items-center justify-between py-3 border-b border-white/[0.06] last:border-0"
+                  className="py-3 border-b border-white/[0.06] last:border-0 space-y-2"
                 >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-white/80">
-                        {c.name || c.providerName}
-                      </span>
-                      {statusBadge(c.status)}
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-white/80">
+                          {c.name || c.providerName}
+                        </span>
+                        {statusBadge(c.status)}
+                      </div>
+                      <div className="text-xs text-white/35">
+                        {c.providerName}
+                        {c.lastSyncAt && (
+                          <>
+                            {" "}
+                            &middot; Last sync:{" "}
+                            {new Date(c.lastSyncAt).toLocaleString()}
+                          </>
+                        )}
+                        {c.lastSyncResult && (
+                          <>
+                            {" "}
+                            &middot; {c.lastSyncResult.eventsCreated} events
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-xs text-white/35">
-                      {c.providerName}
-                      {c.lastSyncAt && (
-                        <>
-                          {" "}
-                          &middot; Last sync:{" "}
-                          {new Date(c.lastSyncAt).toLocaleString()}
-                        </>
+                    <div className="flex gap-2">
+                      {c.status === "active" && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleSync(c.id)}
+                          disabled={syncingId !== null}
+                        >
+                          {syncingId === c.id ? "Syncing..." : "Sync Now"}
+                        </Button>
                       )}
-                      {c.lastSyncResult && (
-                        <>
-                          {" "}
-                          &middot; {c.lastSyncResult.eventsCreated} events
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {c.status === "active" && (
                       <Button
-                        variant="default"
+                        variant="danger"
                         size="sm"
-                        onClick={() => handleSync(c.id)}
-                        disabled={syncingId !== null}
+                        onClick={() => handleRemoveConnector(c.id)}
                       >
-                        {syncingId === c.id ? "Syncing..." : "Sync Now"}
+                        Remove
                       </Button>
-                    )}
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={() => handleRemoveConnector(c.id)}
-                    >
-                      Remove
-                    </Button>
+                    </div>
                   </div>
+                  {c.provider === "stripe" && c.status === "active" && (
+                    <div className="bg-white/[0.03] rounded-lg p-3 space-y-1.5">
+                      <div className="text-xs text-white/40 font-medium">Real-time updates</div>
+                      <div className="flex items-center gap-2">
+                        <code className="text-xs text-white/50 bg-white/[0.04] px-2 py-1 rounded flex-1 truncate">
+                          {typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/${c.id}` : `/api/webhooks/${c.id}`}
+                        </code>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => copyWebhookUrl(c.id)}
+                        >
+                          {copiedWebhook === c.id ? "Copied" : "Copy"}
+                        </Button>
+                      </div>
+                      <p className="text-[11px] text-white/30">
+                        For instant updates, add this URL in your Stripe Dashboard &rarr; Developers &rarr; Webhooks. Without this, Stripe data syncs hourly.
+                      </p>
+                    </div>
+                  )}
                 </div>
               ))}
 
@@ -899,7 +954,7 @@ export default function SettingsPage() {
                       </div>
                       {!p.configured && (
                         <div className="text-xs text-amber-400/70">
-                          Not configured — add {p.id === "hubspot" ? "HUBSPOT" : "GOOGLE"}_CLIENT_ID to your environment
+                          Not configured — add {p.id === "hubspot" ? "HUBSPOT_CLIENT_ID" : p.id === "stripe" ? "STRIPE_CLIENT_ID" : "GOOGLE_CLIENT_ID"} to your environment
                         </div>
                       )}
                     </div>
@@ -912,7 +967,9 @@ export default function SettingsPage() {
                             ? handleConnectGoogle
                             : p.id === "hubspot"
                               ? handleConnectHubSpot
-                              : undefined
+                              : p.id === "stripe"
+                                ? handleConnectStripe
+                                : undefined
                         }
                       >
                         Connect

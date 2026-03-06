@@ -15,7 +15,9 @@ export async function GET() {
         ? !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
         : p.id === "hubspot"
           ? !!(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET)
-          : true,
+          : p.id === "stripe"
+            ? !!(process.env.STRIPE_CLIENT_ID && process.env.STRIPE_SECRET_KEY)
+            : true,
   }));
 
   return NextResponse.json({ providers: result });

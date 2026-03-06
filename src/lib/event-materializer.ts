@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { upsertEntity, resolveEntity, relateEntities } from "@/lib/entity-resolution";
 import { getEntityType } from "@/lib/entity-model-store";
 import { notifySituationDetectors } from "@/lib/situation-detector";
+import { checkForSituationResolution } from "@/lib/situation-resolver";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,14 +108,47 @@ const EVENT_MATERIALIZERS: Record<string, EventMaterializerRule> = {
     }),
   },
   "customer.synced": {
-    entityTypeSlug: "customer",
+    entityTypeSlug: "contact",
     extractDisplayName: (p) => p.name || p.email || "Unknown Customer",
     extractProperties: (p) => ({
       email: p.email,
       phone: p.phone,
       currency: p.currency,
+      "stripe-customer-id": p.id ? String(p.id) : undefined,
+      balance: p.balance != null ? String(p.balance) : undefined,
+      delinquent: p.delinquent != null ? String(p.delinquent) : undefined,
     }),
     extractIdentity: (p) => ({ email: p.email }),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
+  "invoice.overdue": {
+    entityTypeSlug: "invoice",
+    extractDisplayName: (p) => p.number || `INV-${p.id}`,
+    extractProperties: (p) => ({
+      status: "overdue",
+      amount: p.amount_due != null ? String(p.amount_due) : undefined,
+      "due-date": p.due_date ? String(p.due_date) : undefined,
+      currency: p.currency,
+    }),
+    extractIdentity: (p) => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
+  "payment.received": {
+    entityTypeSlug: "payment",
+    extractDisplayName: (p) => `Payment ${p.id ? String(p.id).slice(-8) : ""}` + (p.amount ? ` ($${(Number(p.amount) / 100).toFixed(2)})` : ""),
+    extractProperties: (p) => ({
+      amount: p.amount != null ? String(p.amount) : undefined,
+      currency: p.currency,
+      status: p.status,
+      "payment-date": p.created ? new Date(Number(p.created) * 1000).toISOString() : undefined,
+    }),
+    extractIdentity: (p) => ({}),
     extractExternalRef: (p, source) => ({
       sourceSystem: source,
       externalId: String(p.id),
@@ -175,6 +209,72 @@ async function getDynamicRules(connectorId: string): Promise<MaterializerMapping
 
 export function invalidateMaterializerCache(connectorId: string): void {
   dynRuleCache.delete(connectorId);
+}
+
+// ── Stripe Property Bootstrapping ────────────────────────────────────────────
+
+const stripePropertyCache = new Set<string>();
+
+async function ensureStripePropertiesOnContactType(operatorId: string): Promise<void> {
+  if (stripePropertyCache.has(operatorId)) return;
+
+  const contactType = await prisma.entityType.findFirst({
+    where: { operatorId, slug: "contact" },
+    include: { properties: { select: { slug: true } } },
+  });
+  if (!contactType) return;
+
+  const existing = new Set(contactType.properties.map((p) => p.slug));
+  const needed: Array<{ slug: string; name: string; dataType: string }> = [
+    { slug: "currency", name: "Currency", dataType: "STRING" },
+    { slug: "stripe-customer-id", name: "Stripe Customer ID", dataType: "STRING" },
+    { slug: "balance", name: "Balance", dataType: "CURRENCY" },
+    { slug: "delinquent", name: "Delinquent", dataType: "BOOLEAN" },
+  ];
+
+  for (const prop of needed) {
+    if (!existing.has(prop.slug)) {
+      await prisma.entityProperty.create({
+        data: {
+          entityTypeId: contactType.id,
+          slug: prop.slug,
+          name: prop.name,
+          dataType: prop.dataType,
+        },
+      });
+    }
+  }
+
+  stripePropertyCache.add(operatorId);
+}
+
+async function ensurePaymentEntityType(operatorId: string): Promise<void> {
+  const cacheKey = `${operatorId}:payment`;
+  if (stripePropertyCache.has(cacheKey)) return;
+
+  const paymentType = await prisma.entityType.findFirst({
+    where: { operatorId, slug: "payment" },
+  });
+
+  if (!paymentType) {
+    await prisma.entityType.create({
+      data: {
+        operatorId,
+        slug: "payment",
+        name: "Payment",
+        properties: {
+          create: [
+            { slug: "amount", name: "Amount", dataType: "CURRENCY" },
+            { slug: "currency", name: "Currency", dataType: "STRING" },
+            { slug: "status", name: "Status", dataType: "STRING" },
+            { slug: "payment-date", name: "Payment Date", dataType: "DATE" },
+          ],
+        },
+      },
+    });
+  }
+
+  stripePropertyCache.add(cacheKey);
 }
 
 // ── Core Materializer ────────────────────────────────────────────────────────
@@ -383,6 +483,14 @@ export async function materializeEvent(
       return { status: "unrecognized", eventType };
     }
 
+    // ── Stripe property bootstrapping ──────────────────────────────────
+    if (eventType === "customer.synced") {
+      await ensureStripePropertiesOnContactType(operatorId);
+    }
+    if (eventType === "payment.received") {
+      await ensurePaymentEntityType(operatorId);
+    }
+
     // ── Check if target entity type exists ────────────────────────────────
     const entityType = await getEntityType(operatorId, rule.entityTypeSlug);
 
@@ -452,6 +560,13 @@ export async function materializeEvent(
     notifySituationDetectors(operatorId, [entityId], event.id).catch((err) =>
       console.error("[materializer] Background detection error:", err)
     );
+
+    // Check for automatic situation resolution
+    if (eventType === "invoice.paid" || eventType === "payment.received") {
+      checkForSituationResolution(operatorId, eventType, [entityId], event.id).catch((err) =>
+        console.error("[materializer] Background resolution error:", err)
+      );
+    }
 
     return { status: "materialized", entityIds: [entityId], eventType };
   } catch (err) {
