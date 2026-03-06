@@ -55,7 +55,7 @@ export default function SituationsPage() {
 
   const fetchSituations = useCallback(async () => {
     try {
-      const res = await fetch("/api/situations");
+      const res = await fetch("/api/situations?status=detected,proposed,reasoning,auto_executing,resolved");
       if (res.ok) {
         const data = await res.json();
         setSituations(data.items);

@@ -382,6 +382,7 @@ model SituationType {
   approvalRate  Float  @default(0) // rolling approval rate
   totalProposed Int    @default(0)
   totalApproved Int    @default(0)
+  consecutiveApprovals Int @default(0)
   enabled        Boolean @default(true)
   visibleToRoles String? // JSON array of role strings
   preFilterPassCount  Int       @default(0)

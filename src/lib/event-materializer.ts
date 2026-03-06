@@ -303,7 +303,9 @@ export async function materializeEvent(
           },
         });
 
-        await notifySituationDetectors(operatorId, [entityId], event.id);
+        notifySituationDetectors(operatorId, [entityId], event.id).catch((err) =>
+          console.error("[materializer] Background detection error:", err)
+        );
 
         return { status: "materialized", entityIds: [entityId], eventType };
       }
@@ -402,7 +404,9 @@ export async function materializeEvent(
       },
     });
 
-    await notifySituationDetectors(operatorId, [entityId], event.id);
+    notifySituationDetectors(operatorId, [entityId], event.id).catch((err) =>
+      console.error("[materializer] Background detection error:", err)
+    );
 
     return { status: "materialized", entityIds: [entityId], eventType };
   } catch (err) {

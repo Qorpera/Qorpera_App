@@ -96,12 +96,40 @@ export async function PATCH(
     if (body.status === "resolved" || body.status === "closed") {
       updates.resolvedAt = new Date();
     }
-    // Reset approval streak on rejection
+    // Update approval/rejection stats on the situation type
     if (body.status === "rejected") {
-      await prisma.situationType.update({
+      const st = await prisma.situationType.findUnique({
         where: { id: situation.situationTypeId },
-        data: { approvalRate: 0 },
-      }).catch(() => {});
+      });
+      if (st) {
+        const newProposed = st.totalProposed + 1;
+        await prisma.situationType.update({
+          where: { id: situation.situationTypeId },
+          data: {
+            totalProposed: newProposed,
+            consecutiveApprovals: 0,
+            approvalRate: newProposed > 0 ? st.totalApproved / newProposed : 0,
+          },
+        }).catch(() => {});
+      }
+    }
+    if (body.status === "approved") {
+      const st = await prisma.situationType.findUnique({
+        where: { id: situation.situationTypeId },
+      });
+      if (st) {
+        const newProposed = st.totalProposed + 1;
+        const newApproved = st.totalApproved + 1;
+        await prisma.situationType.update({
+          where: { id: situation.situationTypeId },
+          data: {
+            totalProposed: newProposed,
+            totalApproved: newApproved,
+            consecutiveApprovals: st.consecutiveApprovals + 1,
+            approvalRate: newProposed > 0 ? newApproved / newProposed : 0,
+          },
+        }).catch(() => {});
+      }
     }
   }
   if (body.feedback !== undefined) updates.feedback = body.feedback;

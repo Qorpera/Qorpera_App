@@ -87,6 +87,7 @@ export async function assembleSituationContext(
     }),
     prisma.situation.findMany({
       where: {
+        operatorId,
         situationTypeId,
         status: { in: ["resolved", "closed"] },
       },
@@ -148,10 +149,24 @@ export async function assembleSituationContext(
     createdAt: e.createdAt.toISOString(),
   }));
 
+  // Resolve entity names for prior situations
+  const priorEntityIds = priorSituations
+    .map((s) => s.triggerEntityId)
+    .filter((id): id is string => !!id);
+  const priorEntities = priorEntityIds.length > 0
+    ? await prisma.entity.findMany({
+        where: { id: { in: priorEntityIds } },
+        select: { id: true, displayName: true },
+      })
+    : [];
+  const priorEntityNameMap = new Map(priorEntities.map((e) => [e.id, e.displayName]));
+
   // Build prior situations (including retrospectives)
   const priorSits = priorSituations.map((s) => ({
     id: s.id,
-    triggerEntityName: s.triggerEntityId ?? "unknown",
+    triggerEntityName: s.triggerEntityId
+      ? (priorEntityNameMap.get(s.triggerEntityId) ?? s.triggerEntityId)
+      : "unknown",
     status: s.status,
     outcome: s.outcome,
     feedback: s.feedback,
