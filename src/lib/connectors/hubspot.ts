@@ -547,9 +547,9 @@ async function* batchAssociations(
 
     const data = await resp.json();
     for (const result of data.results || []) {
-      const fromId = result.from?.id;
+      const fromId = String(result.from?.id);
       for (const to of result.to || []) {
-        yield { fromId, toId: to.toObjectId };
+        yield { fromId, toId: String(to.toObjectId) };
       }
     }
   }

@@ -55,7 +55,8 @@ export async function GET(req: NextRequest) {
     state,
   });
 
-  const url = `https://app.hubspot.com/oauth/authorize?${params.toString()}`;
+  const hubspotDomain = process.env.HUBSPOT_DOMAIN || "app.hubspot.com";
+  const url = `https://${hubspotDomain}/oauth/authorize?${params.toString()}`;
 
   return NextResponse.json({ url });
 }
