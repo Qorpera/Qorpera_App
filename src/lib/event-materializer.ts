@@ -141,12 +141,49 @@ const EVENT_MATERIALIZERS: Record<string, EventMaterializerRule> = {
   },
 };
 
+// ── Dynamic Materializer Cache ───────────────────────────────────────────────
+
+type MaterializerMapping = {
+  sourceFilter: { sheet?: string; eventType?: string };
+  entityTypeSlug: string;
+  propertyMap: Record<string, string>;
+  displayNameTemplate: string;
+  identityFields: string[];
+};
+
+type DynCacheEntry = { rules: MaterializerMapping[]; expiresAt: number };
+const dynRuleCache = new Map<string, DynCacheEntry>();
+const DYN_CACHE_TTL = 5 * 60 * 1000;
+
+async function getDynamicRules(connectorId: string): Promise<MaterializerMapping[]> {
+  const now = Date.now();
+  const cached = dynRuleCache.get(connectorId);
+  if (cached && cached.expiresAt > now) return cached.rules;
+
+  const connector = await prisma.sourceConnector.findUnique({
+    where: { id: connectorId },
+    select: { materializerConfig: true },
+  });
+
+  const rules: MaterializerMapping[] = connector?.materializerConfig
+    ? JSON.parse(connector.materializerConfig)
+    : [];
+
+  dynRuleCache.set(connectorId, { rules, expiresAt: now + DYN_CACHE_TTL });
+  return rules;
+}
+
+export function invalidateMaterializerCache(connectorId: string): void {
+  dynRuleCache.delete(connectorId);
+}
+
 // ── Core Materializer ────────────────────────────────────────────────────────
 
 export async function materializeEvent(
   operatorId: string,
   event: {
     id: string;
+    connectorId?: string;
     source: string;
     eventType: string;
     payload: string;
@@ -209,6 +246,68 @@ export async function materializeEvent(
 
     // ── Look up materializer rule ─────────────────────────────────────────
     const rule = EVENT_MATERIALIZERS[eventType];
+
+    // ── Dynamic rule fallback (for user-connected sources) ────────────────
+    if (!rule && event.connectorId) {
+      const dynRules = await getDynamicRules(event.connectorId);
+      const matchingRule = dynRules.find((r) => {
+        if (r.sourceFilter.sheet && payload._sheet !== r.sourceFilter.sheet) return false;
+        if (r.sourceFilter.eventType && eventType !== r.sourceFilter.eventType) return false;
+        return true;
+      });
+
+      if (matchingRule) {
+        const entityType = await getEntityType(operatorId, matchingRule.entityTypeSlug);
+        if (!entityType) {
+          return { status: "awaiting_type", entityTypeSlug: matchingRule.entityTypeSlug, eventType };
+        }
+
+        // Build display name from template
+        const displayName = matchingRule.displayNameTemplate.replace(
+          /\{([^}]+)\}/g,
+          (_, col) => String(payload[col] ?? "")
+        ).trim() || "Untitled";
+
+        // Build properties from propertyMap
+        const properties: Record<string, string> = {};
+        for (const [sourceCol, propSlug] of Object.entries(matchingRule.propertyMap)) {
+          const val = payload[sourceCol];
+          if (val !== undefined && val !== null && val !== "") {
+            properties[propSlug] = String(val);
+          }
+        }
+
+        // Build external ref
+        const compositeKey = [
+          payload._spreadsheetId || "",
+          payload._sheet || "",
+          payload._row || "",
+        ].join(":");
+        const externalRef = {
+          sourceSystem: event.source,
+          externalId: compositeKey || String(event.id),
+        };
+
+        const entityId = await upsertEntity(
+          operatorId,
+          matchingRule.entityTypeSlug,
+          { displayName, properties },
+          externalRef
+        );
+
+        await prisma.event.update({
+          where: { id: event.id },
+          data: {
+            processedAt: new Date(),
+            entityRefs: JSON.stringify([entityId]),
+          },
+        });
+
+        await notifySituationDetectors(operatorId, [entityId], event.id);
+
+        return { status: "materialized", entityIds: [entityId], eventType };
+      }
+    }
 
     if (!rule) {
       // Mode 3: Unrecognized event type

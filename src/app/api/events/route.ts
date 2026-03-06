@@ -5,11 +5,11 @@ import { prisma } from "@/lib/db";
 export async function POST(req: NextRequest) {
   const operatorId = await getOperatorId();
   const body = await req.json();
-  const { source, eventType, payload } = body;
+  const { source, eventType, payload, connectorId } = body;
 
-  if (!source || !eventType || payload === undefined) {
+  if (!source || !eventType || payload === undefined || !connectorId) {
     return NextResponse.json(
-      { error: "source, eventType, and payload are required" },
+      { error: "source, eventType, payload, and connectorId are required" },
       { status: 400 }
     );
   }
@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
   const event = await prisma.event.create({
     data: {
       operatorId,
+      connectorId,
       source,
       eventType,
       payload: JSON.stringify(payload),

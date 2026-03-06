@@ -55,6 +55,7 @@ export async function runConnectorSync(
         await prisma.event.create({
           data: {
             operatorId,
+            connectorId,
             source: connector.provider,
             eventType: event.eventType,
             payload: JSON.stringify(event.payload),

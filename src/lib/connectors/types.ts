@@ -19,9 +19,11 @@ export type InferredSchema = {
   suggestedProperties: Array<{
     name: string;
     dataType: string;
+    possibleRole?: string;
     sampleValues: string[];
   }>;
   sampleEntities: Array<Record<string, string>>;
+  recordCount: number;
 };
 
 export interface ConnectorProvider {

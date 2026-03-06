@@ -84,6 +84,19 @@ export default function SettingsPage() {
     spreadsheet_id: string;
   } | null>(null);
   const [savingPending, setSavingPending] = useState(false);
+  const [pendingMode, setPendingMode] = useState<"sheet" | "folder">("sheet");
+  const [folderUrl, setFolderUrl] = useState("");
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverResult, setDiscoverResult] = useState<{
+    created: Array<{ id: string; name: string; spreadsheetId: string }>;
+    skipped: Array<{ name: string; reason: string }>;
+    total: number;
+  } | null>(null);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncAllResult, setSyncAllResult] = useState<{
+    synced: Array<{ connectorId: string; name: string; eventsCreated: number; status: string }>;
+    errors: Array<{ connectorId: string; name: string; error: string }>;
+  } | null>(null);
 
   // Data state
   const [dataAction, setDataAction] = useState<string | null>(null);
@@ -267,6 +280,69 @@ export default function SettingsPage() {
       if (pendingConfig?.id === connectorId) setPendingConfig(null);
     } catch {
       toast("Failed to remove connector", "error");
+    }
+  };
+
+  const handleDiscoverFolder = async () => {
+    if (!pendingConfig || !folderUrl.trim()) return;
+    setDiscovering(true);
+    setDiscoverResult(null);
+    setSyncAllResult(null);
+    try {
+      const res = await fetch("/api/connectors/google-drive/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          folderUrl: folderUrl.trim(),
+          connectorId: pendingConfig.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error || "Discovery failed", "error");
+        return;
+      }
+      if (data.total === 0) {
+        toast(data.message || "No spreadsheets found in folder", "info");
+        setPendingConfig(null);
+        loadConnectors();
+        return;
+      }
+      setDiscoverResult(data);
+      toast(`Found ${data.total} spreadsheet(s)`, "success");
+      setPendingConfig(null);
+      loadConnectors();
+    } catch {
+      toast("Failed to discover folder", "error");
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const handleSyncAll = async () => {
+    setSyncingAll(true);
+    setSyncAllResult(null);
+    try {
+      const res = await fetch("/api/connectors/sync-all", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error || "Batch sync failed", "error");
+        return;
+      }
+      setSyncAllResult(data);
+      const totalEvents = data.synced.reduce(
+        (sum: number, s: { eventsCreated: number }) => sum + s.eventsCreated,
+        0
+      );
+      toast(
+        `Synced ${data.synced.length} connector(s), ${totalEvents} events total`,
+        "success"
+      );
+      loadConnectors();
+    } catch {
+      toast("Batch sync failed", "error");
+    } finally {
+      setSyncingAll(false);
     }
   };
 
@@ -547,49 +623,175 @@ export default function SettingsPage() {
                   Configure Google Sheets Connection
                 </h2>
                 <p className="text-sm text-white/50">
-                  Google account connected. Enter your spreadsheet details to finish setup.
+                  Google account connected. Choose how to connect your data.
                 </p>
-                <Input
-                  label="Connector Name"
-                  value={pendingConfig.name}
-                  onChange={(e) =>
-                    setPendingConfig((prev) =>
-                      prev ? { ...prev, name: e.target.value } : null
-                    )
-                  }
-                  placeholder="e.g. Sales Pipeline Sheet"
-                />
-                <Input
-                  label="Spreadsheet ID or URL"
-                  value={pendingConfig.spreadsheet_id}
-                  onChange={(e) =>
-                    setPendingConfig((prev) =>
-                      prev
-                        ? { ...prev, spreadsheet_id: e.target.value }
-                        : null
-                    )
-                  }
-                  placeholder="Paste the Google Sheets URL or spreadsheet ID"
-                />
-                <div className="flex gap-3 pt-2">
+
+                {/* Mode toggle */}
+                <div className="flex gap-1 bg-white/[0.03] rounded-lg p-1 w-fit">
+                  <button
+                    onClick={() => setPendingMode("sheet")}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
+                      pendingMode === "sheet"
+                        ? "bg-purple-500/15 text-purple-300"
+                        : "text-white/40 hover:text-white/60"
+                    }`}
+                  >
+                    Single Sheet
+                  </button>
+                  <button
+                    onClick={() => setPendingMode("folder")}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
+                      pendingMode === "folder"
+                        ? "bg-purple-500/15 text-purple-300"
+                        : "text-white/40 hover:text-white/60"
+                    }`}
+                  >
+                    Drive Folder
+                  </button>
+                </div>
+
+                {pendingMode === "sheet" && (
+                  <>
+                    <Input
+                      label="Connector Name"
+                      value={pendingConfig.name}
+                      onChange={(e) =>
+                        setPendingConfig((prev) =>
+                          prev ? { ...prev, name: e.target.value } : null
+                        )
+                      }
+                      placeholder="e.g. Sales Pipeline Sheet"
+                    />
+                    <Input
+                      label="Spreadsheet ID or URL"
+                      value={pendingConfig.spreadsheet_id}
+                      onChange={(e) =>
+                        setPendingConfig((prev) =>
+                          prev
+                            ? { ...prev, spreadsheet_id: e.target.value }
+                            : null
+                        )
+                      }
+                      placeholder="Paste the Google Sheets URL or spreadsheet ID"
+                    />
+                    <div className="flex gap-3 pt-2">
+                      <Button
+                        variant="primary"
+                        onClick={handleSavePending}
+                        disabled={
+                          savingPending || !pendingConfig.spreadsheet_id.trim()
+                        }
+                      >
+                        {savingPending ? "Saving..." : "Save & Connect"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          handleRemoveConnector(pendingConfig.id);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {pendingMode === "folder" && (
+                  <>
+                    <Input
+                      label="Google Drive Folder URL"
+                      value={folderUrl}
+                      onChange={(e) => setFolderUrl(e.target.value)}
+                      placeholder="https://drive.google.com/drive/folders/..."
+                    />
+                    <div className="flex gap-3 pt-2">
+                      <Button
+                        variant="primary"
+                        onClick={handleDiscoverFolder}
+                        disabled={discovering || !folderUrl.trim()}
+                      >
+                        {discovering ? "Discovering..." : "Discover Sheets"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          handleRemoveConnector(pendingConfig.id);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Folder discovery result */}
+            {discoverResult && (
+              <div className="wf-soft p-6 space-y-4">
+                <h2 className="text-lg font-medium text-white/80">
+                  Discovered Spreadsheets
+                </h2>
+                <div className="space-y-2">
+                  {discoverResult.created.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-2 text-sm text-white/70"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                      {c.name}
+                    </div>
+                  ))}
+                  {discoverResult.skipped.map((s, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 text-sm text-white/40"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-white/20 shrink-0" />
+                      {s.name}{" "}
+                      <span className="text-xs text-white/25">
+                        (already connected)
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {discoverResult.created.length > 0 && !syncAllResult && (
                   <Button
                     variant="primary"
-                    onClick={handleSavePending}
-                    disabled={
-                      savingPending || !pendingConfig.spreadsheet_id.trim()
-                    }
+                    onClick={handleSyncAll}
+                    disabled={syncingAll}
                   >
-                    {savingPending ? "Saving..." : "Save & Connect"}
+                    {syncingAll
+                      ? "Syncing all..."
+                      : `Sync All (${discoverResult.created.length})`}
                   </Button>
+                )}
+                {syncAllResult && (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 text-sm text-emerald-300 space-y-1">
+                    {syncAllResult.synced.map((s) => (
+                      <div key={s.connectorId}>
+                        {s.name}: {s.eventsCreated} events ({s.status})
+                      </div>
+                    ))}
+                    {syncAllResult.errors.map((e) => (
+                      <div key={e.connectorId} className="text-red-400">
+                        {e.name}: {e.error}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {syncAllResult && (
                   <Button
                     variant="ghost"
+                    size="sm"
                     onClick={() => {
-                      handleRemoveConnector(pendingConfig.id);
+                      setDiscoverResult(null);
+                      setSyncAllResult(null);
                     }}
                   >
-                    Cancel
+                    Dismiss
                   </Button>
-                </div>
+                )}
               </div>
             )}
 

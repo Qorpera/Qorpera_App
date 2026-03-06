@@ -4,38 +4,7 @@ import type {
   SyncEvent,
   InferredSchema,
 } from "./types";
-
-// ── Token Refresh Helper ─────────────────────────────────
-
-async function getValidAccessToken(config: ConnectorConfig): Promise<string> {
-  const expiry = new Date(config.token_expiry as string);
-
-  if (expiry.getTime() > Date.now() + 5 * 60 * 1000) {
-    return config.access_token as string;
-  }
-
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      refresh_token: config.refresh_token as string,
-      grant_type: "refresh_token",
-    }),
-  });
-
-  if (!resp.ok) throw new Error(`Google token refresh failed: ${resp.status}`);
-  const data = await resp.json();
-
-  // Caller must persist updated tokens back to SourceConnector.config after sync
-  config.access_token = data.access_token;
-  config.token_expiry = new Date(
-    Date.now() + data.expires_in * 1000
-  ).toISOString();
-
-  return data.access_token;
-}
+import { getValidAccessToken } from "./google-auth";
 
 // ── Provider Implementation ──────────────────────────────
 
@@ -129,13 +98,124 @@ export const googleSheetsProvider: ConnectorProvider = {
     return [];
   },
 
-  async inferSchema(_config) {
-    // Stub for Day 2 — full implementation on Day 3
-    return [];
+  async inferSchema(config) {
+    const token = await getValidAccessToken(config);
+    const spreadsheetId = extractSpreadsheetId(
+      config.spreadsheet_id as string
+    );
+
+    const metaResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!metaResp.ok)
+      throw new Error(`Failed to read spreadsheet: ${metaResp.status}`);
+    const meta = await metaResp.json();
+
+    const schemas: InferredSchema[] = [];
+
+    for (const sheet of meta.sheets) {
+      const sheetName = sheet.properties.title;
+      const quotedName = `'${sheetName.replace(/'/g, "''")}'`;
+
+      const dataResp = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(quotedName)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!dataResp.ok) continue;
+      const { values } = await dataResp.json();
+      if (!values || values.length < 2) continue;
+
+      const headers = values[0] as string[];
+      const dataRows = values.slice(1);
+      const sampleRows = dataRows.slice(0, 5);
+
+      const suggestedProperties = headers.map((header, colIdx) => {
+        const colValues = sampleRows
+          .map((row: string[]) => row[colIdx] ?? "")
+          .filter((v: string) => v !== "");
+
+        const { dataType, possibleRole } = inferColumnType(colValues);
+
+        return {
+          name: header,
+          dataType,
+          ...(possibleRole ? { possibleRole } : {}),
+          sampleValues: colValues.slice(0, 5),
+        };
+      });
+
+      const sampleEntities = sampleRows.map((row: string[]) => {
+        const obj: Record<string, string> = {};
+        for (let j = 0; j < headers.length; j++) {
+          obj[headers[j]] = row[j] ?? "";
+        }
+        return obj;
+      });
+
+      schemas.push({
+        suggestedTypeName: sheetName,
+        suggestedProperties,
+        sampleEntities,
+        recordCount: dataRows.length,
+      });
+    }
+
+    return schemas;
   },
 };
 
 // ── Helpers ──────────────────────────────────────────────
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const URL_RE = /^https?:\/\//i;
+const PHONE_RE = /^[\+]?[\d\s\-\(\)]{7,}$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
+const COMMON_DATE_RE = /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/;
+
+function inferColumnType(values: string[]): {
+  dataType: string;
+  possibleRole?: string;
+} {
+  if (values.length === 0) return { dataType: "STRING" };
+
+  const nonEmpty = values.filter((v) => v.trim() !== "");
+  if (nonEmpty.length === 0) return { dataType: "STRING" };
+
+  if (nonEmpty.every((v) => !isNaN(Number(v)) && v.trim() !== "")) {
+    return { dataType: "NUMBER" };
+  }
+
+  if (
+    nonEmpty.every(
+      (v) => ISO_DATE_RE.test(v) || COMMON_DATE_RE.test(v) || !isNaN(Date.parse(v))
+    ) &&
+    nonEmpty.some((v) => ISO_DATE_RE.test(v) || COMMON_DATE_RE.test(v))
+  ) {
+    return { dataType: "DATE" };
+  }
+
+  const lower = nonEmpty.map((v) => v.toLowerCase());
+  if (
+    lower.every((v) => ["true", "false", "yes", "no"].includes(v))
+  ) {
+    return { dataType: "BOOLEAN" };
+  }
+
+  if (nonEmpty.every((v) => EMAIL_RE.test(v))) {
+    return { dataType: "STRING", possibleRole: "email" };
+  }
+
+  if (nonEmpty.every((v) => URL_RE.test(v))) {
+    return { dataType: "STRING", possibleRole: "url" };
+  }
+
+  if (nonEmpty.every((v) => PHONE_RE.test(v))) {
+    return { dataType: "STRING", possibleRole: "phone" };
+  }
+
+  return { dataType: "STRING" };
+}
 
 function extractSpreadsheetId(input: string): string {
   const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
