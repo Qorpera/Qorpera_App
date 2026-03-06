@@ -48,6 +48,7 @@ export default function SettingsPage() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const googleParam = searchParams.get("google");
+  const hubspotParam = searchParams.get("hubspot");
 
   const [activeTab, setActiveTab] = useState<Tab>(
     tabParam === "connections" ? "connections" : "ai"
@@ -165,9 +166,19 @@ export default function SettingsPage() {
     }
   }, [googleParam]);
 
-  // Set pending config for pending connectors
+  // Handle hubspot=connected flash
   useEffect(() => {
-    const pending = connectors.find((c) => c.status === "pending");
+    if (hubspotParam === "connected") {
+      toast("HubSpot connected successfully.", "success");
+      loadConnectors();
+    } else if (hubspotParam === "error") {
+      toast("HubSpot authorization failed. Please try again.", "error");
+    }
+  }, [hubspotParam]);
+
+  // Set pending config for pending Google Sheets connectors (HubSpot is immediately active)
+  useEffect(() => {
+    const pending = connectors.find((c) => c.status === "pending" && c.provider === "google-sheets");
     if (pending && !pendingConfig) {
       setPendingConfig({
         id: pending.id,
@@ -258,6 +269,20 @@ export default function SettingsPage() {
       }
     } catch {
       toast("Failed to start Google authorization", "error");
+    }
+  };
+
+  const handleConnectHubSpot = async () => {
+    try {
+      const res = await fetch("/api/connectors/hubspot/auth-url");
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast(data.error || "Failed to get auth URL", "error");
+      }
+    } catch {
+      toast("Failed to start HubSpot authorization", "error");
     }
   };
 
@@ -874,8 +899,7 @@ export default function SettingsPage() {
                       </div>
                       {!p.configured && (
                         <div className="text-xs text-amber-400/70">
-                          Not configured — add GOOGLE_CLIENT_ID to your
-                          environment
+                          Not configured — add {p.id === "hubspot" ? "HUBSPOT" : "GOOGLE"}_CLIENT_ID to your environment
                         </div>
                       )}
                     </div>
@@ -886,7 +910,9 @@ export default function SettingsPage() {
                         onClick={
                           p.id === "google-sheets"
                             ? handleConnectGoogle
-                            : undefined
+                            : p.id === "hubspot"
+                              ? handleConnectHubSpot
+                              : undefined
                         }
                       >
                         Connect

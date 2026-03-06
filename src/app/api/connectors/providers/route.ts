@@ -13,7 +13,9 @@ export async function GET() {
     configured:
       p.id === "google-sheets"
         ? !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
-        : true,
+        : p.id === "hubspot"
+          ? !!(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET)
+          : true,
   }));
 
   return NextResponse.json({ providers: result });

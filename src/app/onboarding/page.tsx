@@ -153,6 +153,12 @@ export default function OnboardingPage() {
         const data = await res.json();
         if (data.url) window.location.href = data.url;
       }
+    } else if (providerId === "hubspot") {
+      const res = await fetch("/api/connectors/hubspot/auth-url?from=onboarding");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) window.location.href = data.url;
+      }
     }
   };
 
@@ -408,63 +414,80 @@ export default function OnboardingPage() {
               </p>
             </div>
 
-            <div className="wf-soft p-6 space-y-4">
-              {loadingProviders ? (
-                <div className="text-sm text-white/35 text-center py-4">Loading providers...</div>
-              ) : providers.length === 0 ? (
-                <div className="text-sm text-white/35 text-center py-4">No providers available.</div>
-              ) : (
-                providers.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between py-3 border-b border-white/[0.06] last:border-0"
-                  >
-                    <div className="flex items-center gap-3">
-                      {isConnected(p.id) ? (
-                        <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                          <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        </div>
-                      ) : isPending(p.id) ? (
-                        <div className="w-5 h-5 rounded-full bg-amber-500/20 flex items-center justify-center">
-                          <div className="w-2 h-2 rounded-full bg-amber-400" />
-                        </div>
-                      ) : (
-                        <div className="w-5 h-5 rounded-full bg-white/[0.06]" />
-                      )}
-                      <span className="text-sm font-medium text-white/80">{p.name}</span>
-                    </div>
-                    {isConnected(p.id) ? (
-                      <span className="text-xs text-emerald-400/70 font-medium">Connected</span>
-                    ) : isPending(p.id) ? (
-                      <span className="text-xs text-amber-400/70 font-medium">Needs setup</span>
-                    ) : p.configured ? (
-                      <Button variant="default" size="sm" onClick={() => handleConnect(p.id)}>
-                        Connect
-                      </Button>
-                    ) : (
-                      <span className="text-xs text-white/25">Not configured</span>
-                    )}
+            {loadingProviders ? (
+              <div className="text-sm text-white/35 text-center py-4">Loading providers...</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* HubSpot card */}
+                <div className="wf-soft p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white/80">HubSpot CRM</span>
+                    {isConnected("hubspot") ? (
+                      <span className="flex items-center gap-1 text-xs text-emerald-400/70 font-medium">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Connected
+                      </span>
+                    ) : null}
                   </div>
-                ))
-              )}
-
-              {/* Already-connected connectors */}
-              {connectors.filter((c) => c.status === "active").length > 0 && (
-                <div className="pt-2 space-y-2">
-                  <div className="text-xs text-white/30 uppercase tracking-wider">Active connections</div>
-                  {connectors
-                    .filter((c) => c.status === "active")
-                    .map((c) => (
-                      <div key={c.id} className="flex items-center gap-2 text-sm text-white/60">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                        {c.name || c.providerName}
-                      </div>
-                    ))}
+                  <p className="text-xs text-white/40">Connect your contacts, companies, and deals</p>
+                  {isConnected("hubspot") ? null : (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleConnect("hubspot")}
+                      disabled={!providers.find((p) => p.id === "hubspot")?.configured}
+                    >
+                      Connect
+                    </Button>
+                  )}
                 </div>
-              )}
-            </div>
+
+                {/* Google Sheets card */}
+                <div className="wf-soft p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-white/80">Google Sheets</span>
+                    {isConnected("google-sheets") ? (
+                      <span className="flex items-center gap-1 text-xs text-emerald-400/70 font-medium">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Connected
+                      </span>
+                    ) : isPending("google-sheets") ? (
+                      <span className="text-xs text-amber-400/70 font-medium">Needs setup</span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-white/40">Import data from spreadsheets</p>
+                  {isConnected("google-sheets") || isPending("google-sheets") ? null : (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleConnect("google-sheets")}
+                      disabled={!providers.find((p) => p.id === "google-sheets")?.configured}
+                    >
+                      Connect
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Active connections list */}
+            {connectors.filter((c) => c.status === "active").length > 0 && (
+              <div className="wf-soft p-5 space-y-2">
+                <div className="text-xs text-white/30 uppercase tracking-wider">Active connections</div>
+                {connectors
+                  .filter((c) => c.status === "active")
+                  .map((c) => (
+                    <div key={c.id} className="flex items-center gap-2 text-sm text-white/60">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                      {c.name || c.providerName}
+                    </div>
+                  ))}
+              </div>
+            )}
 
             {/* Add data sources — visible whenever Google is connected (active or pending) */}
             {hasGoogleConnection && (

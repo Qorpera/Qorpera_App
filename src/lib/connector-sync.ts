@@ -97,6 +97,44 @@ export async function runConnectorSync(
     },
   });
 
+  // Register action capabilities from this connector
+  if (provider.getCapabilities) {
+    try {
+      const capabilities = await provider.getCapabilities(config);
+      for (const cap of capabilities) {
+        const existing = await prisma.actionCapability.findFirst({
+          where: { operatorId, connectorId, name: cap.name },
+        });
+        if (existing) {
+          await prisma.actionCapability.update({
+            where: { id: existing.id },
+            data: {
+              description: cap.description,
+              inputSchema: JSON.stringify(cap.inputSchema),
+              sideEffects: JSON.stringify(cap.sideEffects),
+              enabled: true,
+            },
+          });
+        } else {
+          await prisma.actionCapability.create({
+            data: {
+              operatorId,
+              connectorId,
+              name: cap.name,
+              description: cap.description,
+              inputSchema: JSON.stringify(cap.inputSchema),
+              sideEffects: JSON.stringify(cap.sideEffects),
+              enabled: true,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      // Non-fatal — don't fail the sync over capability registration
+      console.error("[connector-sync] Failed to register capabilities:", err);
+    }
+  }
+
   // Trigger materialization for the new events
   if (eventsCreated > 0) {
     try {

@@ -244,6 +244,51 @@ export async function materializeEvent(
       return { status: "materialized", entityIds: [fromId, toId], eventType };
     }
 
+    // ── Email events — process as signals only, no entity ─────────────
+    if (eventType === "email.synced") {
+      // Emails are activity signals, not business objects.
+      // They feed situation detection via the event stream, but don't create entities.
+      // Resolve entity references so context assembly can find them.
+      const entityRefs: string[] = [];
+      if (payload.contactId) {
+        const contactEntityId = await resolveEntity(operatorId, {
+          sourceSystem: event.source || "hubspot",
+          externalId: String(payload.contactId),
+        });
+        if (contactEntityId) entityRefs.push(contactEntityId);
+      }
+      // Also try resolving by sender/recipient email
+      if (!entityRefs.length && payload.senderEmail) {
+        const senderId = await resolveEntity(operatorId, {
+          identityValues: { email: String(payload.senderEmail) },
+        });
+        if (senderId) entityRefs.push(senderId);
+      }
+      if (payload.recipientEmail) {
+        const recipientId = await resolveEntity(operatorId, {
+          identityValues: { email: String(payload.recipientEmail) },
+        });
+        if (recipientId && !entityRefs.includes(recipientId)) entityRefs.push(recipientId);
+      }
+
+      await prisma.event.update({
+        where: { id: event.id },
+        data: {
+          processedAt: new Date(),
+          entityRefs: entityRefs.length > 0 ? JSON.stringify(entityRefs) : null,
+        },
+      });
+
+      // Still notify detectors — email activity is a detection signal
+      if (entityRefs.length > 0) {
+        notifySituationDetectors(operatorId, entityRefs, event.id).catch((err) =>
+          console.error("[materializer] Background detection error:", err)
+        );
+      }
+
+      return { status: "materialized", entityIds: entityRefs, eventType };
+    }
+
     // ── Look up materializer rule ─────────────────────────────────────────
     const rule = EVENT_MATERIALIZERS[eventType];
 

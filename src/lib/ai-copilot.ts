@@ -6,6 +6,7 @@ import { listEntityTypes } from "@/lib/entity-model-store";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { buildOrientationSystemPrompt } from "@/lib/orientation-prompts";
 import { generatePreFilter } from "@/lib/situation-prefilter";
+import { getProvider } from "@/lib/connectors/registry";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,18 @@ const COPILOT_TOOLS: AITool[] = [
       properties: {
         limit: { type: "number", description: "Max results (default 5)" },
       },
+    },
+  },
+  {
+    name: "execute_connector_action",
+    description: "Execute an action through a connected tool (e.g., send email via HubSpot, update a contact, change a deal stage). Use when proposing or executing a specific action in an external system.",
+    parameters: {
+      type: "object",
+      properties: {
+        action_name: { type: "string", description: "Name of the action capability (e.g., 'send_email', 'update_contact', 'create_note', 'update_deal_stage')" },
+        params: { type: "object", description: "Parameters for the action, matching the action's input schema" },
+      },
+      required: ["action_name", "params"],
     },
   },
   {
@@ -203,6 +216,7 @@ CAPABILITIES:
 - Search across entities by keyword
 - Explore the entity graph to discover connections
 - Propose actions (create, update, delete entities) that go through governance review
+- Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
 - Surface active recommendations for data quality and operational insights
 - Create new situation types to define what the system should watch for
 
@@ -327,6 +341,38 @@ async function executeTool(
       return recs.map((r) => {
         return `- [${r.priority.toUpperCase()}] ${r.title} (confidence: ${(r.confidence * 100).toFixed(0)}%)\n  ${r.description}`;
       }).join("\n");
+    }
+
+    case "execute_connector_action": {
+      const actionName = String(args.action_name ?? "");
+      const actionParams = (args.params ?? {}) as Record<string, unknown>;
+
+      const capability = await prisma.actionCapability.findFirst({
+        where: { operatorId, name: actionName, enabled: true },
+      });
+      if (!capability) return `Action not available: ${actionName}`;
+
+      const connector = await prisma.sourceConnector.findFirst({
+        where: { id: capability.connectorId, operatorId },
+      });
+      if (!connector) return "Connector not found for this action.";
+
+      const provider = getProvider(connector.provider);
+      if (!provider?.executeAction) return `Provider "${connector.provider}" does not support actions.`;
+
+      const config = JSON.parse(connector.config || "{}");
+      const result = await provider.executeAction(config, actionName, actionParams);
+
+      // Persist config in case tokens were refreshed
+      await prisma.sourceConnector.update({
+        where: { id: connector.id },
+        data: { config: JSON.stringify(config) },
+      });
+
+      if (result.success) {
+        return `Action "${actionName}" executed successfully.${result.result ? ` Result: ${JSON.stringify(result.result)}` : ""}`;
+      }
+      return `Action "${actionName}" failed: ${result.error}`;
     }
 
     // ── Orientation + Situation Tools ──────────────────────────────────────
