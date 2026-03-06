@@ -398,6 +398,7 @@ model Situation {
   situationTypeId String
   severity        Float    @default(0.5) // 0-1
   confidence      Float    @default(0.5) // 0-1
+  source          String   @default("detected") // detected, retrospective, manual
   status          String   @default("detected")
   // detected → reasoning → proposed → approved → executing → resolved
   // detected → reasoning → proposed → rejected → closed
@@ -445,7 +446,7 @@ model SituationEvent {
 model OrientationSession {
   id         String   @id @default(cuid())
   operatorId String
-  phase      String   @default("connecting") // connecting, learning, confirming, active
+  phase      String   @default("connecting") // connecting, learning, orienting, confirming, active
   context    String?  // JSON - accumulated business understanding
   messages   String?  // JSON - conversation history
   completedAt DateTime?

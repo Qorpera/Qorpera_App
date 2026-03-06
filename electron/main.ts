@@ -25,7 +25,7 @@ function ensureDatabase() {
 
 let mainWindow: BrowserWindow | null = null;
 let nextServer: ChildProcess | null = null;
-const PORT = isDev ? 3000 : 3456;
+const PORT = isDev ? parseInt(process.env.DEV_PORT || "3000", 10) : 3456;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -50,9 +50,9 @@ function createWindow() {
     mainWindow?.show();
   });
 
-  if (isDev) {
-    mainWindow.webContents.openDevTools({ mode: "detach" });
-  }
+  // if (isDev) {
+  //   mainWindow.webContents.openDevTools({ mode: "detach" });
+  // }
 
   mainWindow.on("closed", () => {
     mainWindow = null;
