@@ -50,13 +50,11 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
   }
 
   // 3. Update status to reasoning (optimistic lock)
-  try {
-    await prisma.situation.updateMany({
-      where: { id: situationId, status: "detected" },
-      data: { status: "reasoning" },
-    });
-  } catch {
-    // Another process got here first
+  const lockResult = await prisma.situation.updateMany({
+    where: { id: situationId, status: "detected" },
+    data: { status: "reasoning" },
+  });
+  if (lockResult.count === 0) {
     return;
   }
 
@@ -132,12 +130,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         timestamp: e.createdAt,
         payload: e.payload,
       })),
-      priorSituations: context.priorSituations.map((p) => ({
-        outcome: p.outcome ?? undefined,
-        feedback: p.feedback ?? undefined,
-        actionTaken: p.actionTaken,
-        createdAt: p.createdAt,
-      })),
+      priorSituations: await enrichPriorSituations(context.priorSituations),
       autonomyLevel: effectiveAutonomy,
       permittedActions: policyResult.permitted,
       blockedActions: policyResult.blocked,
@@ -278,6 +271,37 @@ async function createNotification(
       sourceId: situationId,
     },
   }).catch(() => {});
+}
+
+async function enrichPriorSituations(
+  priors: Array<{ id: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>,
+) {
+  if (priors.length === 0) return [];
+
+  // Fetch reasoning field for prior situations to extract analysis
+  const priorRecords = await prisma.situation.findMany({
+    where: { id: { in: priors.map((p) => p.id) } },
+    select: { id: true, reasoning: true },
+  });
+  const reasoningMap = new Map(priorRecords.map((r) => [r.id, r.reasoning]));
+
+  return priors.map((p) => {
+    let analysis: string | undefined;
+    const raw = reasoningMap.get(p.id);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.analysis === "string") analysis = parsed.analysis;
+      } catch {}
+    }
+    return {
+      analysis,
+      outcome: p.outcome ?? undefined,
+      feedback: p.feedback ?? undefined,
+      actionTaken: p.actionTaken,
+      createdAt: p.createdAt,
+    };
+  });
 }
 
 function extractJSON(text: string): Record<string, unknown> | null {
