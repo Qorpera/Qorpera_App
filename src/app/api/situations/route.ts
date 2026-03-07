@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
       triggerEntityName: s.triggerEntityId ? entityMap.get(s.triggerEntityId) ?? null : null,
       reasoning,
       proposedAction,
+      editInstruction: s.editInstruction,
       createdAt: s.createdAt.toISOString(),
       resolvedAt: s.resolvedAt?.toISOString() ?? null,
     };

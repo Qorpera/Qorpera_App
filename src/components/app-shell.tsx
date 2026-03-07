@@ -3,6 +3,7 @@
 import { type ReactNode, useState, useEffect } from "react";
 import { AppNav } from "./app-nav";
 import { ToastProvider } from "./ui/toast";
+import { NotificationBell } from "./notification-bell";
 
 function QorperaLogo({ className = "w-7 h-7" }: { className?: string }) {
   return (
@@ -94,9 +95,16 @@ export function AppShell({ children, pendingApprovals = 0 }: { children: ReactNo
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Top bar */}
+          <div className="flex items-center justify-end px-5 py-2 border-b border-white/[0.04] flex-shrink-0">
+            <NotificationBell />
+          </div>
+          {/* Scrollable content */}
+          <main className="flex-1 overflow-y-auto">
+            {children}
+          </main>
+        </div>
       </div>
     </ToastProvider>
   );

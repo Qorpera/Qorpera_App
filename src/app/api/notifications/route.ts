@@ -7,29 +7,52 @@ export async function GET(req: NextRequest) {
   const userId = await getUserId();
   const url = new URL(req.url);
 
-  const unreadOnly = url.searchParams.get("unreadOnly") ?? "true";
+  const unreadOnly = url.searchParams.get("unreadOnly") === "true";
   const limit = parseInt(url.searchParams.get("limit") ?? "50");
 
-  const where: Record<string, unknown> = {
+  const baseWhere = {
     operatorId,
     OR: [{ userId }, { userId: null }],
   };
-  if (unreadOnly === "true") where.read = false;
+  const where: Record<string, unknown> = { ...baseWhere };
+  if (unreadOnly) where.read = false;
 
-  const notifications = await prisma.notification.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: Math.min(limit, 100),
+  const [notifications, unreadCount] = await Promise.all([
+    prisma.notification.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: Math.min(limit, 100),
+    }),
+    prisma.notification.count({ where: { ...baseWhere, read: false } }),
+  ]);
+
+  return NextResponse.json({
+    items: notifications.map((n) => ({
+      id: n.id,
+      title: n.title,
+      body: n.body,
+      read: n.read,
+      sourceType: n.sourceType,
+      sourceId: n.sourceId,
+      createdAt: n.createdAt.toISOString(),
+    })),
+    unreadCount,
   });
-
-  return NextResponse.json({ notifications });
 }
 
 export async function PATCH(req: NextRequest) {
   const operatorId = await getOperatorId();
   const body = await req.json();
-  const { ids } = body;
 
+  if (body.markAllRead) {
+    const result = await prisma.notification.updateMany({
+      where: { operatorId, read: false },
+      data: { read: true },
+    });
+    return NextResponse.json({ updated: result.count });
+  }
+
+  const { ids } = body;
   if (!Array.isArray(ids) || ids.length === 0) {
     return NextResponse.json(
       { error: "ids must be a non-empty array" },

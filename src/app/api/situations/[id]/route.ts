@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
+import { reasonAboutSituation } from "@/lib/reasoning-engine";
 
 export async function GET(
   _req: NextRequest,
@@ -68,6 +69,8 @@ export async function GET(
     outcomeDetails: situation.outcomeDetails,
     feedback: situation.feedback,
     feedbackRating: situation.feedbackRating,
+    feedbackCategory: situation.feedbackCategory,
+    editInstruction: situation.editInstruction,
     resolvedAt: situation.resolvedAt?.toISOString() ?? null,
     createdAt: situation.createdAt.toISOString(),
   });
@@ -87,6 +90,21 @@ export async function PATCH(
 
   if (!situation) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Edit & Approve flow — reset to detected and re-reason with instruction
+  if (typeof body.editInstruction === "string" && body.editInstruction.trim()) {
+    await prisma.situation.update({
+      where: { id },
+      data: {
+        editInstruction: body.editInstruction.trim(),
+        status: "detected",
+      },
+    });
+    reasonAboutSituation(id).catch((err) =>
+      console.error(`[situations-api] Re-reasoning failed for ${id}:`, err),
+    );
+    return NextResponse.json({ id, status: "edit_submitted", message: "Edit instruction saved. Revised proposal will appear shortly." });
   }
 
   const updates: Record<string, unknown> = {};
@@ -134,8 +152,10 @@ export async function PATCH(
   }
   if (body.feedback !== undefined) updates.feedback = body.feedback;
   if (body.feedbackRating !== undefined) updates.feedbackRating = body.feedbackRating;
+  if (body.feedbackCategory !== undefined) updates.feedbackCategory = body.feedbackCategory;
   if (body.outcome !== undefined) updates.outcome = body.outcome;
   if (body.outcomeDetails !== undefined) updates.outcomeDetails = JSON.stringify(body.outcomeDetails);
+  if (body.outcomeNote !== undefined) updates.outcomeDetails = JSON.stringify({ note: body.outcomeNote });
 
   const updated = await prisma.situation.update({
     where: { id },

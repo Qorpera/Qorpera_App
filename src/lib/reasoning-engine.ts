@@ -138,7 +138,34 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     };
 
     const systemPrompt = buildReasoningSystemPrompt(businessContextStr);
-    const userPrompt = buildReasoningUserPrompt(reasoningInput);
+    let userPrompt = buildReasoningUserPrompt(reasoningInput);
+
+    // 6b. Edit instruction injection
+    if (situation.editInstruction) {
+      let originalProposal = "null";
+      if (situation.proposedAction) {
+        try { originalProposal = JSON.stringify(JSON.parse(situation.proposedAction), null, 2); } catch { originalProposal = situation.proposedAction; }
+      }
+      userPrompt += `\n\nEDIT REQUEST:\nThe human reviewed the original proposal and requested changes. Incorporate their instruction into your revised action.\n\nORIGINAL PROPOSAL:\n${originalProposal}\n\nHUMAN'S EDIT INSTRUCTION:\n"${situation.editInstruction}"\n\nRevise your chosenAction to incorporate this feedback. Keep the same situation analysis but adjust the action parameters and justification accordingly.`;
+    }
+
+    // 6c. Prior feedback injection
+    const priorFeedback = await prisma.situation.findMany({
+      where: {
+        situationTypeId: situation.situationTypeId,
+        feedback: { not: null },
+        id: { not: situationId },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { feedback: true, feedbackCategory: true },
+    });
+    if (priorFeedback.length > 0) {
+      const feedbackLines = priorFeedback
+        .map((f) => `  - ${f.feedback}${f.feedbackCategory ? ` [${f.feedbackCategory}]` : ""}`)
+        .join("\n");
+      userPrompt += `\n\nHUMAN FEEDBACK ON SIMILAR SITUATIONS:\n${feedbackLines}\nIncorporate this feedback into your reasoning.`;
+    }
 
     // 7. Call LLM
     let reasoning: ReasoningOutput | null = null;
@@ -209,13 +236,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }
 
     // 10. Advance status
+    const revised = situation.editInstruction ? " (Revised)" : "";
     if (reasoning.chosenAction === null) {
-      // No action recommended — human should review
       updates.status = "proposed";
       await createNotification(
         situation.operatorId,
         situationId,
-        `Review needed: ${situation.situationType.name}`,
+        `Review needed${revised}: ${situation.situationType.name}`,
         `AI analyzed the situation but recommends no action. Please review the reasoning.`,
       );
     } else if (effectiveAutonomy === "supervised") {
@@ -223,7 +250,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       await createNotification(
         situation.operatorId,
         situationId,
-        `Action proposed: ${situation.situationType.name}`,
+        `Action proposed${revised}: ${situation.situationType.name}`,
         `AI proposes: ${reasoning.chosenAction.action} — ${reasoning.chosenAction.justification.slice(0, 100)}`,
       );
     } else if (effectiveAutonomy === "notify") {
@@ -231,7 +258,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       await createNotification(
         situation.operatorId,
         situationId,
-        `Auto-executing: ${situation.situationType.name}`,
+        `Auto-executing${revised}: ${situation.situationType.name}`,
         `AI is executing: ${reasoning.chosenAction.action}. Review and reverse if needed.`,
       );
     } else {

@@ -425,6 +425,8 @@ model Situation {
   outcomeDetails  String?  // JSON
   feedback        String?  // human feedback text
   feedbackRating  Int?     // 1-5
+  feedbackCategory String?  // "detection_wrong", "action_wrong", "timing_wrong", "missing_context"
+  editInstruction  String?  // freeform text from Edit & Approve flow
 
   resolvedAt      DateTime?
   createdAt       DateTime @default(now())

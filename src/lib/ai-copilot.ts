@@ -142,7 +142,7 @@ const ORIENTATION_TOOLS: AITool[] = [
 // ── System Prompt Builder ────────────────────────────────────────────────────
 
 async function buildSystemPrompt(operatorId: string, userRole?: string): Promise<string> {
-  const [entityTypes, pendingCount, govConfig, actionRules, businessCtx, situationTypes] = await Promise.all([
+  const [entityTypes, pendingCount, govConfig, actionRules, businessCtx, situationTypes, unreadNotifCount, pendingSituations] = await Promise.all([
     listEntityTypes(operatorId),
     prisma.actionProposal.count({ where: { operatorId, status: "PENDING" } }),
     prisma.governanceConfig.findUnique({ where: { operatorId } }),
@@ -151,6 +151,13 @@ async function buildSystemPrompt(operatorId: string, userRole?: string): Promise
     prisma.situationType.findMany({
       where: { operatorId, enabled: true },
       select: { name: true, slug: true, description: true, autonomyLevel: true },
+    }),
+    prisma.notification.count({ where: { operatorId, read: false } }),
+    prisma.situation.findMany({
+      where: { operatorId, status: { in: ["proposed", "detected"] } },
+      include: { situationType: { select: { name: true } } },
+      orderBy: { severity: "desc" },
+      take: 5,
     }),
   ]);
 
@@ -210,6 +217,13 @@ ${actionRules.length > 0
       return lines.join("\n");
     })()
   : "No action rules configured."}
+
+CURRENT STATUS:
+- Unread notifications: ${unreadNotifCount}
+${pendingSituations.length > 0
+  ? `- Pending situations:\n${pendingSituations.map((s) => `  - ${s.situationType.name} (${s.status})`).join("\n")}`
+  : "- No pending situations."}
+${unreadNotifCount > 0 ? "When the user greets you or asks how things are going, proactively mention pending situations that need their attention." : ""}
 
 CAPABILITIES:
 - Look up entities by name or ID to see their full context, properties, and relationships
