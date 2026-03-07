@@ -84,10 +84,20 @@ export default function DocumentsPage() {
         const doc = await res.json();
         // Auto-trigger extraction
         setProcessing((prev) => new Set(prev).add(doc.id));
-        fetch(`/api/documents/${doc.id}/extract`, { method: "POST" }).then(async () => {
-          setProcessing((prev) => { const next = new Set(prev); next.delete(doc.id); return next; });
-          await loadDocs();
-        });
+        fetch(`/api/documents/${doc.id}/extract`, { method: "POST" })
+          .then(async (res) => {
+            setProcessing((prev) => { const next = new Set(prev); next.delete(doc.id); return next; });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({ error: "Extraction failed" }));
+              console.error(`[documents] Extraction failed for ${doc.id}:`, err.error);
+            }
+            await loadDocs();
+          })
+          .catch((err) => {
+            setProcessing((prev) => { const next = new Set(prev); next.delete(doc.id); return next; });
+            console.error(`[documents] Extraction request failed for ${doc.id}:`, err);
+            loadDocs();
+          });
       }
     }
     await loadDocs();
@@ -346,7 +356,15 @@ export default function DocumentsPage() {
                     )}
 
                     {!isProcessing && doc.status === "uploaded" && (
-                      <div className="text-xs text-white/30">Upload complete. Extraction will begin automatically.</div>
+                      <div className="space-y-2">
+                        <div className="text-xs text-white/30">Upload complete. Extraction will begin automatically.</div>
+                        <button
+                          onClick={() => handleReExtract(doc.id)}
+                          className="px-4 py-1.5 rounded-lg bg-white/[0.06] text-white/50 text-xs hover:bg-white/[0.1] transition"
+                        >
+                          Retry extraction
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

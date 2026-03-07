@@ -497,30 +497,39 @@ export async function materializeEvent(
     if (!entityType) {
       // Mode 2: Awaiting entity type creation
       // Do NOT set processedAt -- event will be retried
-      const notificationTitle = `Entity type needed: ${rule.entityTypeSlug}`;
-      const existing = await prisma.notification.findFirst({
-        where: { operatorId, title: notificationTitle, read: false },
-      });
 
-      if (!existing) {
-        const pendingCount = await prisma.event.count({
-          where: {
-            operatorId,
-            processedAt: null,
-            materializationError: null,
-            eventType,
-          },
+      // Only notify if the operator already has entity types defined.
+      // During initial onboarding, ontology/infer hasn't run yet so entity types
+      // don't exist — the system will create them automatically. Notifying the user
+      // to "create entity types" at this stage is misleading.
+      const operatorHasAnyTypes = await prisma.entityType.count({ where: { operatorId } });
+
+      if (operatorHasAnyTypes > 0) {
+        const notificationTitle = `Entity type needed: ${rule.entityTypeSlug}`;
+        const existing = await prisma.notification.findFirst({
+          where: { operatorId, title: notificationTitle, read: false },
         });
 
-        await prisma.notification.create({
-          data: {
-            operatorId,
-            title: notificationTitle,
-            body: `There are ${pendingCount} event(s) of type "${eventType}" waiting to be materialized, but the entity type "${rule.entityTypeSlug}" does not exist yet. Create the entity type to allow these events to be processed.`,
-            sourceType: "system",
-            sourceId: event.id,
-          },
-        });
+        if (!existing) {
+          const pendingCount = await prisma.event.count({
+            where: {
+              operatorId,
+              processedAt: null,
+              materializationError: null,
+              eventType,
+            },
+          });
+
+          await prisma.notification.create({
+            data: {
+              operatorId,
+              title: notificationTitle,
+              body: `There are ${pendingCount} event(s) of type "${eventType}" waiting to be materialized, but the entity type "${rule.entityTypeSlug}" does not exist yet. Define it in the ontology or re-run inference.`,
+              sourceType: "system",
+              sourceId: event.id,
+            },
+          });
+        }
       }
 
       return { status: "awaiting_type", entityTypeSlug: rule.entityTypeSlug, eventType };

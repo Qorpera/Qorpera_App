@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { recordEntityMention } from "@/lib/entity-resolution";
 
 // Internal entity type seeds
 const INTERNAL_TYPES: Record<string, { name: string; icon: string; color: string }> = {
@@ -124,13 +125,13 @@ export async function POST(
     }
 
     // Record mention linking entity to document
-    await prisma.entityMention.create({
-      data: {
-        entityId: entity.id,
-        sourceType: "internal_document",
-        sourceId: id,
-      },
-    });
+    await recordEntityMention(
+      operatorId,
+      entity.id,
+      "internal_document",
+      id,
+      ent.displayName,
+    );
 
     entityNameToId.set(ent.displayName, entity.id);
     createdEntities.push({ id: entity.id, displayName: ent.displayName, type: ent.type });

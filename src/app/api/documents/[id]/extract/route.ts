@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { callLLM } from "@/lib/ai-provider";
+import { extractEntitiesFromText } from "@/lib/entity-extractor";
 import { readFile } from "fs/promises";
 
 // ── Text Extraction ───────────────────────────────────────────────────────────
@@ -173,6 +174,28 @@ export async function POST(
     const entities = Array.isArray(parsed?.entities) ? parsed.entities : [];
     const relationships = Array.isArray(parsed?.relationships) ? parsed.relationships : [];
     const businessContext = typeof parsed?.businessContext === "string" ? parsed.businessContext : "";
+
+    // Also run the schema-aware extractor if entity types exist.
+    // This catches entities matching the operator's existing ontology that
+    // the generic document prompt might miss or mis-type.
+    try {
+      const schemaResult = await extractEntitiesFromText(operatorId, textForLLM);
+      if (schemaResult.entities.length > 0) {
+        const existingNames = new Set(entities.map((e: { displayName?: string }) => e.displayName?.toLowerCase()));
+        for (const se of schemaResult.entities) {
+          if (!existingNames.has(se.name.toLowerCase())) {
+            entities.push({ type: se.type, displayName: se.name, properties: se.properties });
+          }
+        }
+      }
+      if (schemaResult.relationships.length > 0) {
+        for (const sr of schemaResult.relationships) {
+          relationships.push({ fromName: sr.from, toName: sr.to, type: sr.type });
+        }
+      }
+    } catch {
+      // Schema-aware extraction is best-effort — generic results are still valid
+    }
 
     const extraction = { entities, relationships, businessContext };
 
