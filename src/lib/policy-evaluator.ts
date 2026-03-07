@@ -94,6 +94,22 @@ export async function evaluateActionPolicies(
     });
   }
 
+  // Day 14: log policy evaluations as notifications
+  if (blocked.length > 0 || hasRequireApproval) {
+    const body = blocked.length > 0
+      ? `Blocked: ${blocked.map((b) => b.name).join(", ")} — ${blocked.map((b) => b.reason).join(", ")}`
+      : `Require approval enforced for: ${permitted.filter((p) => policies.some((pol) => pol.effect === "REQUIRE_APPROVAL")).map((p) => p.name).join(", ")}`;
+
+    await prisma.notification.create({
+      data: {
+        operatorId,
+        title: "Policy applied",
+        body,
+        sourceType: "policy",
+      },
+    }).catch(() => {});
+  }
+
   return { permitted, blocked, hasRequireApproval };
 }
 

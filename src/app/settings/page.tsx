@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,18 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { useSearchParams } from "next/navigation";
 
-type Tab = "ai" | "governance" | "connections" | "data";
+type Tab = "ai" | "governance" | "connections" | "data" | "autonomy";
+
+type SituationTypeItem = {
+  id: string;
+  name: string;
+  slug: string;
+  autonomyLevel: string;
+  consecutiveApprovals: number;
+  totalApproved: number;
+  totalProposed: number;
+  approvalRate: number;
+};
 
 type ConnectorItem = {
   id: string;
@@ -44,6 +55,14 @@ const PROVIDER_OPTIONS = [
 ];
 
 export default function SettingsPage() {
+  return (
+    <Suspense>
+      <SettingsPageInner />
+    </Suspense>
+  );
+}
+
+function SettingsPageInner() {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
@@ -52,7 +71,7 @@ export default function SettingsPage() {
   const stripeParam = searchParams.get("stripe");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "autonomy" ? "autonomy" : "ai"
   );
 
   // AI state
@@ -109,9 +128,44 @@ export default function SettingsPage() {
     errors: Array<{ connectorId: string; name: string; error: string }>;
   } | null>(null);
 
+  // Autonomy state
+  const [autoSupervisedConsecutive, setAutoSupervisedConsecutive] = useState("10");
+  const [autoSupervisedRate, setAutoSupervisedRate] = useState("90");
+  const [autoNotifyConsecutive, setAutoNotifyConsecutive] = useState("20");
+  const [autoNotifyRate, setAutoNotifyRate] = useState("95");
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [situationTypes, setSituationTypes] = useState<SituationTypeItem[]>([]);
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [demotingId, setDemotingId] = useState<string | null>(null);
+
   // Data state
   const [dataAction, setDataAction] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+
+  // Load autonomy settings and situation types
+  const loadSituationTypes = useCallback(() => {
+    fetch("/api/situation-types")
+      .then((r) => r.json())
+      .then((data) => setSituationTypes(data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "autonomy") {
+      setAutoLoading(true);
+      Promise.all([
+        fetch("/api/autonomy/settings").then((r) => r.json()),
+        fetch("/api/situation-types").then((r) => r.json()),
+      ]).then(([settings, types]) => {
+        setAutoSupervisedConsecutive(String(settings.supervisedToNotifyConsecutive));
+        setAutoSupervisedRate(String(Math.round(settings.supervisedToNotifyRate * 100)));
+        setAutoNotifyConsecutive(String(settings.notifyToAutonomousConsecutive));
+        setAutoNotifyRate(String(Math.round(settings.notifyToAutonomousRate * 100)));
+        setSituationTypes(types);
+      }).catch(() => {}).finally(() => setAutoLoading(false));
+    }
+  }, [activeTab]);
 
   // Load AI settings from DB
   useEffect(() => {
@@ -446,9 +500,65 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveAutonomy = async () => {
+    setAutoSaving(true);
+    try {
+      await fetch("/api/autonomy/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          graduation_supervised_to_notify_consecutive: parseInt(autoSupervisedConsecutive) || 10,
+          graduation_supervised_to_notify_rate: (parseInt(autoSupervisedRate) || 90) / 100,
+          graduation_notify_to_autonomous_consecutive: parseInt(autoNotifyConsecutive) || 20,
+          graduation_notify_to_autonomous_rate: (parseInt(autoNotifyRate) || 95) / 100,
+        }),
+      });
+      toast("Autonomy thresholds saved", "success");
+    } catch {
+      toast("Failed to save thresholds", "error");
+    } finally {
+      setAutoSaving(false);
+    }
+  };
+
+  const handlePromote = async (stId: string) => {
+    setPromotingId(stId);
+    try {
+      await fetch("/api/autonomy/promote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ situationTypeId: stId }),
+      });
+      toast("Promoted successfully", "success");
+      loadSituationTypes();
+    } catch {
+      toast("Promotion failed", "error");
+    } finally {
+      setPromotingId(null);
+    }
+  };
+
+  const handleDemote = async (stId: string) => {
+    setDemotingId(stId);
+    try {
+      await fetch("/api/autonomy/demote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ situationTypeId: stId }),
+      });
+      toast("Demoted successfully", "success");
+      loadSituationTypes();
+    } catch {
+      toast("Demotion failed", "error");
+    } finally {
+      setDemotingId(null);
+    }
+  };
+
   const tabs: { key: Tab; label: string }[] = [
     { key: "ai", label: "AI Provider" },
     { key: "governance", label: "Governance" },
+    { key: "autonomy", label: "Autonomy" },
     { key: "connections", label: "Connections" },
     { key: "data", label: "Data Management" },
   ];
@@ -982,6 +1092,115 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Autonomy Tab */}
+        {activeTab === "autonomy" && (
+          <div className="space-y-5">
+            <div className="wf-soft p-6 space-y-5">
+              <h2 className="text-lg font-medium text-white/80">
+                Global Graduation Thresholds
+              </h2>
+              {autoLoading ? (
+                <div className="flex justify-center py-4">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-purple-400" />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    <p className="text-xs text-white/40 uppercase tracking-wider font-semibold">Supervised → Notify</p>
+                    <Input
+                      label="Consecutive approvals required"
+                      type="number"
+                      value={autoSupervisedConsecutive}
+                      onChange={(e) => setAutoSupervisedConsecutive(e.target.value)}
+                    />
+                    <Input
+                      label="Minimum approval rate (%)"
+                      type="number"
+                      value={autoSupervisedRate}
+                      onChange={(e) => setAutoSupervisedRate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-3 pt-2">
+                    <p className="text-xs text-white/40 uppercase tracking-wider font-semibold">Notify → Autonomous</p>
+                    <Input
+                      label="Consecutive approvals required"
+                      type="number"
+                      value={autoNotifyConsecutive}
+                      onChange={(e) => setAutoNotifyConsecutive(e.target.value)}
+                    />
+                    <Input
+                      label="Minimum approval rate (%)"
+                      type="number"
+                      value={autoNotifyRate}
+                      onChange={(e) => setAutoNotifyRate(e.target.value)}
+                    />
+                  </div>
+                  <div className="pt-2">
+                    <Button variant="primary" onClick={handleSaveAutonomy} disabled={autoSaving}>
+                      {autoSaving ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="wf-soft p-6 space-y-4">
+              <h2 className="text-lg font-medium text-white/80">
+                Situation Type Autonomy Levels
+              </h2>
+              {situationTypes.length === 0 && !autoLoading && (
+                <p className="text-sm text-white/35">No situation types configured yet.</p>
+              )}
+              {situationTypes.map((st) => {
+                const levelColor = st.autonomyLevel === "autonomous"
+                  ? "bg-emerald-500/15 text-emerald-400"
+                  : st.autonomyLevel === "notify"
+                    ? "bg-amber-500/15 text-amber-400"
+                    : "bg-white/10 text-white/50";
+                return (
+                  <div key={st.id} className="py-3 border-b border-white/[0.06] last:border-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-white/80">{st.name}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${levelColor}`}>
+                          {st.autonomyLevel}
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        {st.autonomyLevel !== "autonomous" && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => handlePromote(st.id)}
+                            disabled={promotingId !== null}
+                          >
+                            {promotingId === st.id ? "..." : "Promote"}
+                          </Button>
+                        )}
+                        {st.autonomyLevel !== "supervised" && (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => handleDemote(st.id)}
+                            disabled={demotingId !== null}
+                          >
+                            {demotingId === st.id ? "..." : "Demote"}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-4 text-xs text-white/40">
+                      <span>Consecutive: <span className="text-white/60">{st.consecutiveApprovals}</span></span>
+                      <span>Approved: <span className="text-white/60">{st.totalApproved}/{st.totalProposed}</span></span>
+                      <span>Rate: <span className="text-white/60">{(st.approvalRate * 100).toFixed(0)}%</span></span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

@@ -60,6 +60,7 @@ interface SituationDetail {
   currentEntityState: { id: string; displayName: string; typeName: string; properties: Record<string, string> } | null;
   reasoning: ReasoningData | null;
   proposedAction: ProposedAction | null;
+  actionTaken: { error?: string; action?: string; result?: unknown; executedAt?: string; failedAt?: string } | null;
   feedback: string | null;
   feedbackRating: number | null;
   feedbackCategory: string | null;
@@ -101,7 +102,7 @@ export default function SituationsPage() {
 
   const fetchSituations = useCallback(async () => {
     try {
-      const res = await fetch("/api/situations?status=detected,proposed,reasoning,auto_executing,resolved");
+      const res = await fetch("/api/situations?status=detected,proposed,reasoning,auto_executing,executing,resolved");
       if (res.ok) {
         const data = await res.json();
         setSituations(data.items);
@@ -164,7 +165,7 @@ export default function SituationsPage() {
   // Group situations
   const needsAttention = situations.filter((s) => ["detected", "proposed"].includes(s.status));
   const aiHandled = situations.filter((s) => s.status === "resolved" && s.source === "detected");
-  const monitoring = situations.filter((s) => s.confidence < 0.5 || s.status === "reasoning" || s.status === "auto_executing");
+  const monitoring = situations.filter((s) => s.confidence < 0.5 || s.status === "reasoning" || s.status === "auto_executing" || s.status === "executing");
 
   return (
     <AppShell>
@@ -382,6 +383,7 @@ function SituationCard({
   const statusBadgeVariant = s.status === "detected" ? "amber" as const
     : s.status === "proposed" ? "purple" as const
     : s.status === "resolved" ? "green" as const
+    : s.status === "executing" ? "blue" as const
     : "default" as const;
 
   return (
@@ -391,6 +393,9 @@ function SituationCard({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Badge variant={statusBadgeVariant}>{s.situationType.name}</Badge>
+            <span className="text-[11px] text-white/25" title={s.situationType.autonomyLevel}>
+              {s.situationType.autonomyLevel === "autonomous" ? "⚡" : s.situationType.autonomyLevel === "notify" ? "🔔" : "👁"}
+            </span>
             {s.editInstruction && <Badge variant="blue">Revised</Badge>}
             <span className="text-xs text-white/40">{timeAgo(s.createdAt)}</span>
           </div>
@@ -443,7 +448,20 @@ function SituationCard({
                   <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-purple-400" />
                   <p className="text-xs text-white/40">AI is analyzing this situation...</p>
                 </div>
+              ) : s.status === "executing" ? (
+                <div className="flex items-center gap-2">
+                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-emerald-400" />
+                  <p className="text-xs text-white/40">Executing action...</p>
+                </div>
               ) : null}
+
+              {/* Execution error */}
+              {detail.actionTaken?.error && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
+                  <p className="text-xs font-medium text-red-400">Execution failed</p>
+                  <p className="text-xs text-red-300/70 mt-0.5">{detail.actionTaken.error}</p>
+                </div>
+              )}
 
               {/* 3. Full reasoning toggle */}
               {detail.reasoning && (

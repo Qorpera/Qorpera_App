@@ -22,7 +22,9 @@ import dagre from "@dagrejs/dagre";
 import Link from "next/link";
 import type { GraphNode, GraphEdge, GraphData, FocusedSubgraph } from "@/lib/entity-data";
 
-/* ---------- Dagre layout ---------- */
+/* ---------- Layout helpers ---------- */
+
+type LayoutMode = "network" | "hierarchy";
 
 const NODE_WIDTH = 200;
 const NODE_HEIGHT = 72;
@@ -57,6 +59,80 @@ function applyDagreLayout<T extends Record<string, unknown> = Record<string, unk
   });
 
   return { nodes: laid, edges };
+}
+
+function applyForceLayout<T extends Record<string, unknown> = Record<string, unknown>>(
+  nodes: Node<T>[],
+  edges: Edge[]
+): { nodes: Node<T>[]; edges: Edge[] } {
+  if (nodes.length === 0) return { nodes, edges };
+
+  const positions: Record<string, { x: number; y: number }> = {};
+  const radius = Math.max(200, nodes.length * 40);
+  nodes.forEach((node, i) => {
+    const angle = (2 * Math.PI * i) / nodes.length;
+    positions[node.id] = { x: radius * Math.cos(angle), y: radius * Math.sin(angle) };
+  });
+
+  const REPULSION = 80000;
+  const ATTRACTION = 0.005;
+  const DAMPING = 0.9;
+  const ITERATIONS = 100;
+
+  const velocities: Record<string, { x: number; y: number }> = {};
+  for (const n of nodes) velocities[n.id] = { x: 0, y: 0 };
+
+  for (let iter = 0; iter < ITERATIONS; iter++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = positions[nodes[i].id];
+        const b = positions[nodes[j].id];
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        const distSq = dx * dx + dy * dy || 1;
+        const force = REPULSION / distSq;
+        const dist = Math.sqrt(distSq);
+        dx = (dx / dist) * force;
+        dy = (dy / dist) * force;
+        velocities[nodes[i].id].x += dx;
+        velocities[nodes[i].id].y += dy;
+        velocities[nodes[j].id].x -= dx;
+        velocities[nodes[j].id].y -= dy;
+      }
+    }
+    for (const edge of edges) {
+      const a = positions[edge.source];
+      const b = positions[edge.target];
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      velocities[edge.source].x += dx * ATTRACTION;
+      velocities[edge.source].y += dy * ATTRACTION;
+      velocities[edge.target].x -= dx * ATTRACTION;
+      velocities[edge.target].y -= dy * ATTRACTION;
+    }
+    for (const n of nodes) {
+      const v = velocities[n.id];
+      v.x *= DAMPING;
+      v.y *= DAMPING;
+      positions[n.id].x += v.x;
+      positions[n.id].y += v.y;
+    }
+  }
+
+  const laid = nodes.map((node) => ({
+    ...node,
+    position: { x: positions[node.id].x - NODE_WIDTH / 2, y: positions[node.id].y - NODE_HEIGHT / 2 },
+  }));
+  return { nodes: laid, edges };
+}
+
+function hasRootNodes(edges: Edge[], nodeIds: Set<string>): boolean {
+  const targets = new Set(edges.map((e) => e.target));
+  for (const id of nodeIds) {
+    if (!targets.has(id)) return true;
+  }
+  return false;
 }
 
 /* ---------- Custom node component ---------- */
@@ -186,6 +262,26 @@ function DetailPanel({ graphNode, relationships, onClose, onSearchAround }: Deta
 
 /* ---------- Inner graph (needs ReactFlowProvider ancestor) ---------- */
 
+function LayoutToggle({ mode, onChange }: { mode: LayoutMode; onChange: (m: LayoutMode) => void }) {
+  return (
+    <div className="flex rounded-lg border border-white/10 overflow-hidden">
+      {(["network", "hierarchy"] as const).map((m) => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            mode === m
+              ? "bg-purple-500/15 text-purple-300 border-purple-500/25"
+              : "bg-white/5 text-white/40 hover:text-white/60"
+          }`}
+        >
+          {m === "network" ? "Network" : "Hierarchy"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function EntityGraphInner() {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -194,6 +290,7 @@ function EntityGraphInner() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [focusedEntityId, setFocusedEntityId] = useState<string | null>(null);
   const [focusedLoading, setFocusedLoading] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("network");
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<EntityNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -259,7 +356,7 @@ function EntityGraphInner() {
     return { nodes: visibleNodes, edges: visibleEdges };
   }, [graphData, searchQuery]);
 
-  /* Convert to React Flow nodes/edges and run dagre layout */
+  /* Convert to React Flow nodes/edges and apply layout */
   useEffect(() => {
     if (!visibleData) return;
 
@@ -286,11 +383,17 @@ function EntityGraphInner() {
     }));
 
     if (rfNodes.length > 0) {
-      const { nodes: laidNodes, edges: laidEdges } = applyDagreLayout(rfNodes, rfEdges, "TB");
+      const useHierarchy =
+        layoutMode === "hierarchy" &&
+        hasRootNodes(rfEdges, new Set(rfNodes.map((n) => n.id)));
+
+      const { nodes: laidNodes, edges: laidEdges } = useHierarchy
+        ? applyDagreLayout(rfNodes, rfEdges, "TB")
+        : applyForceLayout(rfNodes, rfEdges);
+
       setNodes(laidNodes);
       setEdges(laidEdges);
 
-      // Fit after layout settles
       requestAnimationFrame(() => {
         fitView({ padding: 0.15, duration: 300 });
       });
@@ -298,7 +401,7 @@ function EntityGraphInner() {
       setNodes([]);
       setEdges([]);
     }
-  }, [visibleData, setNodes, setEdges, fitView]);
+  }, [visibleData, layoutMode, setNodes, setEdges, fitView]);
 
   /* Node click handler */
   const onNodeClick = useCallback(
@@ -422,6 +525,11 @@ function EntityGraphInner() {
             Focused view
           </span>
         )}
+      </div>
+
+      {/* Layout toggle */}
+      <div className="absolute right-4 top-4 z-10">
+        <LayoutToggle mode={layoutMode} onChange={setLayoutMode} />
       </div>
 
       {/* Focused loading overlay */}

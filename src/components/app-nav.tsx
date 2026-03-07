@@ -1,20 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 const NAV_GROUPS = [
   {
     label: "Operations",
     items: [
       { href: "/situations", label: "Situations", icon: "alert-triangle", badge: true },
-      { href: "/entity-map", label: "Map Of Operations", icon: "map" },
+      { href: "/entity-map", label: "Entity Map", icon: "map" },
+      { href: "/settings?tab=connections", label: "Connections", icon: "layers" },
     ],
   },
   {
     label: "Intelligence",
     items: [
-      { href: "/copilot", label: "AI Co-pilot", icon: "sparkles" },
+      { href: "/copilot", label: "Copilot", icon: "sparkles" },
       { href: "/learning", label: "Learning", icon: "trending-up" },
     ],
   },
@@ -22,8 +23,12 @@ const NAV_GROUPS = [
     label: "Governance",
     items: [
       { href: "/policies", label: "Policies", icon: "shield" },
-      { href: "/approvals", label: "Approvals", icon: "check-circle", badge: true },
-      { href: "/audit", label: "Audit Log", icon: "scroll" },
+    ],
+  },
+  {
+    label: "Documents",
+    items: [
+      { href: "/documents", label: "Documents", icon: "upload" },
     ],
   },
   {
@@ -53,6 +58,8 @@ const ICONS: Record<string, string> = {
 
 export function AppNav({ pendingApprovals = 0, collapsed = false }: { pendingApprovals?: number; collapsed?: boolean }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const fullPath = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
 
   return (
     <div className="space-y-5">
@@ -65,7 +72,9 @@ export function AppNav({ pendingApprovals = 0, collapsed = false }: { pendingApp
           )}
           <div className="space-y-0.5">
             {group.items.map((item) => {
-              const active = pathname === item.href || pathname?.startsWith(item.href + "/");
+              const active = item.href.includes("?")
+                ? fullPath === item.href
+                : pathname === item.href || pathname?.startsWith(item.href + "/");
               return (
                 <Link
                   key={item.href}

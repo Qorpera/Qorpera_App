@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
 
   const unreadOnly = url.searchParams.get("unreadOnly") === "true";
   const limit = parseInt(url.searchParams.get("limit") ?? "50");
+  const sourceType = url.searchParams.get("sourceType");
 
   const baseWhere = {
     operatorId,
@@ -16,6 +17,7 @@ export async function GET(req: NextRequest) {
   };
   const where: Record<string, unknown> = { ...baseWhere };
   if (unreadOnly) where.read = false;
+  if (sourceType) where.sourceType = sourceType;
 
   const [notifications, unreadCount] = await Promise.all([
     prisma.notification.findMany({

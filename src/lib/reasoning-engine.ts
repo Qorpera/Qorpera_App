@@ -5,6 +5,7 @@ import { assembleSituationContext } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import { buildReasoningSystemPrompt, buildReasoningUserPrompt, type ReasoningInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
+import { executeSituationAction } from "@/lib/situation-executor";
 
 // ── Zod Schema ───────────────────────────────────────────────────────────────
 
@@ -270,6 +271,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       where: { id: situationId },
       data: updates,
     });
+
+    // Day 14: fire-and-forget execution for auto_executing situations
+    if (updates.status === "auto_executing") {
+      executeSituationAction(situationId).catch((err) =>
+        console.error(`[reasoning-engine] Execution failed for ${situationId}:`, err),
+      );
+    }
 
   } catch (err) {
     console.error(`[reasoning-engine] Error reasoning about situation ${situationId}:`, err);

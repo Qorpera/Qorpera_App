@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useState, useEffect } from "react";
+import { type ReactNode, useState, useEffect, Suspense } from "react";
 import { AppNav } from "./app-nav";
 import { ToastProvider } from "./ui/toast";
 import { NotificationBell } from "./notification-bell";
@@ -83,7 +83,9 @@ export function AppShell({ children, pendingApprovals = 0 }: { children: ReactNo
 
           {/* Navigation */}
           <nav className={`flex-1 overflow-y-auto ${collapsed ? "px-1.5" : "px-3"} pb-4`}>
-            <AppNav pendingApprovals={pendingApprovals} collapsed={collapsed} />
+            <Suspense>
+              <AppNav pendingApprovals={pendingApprovals} collapsed={collapsed} />
+            </Suspense>
           </nav>
 
           {/* Footer */}

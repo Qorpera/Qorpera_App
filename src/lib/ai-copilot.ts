@@ -365,6 +365,7 @@ async function executeTool(
         where: { operatorId, name: actionName, enabled: true },
       });
       if (!capability) return `Action not available: ${actionName}`;
+      if (!capability.connectorId) return "No connector linked to this action.";
 
       const connector = await prisma.sourceConnector.findFirst({
         where: { id: capability.connectorId, operatorId },

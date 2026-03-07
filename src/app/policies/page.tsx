@@ -33,13 +33,28 @@ const EFFECTS: { value: PolicyEffect; label: string }[] = [
   { value: "REQUIRE_APPROVAL", label: "Require Approval" },
 ];
 
-const ACTION_TYPES = [
+const BASE_ACTION_TYPES = [
   { value: "*", label: "All Actions" },
   { value: "create", label: "Create" },
   { value: "update", label: "Update" },
   { value: "delete", label: "Delete" },
   { value: "read", label: "Read" },
 ];
+
+type ActionCapability = {
+  id: string;
+  name: string;
+  description: string;
+  connectorProvider: string | null;
+  connectorName: string | null;
+};
+
+type PolicyLogItem = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+};
 
 const effectBadgeVariant: Record<PolicyEffect, "green" | "red" | "amber"> = {
   ALLOW: "green",
@@ -67,6 +82,29 @@ export default function PoliciesPage() {
   const [formActionType, setFormActionType] = useState("*");
   const [formEffect, setFormEffect] = useState<PolicyEffect>("ALLOW");
   const [formPriority, setFormPriority] = useState("0");
+
+  const [actionCapabilities, setActionCapabilities] = useState<ActionCapability[]>([]);
+  const [policyLogs, setPolicyLogs] = useState<PolicyLogItem[]>([]);
+
+  // Load action capabilities + policy evaluation logs
+  useEffect(() => {
+    fetch("/api/action-capabilities")
+      .then((r) => r.json())
+      .then((data) => setActionCapabilities(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    fetch("/api/notifications?sourceType=policy&unreadOnly=false&limit=20")
+      .then((r) => r.json())
+      .then((data) => setPolicyLogs(data.items || []))
+      .catch(() => {});
+  }, []);
+
+  const ACTION_TYPES = [
+    ...BASE_ACTION_TYPES,
+    ...actionCapabilities.map((c) => ({
+      value: c.name,
+      label: `${c.name}${c.connectorName ? ` (${c.connectorName})` : ""}`,
+    })),
+  ];
 
   const fetchPolicies = useCallback(async () => {
     try {
@@ -216,6 +254,24 @@ export default function PoliciesPage() {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Recent Evaluations */}
+        {!loading && policyLogs.length > 0 && (
+          <div className="space-y-3">
+            <h2 className="text-sm font-medium text-white/50">Recent Evaluations</h2>
+            <div className="wf-soft divide-y divide-white/[0.06]">
+              {policyLogs.map((log) => (
+                <div key={log.id} className="px-5 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-white/30">{new Date(log.createdAt).toLocaleString()}</span>
+                    <span className="text-xs font-medium text-white/60">{log.title}</span>
+                  </div>
+                  <p className="text-xs text-white/40 mt-0.5">{log.body}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

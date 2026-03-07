@@ -3,6 +3,8 @@ import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
+import { checkGraduation, checkDemotion } from "@/lib/autonomy-graduation";
+import { executeSituationAction } from "@/lib/situation-executor";
 
 export async function GET(
   _req: NextRequest,
@@ -130,6 +132,10 @@ export async function PATCH(
           },
         }).catch(() => {});
       }
+      // Day 12: demotion check
+      checkDemotion(situation.situationTypeId).catch((err) =>
+        console.error(`[situation-patch] Demotion check failed:`, err),
+      );
     }
     if (body.status === "approved") {
       const st = await prisma.situationType.findUnique({
@@ -148,6 +154,14 @@ export async function PATCH(
           },
         }).catch(() => {});
       }
+      // Day 12: graduation check
+      checkGraduation(situation.situationTypeId).catch((err) =>
+        console.error(`[situation-patch] Graduation check failed:`, err),
+      );
+      // Day 14: fire-and-forget execution
+      executeSituationAction(id).catch((err) =>
+        console.error(`[situation-patch] Execution failed for ${id}:`, err),
+      );
     }
   }
   if (body.feedback !== undefined) updates.feedback = body.feedback;

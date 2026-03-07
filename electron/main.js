@@ -78,7 +78,7 @@ function createWindow() {
         mainWindow?.show();
     });
     // if (isDev) {
-    //     mainWindow.webContents.openDevTools({ mode: "detach" });
+    //   mainWindow.webContents.openDevTools({ mode: "detach" });
     // }
     mainWindow.on("closed", () => {
         mainWindow = null;

@@ -38,6 +38,7 @@ const path = __importStar(require("path"));
 const root = path.resolve(__dirname, "..");
 let nextProc = null;
 let electronProc = null;
+let resolvedPort = 3000;
 function startNext() {
     return new Promise((resolve) => {
         nextProc = (0, child_process_1.spawn)("npx", ["next", "dev"], {
@@ -49,6 +50,11 @@ function startNext() {
         nextProc.stdout?.on("data", (data) => {
             const text = data.toString();
             process.stdout.write(`[next] ${text}`);
+            // Capture the actual port Next.js chose
+            const portMatch = text.match(/Local:\s+http:\/\/localhost:(\d+)/);
+            if (portMatch) {
+                resolvedPort = parseInt(portMatch[1], 10);
+            }
             if (text.includes("Ready in") || text.includes("started server")) {
                 resolve();
             }
@@ -62,7 +68,7 @@ function startElectron() {
     electronProc = (0, child_process_1.spawn)("npx", ["electron", ".", "--no-sandbox"], {
         cwd: root,
         stdio: "inherit",
-        env: { ...process.env, NODE_ENV: "development" },
+        env: { ...process.env, NODE_ENV: "development", DEV_PORT: String(resolvedPort) },
         shell: true,
     });
     electronProc.on("close", () => {
