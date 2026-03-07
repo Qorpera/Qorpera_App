@@ -5,6 +5,13 @@ import { getBusinessContext, formatBusinessContext } from "@/lib/business-contex
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export interface OrganizationalContextEntry {
+  displayName: string;
+  type: string;
+  properties: Record<string, string>;
+  relationship: string;
+}
+
 export interface SituationContext {
   triggerEntity: {
     id: string;
@@ -22,6 +29,7 @@ export interface SituationContext {
       properties: Record<string, string>;
     }>;
   };
+  organizationalContext: OrganizationalContextEntry[];
   recentEvents: Array<{
     id: string;
     source: string;
@@ -194,15 +202,78 @@ export async function assembleSituationContext(
   // Business context
   const bizCtxStr = businessCtx ? formatBusinessContext(businessCtx) : "";
 
+  // Upward traversal — find org chain (entity → owner → department → org)
+  const organizationalContext = await traverseUpward(operatorId, triggerEntityId);
+
   return {
     triggerEntity,
     neighborhood,
+    organizationalContext,
     recentEvents,
     priorSituations: priorSits,
     availableActions,
     policies,
     businessContext: bizCtxStr,
   };
+}
+
+// ── Upward Traversal ────────────────────────────────────────────────────────
+
+const UPWARD_REL_SLUGS = new Set([
+  "owns-account", "has-member", "has-department", "manages", "reports-to",
+]);
+
+async function traverseUpward(
+  operatorId: string,
+  entityId: string,
+): Promise<OrganizationalContextEntry[]> {
+  const chain: OrganizationalContextEntry[] = [];
+  const visited = new Set<string>([entityId]);
+  let currentId = entityId;
+
+  for (let hop = 0; hop < 5; hop++) {
+    // Find relationships where this entity is the target of an internal rel
+    const incomingRels = await prisma.relationship.findMany({
+      where: {
+        toEntityId: currentId,
+        fromEntity: { operatorId, status: "active" },
+      },
+      include: {
+        relationshipType: { select: { slug: true, name: true } },
+        fromEntity: {
+          include: {
+            entityType: { select: { name: true, slug: true } },
+            propertyValues: { include: { property: { select: { slug: true } } } },
+          },
+        },
+      },
+    });
+
+    // Filter to internal relationship types
+    const upwardRel = incomingRels.find(
+      (r) => UPWARD_REL_SLUGS.has(r.relationshipType.slug) && !visited.has(r.fromEntityId),
+    );
+
+    if (!upwardRel) break;
+
+    visited.add(upwardRel.fromEntityId);
+    const parent = upwardRel.fromEntity;
+    const props: Record<string, string> = {};
+    for (const pv of parent.propertyValues) {
+      props[pv.property.slug] = pv.value;
+    }
+
+    chain.push({
+      displayName: parent.displayName,
+      type: parent.entityType.name,
+      properties: props,
+      relationship: upwardRel.relationshipType.name,
+    });
+
+    currentId = upwardRel.fromEntityId;
+  }
+
+  return chain;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

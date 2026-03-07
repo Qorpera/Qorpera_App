@@ -3,6 +3,7 @@ import { callLLM } from "@/lib/ai-provider";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { assembleSituationContext, type SituationContext } from "@/lib/context-assembly";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
+import { isEntityInScope } from "@/lib/situation-scope";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,12 @@ export async function detectSituationsForEntity(
       // Skip if this entity type doesn't match
       if (targetType && targetType !== entityTypeSlug) continue;
 
+      // Skip if scoped and entity is out of scope
+      if (st.scopeEntityId) {
+        const inScope = await isEntityInScope(operatorId, st.scopeEntityId, st.scopeDepth, entityId);
+        if (!inScope) continue;
+      }
+
       const match = await evaluateCandidate(candidate, detection, st.description);
       if (!match) continue;
 
@@ -173,7 +180,7 @@ export async function detectSituationsForEntity(
 
 async function detectForSituationType(
   operatorId: string,
-  st: { id: string; slug: string; name: string; description: string; detectionLogic: string; preFilterPassCount: number; llmConfirmCount: number },
+  st: { id: string; slug: string; name: string; description: string; detectionLogic: string; preFilterPassCount: number; llmConfirmCount: number; scopeEntityId: string | null; scopeDepth: number | null },
 ): Promise<DetectionResult[]> {
   const results: DetectionResult[] = [];
   const detection: DetectionLogic = safeParseDetection(st.detectionLogic);
@@ -182,8 +189,19 @@ async function detectForSituationType(
   if (!targetType) return results;
 
   // Get candidate entities
-  const candidates = await getCandidateEntities(operatorId, targetType, detection);
+  let candidates = await getCandidateEntities(operatorId, targetType, detection);
   if (candidates.length === 0) return results;
+
+  // Filter by scope if set
+  if (st.scopeEntityId) {
+    const scopeEntityId = st.scopeEntityId;
+    const scopeDepth = st.scopeDepth ?? null;
+    const inScopeChecks = await Promise.all(
+      candidates.map((c) => isEntityInScope(operatorId, scopeEntityId, scopeDepth, c.id)),
+    );
+    candidates = candidates.filter((_, i) => inScopeChecks[i]);
+    if (candidates.length === 0) return results;
+  }
 
   // Track pre-filter stats
   let preFilterPassCount = 0;

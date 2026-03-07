@@ -1,4 +1,5 @@
 import type { PermittedAction, BlockedAction } from "@/lib/policy-evaluator";
+import type { OrganizationalContextEntry } from "@/lib/context-assembly";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,7 @@ export interface ReasoningInput {
     relationship: string;
     properties: Record<string, string>;
   }>;
+  organizationalContext?: OrganizationalContextEntry[];
   recentEvents: Array<{ type: string; timestamp: string; payload: unknown }>;
   priorSituations: Array<{
     analysis?: string;
@@ -123,6 +125,16 @@ ${propsStr || "  (no properties)"}`);
 
   if (contextParts.length > 0) {
     sections.push(`CONTEXT:\n${contextParts.join("\n\n")}`);
+  }
+
+  // ORGANIZATIONAL CONTEXT
+  if (input.organizationalContext && input.organizationalContext.length > 0) {
+    const chain = input.organizationalContext
+      .map((o) => `${o.displayName} (${o.type})`)
+      .join(" → ");
+    sections.push(`ORGANIZATIONAL CONTEXT:\n${chain}`);
+  } else {
+    sections.push("ORGANIZATIONAL CONTEXT:\nNo organizational context available. Upload team/org documents to improve routing and escalation.");
   }
 
   // PRIOR SIMILAR SITUATIONS

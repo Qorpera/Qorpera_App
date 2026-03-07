@@ -93,6 +93,54 @@ const COPILOT_TOOLS: AITool[] = [
     },
   },
   {
+    name: "create_internal_entity",
+    description: "Create an internal entity (team member, department, organization, process, etc.) in the knowledge graph. Optionally link it to other entities via relationships.",
+    parameters: {
+      type: "object",
+      properties: {
+        type: { type: "string", description: "Entity type slug (e.g. team-member, department, organization, role, process)" },
+        displayName: { type: "string", description: "Display name for the entity" },
+        properties: { type: "object", description: "Key-value properties for the entity" },
+        relationships: {
+          type: "array",
+          description: "Optional relationships to other entities",
+          items: {
+            type: "object",
+            properties: {
+              targetName: { type: "string", description: "Display name of the target entity" },
+              relationshipType: { type: "string", description: "Relationship type slug (e.g. has-member, has-department, manages, reports-to)" },
+            },
+            required: ["targetName", "relationshipType"],
+          },
+        },
+      },
+      required: ["type", "displayName"],
+    },
+  },
+  {
+    name: "set_situation_scope",
+    description: "Scope a situation type to only fire for entities connected to a specific anchor entity within a given depth. Useful for limiting detection to a team, department, or region.",
+    parameters: {
+      type: "object",
+      properties: {
+        situationTypeSlug: { type: "string", description: "Slug of the situation type to scope" },
+        scopeEntityName: { type: "string", description: "Display name of the anchor entity" },
+        scopeDepth: { type: "number", description: "Max hops from anchor (default: unlimited)" },
+      },
+      required: ["situationTypeSlug", "scopeEntityName"],
+    },
+  },
+  {
+    name: "get_org_structure",
+    description: "Get the organizational structure tree. Optionally start from a specific root entity, or discover all organization-type entities as roots.",
+    parameters: {
+      type: "object",
+      properties: {
+        rootEntityName: { type: "string", description: "Optional root entity name. If omitted, finds all organization-type entities." },
+      },
+    },
+  },
+  {
     name: "create_situation_type",
     description: "Create a new situation type that the system will watch for. Use during orientation or anytime to define what operational scenarios matter.",
     parameters: {
@@ -390,7 +438,149 @@ async function executeTool(
       return `Action "${actionName}" failed: ${result.error}`;
     }
 
-    // ── Orientation + Situation Tools ──────────────────────────────────────
+    // ── Internal Entity Tools ───────────────────────────────────────────────
+
+    case "create_internal_entity": {
+      const typeSlug = String(args.type ?? "");
+      const displayName = String(args.displayName ?? "");
+      const properties = (args.properties ?? {}) as Record<string, string>;
+      const relationships = Array.isArray(args.relationships) ? args.relationships as Array<{ targetName: string; relationshipType: string }> : [];
+
+      // Find or create entity type
+      let entityType = await prisma.entityType.findFirst({
+        where: { operatorId, slug: typeSlug },
+      });
+      if (!entityType) {
+        const SEEDS: Record<string, { name: string; icon: string; color: string }> = {
+          "organization": { name: "Organization", icon: "building-2", color: "#6366f1" },
+          "department": { name: "Department", icon: "users", color: "#8b5cf6" },
+          "team-member": { name: "Team Member", icon: "user", color: "#a78bfa" },
+          "role": { name: "Role", icon: "briefcase", color: "#c084fc" },
+          "process": { name: "Process", icon: "workflow", color: "#e879f9" },
+          "policy": { name: "Policy", icon: "shield", color: "#f0abfc" },
+        };
+        const seed = SEEDS[typeSlug];
+        entityType = await prisma.entityType.create({
+          data: {
+            operatorId,
+            slug: typeSlug,
+            name: seed?.name ?? typeSlug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+            icon: seed?.icon ?? "box",
+            color: seed?.color ?? "#a855f7",
+          },
+        });
+      }
+
+      // Create entity
+      const entity = await prisma.entity.create({
+        data: {
+          operatorId,
+          entityTypeId: entityType.id,
+          displayName,
+          sourceSystem: "manual",
+        },
+      });
+
+      // Create properties
+      for (const [key, value] of Object.entries(properties)) {
+        let prop = await prisma.entityProperty.findFirst({
+          where: { entityTypeId: entityType.id, slug: key },
+        });
+        if (!prop) {
+          prop = await prisma.entityProperty.create({
+            data: {
+              entityTypeId: entityType.id,
+              slug: key,
+              name: key.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+              dataType: "STRING",
+            },
+          });
+        }
+        await prisma.propertyValue.create({
+          data: { entityId: entity.id, propertyId: prop.id, value: String(value) },
+        });
+      }
+
+      // Create relationships
+      const relResults: string[] = [];
+      for (const rel of relationships) {
+        const target = await prisma.entity.findFirst({
+          where: { operatorId, displayName: { contains: rel.targetName }, status: "active" },
+          select: { id: true, displayName: true, entityTypeId: true },
+        });
+        if (!target) {
+          relResults.push(`Target "${rel.targetName}" not found — skipped.`);
+          continue;
+        }
+        const { relateEntities } = await import("@/lib/entity-resolution");
+        await relateEntities(operatorId, entity.id, target.id, rel.relationshipType);
+        relResults.push(`${displayName} --[${rel.relationshipType}]--> ${target.displayName}`);
+      }
+
+      return [
+        `Created entity "${displayName}" [${typeSlug}] (ID: ${entity.id})`,
+        relResults.length > 0 ? `Relationships:\n${relResults.map((r) => `  ${r}`).join("\n")}` : null,
+      ].filter(Boolean).join("\n");
+    }
+
+    case "set_situation_scope": {
+      const slug = String(args.situationTypeSlug ?? "");
+      const scopeEntityName = String(args.scopeEntityName ?? "");
+      const scopeDepth = typeof args.scopeDepth === "number" ? args.scopeDepth : null;
+
+      const st = await prisma.situationType.findFirst({
+        where: { operatorId, slug },
+      });
+      if (!st) return `Situation type "${slug}" not found.`;
+
+      const scopeEntity = await prisma.entity.findFirst({
+        where: { operatorId, displayName: { contains: scopeEntityName }, status: "active" },
+        select: { id: true, displayName: true },
+      });
+      if (!scopeEntity) return `Entity "${scopeEntityName}" not found.`;
+
+      await prisma.situationType.update({
+        where: { id: st.id },
+        data: { scopeEntityId: scopeEntity.id, scopeDepth },
+      });
+
+      return `Scoped "${st.name}" to entity "${scopeEntity.displayName}" (ID: ${scopeEntity.id})${scopeDepth !== null ? `, max ${scopeDepth} hops` : ""}.`;
+    }
+
+    case "get_org_structure": {
+      const rootName = args.rootEntityName ? String(args.rootEntityName) : null;
+
+      let roots: Array<{ id: string; displayName: string }>;
+      if (rootName) {
+        const match = await prisma.entity.findFirst({
+          where: { operatorId, displayName: { contains: rootName }, status: "active" },
+          select: { id: true, displayName: true },
+        });
+        roots = match ? [match] : [];
+      } else {
+        const orgType = await prisma.entityType.findFirst({
+          where: { operatorId, slug: "organization" },
+          select: { id: true },
+        });
+        if (!orgType) return "No organization entities found. Upload documents or create entities first.";
+        roots = await prisma.entity.findMany({
+          where: { entityTypeId: orgType.id, operatorId, status: "active" },
+          select: { id: true, displayName: true },
+          take: 10,
+        });
+      }
+
+      if (roots.length === 0) return "No matching root entities found.";
+
+      const lines: string[] = [];
+      for (const root of roots) {
+        await buildOrgTree(operatorId, root.id, root.displayName, 0, lines, new Set());
+      }
+
+      return lines.join("\n") || "No organizational structure found.";
+    }
+
+    // ── Orientation + Situation Tools ───────────────────────────────────────────────
 
     case "create_situation_type": {
       const name = String(args.name ?? "");
@@ -458,6 +648,44 @@ async function executeTool(
 
     default:
       return `Unknown tool: ${toolName}`;
+  }
+}
+
+// ── Org Tree Helper ──────────────────────────────────────────────────────────
+
+const ORG_DOWNWARD_SLUGS = new Set(["has-department", "has-member", "manages"]);
+
+async function buildOrgTree(
+  operatorId: string,
+  entityId: string,
+  displayName: string,
+  depth: number,
+  lines: string[],
+  visited: Set<string>,
+): Promise<void> {
+  if (visited.has(entityId)) return;
+  visited.add(entityId);
+
+  const indent = "  ".repeat(depth);
+  lines.push(`${indent}- ${displayName}`);
+
+  if (depth >= 6) return; // safety
+
+  const children = await prisma.relationship.findMany({
+    where: {
+      fromEntityId: entityId,
+      fromEntity: { operatorId },
+      toEntity: { status: "active" },
+    },
+    include: {
+      relationshipType: { select: { slug: true } },
+      toEntity: { select: { id: true, displayName: true } },
+    },
+  });
+
+  for (const child of children) {
+    if (!ORG_DOWNWARD_SLUGS.has(child.relationshipType.slug)) continue;
+    await buildOrgTree(operatorId, child.toEntity.id, child.toEntity.displayName, depth + 1, lines, visited);
   }
 }
 

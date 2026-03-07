@@ -126,6 +126,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         relationship: n.relationshipType,
         properties: n.properties,
       })),
+      organizationalContext: context.organizationalContext,
       recentEvents: context.recentEvents.map((e) => ({
         type: e.eventType,
         timestamp: e.createdAt,

@@ -39,6 +39,7 @@ model Operator {
   actionCapabilities  ActionCapability[]
   notifications       Notification[]
   users               User[]
+  internalDocuments   InternalDocument[]
 }
 
 model User {
@@ -383,6 +384,8 @@ model SituationType {
   totalProposed Int    @default(0)
   totalApproved Int    @default(0)
   consecutiveApprovals Int @default(0)
+  scopeEntityId  String?   // anchor entity for scoped detection
+  scopeDepth     Int?      // max hops from anchor (default: unlimited within subtree)
   enabled        Boolean @default(true)
   visibleToRoles String? // JSON array of role strings
   preFilterPassCount  Int       @default(0)
@@ -513,4 +516,21 @@ model Notification {
   operator Operator @relation(fields: [operatorId], references: [id])
 
   @@index([operatorId, read, createdAt(sort: Desc)])
+}
+
+// ─── Internal Documents ──────────────────────────────────
+
+model InternalDocument {
+  id                String   @id @default(cuid())
+  operatorId        String
+  operator          Operator @relation(fields: [operatorId], references: [id])
+  fileName          String
+  mimeType          String
+  filePath          String
+  rawText           String?
+  status            String   @default("uploaded") // uploaded, processing, extracted, confirmed
+  extractedEntities String?  // JSON: { entities: [...], relationships: [...], businessContext: string }
+  businessContext   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
