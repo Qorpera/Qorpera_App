@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { callLLM } from "@/lib/ai-provider";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { assembleSituationContext, type SituationContext } from "@/lib/context-assembly";
+import { reasonAboutSituation } from "@/lib/reasoning-engine";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -146,6 +147,11 @@ export async function detectSituationsForEntity(
         operatorId, st, entityId, context, match.confidence, triggerEventId,
       );
 
+      // Fire-and-forget reasoning
+      reasonAboutSituation(situation.id).catch((err) =>
+        console.error(`[situation-detector] Reasoning failed for situation ${situation.id}:`, err),
+      );
+
       results.push({
         situationTypeId: st.id,
         situationTypeName: st.name,
@@ -248,6 +254,11 @@ async function detectForSituationType(
     const context = await assembleSituationContext(operatorId, st.id, m.candidate.id);
     const situation = await createDetectedSituation(
       operatorId, st, m.candidate.id, context, m.confidence,
+    );
+
+    // Fire-and-forget reasoning
+    reasonAboutSituation(situation.id).catch((err) =>
+      console.error(`[situation-detector] Reasoning failed for situation ${situation.id}:`, err),
     );
 
     results.push({

@@ -55,18 +55,27 @@ export async function GET(req: NextRequest) {
     : [];
   const entityMap = new Map(entities.map((e) => [e.id, e.displayName]));
 
-  const items = situations.map((s) => ({
-    id: s.id,
-    situationType: s.situationType,
-    severity: s.severity,
-    confidence: s.confidence,
-    status: s.status,
-    source: s.source,
-    triggerEntityId: s.triggerEntityId,
-    triggerEntityName: s.triggerEntityId ? entityMap.get(s.triggerEntityId) ?? null : null,
-    createdAt: s.createdAt.toISOString(),
-    resolvedAt: s.resolvedAt?.toISOString() ?? null,
-  }));
+  const items = situations.map((s) => {
+    let reasoning = null;
+    let proposedAction = null;
+    try { reasoning = s.reasoning ? JSON.parse(s.reasoning) : null; } catch {}
+    try { proposedAction = s.proposedAction ? JSON.parse(s.proposedAction) : null; } catch {}
+
+    return {
+      id: s.id,
+      situationType: s.situationType,
+      severity: s.severity,
+      confidence: s.confidence,
+      status: s.status,
+      source: s.source,
+      triggerEntityId: s.triggerEntityId,
+      triggerEntityName: s.triggerEntityId ? entityMap.get(s.triggerEntityId) ?? null : null,
+      reasoning,
+      proposedAction,
+      createdAt: s.createdAt.toISOString(),
+      resolvedAt: s.resolvedAt?.toISOString() ?? null,
+    };
+  });
 
   return NextResponse.json({ items, total, limit, offset });
 }
