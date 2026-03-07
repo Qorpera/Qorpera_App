@@ -11,6 +11,7 @@ type Doc = {
   mimeType: string;
   status: string;
   businessContext: string | null;
+  extractionError: string | null;
   createdAt: string;
 };
 
@@ -28,8 +29,17 @@ type ExtractedRelationship = {
   type: string;
 };
 
+type NewEntityType = {
+  slug: string;
+  name: string;
+  description?: string;
+  properties?: Array<{ slug: string; name: string; dataType?: string }>;
+  removed?: boolean;
+};
+
 type Preview = {
   entities: ExtractedEntity[];
+  newEntityTypes: NewEntityType[];
   relationships: ExtractedRelationship[];
   businessContext: string;
 };
@@ -50,6 +60,7 @@ const STATUS_COLORS: Record<string, string> = {
   processing: "bg-amber-500/20 text-amber-400",
   extracted: "bg-purple-500/20 text-purple-400",
   confirmed: "bg-emerald-500/20 text-emerald-400",
+  error: "bg-red-500/20 text-red-400",
 };
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -63,6 +74,7 @@ export default function DocumentsPage() {
   const [confirming, setConfirming] = useState(false);
   const [confirmSummary, setConfirmSummary] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; fileName: string; status: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load documents
@@ -142,31 +154,52 @@ export default function DocumentsPage() {
     const activeRels = preview.relationships.filter(
       (r) => activeNames.has(r.fromName) && activeNames.has(r.toName),
     );
+    const activeNewTypes = (preview.newEntityTypes ?? []).filter((t) => !t.removed);
 
     const res = await fetch(`/api/documents/${docId}/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entities: activeEntities, relationships: activeRels }),
+      body: JSON.stringify({
+        entities: activeEntities,
+        relationships: activeRels,
+        newEntityTypes: activeNewTypes,
+      }),
     });
 
     if (res.ok) {
       const result = await res.json();
-      setConfirmSummary(`Created ${result.entitiesCreated} entities and ${result.relationshipsCreated} relationships.`);
+      const parts = [];
+      if (result.entityTypesCreated > 0) parts.push(`${result.entityTypesCreated} new type(s)`);
+      parts.push(`${result.entitiesCreated} entities`);
+      parts.push(`${result.relationshipsCreated} relationships`);
+      setConfirmSummary(`Created ${parts.join(", ")}.`);
       await loadDocs();
     }
     setConfirming(false);
   }, [preview, loadDocs]);
 
-  // Delete
-  const handleDelete = useCallback(async (docId: string) => {
-    await fetch("/api/documents", {
+  // Delete (with confirmation modal)
+  const requestDelete = useCallback((doc: Doc) => {
+    setDeleteTarget({ id: doc.id, fileName: doc.fileName, status: doc.status });
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    const res = await fetch("/api/documents", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: docId }),
+      body: JSON.stringify({ id: deleteTarget.id }),
     });
-    if (expandedId === docId) { setExpandedId(null); setPreview(null); }
+    if (expandedId === deleteTarget.id) { setExpandedId(null); setPreview(null); }
+    if (res.ok) {
+      const result = await res.json();
+      if (result.entitiesRemoved > 0) {
+        setConfirmSummary(`Removed document and ${result.entitiesRemoved} associated entit${result.entitiesRemoved === 1 ? "y" : "ies"} from the knowledge graph.`);
+      }
+    }
+    setDeleteTarget(null);
     await loadDocs();
-  }, [expandedId, loadDocs]);
+  }, [deleteTarget, expandedId, loadDocs]);
 
   // Inline entity name editing
   const updateEntityName = (idx: number, newName: string) => {
@@ -181,6 +214,13 @@ export default function DocumentsPage() {
     const updated = [...preview.entities];
     updated[idx] = { ...updated[idx], removed: !updated[idx].removed };
     setPreview({ ...preview, entities: updated });
+  };
+
+  const toggleNewTypeRemoved = (idx: number) => {
+    if (!preview) return;
+    const updated = [...(preview.newEntityTypes ?? [])];
+    updated[idx] = { ...updated[idx], removed: !updated[idx].removed };
+    setPreview({ ...preview, newEntityTypes: updated });
   };
 
   return (
@@ -229,7 +269,7 @@ export default function DocumentsPage() {
           {docs.map((doc) => {
             const isExpanded = expandedId === doc.id;
             const isProcessing = processing.has(doc.id) || doc.status === "processing";
-            const docStatus = isProcessing ? "processing" : doc.status;
+            const docStatus = isProcessing ? "processing" : (doc.status === "uploaded" && doc.extractionError ? "error" : doc.status);
 
             return (
               <div key={doc.id} className="wf-soft rounded-xl overflow-hidden">
@@ -264,8 +304,16 @@ export default function DocumentsPage() {
                     )}
 
                     {doc.status === "confirmed" && (
-                      <div className="text-sm text-emerald-400/80">
-                        {confirmSummary || "Entities confirmed and added to the knowledge graph."}
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-emerald-400/80">
+                          {confirmSummary || "Entities confirmed and added to the knowledge graph."}
+                        </div>
+                        <button
+                          onClick={() => requestDelete(doc)}
+                          className="px-4 py-1.5 rounded-lg text-red-400/60 text-xs hover:text-red-400 hover:bg-red-500/10 transition flex-shrink-0"
+                        >
+                          Remove
+                        </button>
                       </div>
                     )}
 
@@ -303,6 +351,38 @@ export default function DocumentsPage() {
                             ))}
                           </div>
                         </div>
+
+                        {/* New Entity Types */}
+                        {(preview.newEntityTypes ?? []).length > 0 && (
+                          <div>
+                            <h3 className="text-xs font-medium text-amber-400/70 mb-2">
+                              New Entity Types Proposed ({(preview.newEntityTypes ?? []).filter((t) => !t.removed).length})
+                            </h3>
+                            <div className="space-y-1">
+                              {(preview.newEntityTypes ?? []).map((nt, i) => (
+                                <div
+                                  key={i}
+                                  className={`flex items-center gap-3 px-3 py-2 rounded-lg bg-amber-500/[0.04] border border-amber-500/10 ${nt.removed ? "opacity-30 line-through" : ""}`}
+                                >
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 flex-shrink-0">
+                                    NEW
+                                  </span>
+                                  <span className="text-sm text-white/80 flex-shrink-0">{nt.name}</span>
+                                  <span className="text-[10px] text-white/20 truncate flex-1">
+                                    {nt.slug} — {nt.properties?.map((p) => p.name).join(", ") || "no properties"}
+                                  </span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); toggleNewTypeRemoved(i); }}
+                                    className="text-white/20 hover:text-red-400 transition-colors text-xs"
+                                    title={nt.removed ? "Restore" : "Remove"}
+                                  >
+                                    {nt.removed ? "+" : "\u00d7"}
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Relationships */}
                         {preview.relationships.length > 0 && (
@@ -346,10 +426,10 @@ export default function DocumentsPage() {
                             Re-extract
                           </button>
                           <button
-                            onClick={() => handleDelete(doc.id)}
+                            onClick={() => requestDelete(doc)}
                             className="px-4 py-1.5 rounded-lg text-red-400/60 text-xs hover:text-red-400 hover:bg-red-500/10 transition ml-auto"
                           >
-                            Delete
+                            Remove
                           </button>
                         </div>
                       </>
@@ -357,13 +437,21 @@ export default function DocumentsPage() {
 
                     {!isProcessing && doc.status === "uploaded" && (
                       <div className="space-y-2">
-                        <div className="text-xs text-white/30">Upload complete. Extraction will begin automatically.</div>
-                        <button
-                          onClick={() => handleReExtract(doc.id)}
-                          className="px-4 py-1.5 rounded-lg bg-white/[0.06] text-white/50 text-xs hover:bg-white/[0.1] transition"
-                        >
-                          Retry extraction
-                        </button>
+                        {doc.extractionError ? (
+                          <>
+                            <div className="text-xs text-red-400/80 bg-red-500/10 rounded-lg px-3 py-2">
+                              Extraction failed: {doc.extractionError}
+                            </div>
+                            <button
+                              onClick={() => handleReExtract(doc.id)}
+                              className="px-4 py-1.5 rounded-lg bg-white/[0.06] text-white/50 text-xs hover:bg-white/[0.1] transition"
+                            >
+                              Retry extraction
+                            </button>
+                          </>
+                        ) : (
+                          <div className="text-xs text-white/30">Upload complete. Extraction will begin automatically.</div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -373,6 +461,35 @@ export default function DocumentsPage() {
           })}
         </div>
       </div>
+
+      {/* Remove confirmation modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="wf-soft rounded-2xl p-6 max-w-md w-full mx-4 space-y-4 border border-white/[0.08]">
+            <h2 className="text-base font-semibold text-white/90">Remove document?</h2>
+            <p className="text-sm text-white/50 leading-relaxed">
+              Removing <span className="text-white/70 font-medium">{deleteTarget.fileName}</span>
+              {deleteTarget.status === "confirmed"
+                ? " may change the mapping of your company. Entities created from this document will remain in the knowledge graph, but the source document and its extraction data will be permanently deleted."
+                : " will permanently delete this document and any extraction data associated with it."}
+            </p>
+            <div className="flex gap-3 justify-end pt-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 rounded-lg bg-white/[0.06] text-white/50 text-sm hover:bg-white/[0.1] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-500 transition"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

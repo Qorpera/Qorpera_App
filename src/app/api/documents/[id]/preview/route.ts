@@ -24,6 +24,7 @@ export async function GET(
 
   return NextResponse.json({
     entities: extraction.entities ?? [],
+    newEntityTypes: extraction.newEntityTypes ?? [],
     relationships: extraction.relationships ?? [],
     businessContext: extraction.businessContext ?? doc.businessContext ?? "",
   });

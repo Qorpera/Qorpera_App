@@ -2,9 +2,13 @@ import { prisma } from "@/lib/db";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image_base64"; mediaType: string; data: string };
+
 export type AIMessage = {
   role: "system" | "user" | "assistant" | "tool";
-  content: string;
+  content: string | ContentBlock[];
   // OpenAI tool calling fields
   tool_calls?: Array<{
     id: string;
@@ -71,7 +75,7 @@ function defaultBaseUrlForProvider(provider: string): string {
 function defaultModelForProvider(provider: string): string {
   switch (provider) {
     case "openai":
-      return "gpt-4o";
+      return "gpt-5.4";
     case "anthropic":
       return "claude-sonnet-4-20250514";
     case "ollama":
@@ -138,25 +142,54 @@ function buildOpenAITools(tools?: AITool[]) {
   }));
 }
 
+// Newer OpenAI models use max_completion_tokens; o-series don't support temperature
+function isLegacyOpenAIModel(model: string): boolean {
+  return model.startsWith("gpt-4o") || model.startsWith("gpt-4-");
+}
+
+function isReasoningModel(model: string): boolean {
+  return /^o\d/.test(model);
+}
+
 async function callOpenAI(
   config: AIConfig,
   messages: AIMessage[],
   options?: CallOptions,
 ): Promise<AIResponse> {
   const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
+  const legacy = isLegacyOpenAIModel(config.model);
+  const reasoning = isReasoningModel(config.model);
+
   const body: Record<string, unknown> = {
     model: config.model,
     messages: messages.map((m) => {
       if (m.role === "tool") {
-        return { role: "tool", content: m.content, tool_call_id: m.tool_call_id };
+        return { role: "tool", content: contentToString(m.content), tool_call_id: m.tool_call_id };
       }
       if (m.role === "assistant" && m.tool_calls) {
-        return { role: "assistant", content: m.content || null, tool_calls: m.tool_calls };
+        return { role: "assistant", content: contentToString(m.content) || null, tool_calls: m.tool_calls };
+      }
+      // Multimodal content for OpenAI
+      if (Array.isArray(m.content)) {
+        return {
+          role: m.role,
+          content: m.content.map((block) => {
+            if (block.type === "text") return { type: "text", text: block.text };
+            if (block.type === "image_base64") {
+              return { type: "image_url", image_url: { url: `data:${block.mediaType};base64,${block.data}` } };
+            }
+            return { type: "text", text: "" };
+          }),
+        };
       }
       return { role: m.role, content: m.content };
     }),
-    ...(options?.temperature !== undefined && { temperature: options.temperature }),
-    ...(options?.maxTokens !== undefined && { max_tokens: options.maxTokens }),
+    // Reasoning models don't support temperature
+    ...(!reasoning && options?.temperature !== undefined && { temperature: options.temperature }),
+    // Legacy models use max_tokens, newer models use max_completion_tokens
+    ...(options?.maxTokens !== undefined && (legacy
+      ? { max_tokens: options.maxTokens }
+      : { max_completion_tokens: options.maxTokens })),
   };
 
   const tools = buildOpenAITools(options?.tools);
@@ -198,12 +231,17 @@ async function* streamOpenAI(
   options?: CallOptions,
 ): AsyncGenerator<string> {
   const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
+  const legacy = isLegacyOpenAIModel(config.model);
+  const reasoning = isReasoningModel(config.model);
+
   const body: Record<string, unknown> = {
     model: config.model,
     messages,
     stream: true,
-    ...(options?.temperature !== undefined && { temperature: options.temperature }),
-    ...(options?.maxTokens !== undefined && { max_tokens: options.maxTokens }),
+    ...(!reasoning && options?.temperature !== undefined && { temperature: options.temperature }),
+    ...(options?.maxTokens !== undefined && (legacy
+      ? { max_tokens: options.maxTokens }
+      : { max_completion_tokens: options.maxTokens })),
   };
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -251,14 +289,15 @@ async function callAnthropic(
         content: [{
           type: "tool_result",
           tool_use_id: m.tool_call_id,
-          content: m.content,
+          content: contentToString(m.content),
         }],
       };
     }
     if (m.role === "assistant" && m.tool_calls) {
       // Anthropic expects tool_use content blocks in assistant messages
       const content: Array<Record<string, unknown>> = [];
-      if (m.content) content.push({ type: "text", text: m.content });
+      const text = contentToString(m.content);
+      if (text) content.push({ type: "text", text });
       for (const tc of m.tool_calls) {
         content.push({
           type: "tool_use",
@@ -268,6 +307,22 @@ async function callAnthropic(
         });
       }
       return { role: "assistant" as const, content };
+    }
+    // Multimodal content for Anthropic
+    if (Array.isArray(m.content)) {
+      return {
+        role: m.role,
+        content: m.content.map((block) => {
+          if (block.type === "text") return { type: "text", text: block.text };
+          if (block.type === "image_base64") {
+            return {
+              type: "image",
+              source: { type: "base64", media_type: block.mediaType, data: block.data },
+            };
+          }
+          return { type: "text", text: "" };
+        }),
+      };
     }
     return { role: m.role, content: m.content };
   });
@@ -401,10 +456,24 @@ async function callOllama(
     model: config.model,
     messages: messages.map((m) => {
       if (m.role === "tool") {
-        return { role: "tool", content: m.content, tool_call_id: m.tool_call_id };
+        return { role: "tool", content: contentToString(m.content), tool_call_id: m.tool_call_id };
       }
       if (m.role === "assistant" && m.tool_calls) {
-        return { role: "assistant", content: m.content || "", tool_calls: m.tool_calls };
+        return { role: "assistant", content: contentToString(m.content) || "", tool_calls: m.tool_calls };
+      }
+      // Ollama uses an `images` array for vision models
+      if (Array.isArray(m.content)) {
+        const textParts: string[] = [];
+        const images: string[] = [];
+        for (const block of m.content) {
+          if (block.type === "text") textParts.push(block.text);
+          if (block.type === "image_base64") images.push(block.data);
+        }
+        return {
+          role: m.role,
+          content: textParts.join("\n"),
+          ...(images.length > 0 && { images }),
+        };
       }
       return { role: m.role, content: m.content };
     }),
@@ -546,6 +615,14 @@ async function* parseSSEStream(response: Response): AsyncGenerator<string> {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+function contentToString(content: string | ContentBlock[]): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((b): b is { type: "text"; text: string } => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
 
 function safeParseJSON(str: string): Record<string, unknown> {
   try {

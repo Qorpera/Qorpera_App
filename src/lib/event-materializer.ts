@@ -211,70 +211,144 @@ export function invalidateMaterializerCache(connectorId: string): void {
   dynRuleCache.delete(connectorId);
 }
 
-// ── Stripe Property Bootstrapping ────────────────────────────────────────────
+// ── Entity Type Auto-Seeding ─────────────────────────────────────────────────
 
-const stripePropertyCache = new Set<string>();
+type EntityTypeSeed = {
+  name: string;
+  icon: string;
+  color: string;
+  properties: Array<{ slug: string; name: string; dataType: string; identityRole?: string }>;
+};
 
-async function ensureStripePropertiesOnContactType(operatorId: string): Promise<void> {
-  if (stripePropertyCache.has(operatorId)) return;
+const ENTITY_TYPE_SEEDS: Record<string, EntityTypeSeed> = {
+  contact: {
+    name: "Contact",
+    icon: "user",
+    color: "#6366f1",
+    properties: [
+      { slug: "email", name: "Email", dataType: "STRING", identityRole: "email" },
+      { slug: "phone", name: "Phone", dataType: "STRING", identityRole: "phone" },
+      { slug: "job-title", name: "Job Title", dataType: "STRING" },
+      { slug: "currency", name: "Currency", dataType: "STRING" },
+      { slug: "stripe-customer-id", name: "Stripe Customer ID", dataType: "STRING" },
+      { slug: "balance", name: "Balance", dataType: "NUMBER" },
+      { slug: "delinquent", name: "Delinquent", dataType: "BOOLEAN" },
+    ],
+  },
+  company: {
+    name: "Company",
+    icon: "building-2",
+    color: "#8b5cf6",
+    properties: [
+      { slug: "domain", name: "Domain", dataType: "STRING", identityRole: "domain" },
+      { slug: "industry", name: "Industry", dataType: "STRING" },
+      { slug: "revenue", name: "Revenue", dataType: "CURRENCY" },
+      { slug: "employee-count", name: "Employee Count", dataType: "NUMBER" },
+    ],
+  },
+  deal: {
+    name: "Deal",
+    icon: "handshake",
+    color: "#a78bfa",
+    properties: [
+      { slug: "amount", name: "Amount", dataType: "CURRENCY" },
+      { slug: "stage", name: "Stage", dataType: "STRING" },
+      { slug: "close-date", name: "Close Date", dataType: "DATE" },
+      { slug: "pipeline", name: "Pipeline", dataType: "STRING" },
+    ],
+  },
+  invoice: {
+    name: "Invoice",
+    icon: "file-text",
+    color: "#c084fc",
+    properties: [
+      { slug: "amount", name: "Amount", dataType: "CURRENCY" },
+      { slug: "status", name: "Status", dataType: "STRING" },
+      { slug: "due-date", name: "Due Date", dataType: "DATE" },
+      { slug: "currency", name: "Currency", dataType: "STRING" },
+      { slug: "amount-paid", name: "Amount Paid", dataType: "CURRENCY" },
+      { slug: "paid-date", name: "Paid Date", dataType: "DATE" },
+    ],
+  },
+  payment: {
+    name: "Payment",
+    icon: "credit-card",
+    color: "#e879f9",
+    properties: [
+      { slug: "amount", name: "Amount", dataType: "CURRENCY" },
+      { slug: "currency", name: "Currency", dataType: "STRING" },
+      { slug: "status", name: "Status", dataType: "STRING" },
+      { slug: "payment-date", name: "Payment Date", dataType: "DATE" },
+    ],
+  },
+  record: {
+    name: "Record",
+    icon: "table-2",
+    color: "#f0abfc",
+    properties: [],
+  },
+};
 
-  const contactType = await prisma.entityType.findFirst({
-    where: { operatorId, slug: "contact" },
+const seedCache = new Set<string>();
+
+async function ensureEntityTypeForMaterializer(
+  operatorId: string,
+  slug: string,
+): Promise<void> {
+  const cacheKey = `${operatorId}:${slug}`;
+  if (seedCache.has(cacheKey)) return;
+
+  const existing = await prisma.entityType.findFirst({
+    where: { operatorId, slug },
     include: { properties: { select: { slug: true } } },
   });
-  if (!contactType) return;
 
-  const existing = new Set(contactType.properties.map((p) => p.slug));
-  const needed: Array<{ slug: string; name: string; dataType: string }> = [
-    { slug: "currency", name: "Currency", dataType: "STRING" },
-    { slug: "stripe-customer-id", name: "Stripe Customer ID", dataType: "STRING" },
-    { slug: "balance", name: "Balance", dataType: "NUMBER" },
-    { slug: "delinquent", name: "Delinquent", dataType: "BOOLEAN" },
-  ];
-
-  for (const prop of needed) {
-    if (!existing.has(prop.slug)) {
-      await prisma.entityProperty.create({
-        data: {
-          entityTypeId: contactType.id,
-          slug: prop.slug,
-          name: prop.name,
-          dataType: prop.dataType,
-        },
-      });
-    }
+  const seed = ENTITY_TYPE_SEEDS[slug];
+  if (!seed) {
+    // No seed defined — can't auto-create
+    if (existing) seedCache.add(cacheKey);
+    return;
   }
 
-  stripePropertyCache.add(operatorId);
-}
-
-async function ensurePaymentEntityType(operatorId: string): Promise<void> {
-  const cacheKey = `${operatorId}:payment`;
-  if (stripePropertyCache.has(cacheKey)) return;
-
-  const paymentType = await prisma.entityType.findFirst({
-    where: { operatorId, slug: "payment" },
-  });
-
-  if (!paymentType) {
+  if (!existing) {
+    // Create the type with all seed properties
     await prisma.entityType.create({
       data: {
         operatorId,
-        slug: "payment",
-        name: "Payment",
+        slug,
+        name: seed.name,
+        icon: seed.icon,
+        color: seed.color,
         properties: {
-          create: [
-            { slug: "amount", name: "Amount", dataType: "CURRENCY" },
-            { slug: "currency", name: "Currency", dataType: "STRING" },
-            { slug: "status", name: "Status", dataType: "STRING" },
-            { slug: "payment-date", name: "Payment Date", dataType: "DATE" },
-          ],
+          create: seed.properties.map((p, i) => ({
+            slug: p.slug,
+            name: p.name,
+            dataType: p.dataType,
+            identityRole: p.identityRole ?? null,
+            displayOrder: i,
+          })),
         },
       },
     });
+  } else {
+    // Type exists — ensure all seed properties are present
+    const existingSlugs = new Set(existing.properties.map((p) => p.slug));
+    for (const prop of seed.properties) {
+      if (!existingSlugs.has(prop.slug)) {
+        await prisma.entityProperty.create({
+          data: {
+            entityTypeId: existing.id,
+            slug: prop.slug,
+            name: prop.name,
+            dataType: prop.dataType,
+            identityRole: prop.identityRole ?? null,
+          },
+        });
+      }
+    }
   }
 
-  stripePropertyCache.add(cacheKey);
+  seedCache.add(cacheKey);
 }
 
 // ── Core Materializer ────────────────────────────────────────────────────────
@@ -483,13 +557,8 @@ export async function materializeEvent(
       return { status: "unrecognized", eventType };
     }
 
-    // ── Stripe property bootstrapping ──────────────────────────────────
-    if (eventType === "customer.synced") {
-      await ensureStripePropertiesOnContactType(operatorId);
-    }
-    if (eventType === "payment.received") {
-      await ensurePaymentEntityType(operatorId);
-    }
+    // ── Auto-seed entity type + properties if a seed is defined ────────
+    await ensureEntityTypeForMaterializer(operatorId, rule.entityTypeSlug);
 
     // ── Check if target entity type exists ────────────────────────────────
     const entityType = await getEntityType(operatorId, rule.entityTypeSlug);

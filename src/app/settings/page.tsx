@@ -54,6 +54,30 @@ const PROVIDER_OPTIONS = [
   { value: "anthropic", label: "Anthropic" },
 ];
 
+const CLOUD_MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  openai: [
+    { value: "gpt-5.4", label: "GPT-5.4 (Latest, most capable)" },
+    { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+    { value: "gpt-5.2", label: "GPT-5.2" },
+    { value: "gpt-5.2-mini", label: "GPT-5.2 Mini" },
+    { value: "gpt-5", label: "GPT-5" },
+    { value: "gpt-5-mini", label: "GPT-5 Mini" },
+    { value: "o4-mini", label: "o4-mini (Reasoning)" },
+    { value: "o3", label: "o3 (Reasoning)" },
+    { value: "o3-mini", label: "o3-mini (Reasoning, fast)" },
+    { value: "gpt-4.1", label: "GPT-4.1" },
+    { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+    { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
+    { value: "gpt-4o", label: "GPT-4o (Legacy)" },
+    { value: "gpt-4o-mini", label: "GPT-4o Mini (Legacy)" },
+  ],
+  anthropic: [
+    { value: "claude-opus-4-20250514", label: "Claude Opus 4 (Most capable)" },
+    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4 (Balanced)" },
+    { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 (Fastest)" },
+  ],
+};
+
 export default function SettingsPage() {
   return (
     <Suspense>
@@ -90,6 +114,7 @@ function SettingsPageInner() {
     error?: string;
   } | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<Array<{ value: string; label: string }>>([]);
 
   // Governance state
   const [govApprovalThreshold, setGovApprovalThreshold] = useState("");
@@ -166,6 +191,29 @@ function SettingsPageInner() {
       }).catch(() => {}).finally(() => setAutoLoading(false));
     }
   }, [activeTab]);
+
+  // Fetch Ollama models when provider is ollama
+  useEffect(() => {
+    if (aiProvider !== "ollama") return;
+    const url = aiBaseUrl || "http://localhost:11434";
+    fetch(`${url}/api/tags`)
+      .then((r) => r.json())
+      .then((data) => {
+        const models = (data.models ?? []).map((m: { name: string }) => ({
+          value: m.name.replace(/:latest$/, ""),
+          label: m.name.replace(/:latest$/, ""),
+        }));
+        setOllamaModels(models.length > 0 ? models : [{ value: "llama3.2", label: "llama3.2 (default)" }]);
+      })
+      .catch(() => {
+        setOllamaModels([
+          { value: "llama3.2", label: "llama3.2" },
+          { value: "llama3.1", label: "llama3.1" },
+          { value: "mistral", label: "mistral" },
+          { value: "deepseek-r1", label: "deepseek-r1" },
+        ]);
+      });
+  }, [aiProvider, aiBaseUrl]);
 
   // Load AI settings from DB
   useEffect(() => {
@@ -612,7 +660,13 @@ function SettingsPageInner() {
               label="Provider"
               options={PROVIDER_OPTIONS}
               value={aiProvider}
-              onChange={(e) => setAiProvider(e.target.value)}
+              onChange={(e) => {
+                const newProvider = e.target.value;
+                setAiProvider(newProvider);
+                // Auto-select the first model for the new provider
+                const models = newProvider === "ollama" ? ollamaModels : (CLOUD_MODEL_OPTIONS[newProvider] ?? []);
+                if (models.length > 0) setAiModel(models[0].value);
+              }}
             />
             {aiProvider !== "ollama" && (
               <Input
@@ -631,17 +685,11 @@ function SettingsPageInner() {
                 placeholder="http://localhost:11434"
               />
             )}
-            <Input
-              label="Model Name"
+            <Select
+              label="Model"
+              options={aiProvider === "ollama" ? ollamaModels : (CLOUD_MODEL_OPTIONS[aiProvider] ?? [])}
               value={aiModel}
               onChange={(e) => setAiModel(e.target.value)}
-              placeholder={
-                aiProvider === "openai"
-                  ? "gpt-4o"
-                  : aiProvider === "anthropic"
-                    ? "claude-sonnet-4-20250514"
-                    : "llama3.2"
-              }
             />
             <div className="flex items-center gap-3 pt-2">
               <Button

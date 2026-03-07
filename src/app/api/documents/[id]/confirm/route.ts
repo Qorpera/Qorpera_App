@@ -2,16 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recordEntityMention } from "@/lib/entity-resolution";
-
-// Internal entity type seeds
-const INTERNAL_TYPES: Record<string, { name: string; icon: string; color: string }> = {
-  "organization": { name: "Organization", icon: "building-2", color: "#6366f1" },
-  "department": { name: "Department", icon: "users", color: "#8b5cf6" },
-  "team-member": { name: "Team Member", icon: "user", color: "#a78bfa" },
-  "role": { name: "Role", icon: "briefcase", color: "#c084fc" },
-  "process": { name: "Process", icon: "workflow", color: "#e879f9" },
-  "policy": { name: "Policy", icon: "shield", color: "#f0abfc" },
-};
+import { INTERNAL_ENTITY_TYPE_SEEDS } from "@/lib/internal-entity-types";
 
 async function findOrCreateEntityType(operatorId: string, typeSlug: string) {
   const existing = await prisma.entityType.findFirst({
@@ -19,7 +10,7 @@ async function findOrCreateEntityType(operatorId: string, typeSlug: string) {
   });
   if (existing) return existing;
 
-  const seed = INTERNAL_TYPES[typeSlug];
+  const seed = INTERNAL_ENTITY_TYPE_SEEDS[typeSlug];
   return prisma.entityType.create({
     data: {
       operatorId,
@@ -79,13 +70,56 @@ export async function POST(
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
   }
 
+  if (doc.status === "confirmed") {
+    return NextResponse.json({ error: "Document already confirmed" }, { status: 400 });
+  }
+
+  if (doc.status !== "extracted") {
+    return NextResponse.json({ error: `Document must be in "extracted" status to confirm (current: ${doc.status})` }, { status: 400 });
+  }
+
   const body = await req.json();
   const entities: ExtractedEntity[] = body.entities ?? [];
   const relationships: ExtractedRelationship[] = body.relationships ?? [];
+  const newEntityTypes: Array<{
+    slug: string;
+    name: string;
+    description?: string;
+    properties?: Array<{ slug: string; name: string; dataType?: string }>;
+  }> = body.newEntityTypes ?? [];
 
   const createdEntities: { id: string; displayName: string; type: string }[] = [];
   const entityNameToId = new Map<string, string>();
   const createdRelationships: string[] = [];
+  const createdTypes: string[] = [];
+
+  // Pre-create AI-proposed new entity types with proper metadata
+  for (const newType of newEntityTypes) {
+    const existing = await prisma.entityType.findFirst({
+      where: { operatorId, slug: newType.slug },
+    });
+    if (existing) continue;
+
+    const created = await prisma.entityType.create({
+      data: {
+        operatorId,
+        slug: newType.slug,
+        name: newType.name,
+        description: newType.description ?? "",
+        icon: "box",
+        color: "#a855f7",
+        properties: {
+          create: (newType.properties ?? []).map((p, i) => ({
+            slug: p.slug,
+            name: p.name,
+            dataType: p.dataType || "STRING",
+            displayOrder: i,
+          })),
+        },
+      },
+    });
+    createdTypes.push(created.slug);
+  }
 
   // Create entities
   for (const ent of entities) {
@@ -206,9 +240,11 @@ export async function POST(
 
   return NextResponse.json({
     status: "confirmed",
+    entityTypesCreated: createdTypes.length,
     entitiesCreated: createdEntities.length,
     relationshipsCreated: createdRelationships.length,
     entities: createdEntities,
     relationships: createdRelationships,
+    newTypes: createdTypes,
   });
 }

@@ -7,6 +7,7 @@ import { getBusinessContext, formatBusinessContext } from "@/lib/business-contex
 import { buildOrientationSystemPrompt } from "@/lib/orientation-prompts";
 import { generatePreFilter } from "@/lib/situation-prefilter";
 import { getProvider } from "@/lib/connectors/registry";
+import { INTERNAL_ENTITY_TYPE_SEEDS } from "@/lib/internal-entity-types";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -451,15 +452,7 @@ async function executeTool(
         where: { operatorId, slug: typeSlug },
       });
       if (!entityType) {
-        const SEEDS: Record<string, { name: string; icon: string; color: string }> = {
-          "organization": { name: "Organization", icon: "building-2", color: "#6366f1" },
-          "department": { name: "Department", icon: "users", color: "#8b5cf6" },
-          "team-member": { name: "Team Member", icon: "user", color: "#a78bfa" },
-          "role": { name: "Role", icon: "briefcase", color: "#c084fc" },
-          "process": { name: "Process", icon: "workflow", color: "#e879f9" },
-          "policy": { name: "Policy", icon: "shield", color: "#f0abfc" },
-        };
-        const seed = SEEDS[typeSlug];
+        const seed = INTERNAL_ENTITY_TYPE_SEEDS[typeSlug];
         entityType = await prisma.entityType.create({
           data: {
             operatorId,
