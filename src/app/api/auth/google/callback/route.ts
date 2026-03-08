@@ -15,7 +15,13 @@ export async function GET(req: NextRequest) {
   // Determine return destination
   const oauthReturn = cookieStore.get("oauth_return")?.value;
   cookieStore.delete("oauth_return");
-  const returnBase = oauthReturn === "onboarding" ? "/onboarding" : "/settings?tab=connections";
+  let returnBase = "/settings?tab=connections";
+  if (oauthReturn === "onboarding") {
+    returnBase = "/onboarding";
+  } else if (oauthReturn?.startsWith("department:")) {
+    const deptId = oauthReturn.replace("department:", "");
+    returnBase = `/map/${deptId}`;
+  }
   const sep = returnBase.includes("?") ? "&" : "?";
 
   if (error) {

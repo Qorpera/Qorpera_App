@@ -91,6 +91,34 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Ensure "team-member" entity type
+    const tmType = await prisma.entityType.findFirst({
+      where: { operatorId: operator.id, slug: "team-member" },
+    });
+    if (!tmType) {
+      const def = HARDCODED_TYPE_DEFS["team-member"];
+      await prisma.entityType.create({
+        data: {
+          operatorId: operator.id,
+          slug: def.slug,
+          name: def.name,
+          description: def.description,
+          icon: def.icon,
+          color: def.color,
+          defaultCategory: def.defaultCategory,
+          properties: {
+            create: def.properties.map((p, i) => ({
+              slug: p.slug,
+              name: p.name,
+              dataType: p.dataType,
+              identityRole: p.identityRole ?? null,
+              displayOrder: i,
+            })),
+          },
+        },
+      });
+    }
+
     // Create CompanyHQ entity
     await prisma.entity.create({
       data: {
@@ -103,6 +131,25 @@ export async function POST(req: NextRequest) {
         description: "Company headquarters",
       },
     });
+
+    // Seed department-member relationship type
+    const deptTypeForRel = await prisma.entityType.findFirst({
+      where: { operatorId: operator.id, slug: "department" }
+    });
+    if (deptTypeForRel) {
+      await prisma.relationshipType.upsert({
+        where: { operatorId_slug: { operatorId: operator.id, slug: "department-member" } },
+        create: {
+          operatorId: operator.id,
+          name: "Department Member",
+          slug: "department-member",
+          fromEntityTypeId: deptTypeForRel.id,
+          toEntityTypeId: deptTypeForRel.id,
+          description: "Links an entity to the department it belongs to",
+        },
+        update: {},
+      });
+    }
   } catch (seedErr) {
     console.error("[register] Failed to seed foundational structure:", seedErr);
   }

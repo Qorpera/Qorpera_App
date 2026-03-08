@@ -15,7 +15,13 @@ export async function GET(req: NextRequest) {
   // Determine return destination
   const oauthReturn = cookieStore.get("oauth_return")?.value;
   cookieStore.delete("oauth_return");
-  const returnBase = oauthReturn === "onboarding" ? "/onboarding" : "/settings?tab=connections";
+  let returnBase = "/settings?tab=connections";
+  if (oauthReturn === "onboarding") {
+    returnBase = "/onboarding";
+  } else if (oauthReturn?.startsWith("department:")) {
+    const deptId = oauthReturn.replace("department:", "");
+    returnBase = `/map/${deptId}`;
+  }
   const sep = returnBase.includes("?") ? "&" : "?";
 
   if (error) {
@@ -74,7 +80,7 @@ export async function GET(req: NextRequest) {
     token_expiry: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
   };
 
-  await prisma.sourceConnector.create({
+  const connector = await prisma.sourceConnector.create({
     data: {
       operatorId,
       provider: "hubspot",
@@ -83,6 +89,22 @@ export async function GET(req: NextRequest) {
       config: JSON.stringify(config),
     },
   });
+
+  if (oauthReturn?.startsWith("department:")) {
+    const deptId = oauthReturn.replace("department:", "");
+    try {
+      await prisma.connectorDepartmentBinding.create({
+        data: {
+          operatorId,
+          connectorId: connector.id,
+          departmentId: deptId,
+          entityTypeFilter: null,
+        },
+      });
+    } catch (bindErr) {
+      console.error("[oauth-callback] Failed to auto-create binding:", bindErr);
+    }
+  }
 
   return NextResponse.redirect(
     new URL(`${returnBase}${sep}hubspot=connected`, req.url)

@@ -9,7 +9,6 @@ const NAV_GROUPS = [
     items: [
       { href: "/map", label: "Map", icon: "map" },
       { href: "/situations", label: "Situations", icon: "alert-triangle", badge: true },
-      { href: "/settings?tab=connections", label: "Connections", icon: "layers" },
     ],
   },
   {

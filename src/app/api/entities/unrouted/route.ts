@@ -1,0 +1,51 @@
+import { NextResponse } from "next/server";
+import { getOperatorId } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+
+export async function GET() {
+  const operatorId = await getOperatorId();
+
+  // Find department-member relationship type
+  const relType = await prisma.relationshipType.findFirst({
+    where: { operatorId, slug: "department-member" },
+  });
+
+  // Get IDs of entities that have a department-member relationship
+  const routedEntityIds: string[] = [];
+  if (relType) {
+    const routedRels = await prisma.relationship.findMany({
+      where: { relationshipTypeId: relType.id },
+      select: { fromEntityId: true },
+    });
+    routedEntityIds.push(...routedRels.map((r) => r.fromEntityId));
+  }
+
+  const entities = await prisma.entity.findMany({
+    where: {
+      operatorId,
+      category: "digital",
+      status: "active",
+      parentDepartmentId: null,
+      ...(routedEntityIds.length > 0 ? { id: { notIn: routedEntityIds } } : {}),
+    },
+    include: {
+      entityType: { select: { slug: true, name: true, color: true } },
+    },
+    take: 100,
+    orderBy: { createdAt: "desc" },
+  });
+
+  return NextResponse.json({
+    entities: entities.map((e) => ({
+      id: e.id,
+      displayName: e.displayName,
+      entityType: {
+        slug: e.entityType.slug,
+        name: e.entityType.name,
+        color: e.entityType.color,
+      },
+      sourceSystem: e.sourceSystem,
+    })),
+    count: entities.length,
+  });
+}

@@ -279,6 +279,46 @@ async function ensureHardcodedEntityType(operatorId: string, slug: string): Prom
   ensuredTypeCache.add(cacheKey);
 }
 
+// ── Department Routing ───────────────────────────────────────────────────────
+
+async function routeEntityToDepartments(
+  operatorId: string,
+  entityId: string,
+  entityTypeSlug: string,
+  connectorId: string | null,
+): Promise<void> {
+  if (!connectorId) return; // Manual/system events don't route via bindings
+
+  // Load active bindings for this connector
+  const bindings = await prisma.connectorDepartmentBinding.findMany({
+    where: { connectorId, enabled: true },
+  });
+
+  if (bindings.length === 0) return; // No bindings = unrouted
+
+  // Load entity category
+  const entity = await prisma.entity.findUnique({
+    where: { id: entityId },
+    select: { category: true },
+  });
+  if (!entity) return;
+
+  for (const binding of bindings) {
+    // Check entity type filter
+    if (binding.entityTypeFilter) {
+      const allowedTypes: string[] = JSON.parse(binding.entityTypeFilter);
+      if (!allowedTypes.includes(entityTypeSlug)) continue;
+    }
+
+    // External entities don't get department-member relationships
+    // They link through their related entities (contacts, invoices, etc.)
+    if (entity.category === "external") continue;
+
+    // Create department-member relationship
+    await relateEntities(operatorId, entityId, binding.departmentId, "department-member");
+  }
+}
+
 // ── Core Materializer ────────────────────────────────────────────────────────
 
 export async function materializeEvent(
@@ -450,6 +490,10 @@ export async function materializeEvent(
           },
         });
 
+        routeEntityToDepartments(operatorId, entityId, matchingRule.entityTypeSlug, event.connectorId ?? null).catch(err =>
+          console.error("[materializer] Department routing error:", err)
+        );
+
         notifySituationDetectors(operatorId, [entityId], event.id).catch((err) =>
           console.error("[materializer] Background detection error:", err)
         );
@@ -562,6 +606,10 @@ export async function materializeEvent(
         entityRefs: JSON.stringify([entityId]),
       },
     });
+
+    routeEntityToDepartments(operatorId, entityId, rule.entityTypeSlug, event.connectorId ?? null).catch(err =>
+      console.error("[materializer] Department routing error:", err)
+    );
 
     notifySituationDetectors(operatorId, [entityId], event.id).catch((err) =>
       console.error("[materializer] Background detection error:", err)

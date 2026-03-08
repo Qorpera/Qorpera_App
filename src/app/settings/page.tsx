@@ -153,6 +153,9 @@ function SettingsPageInner() {
     errors: Array<{ connectorId: string; name: string; error: string }>;
   } | null>(null);
 
+  // Connector bindings (read-only overview)
+  const [connectorBindings, setConnectorBindings] = useState<Record<string, Array<{ id: string; departmentId: string; departmentName: string; enabled: boolean }>>>({});
+
   // Autonomy state
   const [autoSupervisedConsecutive, setAutoSupervisedConsecutive] = useState("10");
   const [autoSupervisedRate, setAutoSupervisedRate] = useState("90");
@@ -247,7 +250,19 @@ function SettingsPageInner() {
   const loadConnectors = useCallback(() => {
     fetch("/api/connectors")
       .then((r) => r.json())
-      .then((data) => setConnectors(data.connectors || []))
+      .then((data) => {
+        const items: ConnectorItem[] = data.connectors || [];
+        setConnectors(items);
+        // Load bindings for each connector
+        for (const c of items) {
+          fetch(`/api/connectors/${c.id}/bindings`)
+            .then((r) => r.json())
+            .then((bindings) => {
+              setConnectorBindings((prev) => ({ ...prev, [c.id]: bindings }));
+            })
+            .catch(() => {});
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -814,332 +829,79 @@ function SettingsPageInner() {
           </div>
         )}
 
-        {/* Connections Tab */}
+        {/* Connections Tab — Read-only overview */}
         {activeTab === "connections" && (
           <div className="space-y-5">
-            {/* Connected sources */}
             <div className="wf-soft p-6 space-y-4">
               <h2 className="text-lg font-medium text-white/80">
                 Connected Sources
               </h2>
+              <p className="text-sm text-white/40">
+                Connectors are managed from within departments. This page shows a global overview of all connected data sources.
+              </p>
 
               {connectors.length === 0 && (
-                <p className="text-sm text-white/35">
-                  No connectors configured. Add one below.
+                <p className="text-sm text-white/25">
+                  No connectors configured yet. Connect data sources from a department&apos;s Connected Data section.
                 </p>
               )}
 
-              {connectors.map((c) => (
-                <div
-                  key={c.id}
-                  className="py-3 border-b border-white/[0.06] last:border-0 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-white/80">
-                          {c.name || c.providerName}
-                        </span>
-                        {statusBadge(c.status)}
-                      </div>
-                      <div className="text-xs text-white/35">
-                        {c.providerName}
-                        {c.lastSyncAt && (
-                          <>
-                            {" "}
-                            &middot; Last sync:{" "}
-                            {new Date(c.lastSyncAt).toLocaleString()}
-                          </>
-                        )}
-                        {c.lastSyncResult && (
-                          <>
-                            {" "}
-                            &middot; {c.lastSyncResult.eventsCreated} events
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      {c.status === "active" && (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={() => handleSync(c.id)}
-                          disabled={syncingId !== null}
-                        >
-                          {syncingId === c.id ? "Syncing..." : "Sync Now"}
-                        </Button>
-                      )}
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleRemoveConnector(c.id)}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                  {c.provider === "stripe" && c.status === "active" && (
-                    <div className="bg-white/[0.03] rounded-lg p-3 space-y-1.5">
-                      <div className="text-xs text-white/40 font-medium">Real-time updates</div>
-                      <div className="flex items-center gap-2">
-                        <code className="text-xs text-white/50 bg-white/[0.04] px-2 py-1 rounded flex-1 truncate">
-                          {typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/${c.id}` : `/api/webhooks/${c.id}`}
-                        </code>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={() => copyWebhookUrl(c.id)}
-                        >
-                          {copiedWebhook === c.id ? "Copied" : "Copy"}
-                        </Button>
-                      </div>
-                      <p className="text-[11px] text-white/30">
-                        For instant updates, add this URL in your Stripe Dashboard &rarr; Developers &rarr; Webhooks. Without this, Stripe data syncs hourly.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {/* Sync result flash */}
-              {syncResult && (
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 text-sm text-emerald-300">
-                  Synced {syncResult.eventsCreated} events in{" "}
-                  {(syncResult.durationMs / 1000).toFixed(1)}s. Processing...
-                  {syncResult.errors.length > 0 && (
-                    <div className="text-red-400 mt-1">
-                      Errors: {syncResult.errors.join(", ")}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Pending connector config */}
-            {pendingConfig && (
-              <div className="wf-soft p-6 space-y-4">
-                <h2 className="text-lg font-medium text-white/80">
-                  Configure Google Sheets Connection
-                </h2>
-                <p className="text-sm text-white/50">
-                  Google account connected. Choose how to connect your data.
-                </p>
-
-                {/* Mode toggle */}
-                <div className="flex gap-1 bg-white/[0.03] rounded-lg p-1 w-fit">
-                  <button
-                    onClick={() => setPendingMode("sheet")}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
-                      pendingMode === "sheet"
-                        ? "bg-purple-500/15 text-purple-300"
-                        : "text-white/40 hover:text-white/60"
-                    }`}
-                  >
-                    Single Sheet
-                  </button>
-                  <button
-                    onClick={() => setPendingMode("folder")}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
-                      pendingMode === "folder"
-                        ? "bg-purple-500/15 text-purple-300"
-                        : "text-white/40 hover:text-white/60"
-                    }`}
-                  >
-                    Drive Folder
-                  </button>
-                </div>
-
-                {pendingMode === "sheet" && (
-                  <>
-                    <Input
-                      label="Connector Name"
-                      value={pendingConfig.name}
-                      onChange={(e) =>
-                        setPendingConfig((prev) =>
-                          prev ? { ...prev, name: e.target.value } : null
-                        )
-                      }
-                      placeholder="e.g. Sales Pipeline Sheet"
-                    />
-                    <Input
-                      label="Spreadsheet ID or URL"
-                      value={pendingConfig.spreadsheet_id}
-                      onChange={(e) =>
-                        setPendingConfig((prev) =>
-                          prev
-                            ? { ...prev, spreadsheet_id: e.target.value }
-                            : null
-                        )
-                      }
-                      placeholder="Paste the Google Sheets URL or spreadsheet ID"
-                    />
-                    <div className="flex gap-3 pt-2">
-                      <Button
-                        variant="primary"
-                        onClick={handleSavePending}
-                        disabled={
-                          savingPending || !pendingConfig.spreadsheet_id.trim()
-                        }
-                      >
-                        {savingPending ? "Saving..." : "Save & Connect"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          handleRemoveConnector(pendingConfig.id);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </>
-                )}
-
-                {pendingMode === "folder" && (
-                  <>
-                    <Input
-                      label="Google Drive Folder URL"
-                      value={folderUrl}
-                      onChange={(e) => setFolderUrl(e.target.value)}
-                      placeholder="https://drive.google.com/drive/folders/..."
-                    />
-                    <div className="flex gap-3 pt-2">
-                      <Button
-                        variant="primary"
-                        onClick={handleDiscoverFolder}
-                        disabled={discovering || !folderUrl.trim()}
-                      >
-                        {discovering ? "Discovering..." : "Discover Sheets"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          handleRemoveConnector(pendingConfig.id);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Folder discovery result */}
-            {discoverResult && (
-              <div className="wf-soft p-6 space-y-4">
-                <h2 className="text-lg font-medium text-white/80">
-                  Discovered Spreadsheets
-                </h2>
-                <div className="space-y-2">
-                  {discoverResult.created.map((c) => (
-                    <div
-                      key={c.id}
-                      className="flex items-center gap-2 text-sm text-white/70"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                      {c.name}
-                    </div>
-                  ))}
-                  {discoverResult.skipped.map((s, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 text-sm text-white/40"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/20 shrink-0" />
-                      {s.name}{" "}
-                      <span className="text-xs text-white/25">
-                        (already connected)
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {discoverResult.created.length > 0 && !syncAllResult && (
-                  <Button
-                    variant="primary"
-                    onClick={handleSyncAll}
-                    disabled={syncingAll}
-                  >
-                    {syncingAll
-                      ? "Syncing all..."
-                      : `Sync All (${discoverResult.created.length})`}
-                  </Button>
-                )}
-                {syncAllResult && (
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3 text-sm text-emerald-300 space-y-1">
-                    {syncAllResult.synced.map((s) => (
-                      <div key={s.connectorId}>
-                        {s.name}: {s.eventsCreated} events ({s.status})
-                      </div>
-                    ))}
-                    {syncAllResult.errors.map((e) => (
-                      <div key={e.connectorId} className="text-red-400">
-                        {e.name}: {e.error}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {syncAllResult && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setDiscoverResult(null);
-                      setSyncAllResult(null);
-                    }}
-                  >
-                    Dismiss
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {/* Add connector */}
-            <div className="wf-soft p-6 space-y-4">
-              <h2 className="text-lg font-medium text-white/80">
-                Add Connector
-              </h2>
-              <div className="grid gap-3">
-                {providers.map((p) => (
+              {connectors.map((c) => {
+                const bindings = connectorBindings[c.id] || [];
+                return (
                   <div
-                    key={p.id}
-                    className="flex items-center justify-between py-3 border-b border-white/[0.06] last:border-0"
+                    key={c.id}
+                    className="py-3 border-b border-white/[0.06] last:border-0 space-y-2"
                   >
-                    <div>
-                      <div className="text-sm font-medium text-white/70">
-                        {p.name}
-                      </div>
-                      {!p.configured && (
-                        <div className="text-xs text-amber-400/70">
-                          Not configured — add {p.id === "hubspot" ? "HUBSPOT_CLIENT_ID" : p.id === "stripe" ? "STRIPE_CLIENT_ID" : "GOOGLE_CLIENT_ID"} to your environment
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-white/80">
+                            {c.name || c.providerName}
+                          </span>
+                          {statusBadge(c.status)}
                         </div>
-                      )}
+                        <div className="text-xs text-white/35">
+                          {c.providerName}
+                          {c.lastSyncAt && (
+                            <>
+                              {" "}
+                              &middot; Last sync:{" "}
+                              {new Date(c.lastSyncAt).toLocaleString()}
+                            </>
+                          )}
+                          {c.lastSyncResult && (
+                            <>
+                              {" "}
+                              &middot; {c.lastSyncResult.eventsCreated} events
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    {p.configured ? (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={
-                          p.id === "google-sheets"
-                            ? handleConnectGoogle
-                            : p.id === "hubspot"
-                              ? handleConnectHubSpot
-                              : p.id === "stripe"
-                                ? handleConnectStripe
-                                : undefined
-                        }
-                      >
-                        Connect
-                      </Button>
+                    {/* Department bindings */}
+                    {bindings.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {bindings.map((b) => (
+                          <a
+                            key={b.id}
+                            href={`/map/${b.departmentId}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] transition text-xs"
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${b.enabled ? "bg-emerald-400" : "bg-white/20"}`} />
+                            <span className="text-white/60">{b.departmentName}</span>
+                            <svg className="w-3 h-3 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                            </svg>
+                          </a>
+                        ))}
+                      </div>
                     ) : (
-                      <span className="text-xs text-white/25">
-                        Unavailable
-                      </span>
+                      <p className="text-[11px] text-white/25 pt-1">Not bound to any department</p>
                     )}
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
           </div>
         )}

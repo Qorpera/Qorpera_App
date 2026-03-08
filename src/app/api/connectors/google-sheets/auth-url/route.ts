@@ -26,8 +26,8 @@ export async function GET(req: NextRequest) {
 
   // Track return destination for OAuth callback
   const from = req.nextUrl.searchParams.get("from");
-  if (from === "onboarding") {
-    cookieStore.set("oauth_return", "onboarding", {
+  if (from) {
+    cookieStore.set("oauth_return", from, {
       httpOnly: true,
       sameSite: "lax",
       path: "/",

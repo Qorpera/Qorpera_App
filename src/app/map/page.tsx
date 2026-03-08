@@ -89,6 +89,24 @@ export default function MapPage() {
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  /* ---- edit mode ---- */
+  const [editMode, setEditMode] = useState(false);
+  const [editingDept, setEditingDept] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+
+  /* ---- unrouted entities ---- */
+  const [unroutedEntities, setUnroutedEntities] = useState<Array<{
+    id: string; displayName: string;
+    entityType: { slug: string; name: string; color: string };
+    sourceSystem: string | null;
+  }>>([]);
+  const [unroutedCount, setUnroutedCount] = useState(0);
+  const [unroutedOpen, setUnroutedOpen] = useState(true);
+
+  /* ---- toast ---- */
+  const [toast, setToast] = useState("");
+
   /* ---- context menu ---- */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; dept: Department } | null>(null);
 
@@ -145,11 +163,36 @@ export default function MapPage() {
     }
   }, []);
 
+  const fetchUnrouted = useCallback(async () => {
+    const res = await fetchApi("/api/entities/unrouted");
+    if (res.ok) {
+      const data = await res.json();
+      setUnroutedEntities(data.entities);
+      setUnroutedCount(data.count);
+    }
+  }, []);
+
   useEffect(() => {
     loadDepartments();
+    fetchUnrouted();
     const iv = setInterval(loadDepartments, POLL_MS);
     return () => clearInterval(iv);
-  }, [loadDepartments]);
+  }, [loadDepartments, fetchUnrouted]);
+
+  // Escape exits edit mode
+  useEffect(() => {
+    if (!editMode) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") { setEditMode(false); setEditingDept(null); } };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editMode]);
+
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   /* ---------------------------------------------------------------- */
   /*  Card drag handlers                                               */
@@ -403,6 +446,51 @@ export default function MapPage() {
   }
 
   /* ---------------------------------------------------------------- */
+  /*  Inline card edit (edit mode)                                     */
+  /* ---------------------------------------------------------------- */
+
+  function startEditing(deptId: string) {
+    if (editingDept && editingDept !== deptId) {
+      setEditingDept(null); // cancel previous
+    }
+    const dept = departments.find((d) => d.id === deptId);
+    if (!dept) return;
+    setEditingDept(deptId);
+    setEditName(dept.displayName);
+    setEditDesc(dept.description ?? "");
+  }
+
+  async function saveInlineEdit() {
+    if (!editingDept) return;
+    const res = await fetchApi(`/api/departments/${editingDept}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: editName.trim(), description: editDesc.trim() }),
+    });
+    if (res.ok) {
+      loadDepartments();
+    }
+    setEditingDept(null);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Assign unrouted entity                                           */
+  /* ---------------------------------------------------------------- */
+
+  async function assignToDepartment(entityId: string, departmentId: string) {
+    const res = await fetchApi(`/api/entities/${entityId}/assign-department`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ departmentId }),
+    });
+    if (res.ok) {
+      setUnroutedEntities((prev) => prev.filter((e) => e.id !== entityId));
+      setUnroutedCount((prev) => prev - 1);
+      loadDepartments();
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
   /*  Reset view                                                       */
   /* ---------------------------------------------------------------- */
 
@@ -434,6 +522,21 @@ export default function MapPage() {
           <Button variant="default" size="sm" onClick={resetView}>
             Reset View
           </Button>
+          <button
+            onClick={() => { setEditMode(!editMode); if (editMode) setEditingDept(null); }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              editMode
+                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
+            }`}
+          >
+            {editMode ? "Done Editing" : "Edit Map"}
+            {!editMode && unroutedCount > 0 && (
+              <span className="ml-1.5 min-w-[16px] h-[16px] inline-flex items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-black px-1">
+                {unroutedCount}
+              </span>
+            )}
+          </button>
           <Button variant="primary" size="sm" onClick={openAdd}>
             Add Department
           </Button>
@@ -441,6 +544,13 @@ export default function MapPage() {
       }
     >
       <div className="relative flex-1">
+        {/* ---- toast ---- */}
+        {toast && (
+          <div className="fixed top-4 right-4 z-50 bg-green-500/20 border border-green-500/30 text-green-300 text-sm px-4 py-2 rounded-lg shadow-lg">
+            {toast}
+          </div>
+        )}
+
         {/* ---- infinite canvas ---- */}
         <div
           ref={containerRef}
@@ -452,6 +562,8 @@ export default function MapPage() {
             background: "#080c10",
           }}
         >
+          {/* Edit mode ambient indicator */}
+          <div className={`absolute inset-0 pointer-events-none transition ${editMode ? "ring-1 ring-inset ring-amber-500/20" : ""}`} style={{ zIndex: 50 }} />
           {/* Grid dots (fixed to canvas transform) */}
           <div
             className="absolute inset-0 pointer-events-none"
@@ -518,11 +630,12 @@ export default function MapPage() {
               <div
                 onMouseDown={(e) => onCardMouseDown(e, hq)}
                 onClick={() => {
-                  if (!justDraggedRef.current) router.push(`/map/${hq.id}`);
-                  justDraggedRef.current = false;
+                  if (justDraggedRef.current) { justDraggedRef.current = false; return; }
+                  if (editMode) { startEditing(hq.id); return; }
+                  router.push(`/map/${hq.id}`);
                 }}
                 onContextMenu={(e) => onCardContext(e, hq)}
-                className={`absolute rounded-xl border border-purple-500/30 bg-purple-500/[0.08] px-5 py-4 transition hover:bg-purple-500/[0.14] hover:shadow-lg hover:shadow-purple-500/10 ${
+                className={`absolute rounded-xl border ${editMode ? "border-amber-500/20" : "border-purple-500/30"} bg-purple-500/[0.08] px-5 py-4 transition hover:bg-purple-500/[0.14] hover:shadow-lg hover:shadow-purple-500/10 ${
                   dragId === hq.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : "cursor-pointer"
                 }`}
                 style={{
@@ -532,11 +645,49 @@ export default function MapPage() {
                   cursor: dragId === hq.id ? "grabbing" : "pointer",
                 }}
               >
-                <h3 className="font-heading text-base font-semibold text-purple-200 truncate">
-                  {hq.displayName}
-                </h3>
-                {hq.description && (
-                  <p className="text-xs text-white/40 truncate mt-1">{hq.description}</p>
+                {editMode && (
+                  <div className="absolute top-1.5 right-1.5 flex gap-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); startEditing(hq.id); }}
+                      className="w-5 h-5 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                      title="Edit"
+                    >
+                      <svg className="w-3 h-3 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                {editingDept === hq.id ? (
+                  <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="w-full bg-transparent border-b border-purple-500/40 outline-none text-sm font-semibold text-purple-200"
+                      autoFocus
+                      onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }}
+                    />
+                    <input
+                      value={editDesc}
+                      onChange={(e) => setEditDesc(e.target.value)}
+                      className="w-full bg-transparent border-b border-white/10 outline-none text-xs text-white/40"
+                      placeholder="Description"
+                      onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }}
+                    />
+                    <div className="flex gap-1.5 pt-1">
+                      <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">Save</button>
+                      <button onClick={() => setEditingDept(null)} className="text-[10px] text-white/40 hover:text-white/60">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h3 className="font-heading text-base font-semibold text-purple-200 truncate">
+                      {hq.displayName}
+                    </h3>
+                    {hq.description && (
+                      <p className="text-xs text-white/40 truncate mt-1">{hq.description}</p>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -545,18 +696,20 @@ export default function MapPage() {
             {nonHQ.map((dept) => {
               const pos = positionsRef.current[dept.id];
               if (!pos) return null;
+              const isEditing = editingDept === dept.id;
               return (
                 <div
                   key={dept.id}
                   onMouseDown={(e) => onCardMouseDown(e, dept)}
                   onContextMenu={(e) => onCardContext(e, dept)}
                   onClick={() => {
-                    if (!justDraggedRef.current) router.push(`/map/${dept.id}`);
-                    justDraggedRef.current = false;
+                    if (justDraggedRef.current) { justDraggedRef.current = false; return; }
+                    if (editMode) { startEditing(dept.id); return; }
+                    router.push(`/map/${dept.id}`);
                   }}
                   className={`absolute wf-soft px-4 py-3 select-none transition-shadow hover:brightness-110 hover:shadow-lg hover:shadow-black/20 ${
-                    dragId === dept.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : "cursor-pointer"
-                  }`}
+                    editMode ? "border border-amber-500/20" : ""
+                  } ${dragId === dept.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : "cursor-pointer"}`}
                   style={{
                     left: pos.x - CARD_W / 2,
                     top: pos.y - CARD_H / 2,
@@ -564,35 +717,123 @@ export default function MapPage() {
                     cursor: dragId === dept.id ? "grabbing" : "pointer",
                   }}
                 >
-                  <h3 className="text-sm font-bold text-white/90 truncate">{dept.displayName}</h3>
-                  {dept.description && (
-                    <p className="text-xs text-white/40 truncate mt-0.5">{dept.description}</p>
-                  )}
-                  <p className="text-xs text-white/30 mt-1.5">
-                    {dept.memberCount} people &middot; {dept.documentCount} docs
-                  </p>
-                  <div className="flex gap-1 mt-1.5">
-                    {Object.entries(SLOT_ICONS).map(([slot, { path }]) => {
-                      const filled = dept.filledSlots?.includes(slot);
-                      return (
-                        <svg
-                          key={slot}
-                          className={`w-3 h-3 ${filled ? "text-purple-400" : "text-white/10"}`}
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={1.5}
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" d={path} />
+                  {editMode && !isEditing && (
+                    <div className="absolute top-1.5 right-1.5 flex gap-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startEditing(dept.id); }}
+                        className="w-5 h-5 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
+                        title="Edit"
+                      >
+                        <svg className="w-3 h-3 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                         </svg>
-                      );
-                    })}
-                  </div>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(dept); }}
+                        className="w-5 h-5 rounded bg-red-500/10 hover:bg-red-500/20 flex items-center justify-center transition"
+                        title="Delete"
+                      >
+                        <svg className="w-3 h-3 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+                  {isEditing ? (
+                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-full bg-transparent border-b border-purple-500/40 outline-none text-sm font-bold text-white/90"
+                        autoFocus
+                        onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }}
+                      />
+                      <input
+                        value={editDesc}
+                        onChange={(e) => setEditDesc(e.target.value)}
+                        className="w-full bg-transparent border-b border-white/10 outline-none text-xs text-white/40"
+                        placeholder="Description"
+                        onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }}
+                      />
+                      <div className="flex gap-1.5 pt-1">
+                        <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">Save</button>
+                        <button onClick={() => setEditingDept(null)} className="text-[10px] text-white/40 hover:text-white/60">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h3 className="text-sm font-bold text-white/90 truncate">{dept.displayName}</h3>
+                      {dept.description && (
+                        <p className="text-xs text-white/40 truncate mt-0.5">{dept.description}</p>
+                      )}
+                      <p className="text-xs text-white/30 mt-1.5">
+                        {dept.memberCount} people &middot; {dept.documentCount} docs
+                      </p>
+                      <div className="flex gap-1 mt-1.5">
+                        {Object.entries(SLOT_ICONS).map(([slot, { path }]) => {
+                          const filled = dept.filledSlots?.includes(slot);
+                          return (
+                            <svg
+                              key={slot}
+                              className={`w-3 h-3 ${filled ? "text-purple-400" : "text-white/10"}`}
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={1.5}
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d={path} />
+                            </svg>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
+
+        {/* ---- Unrouted entities panel ---- */}
+        {editMode && unroutedEntities.length > 0 && (
+          <div className="absolute bottom-0 left-0 right-0 z-40 bg-[rgba(8,12,16,0.95)] border-t border-amber-500/20">
+            <button
+              onClick={() => setUnroutedOpen(!unroutedOpen)}
+              className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium text-amber-300/80 hover:text-amber-300 transition"
+            >
+              <span>Unassigned Entities ({unroutedCount})</span>
+              <svg className={`w-3.5 h-3.5 transition ${unroutedOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {unroutedOpen && (
+              <div className="max-h-[250px] overflow-y-auto px-4 pb-3 space-y-1">
+                {unroutedEntities.map((entity) => (
+                  <div key={entity.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.03] transition">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entity.entityType.color ?? "#888" }} />
+                    <span className="text-sm text-white/80 flex-1 min-w-0 truncate">{entity.displayName}</span>
+                    <span className="text-[10px] text-white/30">{entity.entityType.name}</span>
+                    {entity.sourceSystem && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.05] text-white/30">{entity.sourceSystem}</span>
+                    )}
+                    <select
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) assignToDepartment(entity.id, e.target.value);
+                      }}
+                      className="bg-transparent border border-white/10 rounded px-2 py-1 text-[11px] text-white/60 outline-none cursor-pointer"
+                    >
+                      <option value="" disabled>Assign to...</option>
+                      {departments.filter((d) => d.entityType.slug === "department" || d.isHQ).map((d) => (
+                        <option key={d.id} value={d.id} className="bg-[#182027]">{d.displayName}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ---- context menu ---- */}
