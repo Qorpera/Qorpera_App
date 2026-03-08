@@ -21,7 +21,7 @@ export async function GET() {
 
   const results = await Promise.all(
     departments.map(async (dept) => {
-      const [memberCount, documentCount, digitalCount, connectorCount] = await Promise.all([
+      const [memberCount, documentCount, digitalCount, connectorCount, filledSlotDocs] = await Promise.all([
         prisma.entity.count({
           where: { parentDepartmentId: dept.id, category: "base", status: "active" },
         }),
@@ -37,7 +37,17 @@ export async function GET() {
         prisma.connectorDepartmentBinding.count({
           where: { departmentId: dept.id },
         }),
+        prisma.internalDocument.findMany({
+          where: {
+            departmentId: dept.id,
+            documentType: { not: "context" },
+            status: { not: "replaced" },
+          },
+          select: { documentType: true },
+          distinct: ["documentType"],
+        }),
       ]);
+      const filledSlots = filledSlotDocs.map((d) => d.documentType);
 
       return {
         id: dept.id,
@@ -53,6 +63,7 @@ export async function GET() {
         documentCount,
         digitalCount,
         connectorCount,
+        filledSlots,
       };
     }),
   );

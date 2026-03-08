@@ -147,6 +147,18 @@ export const HARDCODED_TYPE_DEFS: Record<string, HardcodedTypeDef> = {
     defaultCategory: "internal",
     properties: [],
   },
+  document: {
+    slug: "document",
+    name: "Document",
+    description: "An uploaded document providing context or structural data",
+    icon: "file-text",
+    color: "#64748b",
+    defaultCategory: "internal",
+    properties: [
+      { slug: "document-type", name: "Document Type", dataType: "STRING" },
+      { slug: "page-count", name: "Page Count", dataType: "NUMBER" },
+    ],
+  },
 };
 
 // Category priority for merge hierarchy

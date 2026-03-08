@@ -144,6 +144,7 @@ model Entity {
   toRelations       Relationship[] @relation("ToEntity")
   connectorBindings ConnectorDepartmentBinding[] @relation("ConnectorBindings")
   documentChunks    DocumentChunk[]
+  internalDocument  InternalDocument? @relation("DocumentEntity")
 
   @@index([operatorId, category])
   @@index([operatorId, parentDepartmentId])
@@ -479,6 +480,11 @@ model InternalDocument {
   status            String   @default("uploaded") // uploaded, processing, extracted, confirmed
   extractedEntities String?  // JSON: { entities: [...], relationships: [...], businessContext: string }
   businessContext   String?
+  entityId          String?  @unique
+  entity            Entity?  @relation("DocumentEntity", fields: [entityId], references: [id])
+  documentType      String   @default("context") // "org-chart" | "budget" | "compensation" | "team-roster" | "context"
+  embeddingStatus   String   @default("pending") // "pending" | "processing" | "complete" | "error"
+  departmentId      String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }

@@ -4,7 +4,10 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import Link from "next/link";
+import { DOCUMENT_SLOT_TYPES, type SlotType, isStructuralSlot } from "@/lib/document-slots";
+import type { PersonDiff, PropertyDiff, ExtractionDiff } from "@/lib/structural-extraction";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -35,12 +38,76 @@ interface DeptDetail {
   entityType: { slug: string };
 }
 
+interface SlotDocument {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  documentType: string;
+  status: string;
+  embeddingStatus: string;
+  entityId: string | null;
+  createdAt: string;
+}
+
+interface DocumentsResponse {
+  slots: Record<string, SlotDocument | null>;
+  contextDocs: SlotDocument[];
+}
+
+const ALLOWED_MIMES = new Set([
+  "text/plain",
+  "text/csv",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
 function getProp(m: Member, slug: string): string {
   return m.propertyValues.find((pv) => pv.property.slug === slug)?.value ?? "";
+}
+
+/* ------------------------------------------------------------------ */
+/*  Slot Icons (inline SVG)                                            */
+/* ------------------------------------------------------------------ */
+
+function SlotIcon({ icon, className }: { icon: string; className?: string }) {
+  const cn = className ?? "w-5 h-5";
+  switch (icon) {
+    case "network":
+      return (
+        <svg className={cn} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v3m0 12v3m-6-9H3m18 0h-3m-2.25-5.25L17.25 5.25m-10.5 0L8.25 6.75m0 10.5l-1.5 1.5m10.5-1.5l1.5 1.5M12 9a3 3 0 100 6 3 3 0 000-6z" />
+        </svg>
+      );
+    case "wallet":
+      return (
+        <svg className={cn} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 110-6h1.5M3 12v6.75A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V12M3 12V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25V12M3 12h18M15 12a3 3 0 100 6 3 3 0 000-6z" />
+        </svg>
+      );
+    case "banknotes":
+      return (
+        <svg className={cn} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
+        </svg>
+      );
+    case "clipboard-list":
+      return (
+        <svg className={cn} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+        </svg>
+      );
+    default:
+      return (
+        <svg className={cn} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
+      );
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -117,6 +184,34 @@ function Section({ title, action, children }: { title: string; action?: React.Re
 }
 
 /* ------------------------------------------------------------------ */
+/*  Status badge                                                       */
+/* ------------------------------------------------------------------ */
+
+function StatusBadge({ status, embeddingStatus }: { status: string; embeddingStatus: string }) {
+  if (status === "confirmed") {
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">Confirmed</span>;
+  }
+  if (status === "extracted") {
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">Ready for review</span>;
+  }
+  if (status === "processing" || embeddingStatus === "processing") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">
+        <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+        Processing
+      </span>
+    );
+  }
+  if (embeddingStatus === "error") {
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">Error</span>;
+  }
+  if (embeddingStatus === "complete") {
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">Embedded</span>;
+  }
+  return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/40">Pending</span>;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -149,6 +244,29 @@ export default function DepartmentDetailPage() {
   /* ---- remove person ---- */
   const [removeId, setRemoveId] = useState<string | null>(null);
 
+  /* ---- documents ---- */
+  const [docsData, setDocsData] = useState<DocumentsResponse | null>(null);
+  const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
+  const [uploadingContext, setUploadingContext] = useState(false);
+  const [docError, setDocError] = useState("");
+  const [extractingDoc, setExtractingDoc] = useState<string | null>(null);
+  const [toast, setToast] = useState("");
+
+  /* ---- diff preview modal ---- */
+  const [diffModal, setDiffModal] = useState<{
+    docId: string;
+    slotType: string;
+    diff: ExtractionDiff;
+  } | null>(null);
+  const [diffItems, setDiffItems] = useState<ExtractionDiff | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  /* ---- delete doc confirmation ---- */
+  const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+
+  const slotFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const contextFileInputRef = useRef<HTMLInputElement | null>(null);
+
   /* ---------------------------------------------------------------- */
   /*  Data fetching                                                    */
   /* ---------------------------------------------------------------- */
@@ -169,7 +287,34 @@ export default function DepartmentDetailPage() {
     }
   }, [deptId]);
 
-  useEffect(() => { load(); }, [load]);
+  const loadDocs = useCallback(async () => {
+    const res = await fetch(`/api/departments/${deptId}/documents`);
+    if (res.ok) setDocsData(await res.json());
+  }, [deptId]);
+
+  useEffect(() => { load(); loadDocs(); }, [load, loadDocs]);
+
+  // Poll while any doc is processing
+  useEffect(() => {
+    if (!docsData) return;
+    const hasProcessing =
+      Object.values(docsData.slots).some(
+        (d) => d && (d.status === "processing" || d.embeddingStatus === "processing"),
+      ) ||
+      docsData.contextDocs.some(
+        (d) => d.status === "processing" || d.embeddingStatus === "processing",
+      );
+    if (!hasProcessing) return;
+    const iv = setInterval(loadDocs, 5000);
+    return () => clearInterval(iv);
+  }, [docsData, loadDocs]);
+
+  // Toast auto-dismiss
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   /* ---------------------------------------------------------------- */
   /*  Inline edit department fields                                    */
@@ -265,6 +410,191 @@ export default function DepartmentDetailPage() {
   }
 
   /* ---------------------------------------------------------------- */
+  /*  Document upload                                                   */
+  /* ---------------------------------------------------------------- */
+
+  async function uploadFile(file: File, documentType: string) {
+    setDocError("");
+    if (file.size > MAX_FILE_SIZE) {
+      setDocError("File too large (max 10MB)");
+      return;
+    }
+    if (!ALLOWED_MIMES.has(file.type)) {
+      setDocError("Unsupported file type. Accepted: TXT, CSV, PDF, DOCX");
+      return;
+    }
+
+    const isSlot = isStructuralSlot(documentType);
+    if (isSlot) setUploadingSlot(documentType);
+    else setUploadingContext(true);
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("documentType", documentType);
+
+      const res = await fetch(`/api/departments/${deptId}/documents/upload`, {
+        method: "POST",
+        body: form,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setDocError(err?.error ?? "Upload failed");
+        return;
+      }
+
+      const created = await res.json();
+      await loadDocs();
+
+      // For structural docs, auto-trigger extraction
+      if (isSlot) {
+        setExtractingDoc(created.id);
+        try {
+          const extRes = await fetch(
+            `/api/departments/${deptId}/documents/${created.id}/extract`,
+            { method: "POST" },
+          );
+          if (extRes.ok) {
+            const { diff } = await extRes.json();
+            await loadDocs();
+            setDiffModal({ docId: created.id, slotType: documentType, diff });
+            setDiffItems(diff);
+          } else {
+            const err = await extRes.json().catch(() => null);
+            setDocError(err?.error ?? "Extraction failed");
+            await loadDocs();
+          }
+        } finally {
+          setExtractingDoc(null);
+        }
+      }
+    } finally {
+      setUploadingSlot(null);
+      setUploadingContext(false);
+    }
+  }
+
+  function handleSlotFileChange(e: React.ChangeEvent<HTMLInputElement>, slotType: string) {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file, slotType);
+    e.target.value = "";
+  }
+
+  function handleContextFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files) return;
+    for (let i = 0; i < files.length; i++) {
+      uploadFile(files[i], "context");
+    }
+    e.target.value = "";
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Re-extract a slot doc                                             */
+  /* ---------------------------------------------------------------- */
+
+  async function handleReExtract(docId: string, slotType: string) {
+    setExtractingDoc(docId);
+    setDocError("");
+    try {
+      const res = await fetch(`/api/departments/${deptId}/documents/${docId}/extract`, { method: "POST" });
+      if (res.ok) {
+        const { diff } = await res.json();
+        await loadDocs();
+        setDiffModal({ docId, slotType, diff });
+        setDiffItems(diff);
+      } else {
+        const err = await res.json().catch(() => null);
+        setDocError(err?.error ?? "Extraction failed");
+      }
+    } finally {
+      setExtractingDoc(null);
+    }
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Reprocess a context doc                                           */
+  /* ---------------------------------------------------------------- */
+
+  async function handleReprocess(docId: string) {
+    setDocError("");
+    const res = await fetch(`/api/departments/${deptId}/documents/${docId}/reprocess`, { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      setDocError(err?.error ?? "Reprocess failed");
+    }
+    await loadDocs();
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Delete a document                                                 */
+  /* ---------------------------------------------------------------- */
+
+  async function handleDeleteDoc(docId: string) {
+    const res = await fetch(`/api/departments/${deptId}/documents/${docId}`, { method: "DELETE" });
+    if (res.ok) {
+      await loadDocs();
+    }
+    setDeleteDocId(null);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Confirm extraction diff                                           */
+  /* ---------------------------------------------------------------- */
+
+  async function handleConfirmDiff() {
+    if (!diffModal || !diffItems) return;
+    setConfirming(true);
+    try {
+      const res = await fetch(
+        `/api/departments/${deptId}/documents/${diffModal.docId}/confirm`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ diff: diffItems }),
+        },
+      );
+      if (res.ok) {
+        const { created, updated } = await res.json();
+        const parts: string[] = [];
+        if (created > 0) parts.push(`Created ${created}`);
+        if (updated > 0) parts.push(`Updated ${updated}`);
+        setToast(parts.join(", ") || "Changes applied");
+        setDiffModal(null);
+        setDiffItems(null);
+        await Promise.all([loadDocs(), load()]);
+        // Refresh members
+        const membersRes = await fetch(`/api/departments/${deptId}/members`);
+        if (membersRes.ok) setMembers(await membersRes.json());
+      } else {
+        const err = await res.json().catch(() => null);
+        setDocError(err?.error ?? "Confirm failed");
+      }
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  function toggleDiffPerson(index: number) {
+    if (!diffItems?.people) return;
+    setDiffItems({
+      ...diffItems,
+      people: diffItems.people.map((p, i) => (i === index ? { ...p, selected: !p.selected } : p)),
+    });
+  }
+
+  function toggleDiffProperty(index: number) {
+    if (!diffItems?.properties) return;
+    setDiffItems({
+      ...diffItems,
+      properties: diffItems.properties.map((p, i) =>
+        i === index ? { ...p, selected: !p.selected } : p,
+      ),
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
 
@@ -292,6 +622,13 @@ export default function DepartmentDetailPage() {
   return (
     <AppShell>
       <div className="max-w-4xl mx-auto p-8 space-y-8">
+        {/* ---- toast ---- */}
+        {toast && (
+          <div className="fixed top-4 right-4 z-50 bg-green-500/20 border border-green-500/30 text-green-300 text-sm px-4 py-2 rounded-lg shadow-lg">
+            {toast}
+          </div>
+        )}
+
         {/* ---- header ---- */}
         <div>
           <button
@@ -459,20 +796,205 @@ export default function DepartmentDetailPage() {
           )}
         </Section>
 
-        {/* ---- Section 2: Documents (shell) ---- */}
-        <Section title="Documents">
-          <div className="py-8 text-center">
-            <svg className="mx-auto w-8 h-8 text-white/15 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        {/* ---- Section 2a: Structural Document Slots ---- */}
+        <Section title="Structural Documents">
+          {docError && (
+            <p className="text-xs text-red-400 mb-3">{docError}</p>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            {(Object.entries(DOCUMENT_SLOT_TYPES) as [SlotType, typeof DOCUMENT_SLOT_TYPES[SlotType]][]).map(
+              ([slotType, slotDef]) => {
+                const doc = docsData?.slots[slotType] ?? null;
+                const isUploading = uploadingSlot === slotType;
+                const isExtracting = doc && extractingDoc === doc.id;
+
+                return (
+                  <div
+                    key={slotType}
+                    className={`rounded-lg border p-4 transition ${
+                      doc
+                        ? "border-white/10 border-l-2 border-l-purple-500/50"
+                        : "border-dashed border-white/10 hover:border-white/20"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <SlotIcon icon={slotDef.icon} className="w-4 h-4 text-white/40" />
+                        <span className="text-sm font-medium text-white/70">{slotDef.label}</span>
+                      </div>
+                      {doc && doc.status === "confirmed" && (
+                        <span className="w-2 h-2 rounded-full bg-green-500" title="Confirmed" />
+                      )}
+                      {doc && doc.status === "extracted" && (
+                        <span className="w-2 h-2 rounded-full bg-amber-500" title="Needs review" />
+                      )}
+                    </div>
+
+                    {!doc && !isUploading && (
+                      <button
+                        onClick={() => slotFileInputRefs.current[slotType]?.click()}
+                        className="w-full py-4 border border-dashed border-white/10 rounded-md text-xs text-white/30 hover:text-white/50 hover:border-white/20 transition"
+                      >
+                        Drop file here or click to upload
+                        <input
+                          ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
+                          type="file"
+                          accept=".txt,.csv,.pdf,.docx"
+                          className="hidden"
+                          onChange={(e) => handleSlotFileChange(e, slotType)}
+                        />
+                      </button>
+                    )}
+
+                    {isUploading && (
+                      <div className="py-4 text-center">
+                        <svg className="mx-auto w-5 h-5 text-purple-400 animate-spin mb-1" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        <p className="text-xs text-white/40">Uploading...</p>
+                      </div>
+                    )}
+
+                    {doc && !isUploading && (
+                      <div>
+                        <p className="text-xs text-white/50 truncate">{doc.fileName}</p>
+                        <div className="mt-2">
+                          <StatusBadge status={doc.status} embeddingStatus={doc.embeddingStatus} />
+                        </div>
+                        {isExtracting && (
+                          <p className="text-xs text-amber-400 mt-2 flex items-center gap-1">
+                            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                            Extracting...
+                          </p>
+                        )}
+                        <div className="flex gap-2 mt-3">
+                          {doc.status === "extracted" && (
+                            <button
+                              onClick={() => handleReExtract(doc.id, slotType).then(() => {/* modal opens via handler */})}
+                              className="text-[11px] text-purple-400 hover:text-purple-300"
+                            >
+                              Review Changes
+                            </button>
+                          )}
+                          <button
+                            onClick={() => slotFileInputRefs.current[slotType]?.click()}
+                            className="text-[11px] text-white/40 hover:text-white/60"
+                          >
+                            Replace
+                            <input
+                              ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
+                              type="file"
+                              accept=".txt,.csv,.pdf,.docx"
+                              className="hidden"
+                              onChange={(e) => handleSlotFileChange(e, slotType)}
+                            />
+                          </button>
+                          {doc.status === "confirmed" && (
+                            <button
+                              onClick={() => handleReExtract(doc.id, slotType)}
+                              disabled={!!isExtracting}
+                              className="text-[11px] text-white/40 hover:text-white/60"
+                            >
+                              Re-extract
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              },
+            )}
+          </div>
+        </Section>
+
+        {/* ---- Section 2b: Context Documents ---- */}
+        <Section title="Context Documents">
+          {/* drop zone */}
+          <button
+            onClick={() => contextFileInputRef.current?.click()}
+            className="w-full py-5 mb-4 border border-dashed border-white/10 rounded-lg text-center hover:border-white/20 transition"
+          >
+            <svg className="mx-auto w-6 h-6 text-white/20 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            <p className="text-sm text-white/40">Upload documents to provide context for this department</p>
-            <p className="text-xs text-white/25 mt-1">
-              Process guides, playbooks, policies — anything that helps the AI understand how this team works
+            <p className="text-xs text-white/40">
+              {uploadingContext ? "Uploading..." : "Drop files here or click to upload"}
             </p>
-            <span className="inline-block mt-3 text-[10px] uppercase tracking-wider text-white/20 border border-white/10 rounded px-2 py-0.5">
-              Coming in next update
-            </span>
-          </div>
+            <p className="text-[10px] text-white/25 mt-0.5">
+              Process guides, playbooks, policies...
+            </p>
+            <input
+              ref={contextFileInputRef}
+              type="file"
+              accept=".txt,.csv,.pdf,.docx"
+              multiple
+              className="hidden"
+              onChange={handleContextFileChange}
+            />
+          </button>
+
+          {/* doc list */}
+          {docsData && docsData.contextDocs.length > 0 ? (
+            <div className="space-y-1.5">
+              {docsData.contextDocs.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.03] transition"
+                >
+                  <svg className="w-4 h-4 text-white/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                  </svg>
+                  <span className="text-sm text-white/70 flex-1 truncate">{doc.fileName}</span>
+                  <StatusBadge status={doc.status} embeddingStatus={doc.embeddingStatus} />
+                  <div className="flex gap-1">
+                    {doc.embeddingStatus === "error" && (
+                      <button
+                        onClick={() => handleReprocess(doc.id)}
+                        title="Retry"
+                        className="p-1 text-white/30 hover:text-amber-400"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                        </svg>
+                      </button>
+                    )}
+                    {deleteDocId === doc.id ? (
+                      <div className="flex gap-1 items-center">
+                        <button
+                          onClick={() => handleDeleteDoc(doc.id)}
+                          className="text-[10px] text-red-400 hover:text-red-300"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setDeleteDocId(null)}
+                          className="text-[10px] text-white/40 hover:text-white/60"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setDeleteDocId(doc.id)}
+                        title="Delete"
+                        className="p-1 text-white/30 hover:text-red-400"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            !uploadingContext && (
+              <p className="text-xs text-white/25 text-center py-2">No context documents uploaded yet</p>
+            )
+          )}
         </Section>
 
         {/* ---- Section 3: Connected Data (shell) ---- */}
@@ -528,6 +1050,179 @@ export default function DepartmentDetailPage() {
           )}
         </Section>
       </div>
+
+      {/* ---- Extraction Diff Preview Modal ---- */}
+      <Modal
+        open={!!diffModal}
+        onClose={() => { setDiffModal(null); setDiffItems(null); }}
+        title={`Review: ${diffModal ? DOCUMENT_SLOT_TYPES[diffModal.slotType as SlotType]?.label ?? diffModal.slotType : ""} Changes`}
+        wide
+      >
+        {diffItems && (
+          <div className="space-y-4">
+            <p className="text-sm text-white/60">{diffItems.summary}</p>
+
+            {/* People diffs */}
+            {diffItems.people && diffItems.people.length > 0 && (
+              <div className="space-y-3">
+                {/* Group by action */}
+                {(() => {
+                  const creates = diffItems.people.filter((p) => p.action === "create");
+                  const updates = diffItems.people.filter((p) => p.action === "update");
+                  const missing = diffItems.people.filter((p) => p.action === "flag-missing");
+                  return (
+                    <>
+                      {creates.length > 0 && (
+                        <div>
+                          <h4 className="text-[10px] uppercase tracking-wider text-green-400/70 mb-2">
+                            New Members
+                          </h4>
+                          {creates.map((p) => {
+                            const idx = diffItems.people!.indexOf(p);
+                            return (
+                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
+                                <input
+                                  type="checkbox"
+                                  checked={p.selected}
+                                  onChange={() => toggleDiffPerson(idx)}
+                                  className="mt-0.5 accent-purple-500"
+                                />
+                                <div className="text-sm">
+                                  <span className="text-white/90 font-medium">{p.name}</span>
+                                  {p.role && <span className="text-white/40 ml-2">— {p.role}</span>}
+                                  {p.email && (
+                                    <p className="text-xs text-white/30">email: {p.email}</p>
+                                  )}
+                                  {p.reportsTo && (
+                                    <p className="text-xs text-white/30">reports to: {p.reportsTo}</p>
+                                  )}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {updates.length > 0 && (
+                        <div>
+                          <h4 className="text-[10px] uppercase tracking-wider text-amber-400/70 mb-2">
+                            Updates
+                          </h4>
+                          {updates.map((p) => {
+                            const idx = diffItems.people!.indexOf(p);
+                            return (
+                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
+                                <input
+                                  type="checkbox"
+                                  checked={p.selected}
+                                  onChange={() => toggleDiffPerson(idx)}
+                                  className="mt-0.5 accent-purple-500"
+                                />
+                                <div className="text-sm">
+                                  <span className="text-white/90 font-medium">{p.name}</span>
+                                  {p.changes && Object.entries(p.changes).map(([key, change]) => (
+                                    <p key={key} className="text-xs text-white/40">
+                                      {key}: <span className="text-white/30">&ldquo;{change.from}&rdquo;</span>
+                                      {" → "}
+                                      <span className="text-white/70">&ldquo;{change.to}&rdquo;</span>
+                                    </p>
+                                  ))}
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {missing.length > 0 && (
+                        <div>
+                          <h4 className="text-[10px] uppercase tracking-wider text-white/30 mb-2">
+                            Not in Document (will not be removed)
+                          </h4>
+                          {missing.map((p) => {
+                            const idx = diffItems.people!.indexOf(p);
+                            return (
+                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
+                                <input
+                                  type="checkbox"
+                                  checked={p.selected}
+                                  onChange={() => toggleDiffPerson(idx)}
+                                  className="mt-0.5 accent-purple-500"
+                                />
+                                <div className="text-sm">
+                                  <span className="text-white/50">{p.name}</span>
+                                  <p className="text-xs text-white/25">
+                                    Exists in department but not in this document
+                                  </p>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Property diffs */}
+            {diffItems.properties && diffItems.properties.length > 0 && (
+              <div>
+                <h4 className="text-[10px] uppercase tracking-wider text-white/40 mb-2">
+                  Properties
+                </h4>
+                {diffItems.properties.map((p, i) => (
+                  <label key={i} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
+                    <input
+                      type="checkbox"
+                      checked={p.selected}
+                      onChange={() => toggleDiffProperty(i)}
+                      className="mt-0.5 accent-purple-500"
+                    />
+                    <div className="text-sm">
+                      <span className="text-white/70">{p.label}:</span>
+                      <span className="text-white/90 ml-1">{p.newValue}</span>
+                      {p.targetEntityName !== "Department" && (
+                        <span className="text-xs text-white/30 ml-2">({p.targetEntityName})</span>
+                      )}
+                      {p.oldValue && (
+                        <p className="text-xs text-white/30">
+                          was: {p.oldValue}
+                        </p>
+                      )}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {/* Empty extraction */}
+            {(!diffItems.people || diffItems.people.length === 0) &&
+              (!diffItems.properties || diffItems.properties.length === 0) && (
+                <p className="text-sm text-white/40 py-4 text-center">
+                  No data found in document
+                </p>
+              )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-white/[0.06]">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => { setDiffModal(null); setDiffItems(null); }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleConfirmDiff}
+                disabled={confirming}
+              >
+                {confirming ? "Applying..." : "Apply Selected Changes"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </AppShell>
   );
 }
