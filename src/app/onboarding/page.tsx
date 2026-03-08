@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -109,6 +109,7 @@ const INDUSTRY_OPTIONS = [
   { value: "Healthcare", label: "Healthcare" },
   { value: "Retail", label: "Retail" },
   { value: "Manufacturing", label: "Manufacturing" },
+  { value: "Professional Services", label: "Professional Services" },
   { value: "Other", label: "Other" },
 ];
 
@@ -154,7 +155,15 @@ function defaultPosition(index: number, total: number) {
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
-export default function OnboardingPage() {
+export default function OnboardingPageWrapper() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[rgba(8,12,16,1)]"><div className="text-white/30 text-sm">Loading...</div></div>}>
+      <OnboardingPage />
+    </Suspense>
+  );
+}
+
+function OnboardingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [step, setStep] = useState<OnboardingStep | null>(null);
@@ -759,8 +768,11 @@ export default function OnboardingPage() {
     const targetDeptId = typeof window !== "undefined" ? sessionStorage.getItem("onboarding_connect_dept") : null;
     if (!targetDeptId) {
       // Just refresh all bindings
-      loadDepartments();
-      realDepts.forEach(d => loadBindings(d.id));
+      (async () => {
+        await loadDepartments();
+        realDepts.forEach(d => loadBindings(d.id));
+        window.history.replaceState({}, "", "/onboarding");
+      })();
       return;
     }
 

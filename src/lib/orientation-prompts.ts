@@ -10,9 +10,12 @@ type OrientationSession = {
 
 // ── Department Data Context ─────────────────────────────────────────────────
 
-export async function buildDepartmentDataContext(operatorId: string): Promise<string> {
+export async function buildDepartmentDataContext(operatorId: string, visibleDepts?: string[] | "all"): Promise<string> {
   const departments = await prisma.entity.findMany({
-    where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active" },
+    where: {
+      operatorId, category: "foundational", entityType: { slug: "department" }, status: "active",
+      ...(visibleDepts && visibleDepts !== "all" ? { id: { in: visibleDepts } } : {}),
+    },
     include: { entityType: { select: { slug: true } } },
   });
 

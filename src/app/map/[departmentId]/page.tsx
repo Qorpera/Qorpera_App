@@ -1058,6 +1058,7 @@ function DepartmentDetailInner() {
                       {role && <span className="ml-3 text-sm text-white/40">{role}</span>}
                       {email && <span className="ml-3 text-xs text-white/30">{email}</span>}
                     </div>
+                    {isAdmin && (
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
                       <button
                         onClick={() => startEdit(m)}
@@ -1078,6 +1079,7 @@ function DepartmentDetailInner() {
                         </svg>
                       </button>
                     </div>
+                    )}
                   </div>
                 );
               })}
@@ -1119,7 +1121,7 @@ function DepartmentDetailInner() {
                       )}
                     </div>
 
-                    {!doc && !isUploading && (
+                    {!doc && !isUploading && isAdmin && (
                       <button
                         onClick={() => slotFileInputRefs.current[slotType]?.click()}
                         className="w-full py-4 border border-dashed border-white/10 rounded-md text-xs text-white/30 hover:text-white/50 hover:border-white/20 transition"
@@ -1133,6 +1135,9 @@ function DepartmentDetailInner() {
                           onChange={(e) => handleSlotFileChange(e, slotType)}
                         />
                       </button>
+                    )}
+                    {!doc && !isUploading && !isAdmin && (
+                      <p className="py-4 text-center text-xs text-white/20">No document uploaded</p>
                     )}
 
                     {isUploading && (
@@ -1158,7 +1163,7 @@ function DepartmentDetailInner() {
                           </p>
                         )}
                         <div className="flex gap-2 mt-3">
-                          {doc.status === "extracted" && (
+                          {doc.status === "extracted" && isAdmin && (
                             <button
                               onClick={() => handleReExtract(doc.id, slotType).then(() => {/* modal opens via handler */})}
                               className="text-[11px] text-purple-400 hover:text-purple-300"
@@ -1166,6 +1171,7 @@ function DepartmentDetailInner() {
                               Review Changes
                             </button>
                           )}
+                          {isAdmin && (
                           <button
                             onClick={() => slotFileInputRefs.current[slotType]?.click()}
                             className="text-[11px] text-white/40 hover:text-white/60"
@@ -1179,7 +1185,8 @@ function DepartmentDetailInner() {
                               onChange={(e) => handleSlotFileChange(e, slotType)}
                             />
                           </button>
-                          {doc.status === "confirmed" && (
+                          )}
+                          {doc.status === "confirmed" && isAdmin && (
                             <button
                               onClick={() => handleReExtract(doc.id, slotType)}
                               disabled={!!isExtracting}
@@ -1201,6 +1208,7 @@ function DepartmentDetailInner() {
         {/* ---- Section 2b: Context Documents ---- */}
         <Section title="Context Documents">
           {/* drop zone */}
+          {isAdmin && (
           <button
             onClick={() => contextFileInputRef.current?.click()}
             className="w-full py-5 mb-4 border border-dashed border-white/10 rounded-lg text-center hover:border-white/20 transition"
@@ -1223,6 +1231,7 @@ function DepartmentDetailInner() {
               onChange={handleContextFileChange}
             />
           </button>
+          )}
 
           {/* doc list */}
           {docsData && docsData.contextDocs.length > 0 ? (

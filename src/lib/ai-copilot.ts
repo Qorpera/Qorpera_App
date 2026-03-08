@@ -202,21 +202,29 @@ const ORIENTATION_TOOLS: AITool[] = [
 // ── System Prompt Builder ────────────────────────────────────────────────────
 
 async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" }): Promise<string> {
+  const visibleDepts = scopeInfo?.visibleDepts;
+  const situationScopeWhere = visibleDepts && visibleDepts !== "all"
+    ? { OR: [{ situationType: { scopeEntityId: { in: visibleDepts } } }, { situationType: { scopeEntityId: null } }] }
+    : {};
+  const situationTypeScopeWhere = visibleDepts && visibleDepts !== "all"
+    ? { OR: [{ scopeEntityId: { in: visibleDepts } }, { scopeEntityId: null }] }
+    : {};
+
   const [entityTypes, businessCtx, situationTypes, unreadNotifCount, pendingSituations, deptContext] = await Promise.all([
     listEntityTypes(operatorId),
     getBusinessContext(operatorId),
     prisma.situationType.findMany({
-      where: { operatorId, enabled: true },
+      where: { operatorId, enabled: true, ...situationTypeScopeWhere },
       select: { name: true, slug: true, description: true, autonomyLevel: true },
     }),
     prisma.notification.count({ where: { operatorId, read: false } }),
     prisma.situation.findMany({
-      where: { operatorId, status: { in: ["proposed", "detected"] } },
+      where: { operatorId, status: { in: ["proposed", "detected"] }, ...situationScopeWhere },
       include: { situationType: { select: { name: true } } },
       orderBy: { severity: "desc" },
       take: 5,
     }),
-    buildDepartmentDataContext(operatorId),
+    buildDepartmentDataContext(operatorId, visibleDepts),
   ]);
 
   const typesSummary = entityTypes

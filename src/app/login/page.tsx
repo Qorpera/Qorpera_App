@@ -20,7 +20,7 @@ export default function LoginPage() {
         if (data.firstRun) {
           router.replace("/setup");
         } else if (data.authenticated) {
-          router.replace("/dashboard");
+          router.replace("/");
         } else {
           setReady(true);
         }
@@ -41,7 +41,7 @@ export default function LoginPage() {
       });
 
       if (res.ok) {
-        router.push("/dashboard");
+        router.push("/");
         return;
       }
 

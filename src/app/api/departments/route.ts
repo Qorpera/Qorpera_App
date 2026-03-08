@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getOperatorId, getUserId, getUserRole } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
@@ -82,6 +82,10 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const operatorId = await getOperatorId();
+  const role = await getUserRole();
+  if (role !== "admin") {
+    return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  }
   const body = await req.json();
   const { name, description, mapX, mapY } = body;
 
