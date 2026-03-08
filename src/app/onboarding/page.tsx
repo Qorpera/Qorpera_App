@@ -8,99 +8,23 @@ import { Select } from "@/components/ui/select";
 import { Modal } from "@/components/ui/modal";
 import { DOCUMENT_SLOT_TYPES, type SlotType } from "@/lib/document-slots";
 import { CONNECTOR_ENTITY_TYPES } from "@/lib/connector-entity-types";
+import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
+import { OnboardingMapBuilder } from "@/components/onboarding/onboarding-map-builder";
+import { OnboardingDepartmentList } from "@/components/onboarding/onboarding-department-list";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6;
-
-interface Department {
-  id: string;
-  displayName: string;
-  description: string | null;
-  mapX: number | null;
-  mapY: number | null;
-  memberCount: number;
-  connectorCount: number;
-  entityType: { slug: string };
-}
-
-interface Member {
-  id: string;
-  displayName: string;
-  propertyValues: Array<{
-    property: { slug: string; name: string; dataType: string };
-    value: string;
-  }>;
-}
-
-interface InternalDoc {
-  id: string;
-  fileName: string;
-  documentType: string;
-  status: string;
-  embeddingStatus: string;
-}
-
-interface DocsData {
-  slots: Record<string, InternalDoc | null>;
-  contextDocs: InternalDoc[];
-}
-
-interface PersonDiff {
-  action: string;
-  name: string;
-  role?: string;
-  email?: string;
-  existingEntityId?: string;
-  changes?: Record<string, { from: string; to: string }>;
-  selected: boolean;
-}
-
-interface PropertyDiff {
-  action: string;
-  targetEntityId: string;
-  targetEntityName: string;
-  property: string;
-  label: string;
-  oldValue?: string;
-  newValue: string;
-  selected: boolean;
-}
-
-interface ExtractionDiff {
-  type: string;
-  people?: PersonDiff[];
-  properties?: PropertyDiff[];
-  summary: string;
-}
-
-interface ConnectorBinding {
-  id: string;
-  connectorId: string;
-  departmentId: string;
-  entityTypeFilter: string[] | null;
-  enabled: boolean;
-  connector: {
-    id: string;
-    provider: string;
-    name: string;
-    status: string;
-  };
-}
-
-interface Provider {
-  id: string;
-  name: string;
-  configured: boolean;
-}
+import type {
+  OnboardingStep, Department, Member, InternalDoc, DocsData,
+  PersonDiff, PropertyDiff, ExtractionDiff, ConnectorBinding, Provider,
+} from "@/components/onboarding/types";
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const STEP_LABELS = ["Name", "Depts", "Team", "Docs", "Tools", "Sync"];
 
 const INDUSTRY_OPTIONS = [
   { value: "", label: "Select industry (optional)" },
@@ -115,8 +39,6 @@ const INDUSTRY_OPTIONS = [
 
 const CARD_W = 180;
 const CARD_H = 80;
-const HQ_W = 200;
-const HQ_H = 64;
 const CLICK_THRESHOLD = 5;
 
 const SLOT_ICONS: Record<string, string> = {
@@ -908,18 +830,17 @@ function OnboardingPage() {
       clearInterval(syncPollRef.current);
       syncPollRef.current = null;
     }
-    // Advance: connecting → syncing
-    await fetch("/api/orientation/advance", {
+    // Advance directly to orienting phase (skipping intermediate phases)
+    const res = await fetch("/api/orientation/advance", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ targetPhase: "orienting" }),
     });
-    // Advance: syncing → orienting
-    await fetch("/api/orientation/advance", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
+    if (!res.ok) {
+      // Fallback: try one step at a time
+      await fetch("/api/orientation/advance", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      await fetch("/api/orientation/advance", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+    }
     router.replace("/copilot");
   }
 
@@ -937,63 +858,10 @@ function OnboardingPage() {
 
   const hq = departments.find(d => d.entityType?.slug === "organization");
   const nonHQ = departments.filter(d => d.entityType?.slug === "department");
-  const hqPos = hq ? (positionsRef.current[hq.id] ?? { x: 0, y: 0 }) : { x: 0, y: 0 };
 
   return (
     <div className="min-h-screen bg-[rgba(8,12,16,1)] flex flex-col items-center px-4 py-12">
-      {/* Step progress indicator */}
-      <div className="w-full max-w-[600px] mb-12">
-        <div className="flex items-center justify-between">
-          {STEP_LABELS.map((label, i) => {
-            const stepNum = (i + 1) as OnboardingStep;
-            const isComplete = step > stepNum;
-            const isCurrent = step === stepNum;
-            return (
-              <div key={label} className="flex items-center gap-2">
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
-                    isComplete
-                      ? "bg-purple-500 text-white"
-                      : isCurrent
-                        ? "bg-purple-500/20 text-purple-300 ring-2 ring-purple-500/40"
-                        : "bg-white/[0.06] text-white/30"
-                  }`}
-                >
-                  {isComplete ? (
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    stepNum
-                  )}
-                </div>
-                {i < STEP_LABELS.length - 1 && (
-                  <div className={`hidden sm:block w-8 lg:w-14 h-px ${isComplete ? "bg-purple-500/40" : "bg-white/[0.06]"}`} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex justify-between mt-2">
-          {STEP_LABELS.map((label, i) => {
-            const stepNum = (i + 1) as OnboardingStep;
-            return (
-              <span
-                key={label}
-                className={`text-[10px] ${
-                  step === stepNum
-                    ? "text-white/70"
-                    : step > stepNum
-                      ? "text-purple-400/60"
-                      : "text-white/25"
-                }`}
-              >
-                {label}
-              </span>
-            );
-          })}
-        </div>
-      </div>
+      <OnboardingProgress step={step} />
 
       {/* Content area */}
       <div className="w-full max-w-[600px]">
@@ -1049,93 +917,13 @@ function OnboardingPage() {
               </p>
             </div>
 
-            {/* Mini map surface */}
-            <div
-              className="relative w-full rounded-xl border border-white/[0.06] overflow-hidden select-none"
-              style={{
-                height: 380,
-                background: "rgba(8,12,16,1)",
-                backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)",
-                backgroundSize: "40px 40px",
-              }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: "50%",
-                  transform: "translate(0, 0)",
-                }}
-              >
-                {hq && nonHQ.length > 0 && (
-                  <svg className="absolute top-0 left-0 pointer-events-none" style={{ overflow: "visible", width: 1, height: 1 }}>
-                    {nonHQ.map(dept => {
-                      const dPos = positionsRef.current[dept.id];
-                      if (!dPos) return null;
-                      return (
-                        <line
-                          key={dept.id}
-                          x1={hqPos.x}
-                          y1={hqPos.y}
-                          x2={dPos.x}
-                          y2={dPos.y}
-                          stroke="rgba(139,92,246,0.15)"
-                          strokeWidth={1.5}
-                          strokeDasharray="4 4"
-                        />
-                      );
-                    })}
-                  </svg>
-                )}
-
-                {hq && (
-                  <div
-                    onMouseDown={e => onCardMouseDown(e, hq.id)}
-                    className={`absolute rounded-xl border border-purple-500/30 bg-purple-500/[0.08] px-4 py-3 transition ${
-                      dragId === hq.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : ""
-                    }`}
-                    style={{
-                      left: hqPos.x - HQ_W / 2,
-                      top: hqPos.y - HQ_H / 2,
-                      width: HQ_W,
-                      cursor: dragId === hq.id ? "grabbing" : "grab",
-                    }}
-                  >
-                    <h3 className="font-heading text-sm font-semibold text-purple-200 truncate text-center">
-                      {hq.displayName}
-                    </h3>
-                    {hq.description && (
-                      <p className="text-[10px] text-white/40 truncate text-center mt-0.5">{hq.description}</p>
-                    )}
-                  </div>
-                )}
-
-                {nonHQ.map(dept => {
-                  const pos = positionsRef.current[dept.id];
-                  if (!pos) return null;
-                  return (
-                    <div
-                      key={dept.id}
-                      onMouseDown={e => onCardMouseDown(e, dept.id)}
-                      className={`absolute rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 transition ${
-                        dragId === dept.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : ""
-                      }`}
-                      style={{
-                        left: pos.x - CARD_W / 2,
-                        top: pos.y - CARD_H / 2,
-                        width: CARD_W,
-                        cursor: dragId === dept.id ? "grabbing" : "grab",
-                      }}
-                    >
-                      <h3 className="text-xs font-bold text-white/90 truncate">{dept.displayName}</h3>
-                      {dept.description && (
-                        <p className="text-[10px] text-white/40 truncate mt-0.5">{dept.description}</p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <OnboardingMapBuilder
+              hq={hq ?? null}
+              departments={nonHQ}
+              positionsRef={positionsRef}
+              dragId={dragId}
+              onCardMouseDown={onCardMouseDown}
+            />
 
             {addingDept ? (
               <div className="wf-soft p-4 space-y-3">

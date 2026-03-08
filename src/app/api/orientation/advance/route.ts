@@ -7,6 +7,7 @@ const PHASE_ORDER = ["mapping", "populating", "connecting", "syncing", "orientin
 
 const advanceSchema = z.object({
   context: z.string().optional(),
+  targetPhase: z.string().optional(),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -35,7 +36,18 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  const nextPhase = PHASE_ORDER[currentIdx + 1];
+  // Support advancing to a specific target phase (skipping intermediate phases)
+  let nextPhase = PHASE_ORDER[currentIdx + 1];
+  if (parsed.data.targetPhase) {
+    const targetIdx = PHASE_ORDER.indexOf(parsed.data.targetPhase as (typeof PHASE_ORDER)[number]);
+    if (targetIdx === -1) {
+      return NextResponse.json({ error: `Invalid target phase "${parsed.data.targetPhase}"` }, { status: 400 });
+    }
+    if (targetIdx <= currentIdx) {
+      return NextResponse.json({ error: `Target phase "${parsed.data.targetPhase}" is not ahead of current phase "${session.phase}"` }, { status: 422 });
+    }
+    nextPhase = PHASE_ORDER[targetIdx];
+  }
 
   // Merge context if provided
   let mergedContext = session.context;
