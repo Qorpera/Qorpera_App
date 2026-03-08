@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET() {
   const operatorId = await getOperatorId();
+  const userId = await getUserId();
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
 
   const departments = await prisma.entity.findMany({
     where: {
@@ -12,6 +15,12 @@ export async function GET() {
       category: "foundational",
       status: "active",
       entityType: { slug: { in: ["department", "organization"] } },
+      ...(visibleDepts !== "all" ? {
+        OR: [
+          { id: { in: visibleDepts } },
+          { entityType: { slug: "organization" } },
+        ],
+      } : {}),
     },
     include: {
       entityType: { select: { slug: true, name: true, icon: true, color: true } },

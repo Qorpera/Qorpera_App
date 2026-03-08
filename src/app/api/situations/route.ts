@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
 
 export async function GET(req: NextRequest) {
   const operatorId = await getOperatorId();
+  const userId = await getUserId();
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
   const params = req.nextUrl.searchParams;
 
   const statusParam = params.get("status");
@@ -14,7 +17,7 @@ export async function GET(req: NextRequest) {
   const offset = parseInt(params.get("offset") ?? "0");
 
   // Build where clause
-  const where: Record<string, unknown> = { operatorId };
+  const where: Record<string, unknown> = { operatorId, ...situationScopeFilter(visibleDepts) };
 
   if (statusParam) {
     const statuses = statusParam.split(",").map((s) => s.trim());

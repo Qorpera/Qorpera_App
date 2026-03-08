@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(
   req: NextRequest,
@@ -8,6 +9,11 @@ export async function GET(
 ) {
   const operatorId = await getOperatorId();
   const { id } = await params;
+  const _userId = await getUserId();
+  const _visibleDepts = await getVisibleDepartmentIds(operatorId, _userId);
+  if (_visibleDepts !== "all" && !_visibleDepts.includes(id)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
 
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "50"), 200);
   const offset = Number(req.nextUrl.searchParams.get("offset") || "0");

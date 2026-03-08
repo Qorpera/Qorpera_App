@@ -11,10 +11,10 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { displayName, email, password } = body;
+  const { companyName, industry, displayName, email, password } = body;
 
-  if (!displayName || !email || !password) {
-    return NextResponse.json({ error: "displayName, email, and password are required" }, { status: 400 });
+  if (!companyName || !displayName || !email || !password) {
+    return NextResponse.json({ error: "companyName, displayName, email, and password are required" }, { status: 400 });
   }
 
   const passwordHash = await hashPassword(password);
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   let operator = await prisma.operator.findFirst();
   if (!operator) {
     operator = await prisma.operator.create({
-      data: { displayName, email, passwordHash },
+      data: { displayName: companyName, email, passwordHash, companyName, industry: industry || null },
     });
   }
 
@@ -120,16 +120,27 @@ export async function POST(req: NextRequest) {
     }
 
     // Create CompanyHQ entity
-    await prisma.entity.create({
+    const companyHQ = await prisma.entity.create({
       data: {
         operatorId: operator.id,
         entityTypeId: orgType.id,
-        displayName: body.companyName || operator.displayName,
+        displayName: companyName,
         category: "foundational",
         mapX: 0,
         mapY: 0,
         description: "Company headquarters",
       },
+    });
+
+    // Set admin user scope to CompanyHQ (sees everything)
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { scopeEntityId: companyHQ.id },
+    });
+
+    // Create orientation session with "mapping" phase
+    await prisma.orientationSession.create({
+      data: { operatorId: operator.id, phase: "mapping" },
     });
 
     // Seed department-member relationship type

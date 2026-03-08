@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { isStructuralSlot } from "@/lib/document-slots";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { extractText, processDocument } from "@/lib/rag/pipeline";
@@ -29,6 +30,11 @@ export async function POST(
 ) {
   const operatorId = await getOperatorId();
   const { id: departmentId } = await params;
+  const _userId = await getUserId();
+  const _visibleDepts = await getVisibleDepartmentIds(operatorId, _userId);
+  if (_visibleDepts !== "all" && !_visibleDepts.includes(departmentId)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
 
   // Verify department exists
   const department = await prisma.entity.findFirst({

@@ -8,7 +8,7 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { useSearchParams } from "next/navigation";
 
-type Tab = "ai" | "governance" | "connections" | "data" | "autonomy";
+type Tab = "ai" | "governance" | "connections" | "data" | "autonomy" | "team";
 
 type SituationTypeItem = {
   id: string;
@@ -95,7 +95,7 @@ function SettingsPageInner() {
   const stripeParam = searchParams.get("stripe");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "autonomy" ? "autonomy" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "autonomy" ? "autonomy" : tabParam === "team" ? "team" : "ai"
   );
 
   // AI state
@@ -171,6 +171,22 @@ function SettingsPageInner() {
   const [dataAction, setDataAction] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
 
+  // Team state
+  type TeamUser = { id: string; email: string; displayName: string; role: string; scopeEntityId: string | null; linkedEntityId: string | null; createdAt: string; departmentName?: string };
+  type TeamInvite = { id: string; email: string; role: string; departmentId: string | null; departmentName: string | null; token: string; invitedBy: string; inviterName: string; expiresAt: string; claimedAt: string | null; status: string };
+  type TeamDept = { id: string; displayName: string };
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
+  const [teamInvites, setTeamInvites] = useState<TeamInvite[]>([]);
+  const [teamDepts, setTeamDepts] = useState<TeamDept[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [invEmail, setInvEmail] = useState("");
+  const [invRole, setInvRole] = useState("viewer");
+  const [invDeptId, setInvDeptId] = useState("");
+  const [inviting, setInviting] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+
   // Load autonomy settings and situation types
   const loadSituationTypes = useCallback(() => {
     fetch("/api/situation-types")
@@ -194,6 +210,25 @@ function SettingsPageInner() {
       }).catch(() => {}).finally(() => setAutoLoading(false));
     }
   }, [activeTab]);
+
+  // Load team data
+  const loadTeamData = useCallback(async () => {
+    setTeamLoading(true);
+    try {
+      const [invRes, deptRes] = await Promise.all([
+        fetch("/api/users/invite").then((r) => r.json()),
+        fetch("/api/departments").then((r) => r.json()),
+      ]);
+      setTeamUsers(invRes.users || []);
+      setTeamInvites(invRes.invites || []);
+      setTeamDepts((deptRes || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
+    } catch {}
+    setTeamLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "team") loadTeamData();
+  }, [activeTab, loadTeamData]);
 
   // Fetch Ollama models when provider is ollama
   useEffect(() => {
@@ -623,6 +658,7 @@ function SettingsPageInner() {
     { key: "governance", label: "Governance" },
     { key: "autonomy", label: "Autonomy" },
     { key: "connections", label: "Connections" },
+    { key: "team", label: "Team" },
     { key: "data", label: "Data Management" },
   ];
 
@@ -1011,6 +1047,269 @@ function SettingsPageInner() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Team Tab */}
+        {activeTab === "team" && (
+          <div className="space-y-6">
+            {/* Invite Form */}
+            <div className="wf-soft p-6 space-y-4">
+              <h2 className="text-lg font-medium text-white/80">Invite Team Member</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Input
+                  label="Email"
+                  type="email"
+                  value={invEmail}
+                  onChange={(e) => setInvEmail(e.target.value)}
+                  placeholder="colleague@company.com"
+                />
+                <Select
+                  label="Role"
+                  options={[
+                    { value: "viewer", label: "Viewer" },
+                    { value: "admin", label: "Admin" },
+                    { value: "supervisor", label: "Supervisor" },
+                    { value: "finance", label: "Finance" },
+                    { value: "sales", label: "Sales" },
+                    { value: "support", label: "Support" },
+                  ]}
+                  value={invRole}
+                  onChange={(e) => { setInvRole(e.target.value); setInvDeptId(""); }}
+                />
+                {invRole !== "admin" && (
+                  <Select
+                    label="Department"
+                    options={[
+                      { value: "", label: "Select department" },
+                      ...teamDepts.map((d) => ({ value: d.id, label: d.displayName })),
+                    ]}
+                    value={invDeptId}
+                    onChange={(e) => setInvDeptId(e.target.value)}
+                  />
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={inviting || !invEmail || (invRole !== "admin" && !invDeptId)}
+                  onClick={async () => {
+                    setInviting(true);
+                    setInviteUrl(null);
+                    try {
+                      const res = await fetch("/api/users/invite", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          email: invEmail,
+                          role: invRole,
+                          ...(invRole !== "admin" && invDeptId ? { departmentId: invDeptId } : {}),
+                        }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        toast(data.error || "Failed to create invite", "error");
+                        return;
+                      }
+                      setInviteUrl(data.inviteUrl);
+                      toast("Invite created! Share the link with your team member.", "success");
+                      setInvEmail("");
+                      loadTeamData();
+                    } catch {
+                      toast("Failed to create invite", "error");
+                    } finally {
+                      setInviting(false);
+                    }
+                  }}
+                >
+                  {inviting ? "Creating..." : "Create Invite"}
+                </Button>
+              </div>
+              {inviteUrl && (
+                <div className="flex items-center gap-2 bg-purple-500/10 rounded-lg px-4 py-3">
+                  <code className="text-xs text-purple-300 flex-1 truncate">{inviteUrl}</code>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(inviteUrl);
+                      toast("Link copied to clipboard", "success");
+                    }}
+                  >
+                    Copy Link
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Active Users */}
+            <div className="wf-soft p-6 space-y-4">
+              <h2 className="text-lg font-medium text-white/80">Active Users</h2>
+              {teamLoading ? (
+                <p className="text-sm text-white/30">Loading...</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-white/40 border-b border-white/[0.06]">
+                        <th className="pb-2 font-medium">Name</th>
+                        <th className="pb-2 font-medium">Email</th>
+                        <th className="pb-2 font-medium">Role</th>
+                        <th className="pb-2 font-medium">Department</th>
+                        <th className="pb-2 font-medium">Joined</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teamUsers.map((u) => (
+                        <tr key={u.id} className="border-b border-white/[0.04]">
+                          <td className="py-2.5 text-white/70">
+                            {u.displayName}
+                            {u.linkedEntityId && (
+                              <span className="ml-1.5 text-[10px] text-purple-400" title="Linked to entity">
+                                &#9679;
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-white/50">{u.email}</td>
+                          <td className="py-2.5">
+                            {editingUserId === u.id ? (
+                              <select
+                                className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-white/70"
+                                defaultValue={u.role}
+                                onChange={async (e) => {
+                                  const newRole = e.target.value;
+                                  try {
+                                    const res = await fetch(`/api/users/${u.id}`, {
+                                      method: "PATCH",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ role: newRole }),
+                                    });
+                                    if (res.ok) {
+                                      toast("Role updated", "success");
+                                      loadTeamData();
+                                    } else {
+                                      const d = await res.json();
+                                      toast(d.error || "Failed", "error");
+                                    }
+                                  } catch { toast("Failed", "error"); }
+                                  setEditingUserId(null);
+                                }}
+                                onBlur={() => setEditingUserId(null)}
+                              >
+                                {["admin", "supervisor", "finance", "sales", "support", "viewer"].map((r) => (
+                                  <option key={r} value={r}>{r}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span
+                                className="capitalize text-white/60 cursor-pointer hover:text-white/80"
+                                onClick={() => setEditingUserId(u.id)}
+                                title="Click to edit"
+                              >
+                                {u.role}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 text-white/50">{u.departmentName || "All (Admin)"}</td>
+                          <td className="py-2.5 text-white/40 text-xs">
+                            {new Date(u.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Pending Invites */}
+            <div className="wf-soft p-6 space-y-4">
+              <h2 className="text-lg font-medium text-white/80">Invites</h2>
+              {teamInvites.length === 0 ? (
+                <p className="text-sm text-white/30">No invites yet</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-white/40 border-b border-white/[0.06]">
+                        <th className="pb-2 font-medium">Email</th>
+                        <th className="pb-2 font-medium">Role</th>
+                        <th className="pb-2 font-medium">Department</th>
+                        <th className="pb-2 font-medium">Invited By</th>
+                        <th className="pb-2 font-medium">Expires</th>
+                        <th className="pb-2 font-medium">Status</th>
+                        <th className="pb-2 font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teamInvites.map((inv) => {
+                        const statusColors: Record<string, string> = {
+                          pending: "text-amber-400",
+                          claimed: "text-emerald-400",
+                          expired: "text-white/30",
+                        };
+                        return (
+                          <tr key={inv.id} className="border-b border-white/[0.04]">
+                            <td className="py-2.5 text-white/70">{inv.email}</td>
+                            <td className="py-2.5 text-white/50 capitalize">{inv.role}</td>
+                            <td className="py-2.5 text-white/50">{inv.departmentName || "All"}</td>
+                            <td className="py-2.5 text-white/50">{inv.inviterName}</td>
+                            <td className="py-2.5 text-white/40 text-xs">
+                              {inv.status === "pending"
+                                ? `in ${Math.max(0, Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / 86400000))} days`
+                                : new Date(inv.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                            </td>
+                            <td className="py-2.5">
+                              <span className={`text-xs font-medium capitalize ${statusColors[inv.status] || "text-white/40"}`}>
+                                {inv.status}
+                              </span>
+                            </td>
+                            <td className="py-2.5">
+                              {inv.status === "pending" && (
+                                <div className="flex gap-2">
+                                  <button
+                                    className="text-xs text-purple-400 hover:text-purple-300"
+                                    onClick={() => {
+                                      const baseUrl = window.location.origin;
+                                      navigator.clipboard.writeText(`${baseUrl}/invite/${inv.token}`);
+                                      toast("Link copied", "success");
+                                    }}
+                                  >
+                                    Copy Link
+                                  </button>
+                                  <button
+                                    className="text-xs text-red-400 hover:text-red-300"
+                                    disabled={revokingId === inv.id}
+                                    onClick={async () => {
+                                      if (!confirm("Revoke this invite?")) return;
+                                      setRevokingId(inv.id);
+                                      try {
+                                        const res = await fetch(`/api/users/invite/${inv.id}`, { method: "DELETE" });
+                                        if (res.ok) {
+                                          toast("Invite revoked", "success");
+                                          loadTeamData();
+                                        } else {
+                                          const d = await res.json();
+                                          toast(d.error || "Failed", "error");
+                                        }
+                                      } catch { toast("Failed", "error"); }
+                                      setRevokingId(null);
+                                    }}
+                                  >
+                                    {revokingId === inv.id ? "..." : "Revoke"}
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}

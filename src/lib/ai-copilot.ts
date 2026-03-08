@@ -4,7 +4,7 @@ import { getEntityContext, searchEntities } from "@/lib/entity-resolution";
 import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
 import { listEntityTypes } from "@/lib/entity-model-store";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
-import { buildOrientationSystemPrompt } from "@/lib/orientation-prompts";
+import { buildOrientationSystemPrompt, buildDepartmentDataContext } from "@/lib/orientation-prompts";
 import { generatePreFilter } from "@/lib/situation-prefilter";
 import { getProvider } from "@/lib/connectors/registry";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
@@ -133,7 +133,7 @@ const COPILOT_TOOLS: AITool[] = [
   },
   {
     name: "create_situation_type",
-    description: "Create a new situation type that the system will watch for. Use during orientation or anytime to define what operational scenarios matter.",
+    description: "Create a new situation type that the system will watch for. When creating a situation type, always specify which department it applies to using scopeDepartmentName. For example, if the user says 'overdue invoices are a problem in Finance', set scopeDepartmentName to 'Finance'.",
     parameters: {
       type: "object",
       properties: {
@@ -153,8 +153,29 @@ const COPILOT_TOOLS: AITool[] = [
           type: "object",
           description: "Default response steps when this situation is detected",
         },
+        scopeEntityId: { type: "string", description: "ID of the department entity to scope this situation type to" },
+        scopeDepartmentName: { type: "string", description: "Name of the department to scope this situation type to. If provided without scopeEntityId, the department will be resolved by name." },
       },
       required: ["name", "slug", "description", "detectionLogic"],
+    },
+  },
+  {
+    name: "list_departments",
+    description: "List all departments with member counts and connected data summary.",
+    parameters: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "get_department_context",
+    description: "Get detailed context about a specific department including members, documents, connected data, and recent situations.",
+    parameters: {
+      type: "object",
+      properties: {
+        departmentName: { type: "string", description: "Name of the department" },
+      },
+      required: ["departmentName"],
     },
   },
 ];
@@ -180,8 +201,8 @@ const ORIENTATION_TOOLS: AITool[] = [
 
 // ── System Prompt Builder ────────────────────────────────────────────────────
 
-async function buildSystemPrompt(operatorId: string, userRole?: string): Promise<string> {
-  const [entityTypes, businessCtx, situationTypes, unreadNotifCount, pendingSituations] = await Promise.all([
+async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" }): Promise<string> {
+  const [entityTypes, businessCtx, situationTypes, unreadNotifCount, pendingSituations, deptContext] = await Promise.all([
     listEntityTypes(operatorId),
     getBusinessContext(operatorId),
     prisma.situationType.findMany({
@@ -195,6 +216,7 @@ async function buildSystemPrompt(operatorId: string, userRole?: string): Promise
       orderBy: { severity: "desc" },
       take: 5,
     }),
+    buildDepartmentDataContext(operatorId),
   ]);
 
   const typesSummary = entityTypes
@@ -219,8 +241,18 @@ async function buildSystemPrompt(operatorId: string, userRole?: string): Promise
     ? `\nACTIVE SITUATION TYPES (${situationTypes.length} watching):\n${situationTypes.map((s) => `- ${s.name} (${s.slug}): ${s.description} [${s.autonomyLevel}]`).join("\n")}\n`
     : "";
 
+  const deptSection = deptContext
+    ? `\nORGANIZATIONAL STRUCTURE:\n${deptContext}\n`
+    : "";
+
+  // Scoped user framing
+  let scopeFraming = "- Visibility: Full access across all departments.";
+  if (scopeInfo && scopeInfo.visibleDepts !== "all" && scopeInfo.departmentName) {
+    scopeFraming = `- Department: ${scopeInfo.departmentName}\n- Visibility: You are assisting ${scopeInfo.userName || "a user"} who works in the ${scopeInfo.departmentName} department. Focus your responses on matters relevant to their department.`;
+  }
+
   return `You are the Qorpera AI co-pilot, an intelligent assistant for the operator's entity graph and governance workflow engine.
-${businessSection}
+${businessSection}${deptSection}
 ENTITY MODEL:
 ${typesSummary || "No entity types configured yet."}
 ${situationSection}
@@ -238,12 +270,14 @@ CAPABILITIES:
 - Look up entities by name or ID to see their full context, properties, and relationships
 - Search across entities by keyword
 - Explore the entity graph to discover connections
+- List departments and get detailed department context
 - Propose actions (create, update, delete entities) that go through governance review
 - Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
-- Create new situation types to define what the system should watch for
+- Create new situation types scoped to specific departments
 
 USER CONTEXT:
 - Role: ${userRole || "admin"}
+${scopeFraming}
 - ${(() => {
     const role = userRole || "admin";
     const descriptions: Record<string, string> = {
@@ -463,36 +497,56 @@ async function executeTool(
     }
 
     case "get_org_structure": {
-      const rootName = args.rootEntityName ? String(args.rootEntityName) : null;
+      // Load CompanyHQ
+      const hq = await prisma.entity.findFirst({
+        where: { operatorId, category: "foundational", entityType: { slug: "organization" }, status: "active" },
+        select: { id: true, displayName: true },
+      });
 
-      let roots: Array<{ id: string; displayName: string }>;
-      if (rootName) {
-        const match = await prisma.entity.findFirst({
-          where: { operatorId, displayName: { contains: rootName }, status: "active" },
-          select: { id: true, displayName: true },
-        });
-        roots = match ? [match] : [];
-      } else {
-        const orgType = await prisma.entityType.findFirst({
-          where: { operatorId, slug: "organization" },
-          select: { id: true },
-        });
-        if (!orgType) return "No organization entities found. Upload documents or create entities first.";
-        roots = await prisma.entity.findMany({
-          where: { entityTypeId: orgType.id, operatorId, status: "active" },
-          select: { id: true, displayName: true },
-          take: 10,
-        });
+      if (!hq) return "No organization found. Complete onboarding first.";
+
+      // Load departments
+      const departments = await prisma.entity.findMany({
+        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active" },
+        select: { id: true, displayName: true, description: true },
+        orderBy: { displayName: "asc" },
+      });
+
+      if (departments.length === 0) {
+        return `${hq.displayName}\n  (no departments)`;
       }
 
-      if (roots.length === 0) return "No matching root entities found.";
+      const lines: string[] = [hq.displayName];
 
-      const lines: string[] = [];
-      for (const root of roots) {
-        await buildOrgTree(operatorId, root.id, root.displayName, 0, lines, new Set());
+      for (let di = 0; di < departments.length; di++) {
+        const dept = departments[di];
+        const isLast = di === departments.length - 1;
+        const prefix = isLast ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
+        const childPrefix = isLast ? "    " : "\u2502   ";
+
+        const desc = dept.description ? ` \u2014 ${dept.description}` : "";
+        lines.push(`${prefix}${dept.displayName}${desc}`);
+
+        // Load members
+        const members = await prisma.entity.findMany({
+          where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
+          include: {
+            propertyValues: { include: { property: { select: { slug: true } } } },
+          },
+          orderBy: { displayName: "asc" },
+        });
+
+        for (let mi = 0; mi < members.length; mi++) {
+          const m = members[mi];
+          const mIsLast = mi === members.length - 1;
+          const mPrefix = mIsLast ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
+          const role = m.propertyValues.find(pv => pv.property.slug === "role")?.value;
+          const roleStr = role ? ` (${role})` : "";
+          lines.push(`${childPrefix}${mPrefix}${m.displayName}${roleStr}`);
+        }
       }
 
-      return lines.join("\n") || "No organizational structure found.";
+      return lines.join("\n");
     }
 
     // ── Orientation + Situation Tools ───────────────────────────────────────────────
@@ -503,11 +557,42 @@ async function executeTool(
       const description = String(args.description ?? "");
       const detectionLogic = args.detectionLogic ?? { mode: "natural", naturalLanguage: description };
       const responseStrategy = args.responseStrategy ?? null;
+      let scopeEntityId = args.scopeEntityId ? String(args.scopeEntityId) : null;
+      const scopeDepartmentName = args.scopeDepartmentName ? String(args.scopeDepartmentName) : null;
+
+      // Resolve department name to entity ID if needed
+      if (scopeDepartmentName && !scopeEntityId) {
+        const dept = await prisma.entity.findFirst({
+          where: {
+            operatorId,
+            category: "foundational",
+            displayName: { contains: scopeDepartmentName },
+            entityType: { slug: "department" },
+            status: "active",
+          },
+        });
+        if (dept) scopeEntityId = dept.id;
+      }
 
       const situationType = await prisma.situationType.upsert({
         where: { operatorId_slug: { operatorId, slug } },
-        update: { name, description, detectionLogic: JSON.stringify(detectionLogic), responseStrategy: responseStrategy ? JSON.stringify(responseStrategy) : null },
-        create: { operatorId, name, slug, description, detectionLogic: JSON.stringify(detectionLogic), responseStrategy: responseStrategy ? JSON.stringify(responseStrategy) : null, autonomyLevel: "supervised" },
+        update: {
+          name,
+          description,
+          detectionLogic: JSON.stringify(detectionLogic),
+          responseStrategy: responseStrategy ? JSON.stringify(responseStrategy) : null,
+          ...(scopeEntityId ? { scopeEntityId } : {}),
+        },
+        create: {
+          operatorId,
+          name,
+          slug,
+          description,
+          detectionLogic: JSON.stringify(detectionLogic),
+          responseStrategy: responseStrategy ? JSON.stringify(responseStrategy) : null,
+          autonomyLevel: "supervised",
+          ...(scopeEntityId ? { scopeEntityId } : {}),
+        },
       });
 
       // Update orientation session context if in orientation
@@ -533,7 +618,10 @@ async function executeTool(
         generatePreFilter(situationType.id).catch(() => {});
       }
 
-      return `Created situation type "${name}" (${slug}, ID: ${situationType.id}). It will run in supervised mode — I'll always ask before taking any action.`;
+      const scopeNote = scopeEntityId
+        ? ` Scoped to ${scopeDepartmentName || "department"} (${scopeEntityId}).`
+        : "";
+      return `Created situation type "${name}" (${slug}, ID: ${situationType.id}).${scopeNote} It will run in supervised mode — I'll always ask before taking any action.`;
     }
 
     case "create_retrospective_situation": {
@@ -561,46 +649,121 @@ async function executeTool(
       return `Recorded retrospective example (ID: ${situation.id}): "${summary}" — outcome: ${outcome}. This helps me learn from your past experience.`;
     }
 
+    case "list_departments": {
+      const departments = await prisma.entity.findMany({
+        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active" },
+        select: { id: true, displayName: true, description: true },
+        orderBy: { displayName: "asc" },
+      });
+
+      if (departments.length === 0) return "No departments found.";
+
+      const results: string[] = [];
+      for (const dept of departments) {
+        const [memberCount, digitalCount, docCount, connectorCount] = await Promise.all([
+          prisma.entity.count({ where: { parentDepartmentId: dept.id, category: "base", status: "active" } }),
+          prisma.entity.count({ where: { parentDepartmentId: dept.id, category: "digital", status: "active" } }),
+          prisma.internalDocument.count({ where: { departmentId: dept.id, operatorId, status: { not: "replaced" } } }),
+          prisma.connectorDepartmentBinding.count({ where: { departmentId: dept.id } }),
+        ]);
+
+        let line = `- ${dept.displayName} (ID: ${dept.id})`;
+        if (dept.description) line += ` — ${dept.description}`;
+        line += `\n    ${memberCount} people, ${digitalCount} synced entities, ${docCount} documents, ${connectorCount} connectors`;
+        results.push(line);
+      }
+
+      return results.join("\n");
+    }
+
+    case "get_department_context": {
+      const departmentName = String(args.departmentName ?? "");
+      const dept = await prisma.entity.findFirst({
+        where: {
+          operatorId,
+          category: "foundational",
+          displayName: { contains: departmentName },
+          entityType: { slug: "department" },
+          status: "active",
+        },
+        select: { id: true, displayName: true, description: true },
+      });
+
+      if (!dept) return `Department "${departmentName}" not found.`;
+
+      // Members
+      const members = await prisma.entity.findMany({
+        where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
+        include: { propertyValues: { include: { property: { select: { slug: true } } } } },
+        orderBy: { displayName: "asc" },
+      });
+      const memberLines = members.map(m => {
+        const role = m.propertyValues.find(pv => pv.property.slug === "role")?.value;
+        const email = m.propertyValues.find(pv => pv.property.slug === "email")?.value;
+        let line = `  - ${m.displayName}`;
+        if (role) line += ` (${role})`;
+        if (email) line += ` <${email}>`;
+        return line;
+      });
+
+      // Documents
+      const docs = await prisma.internalDocument.findMany({
+        where: { departmentId: dept.id, operatorId, status: { not: "replaced" } },
+        select: { fileName: true, documentType: true, status: true },
+      });
+      const docLines = docs.map(d => `  - ${d.fileName} [${d.documentType}] (${d.status})`);
+
+      // Digital entity counts
+      const digitalCounts = await prisma.entity.groupBy({
+        by: ["entityTypeId"],
+        where: { operatorId, parentDepartmentId: dept.id, category: "digital", status: "active" },
+        _count: true,
+      });
+      const typeIds = digitalCounts.map(c => c.entityTypeId);
+      const types = typeIds.length > 0
+        ? await prisma.entityType.findMany({ where: { id: { in: typeIds } }, select: { id: true, name: true } })
+        : [];
+      const typeMap = new Map(types.map(t => [t.id, t.name]));
+
+      // Recent situations
+      const situations = await prisma.situation.findMany({
+        where: {
+          operatorId,
+          situationType: { scopeEntityId: dept.id },
+        },
+        include: { situationType: { select: { name: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      });
+
+      const sections: string[] = [
+        `Department: ${dept.displayName}`,
+        dept.description ? `Description: ${dept.description}` : null,
+        `\nMembers (${members.length}):`,
+        memberLines.length > 0 ? memberLines.join("\n") : "  (none)",
+        `\nDocuments (${docs.length}):`,
+        docLines.length > 0 ? docLines.join("\n") : "  (none)",
+      ].filter((s): s is string => s !== null);
+
+      if (digitalCounts.length > 0) {
+        const countsStr = digitalCounts
+          .map(c => `${c._count} ${typeMap.get(c.entityTypeId) || "items"}`)
+          .join(", ");
+        sections.push(`\nConnected data: ${countsStr}`);
+      }
+
+      if (situations.length > 0) {
+        sections.push(`\nRecent situations:`);
+        for (const s of situations) {
+          sections.push(`  - ${s.situationType.name} (${s.status})`);
+        }
+      }
+
+      return sections.join("\n");
+    }
+
     default:
       return `Unknown tool: ${toolName}`;
-  }
-}
-
-// ── Org Tree Helper ──────────────────────────────────────────────────────────
-
-const ORG_DOWNWARD_SLUGS = new Set(["has-department", "has-member", "manages"]);
-
-async function buildOrgTree(
-  operatorId: string,
-  entityId: string,
-  displayName: string,
-  depth: number,
-  lines: string[],
-  visited: Set<string>,
-): Promise<void> {
-  if (visited.has(entityId)) return;
-  visited.add(entityId);
-
-  const indent = "  ".repeat(depth);
-  lines.push(`${indent}- ${displayName}`);
-
-  if (depth >= 6) return; // safety
-
-  const children = await prisma.relationship.findMany({
-    where: {
-      fromEntityId: entityId,
-      fromEntity: { operatorId },
-      toEntity: { status: "active" },
-    },
-    include: {
-      relationshipType: { select: { slug: true } },
-      toEntity: { select: { id: true, displayName: true } },
-    },
-  });
-
-  for (const child of children) {
-    if (!ORG_DOWNWARD_SLUGS.has(child.relationshipType.slug)) continue;
-    await buildOrgTree(operatorId, child.toEntity.id, child.toEntity.displayName, depth + 1, lines, visited);
   }
 }
 
@@ -612,6 +775,7 @@ export async function chat(
   history: AIMessage[],
   userRole?: string,
   orientation?: OrientationInfo,
+  scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" },
 ): Promise<ReadableStream> {
   // Build system prompt — orientation-aware or normal
   let systemPrompt: string;
@@ -622,10 +786,10 @@ export async function chat(
     if (session) {
       systemPrompt = await buildOrientationSystemPrompt(operatorId, session);
     } else {
-      systemPrompt = await buildSystemPrompt(operatorId, userRole);
+      systemPrompt = await buildSystemPrompt(operatorId, userRole, scopeInfo);
     }
   } else {
-    systemPrompt = await buildSystemPrompt(operatorId, userRole);
+    systemPrompt = await buildSystemPrompt(operatorId, userRole, scopeInfo);
   }
 
   // Select tools — orientation mode gets extra tools

@@ -80,6 +80,7 @@ export default function MapPage() {
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(true);
 
   /* ---- add / edit modal ---- */
   const [modalOpen, setModalOpen] = useState(false);
@@ -175,6 +176,9 @@ export default function MapPage() {
   useEffect(() => {
     loadDepartments();
     fetchUnrouted();
+    fetchApi("/api/auth/me").then((r) => r.json()).then((data) => {
+      setIsAdmin(data.role === "admin");
+    }).catch(() => {});
     const iv = setInterval(loadDepartments, POLL_MS);
     return () => clearInterval(iv);
   }, [loadDepartments, fetchUnrouted]);
@@ -522,24 +526,28 @@ export default function MapPage() {
           <Button variant="default" size="sm" onClick={resetView}>
             Reset View
           </Button>
-          <button
-            onClick={() => { setEditMode(!editMode); if (editMode) setEditingDept(null); }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              editMode
-                ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
-            }`}
-          >
-            {editMode ? "Done Editing" : "Edit Map"}
-            {!editMode && unroutedCount > 0 && (
-              <span className="ml-1.5 min-w-[16px] h-[16px] inline-flex items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-black px-1">
-                {unroutedCount}
-              </span>
-            )}
-          </button>
-          <Button variant="primary" size="sm" onClick={openAdd}>
-            Add Department
-          </Button>
+          {isAdmin && (
+            <button
+              onClick={() => { setEditMode(!editMode); if (editMode) setEditingDept(null); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                editMode
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
+              }`}
+            >
+              {editMode ? "Done Editing" : "Edit Map"}
+              {!editMode && unroutedCount > 0 && (
+                <span className="ml-1.5 min-w-[16px] h-[16px] inline-flex items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-black px-1">
+                  {unroutedCount}
+                </span>
+              )}
+            </button>
+          )}
+          {isAdmin && (
+            <Button variant="primary" size="sm" onClick={openAdd}>
+              Add Department
+            </Button>
+          )}
         </div>
       }
     >
@@ -836,8 +844,8 @@ export default function MapPage() {
         )}
       </div>
 
-      {/* ---- context menu ---- */}
-      {ctxMenu && (
+      {/* ---- context menu (admin only) ---- */}
+      {isAdmin && ctxMenu && (
         <div
           className="fixed z-50 bg-[#182027] border border-white/10 rounded-lg shadow-xl py-1 min-w-[120px]"
           style={{ left: ctxMenu.x, top: ctxMenu.y }}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { CATEGORY_PRIORITY } from "@/lib/hardcoded-type-defs";
 
@@ -10,6 +11,11 @@ export async function GET(
 ) {
   const operatorId = await getOperatorId();
   const { id } = await params;
+  const _userId = await getUserId();
+  const _visibleDepts = await getVisibleDepartmentIds(operatorId, _userId);
+  if (_visibleDepts !== "all" && !_visibleDepts.includes(id)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
 
   // Validate parent department
   const dept = await prisma.entity.findFirst({
@@ -39,6 +45,11 @@ export async function POST(
 ) {
   const operatorId = await getOperatorId();
   const { id } = await params;
+  const _userId2 = await getUserId();
+  const _visibleDepts2 = await getVisibleDepartmentIds(operatorId, _userId2);
+  if (_visibleDepts2 !== "all" && !_visibleDepts2.includes(id)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
   const body = await req.json();
   const { name, role, email } = body;
 

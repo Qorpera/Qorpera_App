@@ -3,6 +3,7 @@ import { getOperatorId, getUserId, getUserRole } from "@/lib/auth";
 import { chat, type OrientationInfo } from "@/lib/ai-copilot";
 import { prisma } from "@/lib/db";
 import type { AIMessage } from "@/lib/ai-provider";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function POST(req: NextRequest) {
   const operatorId = await getOperatorId();
@@ -42,7 +43,20 @@ export async function POST(req: NextRequest) {
     data: { operatorId, userId, sessionId, role: "user", content: message },
   });
 
-  const stream = await chat(operatorId, message, history, userRole, orientation);
+  // Build scope info for copilot system prompt
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  let scopeInfo: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" } | undefined;
+  if (visibleDepts !== "all") {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, scopeEntityId: true } });
+    let departmentName: string | undefined;
+    if (user?.scopeEntityId) {
+      const dept = await prisma.entity.findUnique({ where: { id: user.scopeEntityId }, select: { displayName: true } });
+      departmentName = dept?.displayName ?? undefined;
+    }
+    scopeInfo = { userName: user?.displayName, departmentName, visibleDepts };
+  }
+
+  const stream = await chat(operatorId, message, history, userRole, orientation, scopeInfo);
 
   // Tee the stream: one for the HTTP response, one to capture for persistence
   const [responseStream, captureStream] = stream.tee();

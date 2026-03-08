@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { relateEntities } from "@/lib/entity-resolution";
 
 async function backfillBindingEntities(
@@ -63,6 +64,11 @@ export async function GET(
 ) {
   const operatorId = await getOperatorId();
   const { id } = await params;
+  const _userId = await getUserId();
+  const _visibleDepts = await getVisibleDepartmentIds(operatorId, _userId);
+  if (_visibleDepts !== "all" && !_visibleDepts.includes(id)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
 
   const dept = await prisma.entity.findFirst({
     where: { id, operatorId, category: "foundational", status: "active" },
@@ -100,6 +106,11 @@ export async function POST(
 ) {
   const operatorId = await getOperatorId();
   const { id } = await params;
+  const _userId2 = await getUserId();
+  const _visibleDepts2 = await getVisibleDepartmentIds(operatorId, _userId2);
+  if (_visibleDepts2 !== "all" && !_visibleDepts2.includes(id)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
   const body = await req.json();
 
   const { connectorId, entityTypeFilter } = body;

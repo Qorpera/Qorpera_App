@@ -317,6 +317,7 @@ function DepartmentDetailInner() {
   const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(true);
 
   const searchParams = useSearchParams();
 
@@ -446,7 +447,12 @@ function DepartmentDetailInner() {
     }
   }, []);
 
-  useEffect(() => { load(); loadDocs(); fetchBindings(); fetchConnectedEntities(); fetchProviders(); }, [load, loadDocs, fetchBindings, fetchConnectedEntities, fetchProviders]);
+  useEffect(() => {
+    load(); loadDocs(); fetchBindings(); fetchConnectedEntities(); fetchProviders();
+    fetchApi("/api/auth/me").then((r) => r.json()).then((data) => {
+      setIsAdmin(data.role === "admin");
+    }).catch(() => {});
+  }, [load, loadDocs, fetchBindings, fetchConnectedEntities, fetchProviders]);
 
   // Handle OAuth return
   useEffect(() => {
@@ -910,16 +916,18 @@ function DepartmentDetailInner() {
               </svg>
               Back to Map
             </button>
-            <button
-              onClick={() => setEditMode(!editMode)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                editMode
-                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                  : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
-              }`}
-            >
-              {editMode ? "Done Editing" : "Edit"}
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setEditMode(!editMode)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                  editMode
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
+                }`}
+              >
+                {editMode ? "Done Editing" : "Edit"}
+              </button>
+            )}
           </div>
 
           <InlineEdit
@@ -942,7 +950,7 @@ function DepartmentDetailInner() {
         <Section
           title="People"
           action={
-            !showAdd && (
+            isAdmin && !showAdd && (
               <Button variant="default" size="sm" onClick={() => { setShowAdd(true); setAddError(""); }}>
                 Add Person
               </Button>

@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { checkGraduation, checkDemotion } from "@/lib/autonomy-graduation";
 import { executeSituationAction } from "@/lib/situation-executor";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   const operatorId = await getOperatorId();
+  const userId = await getUserId();
   const { id } = params;
 
   const situation = await prisma.situation.findFirst({
@@ -22,6 +24,15 @@ export async function GET(
 
   if (!situation) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Scope check: deny if situation's type is scoped to a department the user can't see
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  if (visibleDepts !== "all") {
+    const scopeDept = situation.situationType?.scopeEntityId;
+    if (scopeDept && !visibleDepts.includes(scopeDept)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
   }
 
   // Parse context snapshot
@@ -83,15 +94,26 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   const operatorId = await getOperatorId();
+  const patchUserId = await getUserId();
   const { id } = params;
   const body = await req.json();
 
   const situation = await prisma.situation.findFirst({
     where: { id, operatorId },
+    include: { situationType: { select: { scopeEntityId: true } } },
   });
 
   if (!situation) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Scope check
+  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, patchUserId);
+  if (patchVisibleDepts !== "all") {
+    const scopeDept = situation.situationType?.scopeEntityId;
+    if (scopeDept && !patchVisibleDepts.includes(scopeDept)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
   }
 
   // Edit & Approve flow — reset to detected and re-reason with instruction

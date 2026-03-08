@@ -16,8 +16,11 @@ model Operator {
   displayName  String
   email        String?
   passwordHash String?
+  companyName  String?
+  industry     String?
   createdAt    DateTime @default(now())
 
+  invites           Invite[]
   entityTypes       EntityType[]
   entities          Entity[]
   relationshipTypes RelationshipType[]
@@ -46,10 +49,14 @@ model User {
   displayName  String
   role         String   @default("viewer") // admin, supervisor, finance, sales, support, viewer
   invitedBy    String?
+  scopeEntityId   String?
+  linkedEntityId  String?
   createdAt    DateTime @default(now())
 
   operator     Operator @relation(fields: [operatorId], references: [id])
   sessions     Session[]
+  scopeEntity   Entity? @relation("UserScope", fields: [scopeEntityId], references: [id])
+  linkedEntity  Entity? @relation("UserLinkedEntity", fields: [linkedEntityId], references: [id])
 
   @@unique([operatorId, email])
 }
@@ -145,6 +152,8 @@ model Entity {
   connectorBindings ConnectorDepartmentBinding[] @relation("ConnectorBindings")
   documentChunks    DocumentChunk[]
   internalDocument  InternalDocument? @relation("DocumentEntity")
+  scopedUsers   User[] @relation("UserScope")
+  linkedUsers   User[] @relation("UserLinkedEntity")
 
   @@index([operatorId, category])
   @@index([operatorId, parentDepartmentId])
@@ -407,7 +416,7 @@ model SituationEvent {
 model OrientationSession {
   id         String   @id @default(cuid())
   operatorId String
-  phase      String   @default("connecting") // connecting, learning, orienting, confirming, active
+  phase      String   @default("mapping") // mapping, populating, connecting, syncing, orienting, active
   context    String?  // JSON - accumulated business understanding
   messages   String?  // JSON - conversation history
   completedAt DateTime?
@@ -487,4 +496,23 @@ model InternalDocument {
   departmentId      String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+// ─── Invites ────────────────────────────────────────────
+
+model Invite {
+  id           String    @id @default(cuid())
+  operatorId   String
+  operator     Operator  @relation(fields: [operatorId], references: [id])
+  email        String
+  role         String    @default("viewer")
+  departmentId String?
+  token        String    @unique
+  invitedBy    String
+  expiresAt    DateTime
+  claimedAt    DateTime?
+  claimedBy    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([operatorId])
 }

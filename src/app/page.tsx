@@ -9,20 +9,18 @@ export default async function Home() {
   const session = await getSessionFromCookies();
   if (!session) redirect("/login");
 
-  // Check orientation state
   const orientation = await prisma.orientationSession.findFirst({
     where: { operatorId: session.operatorId },
     orderBy: { createdAt: "desc" },
   });
 
-  if (!orientation || orientation.phase === "connecting" || orientation.phase === "learning") {
-    redirect("/onboarding");
-  }
+  // Active = completed onboarding
+  if (orientation?.phase === "active") redirect("/map");
 
-  if (orientation.phase === "orienting") {
-    redirect("/copilot");
-  }
+  // Orienting = in copilot conversation
+  if (orientation?.phase === "orienting") redirect("/copilot");
 
-  // phase === "active" (completed) → normal app
-  redirect("/map");
+  // Everything else (including old phases "connecting", "learning", and new phases
+  // "mapping", "populating", "connecting", "syncing") = onboarding in progress
+  redirect("/onboarding");
 }

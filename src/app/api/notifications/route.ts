@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
 
 export async function GET(req: NextRequest) {
   const operatorId = await getOperatorId();
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (unreadOnly) where.read = false;
   if (sourceType) where.sourceType = sourceType;
 
-  const [notifications, unreadCount] = await Promise.all([
+  let [notifications, unreadCount] = await Promise.all([
     prisma.notification.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -27,6 +28,32 @@ export async function GET(req: NextRequest) {
     }),
     prisma.notification.count({ where: { ...baseWhere, read: false } }),
   ]);
+
+  // Filter out situation notifications from invisible departments
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  if (visibleDepts !== "all") {
+    const situationNotifIds = notifications
+      .filter(n => n.sourceType === "situation" && n.sourceId)
+      .map(n => n.sourceId!);
+
+    if (situationNotifIds.length > 0) {
+      const visibleSituations = await prisma.situation.findMany({
+        where: {
+          id: { in: situationNotifIds },
+          ...situationScopeFilter(visibleDepts),
+        },
+        select: { id: true },
+      });
+      const visibleSitIds = new Set(visibleSituations.map(s => s.id));
+
+      notifications = notifications.filter(n =>
+        n.sourceType !== "situation" || !n.sourceId || visibleSitIds.has(n.sourceId)
+      );
+    }
+
+    // Recount unread after filtering
+    unreadCount = notifications.filter(n => !n.read).length;
+  }
 
   return NextResponse.json({
     items: notifications.map((n) => ({

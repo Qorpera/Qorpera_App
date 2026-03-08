@@ -19,6 +19,8 @@ export default function SetupPage() {
   const [step, setStep] = useState<Step | null>(null);
 
   // Step 0 state (account creation)
+  const [companyName, setCompanyName] = useState("");
+  const [industry, setIndustry] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -57,7 +59,7 @@ export default function SetupPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName, email, password }),
+        body: JSON.stringify({ companyName, displayName, email, password, industry: industry || undefined }),
       });
 
       if (res.status === 409) {
@@ -123,7 +125,7 @@ export default function SetupPage() {
         await fetch("/api/data/seed", { method: "POST" });
       }
 
-      router.push("/dashboard");
+      router.push("/onboarding");
     } catch {
       setFinishing(false);
     }
@@ -179,6 +181,27 @@ export default function SetupPage() {
 
             <div className="wf-soft p-6 space-y-5">
               <Input
+                label="Company Name"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="Acme Corp"
+              />
+              <Select
+                label="Industry"
+                options={[
+                  { value: "", label: "Select industry (optional)" },
+                  { value: "Technology", label: "Technology" },
+                  { value: "Finance", label: "Finance" },
+                  { value: "Healthcare", label: "Healthcare" },
+                  { value: "Manufacturing", label: "Manufacturing" },
+                  { value: "Retail", label: "Retail" },
+                  { value: "Professional Services", label: "Professional Services" },
+                  { value: "Other", label: "Other" },
+                ]}
+                value={industry}
+                onChange={(e) => setIndustry(e.target.value)}
+              />
+              <Input
                 label="Display Name"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -209,7 +232,7 @@ export default function SetupPage() {
                 variant="primary"
                 size="lg"
                 onClick={handleRegister}
-                disabled={registering || !displayName || !email || !password}
+                disabled={registering || !companyName || !displayName || !email || !password}
               >
                 {registering ? "Creating..." : "Create Account"}
               </Button>

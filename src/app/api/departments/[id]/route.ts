@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const operatorId = await getOperatorId();
+  const userId = await getUserId();
   const { id } = await params;
+
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  if (visibleDepts !== "all" && !visibleDepts.includes(id)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
 
   const dept = await prisma.entity.findFirst({
     where: { id, operatorId, category: "foundational", status: "active" },
@@ -86,7 +93,14 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const operatorId = await getOperatorId();
+  const patchUserId = await getUserId();
   const { id } = await params;
+
+  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, patchUserId);
+  if (patchVisibleDepts !== "all" && !patchVisibleDepts.includes(id)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
+
   const body = await req.json();
 
   const dept = await prisma.entity.findFirst({
@@ -126,7 +140,13 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const operatorId = await getOperatorId();
+  const delUserId = await getUserId();
   const { id } = await params;
+
+  const delVisibleDepts = await getVisibleDepartmentIds(operatorId, delUserId);
+  if (delVisibleDepts !== "all" && !delVisibleDepts.includes(id)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+  }
 
   const dept = await prisma.entity.findFirst({
     where: { id, operatorId, category: "foundational", status: "active" },

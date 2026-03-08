@@ -15,6 +15,8 @@ export async function GET() {
       displayName: true,
       email: true,
       role: true,
+      scopeEntityId: true,
+      linkedEntityId: true,
       createdAt: true,
       operatorId: true,
     },
