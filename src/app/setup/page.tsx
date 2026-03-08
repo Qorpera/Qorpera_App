@@ -163,19 +163,10 @@ export default function SetupPage() {
             <div className="text-center">
               {/* Logo */}
               <div className="flex justify-center mb-6">
-                <div className="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center">
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="w-10 h-10 text-[#0e1418]"
-                    fill="currentColor"
-                  >
-                    <circle cx="12" cy="12" r="3" />
-                    <path
-                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"
-                      opacity="0.3"
-                    />
-                  </svg>
-                </div>
+                <svg viewBox="0 0 40 40" className="w-16 h-16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M22.5 23 C17 21, 9 12, 3 5" stroke="white" strokeWidth="1.1" strokeLinecap="round" />
+                  <circle cx="27" cy="27" r="6.5" stroke="white" strokeWidth="1.1" />
+                </svg>
               </div>
 
               <h1 className="font-heading text-3xl font-semibold tracking-[-0.02em] text-white/90 mb-2">
@@ -238,19 +229,10 @@ export default function SetupPage() {
           <div className="text-center space-y-6">
             {/* Logo */}
             <div className="flex justify-center">
-              <div className="w-16 h-16 rounded-full bg-white/90 flex items-center justify-center">
-                <svg
-                  viewBox="0 0 24 24"
-                  className="w-10 h-10 text-[#0e1418]"
-                  fill="currentColor"
-                >
-                  <circle cx="12" cy="12" r="3" />
-                  <path
-                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"
-                    opacity="0.3"
-                  />
-                </svg>
-              </div>
+              <svg viewBox="0 0 40 40" className="w-16 h-16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M22.5 23 C17 21, 9 12, 3 5" stroke="white" strokeWidth="1.1" strokeLinecap="round" />
+                <circle cx="27" cy="27" r="6.5" stroke="white" strokeWidth="1.1" />
+              </svg>
             </div>
 
             <div>
