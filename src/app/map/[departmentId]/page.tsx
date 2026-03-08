@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import Link from "next/link";
 import { DOCUMENT_SLOT_TYPES, type SlotType, isStructuralSlot } from "@/lib/document-slots";
+import { fetchApi } from "@/lib/fetch-api";
 
 /* Inline diff types to avoid importing structural-extraction.ts (has server-only deps) */
 type DiffAction = "create" | "update" | "flag-missing";
@@ -303,9 +304,9 @@ export default function DepartmentDetailPage() {
   const load = useCallback(async () => {
     try {
       const [deptRes, membersRes, linksRes] = await Promise.all([
-        fetch(`/api/departments/${deptId}`),
-        fetch(`/api/departments/${deptId}/members`),
-        fetch(`/api/departments/${deptId}/external-links`),
+        fetchApi(`/api/departments/${deptId}`),
+        fetchApi(`/api/departments/${deptId}/members`),
+        fetchApi(`/api/departments/${deptId}/external-links`),
       ]);
       if (!deptRes.ok) { setNotFound(true); return; }
       setDept(await deptRes.json());
@@ -317,7 +318,7 @@ export default function DepartmentDetailPage() {
   }, [deptId]);
 
   const loadDocs = useCallback(async () => {
-    const res = await fetch(`/api/departments/${deptId}/documents`);
+    const res = await fetchApi(`/api/departments/${deptId}/documents`);
     if (res.ok) setDocsData(await res.json());
   }, [deptId]);
 
@@ -350,7 +351,7 @@ export default function DepartmentDetailPage() {
   /* ---------------------------------------------------------------- */
 
   async function saveDeptField(field: "name" | "description", value: string) {
-    const res = await fetch(`/api/departments/${deptId}`, {
+    const res = await fetchApi(`/api/departments/${deptId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: value }),
@@ -374,7 +375,7 @@ export default function DepartmentDetailPage() {
     setAddSaving(true);
     setAddError("");
     try {
-      const res = await fetch(`/api/departments/${deptId}/members`, {
+      const res = await fetchApi(`/api/departments/${deptId}/members`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: addName.trim(), role: addRole.trim(), email: addEmail.trim() }),
@@ -410,7 +411,7 @@ export default function DepartmentDetailPage() {
   async function saveEdit() {
     if (!editId) return;
     setEditError("");
-    const res = await fetch(`/api/departments/${deptId}/members/${editId}`, {
+    const res = await fetchApi(`/api/departments/${deptId}/members/${editId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: editName.trim(), role: editRole.trim(), email: editEmail.trim() }),
@@ -431,7 +432,7 @@ export default function DepartmentDetailPage() {
 
   async function confirmRemove() {
     if (!removeId) return;
-    const res = await fetch(`/api/departments/${deptId}/members/${removeId}`, { method: "DELETE" });
+    const res = await fetchApi(`/api/departments/${deptId}/members/${removeId}`, { method: "DELETE" });
     if (res.ok) {
       setMembers((prev) => prev.filter((m) => m.id !== removeId));
     }
@@ -462,7 +463,7 @@ export default function DepartmentDetailPage() {
       form.append("file", file);
       form.append("documentType", documentType);
 
-      const res = await fetch(`/api/departments/${deptId}/documents/upload`, {
+      const res = await fetchApi(`/api/departments/${deptId}/documents/upload`, {
         method: "POST",
         body: form,
       });
@@ -527,7 +528,7 @@ export default function DepartmentDetailPage() {
     setExtractingDoc(docId);
     setDocError("");
     try {
-      const res = await fetch(`/api/departments/${deptId}/documents/${docId}/extract`, { method: "POST" });
+      const res = await fetchApi(`/api/departments/${deptId}/documents/${docId}/extract`, { method: "POST" });
       if (res.ok) {
         const { diff } = await res.json();
         await loadDocs();
@@ -548,7 +549,7 @@ export default function DepartmentDetailPage() {
 
   async function handleReprocess(docId: string) {
     setDocError("");
-    const res = await fetch(`/api/departments/${deptId}/documents/${docId}/reprocess`, { method: "POST" });
+    const res = await fetchApi(`/api/departments/${deptId}/documents/${docId}/reprocess`, { method: "POST" });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
       setDocError(err?.error ?? "Reprocess failed");
@@ -561,7 +562,7 @@ export default function DepartmentDetailPage() {
   /* ---------------------------------------------------------------- */
 
   async function handleDeleteDoc(docId: string) {
-    const res = await fetch(`/api/departments/${deptId}/documents/${docId}`, { method: "DELETE" });
+    const res = await fetchApi(`/api/departments/${deptId}/documents/${docId}`, { method: "DELETE" });
     if (res.ok) {
       await loadDocs();
     }
@@ -594,7 +595,7 @@ export default function DepartmentDetailPage() {
         setDiffItems(null);
         await Promise.all([loadDocs(), load()]);
         // Refresh members
-        const membersRes = await fetch(`/api/departments/${deptId}/members`);
+        const membersRes = await fetchApi(`/api/departments/${deptId}/members`);
         if (membersRes.ok) setMembers(await membersRes.json());
       } else {
         const err = await res.json().catch(() => null);

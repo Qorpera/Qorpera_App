@@ -44,6 +44,14 @@ export async function getOperatorId(): Promise<string> {
   redirect("/login");
 }
 
+/**
+ * API-route-safe variant: returns null instead of redirecting.
+ * Use in Route Handlers so the caller can return a proper JSON 401.
+ */
+export async function getOperatorIdOrNull(): Promise<{ operatorId: string; userId: string | null } | null> {
+  return getSessionFromCookies();
+}
+
 export async function getUserId(): Promise<string> {
   const session = await getSessionFromCookies();
   if (!session || !session.userId) redirect("/login");

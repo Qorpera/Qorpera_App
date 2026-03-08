@@ -135,5 +135,6 @@ export async function POST(req: NextRequest) {
     documentCount: 0,
     digitalCount: 0,
     connectorCount: 0,
+    filledSlots: [],
   }, { status: 201 });
 }

@@ -30,7 +30,7 @@ function CollapseChevron({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-export function AppShell({ children, pendingApprovals = 0 }: { children: ReactNode; pendingApprovals?: number }) {
+export function AppShell({ children, pendingApprovals = 0, topBarContent }: { children: ReactNode; pendingApprovals?: number; topBarContent?: ReactNode }) {
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("sidebar-collapsed") === "true";
@@ -99,11 +99,12 @@ export function AppShell({ children, pendingApprovals = 0 }: { children: ReactNo
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Top bar */}
-          <div className="flex items-center justify-end px-5 py-2 border-b border-white/[0.04] flex-shrink-0">
+          <div className="flex items-center justify-end gap-3 px-5 py-2 border-b border-white/[0.04] flex-shrink-0">
+            {topBarContent}
             <NotificationBell />
           </div>
           {/* Scrollable content */}
-          <main className="flex-1 overflow-y-auto">
+          <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">
             {children}
           </main>
         </div>

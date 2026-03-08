@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { fetchApi } from "@/lib/fetch-api";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -47,24 +48,26 @@ const SLOT_ICONS: Record<string, { label: string; path: string }> = {
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const SURFACE_W = 3000;
-const SURFACE_H = 2000;
-const CENTER_X = SURFACE_W / 2;
-const CENTER_Y = SURFACE_H / 2;
 const CARD_W = 200;
+const HQ_W = 240;
+const CARD_H = 90;
+const HQ_H = 72;
 const CLICK_THRESHOLD = 5;
 const POLL_MS = 30_000;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2;
+const ZOOM_SENSITIVITY = 0.001;
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
 function defaultPosition(index: number, total: number) {
-  const radius = 180 + Math.floor(index / 8) * 120;
+  const radius = 250 + Math.floor(index / 8) * 160;
   const angle = (index / Math.max(total, 1)) * 2 * Math.PI - Math.PI / 2;
   return {
-    x: CENTER_X + Math.cos(angle) * radius,
-    y: CENTER_Y + Math.sin(angle) * radius,
+    x: Math.cos(angle) * radius,
+    y: Math.sin(angle) * radius,
   };
 }
 
@@ -89,7 +92,11 @@ export default function MapPage() {
   /* ---- context menu ---- */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; dept: Department } | null>(null);
 
-  /* ---- drag state (refs for perf) ---- */
+  /* ---- node positions (world-space, HQ at origin) ---- */
+  const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  const [, forceRender] = useState(0);
+
+  /* ---- card drag ---- */
   const dragRef = useRef<{
     id: string;
     startX: number;
@@ -100,8 +107,13 @@ export default function MapPage() {
   } | null>(null);
   const justDraggedRef = useRef(false);
   const [dragId, setDragId] = useState<string | null>(null);
-  const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
-  const [, forceRender] = useState(0);
+
+  /* ---- canvas pan & zoom ---- */
+  const containerRef = useRef<HTMLDivElement>(null);
+  const panRef = useRef<{ startX: number; startY: number; origPanX: number; origPanY: number } | null>(null);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [panning, setPanning] = useState(false);
 
   /* ---- delete state ---- */
   const [deleteTarget, setDeleteTarget] = useState<Department | null>(null);
@@ -114,7 +126,7 @@ export default function MapPage() {
 
   const loadDepartments = useCallback(async () => {
     try {
-      const res = await fetch("/api/departments");
+      const res = await fetchApi("/api/departments");
       if (!res.ok) return;
       const data: Array<Omit<Department, "isHQ"> & { entityType: { slug: string } }> = await res.json();
       const mapped = data.map((d, i) => {
@@ -122,7 +134,7 @@ export default function MapPage() {
         const pos = d.mapX != null && d.mapY != null
           ? { x: d.mapX, y: d.mapY }
           : isHQ
-            ? { x: CENTER_X, y: CENTER_Y }
+            ? { x: 0, y: 0 }
             : defaultPosition(i, data.filter((dd) => dd.entityType.slug !== "organization").length);
         positionsRef.current[d.id] = pos;
         return { ...d, isHQ } as Department;
@@ -140,13 +152,14 @@ export default function MapPage() {
   }, [loadDepartments]);
 
   /* ---------------------------------------------------------------- */
-  /*  Drag handlers                                                    */
+  /*  Card drag handlers                                               */
   /* ---------------------------------------------------------------- */
 
   const onCardMouseDown = useCallback((e: React.MouseEvent, dept: Department) => {
-    if (e.button !== 0 || dept.isHQ) return;
+    if (e.button !== 0) return;
     e.preventDefault();
-    const pos = positionsRef.current[dept.id] ?? { x: CENTER_X, y: CENTER_Y };
+    e.stopPropagation();
+    const pos = positionsRef.current[dept.id] ?? { x: 0, y: 0 };
     dragRef.current = {
       id: dept.id,
       startX: e.clientX,
@@ -162,15 +175,12 @@ export default function MapPage() {
     const onMove = (e: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      const dx = e.clientX - d.startX;
-      const dy = e.clientY - d.startY;
-      if (Math.abs(dx) > CLICK_THRESHOLD || Math.abs(dy) > CLICK_THRESHOLD) {
+      const dx = (e.clientX - d.startX) / zoom;
+      const dy = (e.clientY - d.startY) / zoom;
+      if (Math.abs(e.clientX - d.startX) > CLICK_THRESHOLD || Math.abs(e.clientY - d.startY) > CLICK_THRESHOLD) {
         d.moved = true;
       }
-      positionsRef.current[d.id] = {
-        x: d.origX + dx,
-        y: d.origY + dy,
-      };
+      positionsRef.current[d.id] = { x: d.origX + dx, y: d.origY + dy };
       forceRender((n) => n + 1);
     };
 
@@ -182,7 +192,7 @@ export default function MapPage() {
       setDragId(null);
       if (d.moved) {
         const pos = positionsRef.current[d.id];
-        fetch(`/api/departments/${d.id}`, {
+        fetchApi(`/api/departments/${d.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ mapX: pos.x, mapY: pos.y }),
@@ -196,15 +206,79 @@ export default function MapPage() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
+  }, [zoom]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Canvas pan (drag background)                                     */
+  /* ---------------------------------------------------------------- */
+
+  const onCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    if (dragRef.current || e.button !== 0) return;
+    e.preventDefault();
+    panRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origPanX: pan.x,
+      origPanY: pan.y,
+    };
+    setPanning(true);
+  }, [pan]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const p = panRef.current;
+      if (!p) return;
+      setPan({
+        x: p.origPanX + (e.clientX - p.startX),
+        y: p.origPanY + (e.clientY - p.startY),
+      });
+    };
+    const onUp = () => {
+      if (!panRef.current) return;
+      panRef.current = null;
+      setPanning(false);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
   }, []);
+
+  /* ---------------------------------------------------------------- */
+  /*  Zoom (scroll wheel)                                              */
+  /* ---------------------------------------------------------------- */
+
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    // Mouse position relative to container
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const delta = -e.deltaY * ZOOM_SENSITIVITY;
+    const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * (1 + delta)));
+    const scale = newZoom / zoom;
+
+    // Adjust pan so zoom centers on mouse position
+    setPan((prev) => ({
+      x: mx - scale * (mx - prev.x),
+      y: my - scale * (my - prev.y),
+    }));
+    setZoom(newZoom);
+  }, [zoom]);
 
   /* ---------------------------------------------------------------- */
   /*  Context menu                                                     */
   /* ---------------------------------------------------------------- */
 
   const onCardContext = useCallback((e: React.MouseEvent, dept: Department) => {
-    if (dept.isHQ) return;
     e.preventDefault();
+    e.stopPropagation();
     setCtxMenu({ x: e.clientX, y: e.clientY, dept });
   }, []);
 
@@ -219,6 +293,17 @@ export default function MapPage() {
       window.removeEventListener("keydown", onKey);
     };
   }, [ctxMenu]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Center view on mount                                             */
+  /* ---------------------------------------------------------------- */
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    setPan({ x: rect.width / 2, y: rect.height / 2 });
+  }, []);
 
   /* ---------------------------------------------------------------- */
   /*  Add / Edit                                                       */
@@ -249,7 +334,7 @@ export default function MapPage() {
 
     try {
       if (editTarget) {
-        const res = await fetch(`/api/departments/${editTarget.id}`, {
+        const res = await fetchApi(`/api/departments/${editTarget.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: formName.trim(), description: formDesc.trim() }),
@@ -264,9 +349,9 @@ export default function MapPage() {
           ),
         );
       } else {
-        const nonHQ = departments.filter((d) => !d.isHQ);
-        const pos = defaultPosition(nonHQ.length, nonHQ.length + 1);
-        const res = await fetch("/api/departments", {
+        const nonHQDepts = departments.filter((d) => !d.isHQ);
+        const pos = defaultPosition(nonHQDepts.length, nonHQDepts.length + 1);
+        const res = await fetchApi("/api/departments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -282,9 +367,11 @@ export default function MapPage() {
           return;
         }
         const created = await res.json();
-        const dept: Department = { ...created, isHQ: false };
+        const dept: Department = { ...created, isHQ: false, filledSlots: created.filledSlots ?? [] };
         positionsRef.current[dept.id] = { x: dept.mapX ?? pos.x, y: dept.mapY ?? pos.y };
         setDepartments((prev) => [...prev, dept]);
+        // Reload full list to sync
+        loadDepartments();
       }
       setModalOpen(false);
     } finally {
@@ -301,7 +388,7 @@ export default function MapPage() {
     setDeleting(true);
     setDeleteError("");
     try {
-      const res = await fetch(`/api/departments/${deleteTarget.id}`, { method: "DELETE" });
+      const res = await fetchApi(`/api/departments/${deleteTarget.id}`, { method: "DELETE" });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         setDeleteError(err?.error ?? "Failed to delete");
@@ -316,69 +403,133 @@ export default function MapPage() {
   }
 
   /* ---------------------------------------------------------------- */
+  /*  Reset view                                                       */
+  /* ---------------------------------------------------------------- */
+
+  function resetView() {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    setPan({ x: rect.width / 2, y: rect.height / 2 });
+    setZoom(1);
+  }
+
+  /* ---------------------------------------------------------------- */
   /*  Derived                                                          */
   /* ---------------------------------------------------------------- */
 
   const nonHQ = departments.filter((d) => !d.isHQ);
   const hq = departments.find((d) => d.isHQ);
+  const hqPos = hq ? (positionsRef.current[hq.id] ?? { x: 0, y: 0 }) : { x: 0, y: 0 };
 
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
 
   return (
-    <AppShell>
-      <div className="flex flex-col flex-1 min-h-0">
-        {/* ---- top bar ---- */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-white/[0.06]">
-          <h1 className="text-lg font-medium text-white/90">Business Map</h1>
+    <AppShell
+      topBarContent={
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-white/30">{Math.round(zoom * 100)}%</span>
+          <Button variant="default" size="sm" onClick={resetView}>
+            Reset View
+          </Button>
           <Button variant="primary" size="sm" onClick={openAdd}>
             Add Department
           </Button>
         </div>
-
-        {/* ---- map surface ---- */}
+      }
+    >
+      <div className="relative flex-1">
+        {/* ---- infinite canvas ---- */}
         <div
-          className="flex-1 overflow-auto relative"
-          style={{ cursor: dragId ? "grabbing" : "grab" }}
+          ref={containerRef}
+          onMouseDown={onCanvasMouseDown}
+          onWheel={onWheel}
+          className="absolute inset-0 overflow-hidden select-none"
+          style={{
+            cursor: dragId ? "grabbing" : panning ? "grabbing" : "grab",
+            background: "#080c10",
+          }}
         >
+          {/* Grid dots (fixed to canvas transform) */}
           <div
-            className="relative"
+            className="absolute inset-0 pointer-events-none"
             style={{
-              width: SURFACE_W,
-              height: SURFACE_H,
               backgroundImage:
-                "radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px)",
-              backgroundSize: "40px 40px",
+                "radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)",
+              backgroundSize: `${40 * zoom}px ${40 * zoom}px`,
+              backgroundPosition: `${pan.x % (40 * zoom)}px ${pan.y % (40 * zoom)}px`,
+            }}
+          />
+
+          {/* Transform layer */}
+          <div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: "0 0",
+              position: "absolute",
+              top: 0,
+              left: 0,
             }}
           >
             {loading && (
-              <p className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white/30 text-sm">
+              <p className="text-white/30 text-sm" style={{ transform: `translate(-50px, -10px)` }}>
                 Loading...
               </p>
             )}
 
+            {/* ---- SVG edges: HQ → departments ---- */}
+            {hq && nonHQ.length > 0 && (
+              <svg
+                className="absolute top-0 left-0 pointer-events-none"
+                style={{ overflow: "visible", width: 1, height: 1 }}
+              >
+                {nonHQ.map((dept) => {
+                  const dPos = positionsRef.current[dept.id];
+                  if (!dPos) return null;
+                  return (
+                    <line
+                      key={dept.id}
+                      x1={hqPos.x}
+                      y1={hqPos.y}
+                      x2={dPos.x}
+                      y2={dPos.y}
+                      stroke="rgba(139,92,246,0.15)"
+                      strokeWidth={1.5 / zoom}
+                      strokeDasharray={`${4 / zoom} ${4 / zoom}`}
+                    />
+                  );
+                })}
+              </svg>
+            )}
+
             {/* ---- empty state ---- */}
-            {!loading && nonHQ.length === 0 && (
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 mt-32 text-center pointer-events-none">
+            {!loading && nonHQ.length === 0 && !hq && (
+              <div className="text-center pointer-events-none" style={{ transform: "translate(-120px, -30px)" }}>
                 <p className="text-white/30 text-sm">
                   Add your first department to start mapping your business
                 </p>
-                <svg className="mx-auto mt-3 text-white/20" width="24" height="48" viewBox="0 0 24 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M12 48V8M6 14l6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
               </div>
             )}
 
-            {/* ---- CompanyHQ card ---- */}
+            {/* ---- CompanyHQ node ---- */}
             {hq && (
               <div
-                onClick={() => router.push(`/map/${hq.id}`)}
-                className="absolute cursor-pointer rounded-xl border border-purple-500/30 bg-purple-500/[0.06] px-5 py-4 transition hover:bg-purple-500/[0.10] hover:shadow-lg hover:shadow-purple-500/5"
+                onMouseDown={(e) => onCardMouseDown(e, hq)}
+                onClick={() => {
+                  if (!justDraggedRef.current) router.push(`/map/${hq.id}`);
+                  justDraggedRef.current = false;
+                }}
+                onContextMenu={(e) => onCardContext(e, hq)}
+                className={`absolute rounded-xl border border-purple-500/30 bg-purple-500/[0.08] px-5 py-4 transition hover:bg-purple-500/[0.14] hover:shadow-lg hover:shadow-purple-500/10 ${
+                  dragId === hq.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : "cursor-pointer"
+                }`}
                 style={{
-                  left: (positionsRef.current[hq.id]?.x ?? CENTER_X) - 120,
-                  top: (positionsRef.current[hq.id]?.y ?? CENTER_Y) - 36,
-                  width: 240,
+                  left: hqPos.x - HQ_W / 2,
+                  top: hqPos.y - HQ_H / 2,
+                  width: HQ_W,
+                  cursor: dragId === hq.id ? "grabbing" : "pointer",
                 }}
               >
                 <h3 className="font-heading text-base font-semibold text-purple-200 truncate">
@@ -390,7 +541,7 @@ export default function MapPage() {
               </div>
             )}
 
-            {/* ---- department cards ---- */}
+            {/* ---- department nodes ---- */}
             {nonHQ.map((dept) => {
               const pos = positionsRef.current[dept.id];
               if (!pos) return null;
@@ -408,7 +559,7 @@ export default function MapPage() {
                   }`}
                   style={{
                     left: pos.x - CARD_W / 2,
-                    top: pos.y - 30,
+                    top: pos.y - CARD_H / 2,
                     width: CARD_W,
                     cursor: dragId === dept.id ? "grabbing" : "pointer",
                   }}
