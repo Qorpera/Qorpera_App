@@ -7,7 +7,36 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import Link from "next/link";
 import { DOCUMENT_SLOT_TYPES, type SlotType, isStructuralSlot } from "@/lib/document-slots";
-import type { PersonDiff, PropertyDiff, ExtractionDiff } from "@/lib/structural-extraction";
+
+/* Inline diff types to avoid importing structural-extraction.ts (has server-only deps) */
+type DiffAction = "create" | "update" | "flag-missing";
+interface PersonDiff {
+  action: DiffAction;
+  name: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  reportsTo?: string;
+  existingEntityId?: string;
+  changes?: Record<string, { from: string; to: string }>;
+  selected: boolean;
+}
+interface PropertyDiff {
+  action: "create" | "update";
+  targetEntityId: string;
+  targetEntityName: string;
+  property: string;
+  label: string;
+  oldValue?: string;
+  newValue: string;
+  selected: boolean;
+}
+interface ExtractionDiff {
+  type: string;
+  people?: PersonDiff[];
+  properties?: PropertyDiff[];
+  summary: string;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
