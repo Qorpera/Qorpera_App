@@ -28,6 +28,11 @@ export type EntityInput = {
   externalId?: string;
   metadata?: Record<string, unknown>;
   properties?: Record<string, string>;
+  category?: string;
+  parentDepartmentId?: string;
+  description?: string;
+  mapX?: number;
+  mapY?: number;
 };
 
 export type RelationshipTypeInput = {
@@ -288,6 +293,11 @@ export async function getEntity(operatorId: string, entityId: string) {
 
 export async function createEntity(operatorId: string, input: EntityInput) {
   const entityId = await prisma.$transaction(async (tx) => {
+    const entityType = await tx.entityType.findUnique({
+      where: { id: input.entityTypeId },
+      select: { defaultCategory: true },
+    });
+
     const entity = await tx.entity.create({
       data: {
         operatorId,
@@ -296,6 +306,11 @@ export async function createEntity(operatorId: string, input: EntityInput) {
         sourceSystem: input.sourceSystem ?? null,
         externalId: input.externalId ?? null,
         metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+        category: input.category ?? entityType?.defaultCategory ?? "digital",
+        parentDepartmentId: input.parentDepartmentId ?? null,
+        description: input.description ?? null,
+        mapX: input.mapX ?? null,
+        mapY: input.mapY ?? null,
       },
     });
 
@@ -330,6 +345,11 @@ export async function updateEntity(
     status?: string;
     metadata?: Record<string, unknown>;
     properties?: Record<string, string>;
+    category?: string;
+    parentDepartmentId?: string;
+    description?: string;
+    mapX?: number;
+    mapY?: number;
   },
 ) {
   const existing = await prisma.entity.findFirst({
@@ -344,6 +364,11 @@ export async function updateEntity(
         ...(fields.displayName !== undefined && { displayName: fields.displayName }),
         ...(fields.status !== undefined && { status: fields.status }),
         ...(fields.metadata !== undefined && { metadata: JSON.stringify(fields.metadata) }),
+        ...(fields.category !== undefined && { category: fields.category }),
+        ...(fields.parentDepartmentId !== undefined && { parentDepartmentId: fields.parentDepartmentId }),
+        ...(fields.description !== undefined && { description: fields.description }),
+        ...(fields.mapX !== undefined && { mapX: fields.mapX }),
+        ...(fields.mapY !== undefined && { mapY: fields.mapY }),
       },
     });
 

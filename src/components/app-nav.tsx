@@ -7,8 +7,8 @@ const NAV_GROUPS = [
   {
     label: "Operations",
     items: [
+      { href: "/map", label: "Map", icon: "map" },
       { href: "/situations", label: "Situations", icon: "alert-triangle", badge: true },
-      { href: "/entity-map", label: "Entity Map", icon: "map" },
       { href: "/settings?tab=connections", label: "Connections", icon: "layers" },
     ],
   },
@@ -23,12 +23,6 @@ const NAV_GROUPS = [
     label: "Governance",
     items: [
       { href: "/policies", label: "Policies", icon: "shield" },
-    ],
-  },
-  {
-    label: "Documents",
-    items: [
-      { href: "/documents", label: "Documents", icon: "upload" },
     ],
   },
   {

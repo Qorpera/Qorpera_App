@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { callLLM, getAIConfig } from "@/lib/ai-provider";
 import { extractEntitiesFromText } from "@/lib/entity-extractor";
 import { readFile } from "fs/promises";
-import { INTERNAL_ENTITY_TYPE_SEEDS } from "@/lib/internal-entity-types";
+
 
 // ── Text Extraction ───────────────────────────────────────────────────────────
 

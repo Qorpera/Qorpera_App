@@ -12,19 +12,6 @@ async function main() {
   });
   console.log(`Operator: ${operator.id}`);
 
-  // Default governance config
-  await prisma.governanceConfig.upsert({
-    where: { operatorId: operator.id },
-    create: {
-      operatorId: operator.id,
-      requireApprovalAboveAmount: 10000,
-      autoApproveReadActions: true,
-      maxPendingProposals: 50,
-      approvalExpiryHours: 72,
-    },
-    update: {},
-  });
-
   // Default app settings
   const defaults: [string, string][] = [
     ["ai_provider", "ollama"],

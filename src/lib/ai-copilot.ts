@@ -7,7 +7,7 @@ import { getBusinessContext, formatBusinessContext } from "@/lib/business-contex
 import { buildOrientationSystemPrompt } from "@/lib/orientation-prompts";
 import { generatePreFilter } from "@/lib/situation-prefilter";
 import { getProvider } from "@/lib/connectors/registry";
-import { INTERNAL_ENTITY_TYPE_SEEDS } from "@/lib/internal-entity-types";
+import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,16 +69,6 @@ const COPILOT_TOOLS: AITool[] = [
         inputData: { type: "object", description: "Action input data" },
       },
       required: ["actionType", "description"],
-    },
-  },
-  {
-    name: "get_recommendations",
-    description: "Fetch active recommendations for the operator, including data quality issues and operational insights.",
-    parameters: {
-      type: "object",
-      properties: {
-        limit: { type: "number", description: "Max results (default 5)" },
-      },
     },
   },
   {
@@ -191,11 +181,8 @@ const ORIENTATION_TOOLS: AITool[] = [
 // ── System Prompt Builder ────────────────────────────────────────────────────
 
 async function buildSystemPrompt(operatorId: string, userRole?: string): Promise<string> {
-  const [entityTypes, pendingCount, govConfig, actionRules, businessCtx, situationTypes, unreadNotifCount, pendingSituations] = await Promise.all([
+  const [entityTypes, businessCtx, situationTypes, unreadNotifCount, pendingSituations] = await Promise.all([
     listEntityTypes(operatorId),
-    prisma.actionProposal.count({ where: { operatorId, status: "PENDING" } }),
-    prisma.governanceConfig.findUnique({ where: { operatorId } }),
-    prisma.actionRule.findMany({ where: { operatorId, enabled: true }, select: { name: true, triggerOn: true } }),
     getBusinessContext(operatorId),
     prisma.situationType.findMany({
       where: { operatorId, enabled: true },
@@ -213,16 +200,6 @@ async function buildSystemPrompt(operatorId: string, userRole?: string): Promise
   const typesSummary = entityTypes
     .map((t) => `- ${t.name} (${t.slug}): ${t._count.entities} entities`)
     .join("\n");
-
-  const governanceRules: string[] = [];
-  if (govConfig) {
-    if (govConfig.autoApproveReadActions) governanceRules.push("Read actions are auto-approved.");
-    if (govConfig.requireApprovalAboveAmount) {
-      governanceRules.push(`Actions above $${govConfig.requireApprovalAboveAmount} require approval.`);
-    }
-    governanceRules.push(`Max pending proposals: ${govConfig.maxPendingProposals}.`);
-    governanceRules.push(`Approval expiry: ${govConfig.approvalExpiryHours}h.`);
-  }
 
   const policyRules = await prisma.policyRule.findMany({
     where: { operatorId, enabled: true },
@@ -247,25 +224,8 @@ ${businessSection}
 ENTITY MODEL:
 ${typesSummary || "No entity types configured yet."}
 ${situationSection}
-GOVERNANCE STATUS:
-- Pending proposals awaiting review: ${pendingCount}
-${governanceRules.length > 0 ? governanceRules.join("\n") : "Default governance settings active."}
-
 ACTIVE POLICY RULES:
 ${policySummary}
-
-ACTION RULES (${actionRules.length} enabled):
-${actionRules.length > 0
-  ? (() => {
-      const mutation = actionRules.filter((r) => r.triggerOn === "mutation");
-      const tick = actionRules.filter((r) => r.triggerOn === "tick");
-      const lines: string[] = [];
-      if (mutation.length > 0) lines.push(`On mutation: ${mutation.map((r) => r.name).join(", ")}`);
-      if (tick.length > 0) lines.push(`On schedule: ${tick.map((r) => r.name).join(", ")}`);
-      lines.push("Action rules automatically fire when entities are created/updated (mutation) or on scheduled ticks.");
-      return lines.join("\n");
-    })()
-  : "No action rules configured."}
 
 CURRENT STATUS:
 - Unread notifications: ${unreadNotifCount}
@@ -280,7 +240,6 @@ CAPABILITIES:
 - Explore the entity graph to discover connections
 - Propose actions (create, update, delete entities) that go through governance review
 - Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
-- Surface active recommendations for data quality and operational insights
 - Create new situation types to define what the system should watch for
 
 USER CONTEXT:
@@ -368,44 +327,6 @@ async function executeTool(
       return formatTraversalForAgent(result);
     }
 
-    case "propose_action": {
-      const actionType = String(args.actionType ?? "");
-      const description = String(args.description ?? "");
-      const entityId = args.entityId ? String(args.entityId) : null;
-      const entityTypeSlug = args.entityTypeSlug ? String(args.entityTypeSlug) : null;
-      const inputData = args.inputData as Record<string, unknown> | undefined;
-
-      const proposal = await prisma.actionProposal.create({
-        data: {
-          operatorId,
-          actionType,
-          description,
-          entityId,
-          entityTypeSlug,
-          sourceAgent: "copilot",
-          inputData: inputData ? JSON.stringify(inputData) : null,
-          expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
-        },
-      });
-
-      return `Proposal created (ID: ${proposal.id}). Action: ${actionType}. Description: ${description}. Status: PENDING — awaiting operator review.`;
-    }
-
-    case "get_recommendations": {
-      const limit = typeof args.limit === "number" ? args.limit : 5;
-      const recs = await prisma.recommendation.findMany({
-        where: { operatorId, status: "active" },
-        orderBy: [{ priority: "desc" }, { confidence: "desc" }],
-        take: limit,
-      });
-
-      if (recs.length === 0) return "No active recommendations at this time.";
-
-      return recs.map((r) => {
-        return `- [${r.priority.toUpperCase()}] ${r.title} (confidence: ${(r.confidence * 100).toFixed(0)}%)\n  ${r.description}`;
-      }).join("\n");
-    }
-
     case "execute_connector_action": {
       const actionName = String(args.action_name ?? "");
       const actionParams = (args.params ?? {}) as Record<string, unknown>;
@@ -452,14 +373,15 @@ async function executeTool(
         where: { operatorId, slug: typeSlug },
       });
       if (!entityType) {
-        const seed = INTERNAL_ENTITY_TYPE_SEEDS[typeSlug];
+        const def = HARDCODED_TYPE_DEFS[typeSlug];
         entityType = await prisma.entityType.create({
           data: {
             operatorId,
             slug: typeSlug,
-            name: seed?.name ?? typeSlug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-            icon: seed?.icon ?? "box",
-            color: seed?.color ?? "#a855f7",
+            name: def?.name ?? typeSlug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+            icon: def?.icon ?? "box",
+            color: def?.color ?? "#a855f7",
+            defaultCategory: def?.defaultCategory ?? "digital",
           },
         });
       }

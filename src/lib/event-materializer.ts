@@ -3,6 +3,7 @@ import { upsertEntity, resolveEntity, relateEntities } from "@/lib/entity-resolu
 import { getEntityType } from "@/lib/entity-model-store";
 import { notifySituationDetectors } from "@/lib/situation-detector";
 import { checkForSituationResolution } from "@/lib/situation-resolver";
+import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -213,114 +214,34 @@ export function invalidateMaterializerCache(connectorId: string): void {
 
 // ── Entity Type Auto-Seeding ─────────────────────────────────────────────────
 
-type EntityTypeSeed = {
-  name: string;
-  icon: string;
-  color: string;
-  properties: Array<{ slug: string; name: string; dataType: string; identityRole?: string }>;
-};
+// Cache: operatorId:slug → true (already ensured)
+const ensuredTypeCache = new Set<string>();
 
-const ENTITY_TYPE_SEEDS: Record<string, EntityTypeSeed> = {
-  contact: {
-    name: "Contact",
-    icon: "user",
-    color: "#6366f1",
-    properties: [
-      { slug: "email", name: "Email", dataType: "STRING", identityRole: "email" },
-      { slug: "phone", name: "Phone", dataType: "STRING", identityRole: "phone" },
-      { slug: "job-title", name: "Job Title", dataType: "STRING" },
-      { slug: "currency", name: "Currency", dataType: "STRING" },
-      { slug: "stripe-customer-id", name: "Stripe Customer ID", dataType: "STRING" },
-      { slug: "balance", name: "Balance", dataType: "NUMBER" },
-      { slug: "delinquent", name: "Delinquent", dataType: "BOOLEAN" },
-    ],
-  },
-  company: {
-    name: "Company",
-    icon: "building-2",
-    color: "#8b5cf6",
-    properties: [
-      { slug: "domain", name: "Domain", dataType: "STRING", identityRole: "domain" },
-      { slug: "industry", name: "Industry", dataType: "STRING" },
-      { slug: "revenue", name: "Revenue", dataType: "CURRENCY" },
-      { slug: "employee-count", name: "Employee Count", dataType: "NUMBER" },
-    ],
-  },
-  deal: {
-    name: "Deal",
-    icon: "handshake",
-    color: "#a78bfa",
-    properties: [
-      { slug: "amount", name: "Amount", dataType: "CURRENCY" },
-      { slug: "stage", name: "Stage", dataType: "STRING" },
-      { slug: "close-date", name: "Close Date", dataType: "DATE" },
-      { slug: "pipeline", name: "Pipeline", dataType: "STRING" },
-    ],
-  },
-  invoice: {
-    name: "Invoice",
-    icon: "file-text",
-    color: "#c084fc",
-    properties: [
-      { slug: "amount", name: "Amount", dataType: "CURRENCY" },
-      { slug: "status", name: "Status", dataType: "STRING" },
-      { slug: "due-date", name: "Due Date", dataType: "DATE" },
-      { slug: "currency", name: "Currency", dataType: "STRING" },
-      { slug: "amount-paid", name: "Amount Paid", dataType: "CURRENCY" },
-      { slug: "paid-date", name: "Paid Date", dataType: "DATE" },
-    ],
-  },
-  payment: {
-    name: "Payment",
-    icon: "credit-card",
-    color: "#e879f9",
-    properties: [
-      { slug: "amount", name: "Amount", dataType: "CURRENCY" },
-      { slug: "currency", name: "Currency", dataType: "STRING" },
-      { slug: "status", name: "Status", dataType: "STRING" },
-      { slug: "payment-date", name: "Payment Date", dataType: "DATE" },
-    ],
-  },
-  record: {
-    name: "Record",
-    icon: "table-2",
-    color: "#f0abfc",
-    properties: [],
-  },
-};
-
-const seedCache = new Set<string>();
-
-async function ensureEntityTypeForMaterializer(
-  operatorId: string,
-  slug: string,
-): Promise<void> {
+async function ensureHardcodedEntityType(operatorId: string, slug: string): Promise<void> {
   const cacheKey = `${operatorId}:${slug}`;
-  if (seedCache.has(cacheKey)) return;
+  if (ensuredTypeCache.has(cacheKey)) return;
+
+  const def = HARDCODED_TYPE_DEFS[slug];
+  if (!def) return; // Not a hardcoded type, nothing to ensure
 
   const existing = await prisma.entityType.findFirst({
     where: { operatorId, slug },
     include: { properties: { select: { slug: true } } },
   });
 
-  const seed = ENTITY_TYPE_SEEDS[slug];
-  if (!seed) {
-    // No seed defined — can't auto-create
-    if (existing) seedCache.add(cacheKey);
-    return;
-  }
-
   if (!existing) {
-    // Create the type with all seed properties
+    // Create the entity type with all properties
     await prisma.entityType.create({
       data: {
         operatorId,
-        slug,
-        name: seed.name,
-        icon: seed.icon,
-        color: seed.color,
+        slug: def.slug,
+        name: def.name,
+        description: def.description,
+        icon: def.icon,
+        color: def.color,
+        defaultCategory: def.defaultCategory,
         properties: {
-          create: seed.properties.map((p, i) => ({
+          create: def.properties.map((p, i) => ({
             slug: p.slug,
             name: p.name,
             dataType: p.dataType,
@@ -331,9 +252,9 @@ async function ensureEntityTypeForMaterializer(
       },
     });
   } else {
-    // Type exists — ensure all seed properties are present
+    // Entity type exists — ensure all properties exist (additive only)
     const existingSlugs = new Set(existing.properties.map((p) => p.slug));
-    for (const prop of seed.properties) {
+    for (const prop of def.properties) {
       if (!existingSlugs.has(prop.slug)) {
         await prisma.entityProperty.create({
           data: {
@@ -346,9 +267,16 @@ async function ensureEntityTypeForMaterializer(
         });
       }
     }
+    // Ensure defaultCategory is set correctly
+    if ((existing as any).defaultCategory === "digital") {
+      await prisma.entityType.update({
+        where: { id: existing.id },
+        data: { defaultCategory: def.defaultCategory },
+      });
+    }
   }
 
-  seedCache.add(cacheKey);
+  ensuredTypeCache.add(cacheKey);
 }
 
 // ── Core Materializer ────────────────────────────────────────────────────────
@@ -557,8 +485,8 @@ export async function materializeEvent(
       return { status: "unrecognized", eventType };
     }
 
-    // ── Auto-seed entity type + properties if a seed is defined ────────
-    await ensureEntityTypeForMaterializer(operatorId, rule.entityTypeSlug);
+    // ── Auto-seed entity type + properties if a hardcoded def exists ───
+    await ensureHardcodedEntityType(operatorId, rule.entityTypeSlug);
 
     // ── Check if target entity type exists ────────────────────────────────
     const entityType = await getEntityType(operatorId, rule.entityTypeSlug);

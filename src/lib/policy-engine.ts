@@ -25,22 +25,6 @@ export async function evaluatePolicy(
     orderBy: { priority: "desc" },
   });
 
-  // Check governance config for amount-based approval
-  const govConfig = await prisma.governanceConfig.findUnique({
-    where: { operatorId },
-  });
-
-  if (govConfig?.requireApprovalAboveAmount && context.amount) {
-    if (context.amount > govConfig.requireApprovalAboveAmount) {
-      return { effect: "REQUIRE_APPROVAL", matchedRule: null };
-    }
-  }
-
-  // Auto-approve reads if configured
-  if (govConfig?.autoApproveReadActions && action === "read") {
-    return { effect: "ALLOW", matchedRule: null };
-  }
-
   for (const rule of rules) {
     if (!matchesAction(rule.actionType, action)) continue;
     if (!matchesScope(rule, context)) continue;

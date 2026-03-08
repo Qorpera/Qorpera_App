@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { CATEGORY_PRIORITY } from "@/lib/hardcoded-type-defs";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -229,14 +230,17 @@ export async function upsertEntity(
     : undefined;
 
   if (existingId) {
-    if (validatedProperties && Object.keys(validatedProperties).length > 0) {
-      const existing = await prisma.entity.findUnique({
-        where: { id: existingId },
-        select: { entityTypeId: true },
-      });
-      if (existing) {
+    // Fetch existing entity state in a single query
+    const existingEntity = await prisma.entity.findUnique({
+      where: { id: existingId },
+      select: { category: true, entityTypeId: true, sourceSystem: true },
+    });
+
+    if (existingEntity) {
+      // Update properties (additive merge)
+      if (validatedProperties && Object.keys(validatedProperties).length > 0) {
         const props = await prisma.entityProperty.findMany({
-          where: { entityTypeId: existing.entityTypeId },
+          where: { entityTypeId: existingEntity.entityTypeId },
         });
         const slugToId = new Map(props.map((p) => [p.slug, p.id]));
 
@@ -250,14 +254,28 @@ export async function upsertEntity(
           });
         }
       }
-    }
 
-    if (externalRef) {
-      const entity = await prisma.entity.findUnique({
-        where: { id: existingId },
-        select: { sourceSystem: true },
+      // Category merge: keep higher priority
+      const incomingType = await prisma.entityType.findFirst({
+        where: { operatorId, slug: typeSlug },
+        select: { defaultCategory: true },
       });
-      if (entity && !entity.sourceSystem) {
+      const incomingCategory = incomingType?.defaultCategory ?? "digital";
+      const existingPriority = CATEGORY_PRIORITY[existingEntity.category] ?? 0;
+      const incomingPriority = CATEGORY_PRIORITY[incomingCategory] ?? 0;
+
+      if (incomingPriority > existingPriority) {
+        await prisma.entity.update({
+          where: { id: existingId },
+          data: { category: incomingCategory },
+        });
+        console.log(
+          `[entity-resolution] Category upgrade: entity ${existingId} from "${existingEntity.category}" to "${incomingCategory}"`
+        );
+      }
+
+      // Update sourceSystem if not set
+      if (!existingEntity.sourceSystem && externalRef) {
         await prisma.entity.update({
           where: { id: existingId },
           data: { sourceSystem: externalRef.sourceSystem, externalId: externalRef.externalId },

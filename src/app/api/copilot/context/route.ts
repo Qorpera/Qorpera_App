@@ -6,11 +6,9 @@ import { listEntityTypes } from "@/lib/entity-model-store";
 export async function GET() {
   const operatorId = await getOperatorId();
 
-  const [entityTypes, pendingProposals, activeRecommendations, totalRelationships] =
+  const [entityTypes, totalRelationships] =
     await Promise.all([
       listEntityTypes(operatorId),
-      prisma.actionProposal.count({ where: { operatorId, status: "PENDING" } }),
-      prisma.recommendation.count({ where: { operatorId, status: "active" } }),
       prisma.relationship.count({ where: { fromEntity: { operatorId } } }),
     ]);
 
@@ -29,7 +27,5 @@ export async function GET() {
     entityTypes: types,
     totalEntities,
     totalRelationships,
-    pendingProposals,
-    activeRecommendations,
   });
 }

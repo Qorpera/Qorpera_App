@@ -118,37 +118,6 @@ export interface ProposalView {
   expiresAt: string | null;
 }
 
-// ─── Audit Types ──────────────────────────────────────────
-
-export interface AuditEntryView {
-  id: string;
-  action: string;
-  actorType: string;
-  actorId: string | null;
-  entityId: string | null;
-  entityTypeSlug: string | null;
-  outcome: string;
-  createdAt: string;
-  policyRuleId: string | null;
-  proposalId: string | null;
-}
-
-// ─── Recommendation Types ─────────────────────────────────
-
-export interface RecommendationView {
-  id: string;
-  title: string;
-  description: string;
-  reasoning: string | null;
-  actionType: string | null;
-  entityId: string | null;
-  entityTypeSlug: string | null;
-  confidence: number;
-  priority: string;
-  status: string;
-  createdAt: string;
-}
-
 // ─── Electron API ─────────────────────────────────────────
 
 export interface ElectronAPI {

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { getOperatorId } from "@/lib/auth";
 import { getEntity } from "@/lib/entity-model-store";
-import { getPendingProposalCount } from "@/lib/action-executor";
 import { formatDateTime } from "@/lib/format";
 
 export default async function EntityDetailPage({
@@ -14,10 +13,7 @@ export default async function EntityDetailPage({
   const { id } = await params;
   const operatorId = await getOperatorId();
 
-  const [entity, pendingApprovals] = await Promise.all([
-    getEntity(operatorId, id),
-    getPendingProposalCount(operatorId),
-  ]);
+  const entity = await getEntity(operatorId, id);
 
   if (!entity) notFound();
 
@@ -25,7 +21,7 @@ export default async function EntityDetailPage({
   const incoming = entity.toRelations ?? [];
 
   return (
-    <AppShell pendingApprovals={pendingApprovals}>
+    <AppShell>
       <div className="p-8 max-w-4xl mx-auto space-y-8">
         {/* Back link */}
         <Link

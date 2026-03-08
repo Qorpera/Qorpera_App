@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recordEntityMention } from "@/lib/entity-resolution";
-import { INTERNAL_ENTITY_TYPE_SEEDS } from "@/lib/internal-entity-types";
+import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 async function findOrCreateEntityType(operatorId: string, typeSlug: string) {
   const existing = await prisma.entityType.findFirst({
@@ -10,14 +10,15 @@ async function findOrCreateEntityType(operatorId: string, typeSlug: string) {
   });
   if (existing) return existing;
 
-  const seed = INTERNAL_ENTITY_TYPE_SEEDS[typeSlug];
+  const def = HARDCODED_TYPE_DEFS[typeSlug];
   return prisma.entityType.create({
     data: {
       operatorId,
       slug: typeSlug,
-      name: seed?.name ?? typeSlug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-      icon: seed?.icon ?? "box",
-      color: seed?.color ?? "#a855f7",
+      name: def?.name ?? typeSlug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      icon: def?.icon ?? "box",
+      color: def?.color ?? "#a855f7",
+      defaultCategory: def?.defaultCategory ?? "digital",
     },
   });
 }
