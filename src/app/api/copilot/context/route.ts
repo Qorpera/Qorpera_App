@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { listEntityTypes } from "@/lib/entity-model-store";
 
 export async function GET() {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
 
   const [entityTypes, totalRelationships] =
     await Promise.all([

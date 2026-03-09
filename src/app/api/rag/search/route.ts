@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { retrieveRelevantContext } from "@/lib/rag/retriever";
 
 export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const body = await req.json();
 
   const { query, departmentIds } = body as {

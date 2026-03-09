@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { listEntities, createEntity } from "@/lib/entity-model-store";
 
 export async function GET(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const url = new URL(req.url);
   const typeSlug = url.searchParams.get("type") ?? undefined;
   const search = url.searchParams.get("q") ?? undefined;
@@ -16,7 +18,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const body = await req.json();
   const entity = await createEntity(operatorId, body);
   return NextResponse.json(entity, { status: 201 });

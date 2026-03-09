@@ -3,17 +3,16 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 type InviteInfo = {
   companyName: string;
+  personName: string;
   role: string;
   departmentName: string | null;
-  inviterName: string;
   email: string;
 };
 
-export default function InviteClaimPage() {
+export default function InviteAcceptPage() {
   const router = useRouter();
   const params = useParams();
   const token = params.token as string;
@@ -21,17 +20,18 @@ export default function InviteClaimPage() {
   const [loading, setLoading] = useState(true);
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [error, setError] = useState("");
-
-  const [displayName, setDisplayName] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [claiming, setClaiming] = useState(false);
-  const [claimError, setClaimError] = useState("");
+  const [gone, setGone] = useState(false); // already claimed
+  const [accepting, setAccepting] = useState(false);
+  const [acceptError, setAcceptError] = useState("");
 
   useEffect(() => {
-    fetch(`/api/invite/${token}/check`)
+    fetch(`/api/invite/${token}`)
       .then(async (res) => {
         const data = await res.json();
+        if (res.status === 410) {
+          setGone(true);
+          return;
+        }
         if (!res.ok) {
           setError(data.error || "Invalid invite");
           return;
@@ -42,37 +42,21 @@ export default function InviteClaimPage() {
       .finally(() => setLoading(false));
   }, [token]);
 
-  const handleClaim = async () => {
-    setClaimError("");
-
-    if (password !== confirmPassword) {
-      setClaimError("Passwords do not match");
-      return;
-    }
-    if (password.length < 6) {
-      setClaimError("Password must be at least 6 characters");
-      return;
-    }
-
-    setClaiming(true);
+  const handleAccept = async () => {
+    setAcceptError("");
+    setAccepting(true);
     try {
-      const res = await fetch(`/api/invite/${token}/claim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName, password }),
-      });
-
+      const res = await fetch(`/api/invite/${token}/accept`, { method: "POST" });
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
-        setClaimError(data.error || "Failed to create account");
+        setAcceptError(data.error || "Failed to join");
         return;
       }
-
-      router.push("/map");
+      router.push(data.redirect || "/map");
     } catch {
-      setClaimError("Connection error");
+      setAcceptError("Connection error");
     } finally {
-      setClaiming(false);
+      setAccepting(false);
     }
   };
 
@@ -94,7 +78,15 @@ export default function InviteClaimPage() {
         {!loading && error && (
           <div className="text-center space-y-4">
             <div className="wf-soft p-6">
-              <p className="text-red-400 text-sm">{error}</p>
+              <p className="text-white/60 text-sm">This invite link is no longer valid. Contact your administrator for a new one.</p>
+            </div>
+          </div>
+        )}
+
+        {!loading && gone && (
+          <div className="text-center space-y-4">
+            <div className="wf-soft p-6">
+              <p className="text-white/60 text-sm">This invite has already been used. Try logging in instead.</p>
             </div>
             <a href="/login" className="text-sm text-purple-400 hover:text-purple-300">
               Go to login
@@ -105,71 +97,41 @@ export default function InviteClaimPage() {
         {!loading && invite && (
           <div className="space-y-6">
             <div className="text-center">
-              <p className="text-sm text-white/50 mb-1">You&apos;ve been invited to</p>
+              <p className="text-sm text-white/50 mb-1">You&apos;ve been invited to join</p>
               <h1 className="font-heading text-3xl font-semibold tracking-[-0.02em] text-white/90">
                 {invite.companyName}
               </h1>
             </div>
 
-            <div className="flex justify-center gap-6 text-sm">
-              <div className="text-center">
-                <span className="text-white/40">Role</span>
-                <div className="text-white/70 font-medium capitalize">{invite.role}</div>
-              </div>
-              {invite.departmentName && (
-                <div className="text-center">
-                  <span className="text-white/40">Department</span>
-                  <div className="text-white/70 font-medium">{invite.departmentName}</div>
-                </div>
-              )}
-              <div className="text-center">
-                <span className="text-white/40">Invited by</span>
-                <div className="text-white/70 font-medium">{invite.inviterName}</div>
+            <div className="wf-soft p-6 space-y-3">
+              <p className="text-white/70 text-sm">
+                as <span className="text-white/90 font-medium">{invite.personName}</span>
+                {invite.departmentName && (
+                  <> in <span className="text-white/90 font-medium">{invite.departmentName}</span></>
+                )}
+              </p>
+
+              <div className="flex items-center gap-3 text-xs text-white/40">
+                <span>{invite.email}</span>
+                <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 font-medium capitalize">
+                  {invite.role}
+                </span>
               </div>
             </div>
 
-            <div className="wf-soft p-6 space-y-5">
-              <div className="text-sm text-white/50">
-                <span className="text-white/30">Email: </span>
-                <span className="text-white/70">{invite.email}</span>
-              </div>
+            {acceptError && (
+              <p className="text-sm text-red-400 text-center">{acceptError}</p>
+            )}
 
-              <Input
-                label="Your Name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Your name"
-              />
-              <Input
-                label="Password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-              <Input
-                label="Confirm Password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-
-              {claimError && (
-                <p className="text-sm text-red-400 text-center">{claimError}</p>
-              )}
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <Button
-                variant="primary"
-                size="lg"
-                onClick={handleClaim}
-                disabled={claiming || !displayName || !password || !confirmPassword}
-              >
-                {claiming ? "Creating Account..." : "Create Account"}
-              </Button>
-            </div>
+            <Button
+              variant="primary"
+              size="lg"
+              className="w-full"
+              disabled={accepting}
+              onClick={handleAccept}
+            >
+              {accepting ? "Joining..." : `Join ${invite.companyName}`}
+            </Button>
           </div>
         )}
       </div>

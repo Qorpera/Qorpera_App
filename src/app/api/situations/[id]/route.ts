@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
@@ -11,8 +11,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const operatorId = await getOperatorId();
-  const userId = await getUserId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id } = params;
 
   const situation = await prisma.situation.findFirst({
@@ -27,7 +28,7 @@ export async function GET(
   }
 
   // Scope check: deny if situation's type is scoped to a department the user can't see
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (visibleDepts !== "all") {
     const scopeDept = situation.situationType?.scopeEntityId;
     if (scopeDept && !visibleDepts.includes(scopeDept)) {
@@ -93,8 +94,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const operatorId = await getOperatorId();
-  const patchUserId = await getUserId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id } = params;
   const body = await req.json();
 
@@ -108,7 +110,7 @@ export async function PATCH(
   }
 
   // Scope check
-  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, patchUserId);
+  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (patchVisibleDepts !== "all") {
     const scopeDept = situation.situationType?.scopeEntityId;
     if (scopeDept && !patchVisibleDepts.includes(scopeDept)) {

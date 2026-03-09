@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId, getUserRole } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { createDepartmentSchema, parseBody } from "@/lib/api-validation";
 
 export async function GET() {
-  const operatorId = await getOperatorId();
-  const userId = await getUserId();
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
 
   const departments = await prisma.entity.findMany({
     where: {
@@ -82,10 +83,11 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
-  const role = await getUserRole();
-  if (role !== "admin") {
-    return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
+  if (user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
   const body = await req.json();
   const parsed = parseBody(createDepartmentSchema, body);

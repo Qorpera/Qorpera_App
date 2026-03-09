@@ -8,36 +8,33 @@ export async function GET(
   const { token } = await params;
 
   const invite = await prisma.invite.findUnique({ where: { token } });
-  if (!invite) {
-    return NextResponse.json({ error: "Invite not found" }, { status: 404 });
+  if (!invite || invite.expiresAt < new Date()) {
+    return NextResponse.json({ error: "Invite not found or expired" }, { status: 404 });
   }
   if (invite.claimedAt) {
-    return NextResponse.json({ error: "This invite has already been used" }, { status: 400 });
-  }
-  if (invite.expiresAt < new Date()) {
-    return NextResponse.json({ error: "This invite has expired" }, { status: 400 });
+    return NextResponse.json({ error: "This invite has already been used" }, { status: 410 });
   }
 
   const operator = await prisma.operator.findUnique({ where: { id: invite.operatorId } });
-  const inviter = await prisma.user.findUnique({
-    where: { id: invite.invitedBy },
-    select: { displayName: true },
+  const entity = await prisma.entity.findUnique({
+    where: { id: invite.entityId },
+    select: { displayName: true, parentDepartmentId: true },
   });
 
-  let departmentName = null;
-  if (invite.departmentId) {
+  let departmentName: string | null = null;
+  if (entity?.parentDepartmentId) {
     const dept = await prisma.entity.findUnique({
-      where: { id: invite.departmentId },
+      where: { id: entity.parentDepartmentId },
       select: { displayName: true },
     });
-    departmentName = dept?.displayName;
+    departmentName = dept?.displayName ?? null;
   }
 
   return NextResponse.json({
     companyName: operator?.companyName || operator?.displayName || "Unknown",
+    personName: entity?.displayName ?? "Unknown",
     role: invite.role,
     departmentName,
-    inviterName: inviter?.displayName || "Unknown",
     email: invite.email,
   });
 }

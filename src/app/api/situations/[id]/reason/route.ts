@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
@@ -8,8 +8,9 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const operatorId = await getOperatorId();
-  const userId = await getUserId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id } = params;
 
   const situation = await prisma.situation.findFirst({
@@ -22,7 +23,7 @@ export async function POST(
   }
 
   // Scope check
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (visibleDepts !== "all") {
     const scopeDept = situation.situationType?.scopeEntityId;
     if (scopeDept && !visibleDepts.includes(scopeDept)) {

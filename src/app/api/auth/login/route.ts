@@ -1,43 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyPassword, createSession, setSessionCookie } from "@/lib/auth";
-import { cookies } from "next/headers";
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const { email, password } = body;
+  const body = await req.json().catch(() => null);
+  const { email, password } = body || {};
 
   if (!email || !password) {
-    return NextResponse.json({ error: "email and password are required" }, { status: 400 });
+    return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
   }
 
-  // Authenticate against User, not Operator
-  const user = await prisma.user.findFirst({ where: { email } });
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: { operator: true },
+  });
+
   if (!user) {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    // Run bcrypt on a dummy hash to prevent timing-based email enumeration
+    await verifyPassword(password, "$2b$12$000000000000000000000uGHTEYOTGelkJYm2ZNMiJM9T/3TO3i");
+    return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
-  const token = await createSession(user.operatorId, user.id);
-  const cookieStore = await cookies();
-  const cookieOpts = setSessionCookie(token);
-  cookieStore.set(cookieOpts.name, cookieOpts.value, {
-    httpOnly: cookieOpts.httpOnly,
-    sameSite: cookieOpts.sameSite,
-    path: cookieOpts.path,
-    secure: cookieOpts.secure,
-    maxAge: cookieOpts.maxAge,
-  });
+  const { token, expiresAt } = await createSession(user.id);
+  await setSessionCookie(token, expiresAt);
 
   return NextResponse.json({
-    id: user.id,
-    operatorId: user.operatorId,
-    displayName: user.displayName,
-    email: user.email,
-    role: user.role,
+    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    operator: { id: user.operator.id, companyName: user.operator.companyName },
   });
 }

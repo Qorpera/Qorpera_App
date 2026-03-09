@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { listPolicies, createPolicy, updatePolicy, deletePolicy } from "@/lib/policy-engine";
 import { createPolicySchema, parseBody } from "@/lib/api-validation";
 
 export async function GET() {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const policies = await listPolicies(operatorId);
   return NextResponse.json(policies);
 }
 
 export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  const { operatorId } = su;
   const body = await req.json();
   const parsed = parseBody(createPolicySchema, body);
   if (!parsed.success) {
@@ -21,7 +26,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  const { operatorId } = su;
   const { id, ...fields } = await req.json();
   const policy = await updatePolicy(operatorId, id, fields);
   if (!policy) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -29,7 +37,10 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  const { operatorId } = su;
   const { id } = await req.json();
   const ok = await deletePolicy(operatorId, id);
   if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });

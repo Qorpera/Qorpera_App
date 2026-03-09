@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { destroySession, SESSION_COOKIE_NAME } from "@/lib/auth";
+import { deleteSession, clearSessionCookie, SESSION_COOKIE_NAME } from "@/lib/auth";
 import { cookies } from "next/headers";
 
 export async function POST() {
@@ -7,16 +7,10 @@ export async function POST() {
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
   if (token) {
-    await destroySession(token);
+    await deleteSession(token);
   }
 
-  cookieStore.set(SESSION_COOKIE_NAME, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: false,
-    maxAge: 0,
-  });
+  await clearSessionCookie();
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ success: true });
 }

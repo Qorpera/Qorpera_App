@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
+import { useUser } from "@/components/user-provider";
 import type { PolicyEffect, PolicyScope } from "@/lib/types";
 
 interface Policy {
@@ -69,6 +70,7 @@ const scopeBadgeVariant: Record<PolicyScope, "purple" | "blue" | "default"> = {
 };
 
 export default function PoliciesPage() {
+  const { isAdmin } = useUser();
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -181,13 +183,15 @@ export default function PoliciesPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold text-white/90">Policies</h1>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setShowNew(true)}
-          >
-            New Policy
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setShowNew(true)}
+            >
+              New Policy
+            </Button>
+          )}
         </div>
 
         {/* Loading */}
@@ -239,19 +243,21 @@ export default function PoliciesPage() {
                 <Badge variant={effectBadgeVariant[policy.effect]}>
                   {policy.effect}
                 </Badge>
-                {/* Toggle switch */}
-                <button
-                  onClick={() => handleToggle(policy)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                    policy.enabled ? "bg-purple-500" : "bg-white/10"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                      policy.enabled ? "translate-x-4.5" : "translate-x-0.5"
+                {/* Toggle switch (admin only) */}
+                {isAdmin && (
+                  <button
+                    onClick={() => handleToggle(policy)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      policy.enabled ? "bg-purple-500" : "bg-white/10"
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                        policy.enabled ? "translate-x-4.5" : "translate-x-0.5"
+                      }`}
+                    />
+                  </button>
+                )}
               </div>
             ))}
           </div>

@@ -1,19 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/setup", "/api/auth", "/api/health"];
+const PUBLIC_PATHS = [
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/logout",
+  "/api/auth/check",
+  "/api/invite/",
+  "/api/health",
+  "/login",
+  "/register",
+  "/invite",
+  "/setup",
+];
+
 const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Allow public paths
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return addSecurityHeaders(NextResponse.next());
-  }
-
   // Allow Next.js internals and static assets
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
     return NextResponse.next();
+  }
+
+  // Allow public paths
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+    return addSecurityHeaders(NextResponse.next());
   }
 
   // CSRF protection for mutation requests
@@ -29,26 +41,21 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  // Check for session cookie
-  const sessionCookie = req.cookies.get("qorpera_session");
+  // Check for session cookie (just existence — full validation in getSessionUser)
+  const sessionCookie = req.cookies.get("session_token");
   if (!sessionCookie?.value) {
-    // API routes: let through — getOperatorId() will redirect server-side
     if (pathname.startsWith("/api/")) {
-      return addSecurityHeaders(NextResponse.next());
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
-    // Page routes: redirect to login
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     return addSecurityHeaders(NextResponse.redirect(url));
   }
 
-  // Cookie exists — let the request through
-  // Actual session validation happens in getOperatorId() on each page/route
   return addSecurityHeaders(NextResponse.next());
 }
 
 function addSecurityHeaders(response: NextResponse): NextResponse {
-  // CSP
   response.headers.set('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
@@ -59,7 +66,6 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
     "frame-ancestors 'none'",
   ].join('; '));
 
-  // Other security headers
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -70,7 +76,6 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
 
 export const config = {
   matcher: [
-    // Match all paths except static files
     "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };

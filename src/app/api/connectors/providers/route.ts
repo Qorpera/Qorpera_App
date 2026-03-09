@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { listProviders } from "@/lib/connectors/registry";
 
 export async function GET() {
-  await getOperatorId(); // ensure authenticated
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const providers = listProviders();
 

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { cookies } from "next/headers";
 import crypto from "crypto";
 
 export async function GET(req: NextRequest) {
-  await getOperatorId(); // ensure authenticated
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   if (!process.env.HUBSPOT_CLIENT_ID || !process.env.HUBSPOT_CLIENT_SECRET) {
     return NextResponse.json(
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
-    secure: false,
+    secure: process.env.NODE_ENV === "production",
     maxAge: 600, // 10 minutes
   });
 
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest) {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
-      secure: false,
+      secure: process.env.NODE_ENV === "production",
       maxAge: 600,
     });
   }

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decrypt, encrypt } from "@/lib/encryption";
 
 export async function POST() {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  const { operatorId } = su;
 
   // Find an existing active google-sheets connector to clone tokens from
   const source = await prisma.sourceConnector.findFirst({

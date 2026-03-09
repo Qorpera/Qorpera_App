@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { updateBindingSchema, parseBody } from "@/lib/api-validation";
@@ -8,10 +8,11 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; bindingId: string }> },
 ) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id, bindingId } = await params;
-  const _userId = await getUserId();
-  const _visibleDepts = await getVisibleDepartmentIds(operatorId, _userId);
+  const _visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (_visibleDepts !== "all" && !_visibleDepts.includes(id)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
@@ -64,10 +65,14 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; bindingId: string }> },
 ) {
-  const operatorId2 = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId: operatorId2 } = su;
+  if (user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { id, bindingId } = await params;
-  const _userId2 = await getUserId();
-  const _visibleDepts2 = await getVisibleDepartmentIds(operatorId2, _userId2);
+  const _visibleDepts2 = await getVisibleDepartmentIds(operatorId2, user.id);
   if (_visibleDepts2 !== "all" && !_visibleDepts2.includes(id)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }

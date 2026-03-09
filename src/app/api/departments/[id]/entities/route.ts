@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
@@ -7,10 +7,11 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id } = await params;
-  const _userId = await getUserId();
-  const _visibleDepts = await getVisibleDepartmentIds(operatorId, _userId);
+  const _visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (_visibleDepts !== "all" && !_visibleDepts.includes(id)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }

@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { listRelationshipTypes, createRelationshipType, createRelationship } from "@/lib/entity-model-store";
 
 export async function GET() {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const types = await listRelationshipTypes(operatorId);
   return NextResponse.json(types);
 }
 
 export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const body = await req.json();
 
   // If fromEntityId and toEntityId are provided, create an instance

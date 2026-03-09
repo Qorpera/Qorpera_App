@@ -2,10 +2,8 @@ import { prisma } from "@/lib/db";
 
 /**
  * Get the department IDs visible to a user.
- *
- * Returns "all" for admins (scope = CompanyHQ / organization entity).
- * Returns specific department IDs for scoped users.
- * Returns "all" as fallback if user has no scopeEntityId (legacy users).
+ * Returns "all" for admins/superadmins.
+ * Returns specific department IDs from UserScope for members.
  */
 export async function getVisibleDepartmentIds(
   operatorId: string,
@@ -13,32 +11,25 @@ export async function getVisibleDepartmentIds(
 ): Promise<string[] | "all"> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { scopeEntityId: true, role: true },
+    select: { role: true },
   });
 
-  // Fallback: no scope set = admin-level access (legacy users, safety net)
-  if (!user || !user.scopeEntityId) return "all";
+  if (!user) return [];
 
-  // Admin role always sees everything regardless of scopeEntityId
-  if (user.role === "admin") return "all";
+  // Admin and superadmin see everything
+  if (user.role === "admin" || user.role === "superadmin") return "all";
 
-  // Check if scope entity is CompanyHQ (organization type = sees everything)
-  const scopeEntity = await prisma.entity.findUnique({
-    where: { id: user.scopeEntityId },
-    include: { entityType: { select: { slug: true } } },
+  // Members: query UserScope table
+  const scopes = await prisma.userScope.findMany({
+    where: { userId },
+    select: { departmentEntityId: true },
   });
 
-  if (!scopeEntity) return "all"; // safety fallback
-  if (scopeEntity.entityType.slug === "organization") return "all";
-
-  // Scope is a specific department — return just that department
-  // Future: traverse children for division-level scoping
-  return [scopeEntity.id];
+  return scopes.map((s) => s.departmentEntityId);
 }
 
 /**
  * Get a scoped user context for use in API routes.
- * Call at the top of any route that returns user-visible data.
  */
 export async function getScopedContext(operatorId: string, userId: string) {
   const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
@@ -52,20 +43,14 @@ export async function getScopedContext(operatorId: string, userId: string) {
 
 /**
  * Build a Prisma where clause that filters entities by visible departments.
- *
- * Usage:
- *   const scope = await getScopedContext(operatorId, userId);
- *   const entities = await prisma.entity.findMany({
- *     where: { operatorId, ...scopeFilter(scope.visibleDepts) },
- *   });
  */
 export function departmentScopeFilter(visibleDepts: string[] | "all"): Record<string, unknown> {
   if (visibleDepts === "all") return {};
   return {
     OR: [
-      { parentDepartmentId: { in: visibleDepts } },  // base, internal, digital entities in dept
-      { id: { in: visibleDepts } },                    // the department entity itself
-      { category: "external" },                        // externals visible to all (linked context)
+      { parentDepartmentId: { in: visibleDepts } },
+      { id: { in: visibleDepts } },
+      { category: "external" },
     ],
   };
 }
@@ -77,12 +62,16 @@ export function situationScopeFilter(visibleDepts: string[] | "all"): Record<str
   if (visibleDepts === "all") return {};
   return {
     OR: [
-      // Situations whose type is scoped to a visible department
       { situationType: { scopeEntityId: { in: visibleDepts } } },
-      // Situations whose type has no scope (global) — visible to all
       { situationType: { scopeEntityId: null } },
     ],
   };
 }
 
-// TODO Day 21: Learning dashboard queries must use situationScopeFilter
+/**
+ * Check if a user can access a specific department.
+ */
+export function canAccessDepartment(visibleDepts: string[] | "all", departmentId: string): boolean {
+  if (visibleDepts === "all") return true;
+  return visibleDepts.includes(departmentId);
+}

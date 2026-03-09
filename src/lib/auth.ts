@@ -2,82 +2,113 @@ import { prisma } from "./db";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import crypto from "crypto";
+import bcrypt from "bcrypt";
+import type { User, Operator } from "@prisma/client";
 
-const SESSION_COOKIE = "qorpera_session";
-const SESSION_EXPIRY_DAYS = 7;
+const SESSION_COOKIE = "session_token";
+const SESSION_EXPIRY_DAYS = 30;
+const BCRYPT_SALT_ROUNDS = 12;
+
+// ── Types ────────────────────────────────────────────────
+
+export type SessionUser = {
+  user: User & { operator: Operator };
+  operatorId: string;
+  isSuperadmin: boolean;
+  actingAsOperator: boolean;
+};
+
+// ── Password hashing ────────────────────────────────────
 
 export async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-  return `${salt}:${hash}`;
+  return bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
 }
 
-export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [salt, hash] = stored.split(":");
-  const derived = crypto.scryptSync(password, salt, 64).toString("hex");
-  return hash === derived;
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(password, hash);
 }
 
-export async function createSession(operatorId: string, userId?: string): Promise<string> {
-  const token = crypto.randomBytes(32).toString("hex");
+// ── Session management ──────────────────────────────────
+
+export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
+  const token = crypto.randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
-  await prisma.session.create({ data: { operatorId, userId: userId ?? null, token, expiresAt } });
-  return token;
+  await prisma.session.create({ data: { userId, token, expiresAt } });
+  return { token, expiresAt };
 }
 
-export async function getSessionFromCookies(): Promise<{ operatorId: string; userId: string | null } | null> {
+export async function deleteSession(token: string): Promise<void> {
+  await prisma.session.delete({ where: { token } }).catch(() => {});
+}
+
+// ── Cookie helpers ──────────────────────────────────────
+
+export async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
+  const cookieStore = await cookies();
+  const isLocalhost = (process.env.NEXT_PUBLIC_APP_URL || "").includes("localhost");
+  cookieStore.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: !isLocalhost,
+    sameSite: "lax",
+    path: "/",
+    expires: expiresAt,
+  });
+}
+
+export async function clearSessionCookie(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
+// ── Core auth check ─────────────────────────────────────
+
+export async function getSessionUser(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
-  const session = await prisma.session.findUnique({ where: { token } });
-  if (!session || session.expiresAt < new Date()) {
-    if (session) await prisma.session.delete({ where: { id: session.id } }).catch(() => {});
+  const session = await prisma.session.findUnique({
+    where: { token },
+    include: { user: { include: { operator: true } } },
+  });
+
+  if (!session) return null;
+
+  // Check expiry
+  if (session.expiresAt < new Date()) {
+    await prisma.session.delete({ where: { id: session.id } }).catch(() => {});
     return null;
   }
-  return { operatorId: session.operatorId, userId: session.userId };
+
+  const { user } = session;
+  const isSuperadmin = user.role === "superadmin";
+  let operatorId = user.operatorId;
+  let actingAsOperator = false;
+
+  // Superadmin operator switching
+  if (isSuperadmin) {
+    const actingId = cookieStore.get("acting_operator_id")?.value;
+    if (actingId) {
+      const targetOp = await prisma.operator.findUnique({ where: { id: actingId } });
+      if (targetOp) {
+        operatorId = actingId;
+        actingAsOperator = true;
+      }
+    }
+  }
+
+  return { user, operatorId, isSuperadmin, actingAsOperator };
 }
 
-export async function getOperatorId(): Promise<string> {
-  const session = await getSessionFromCookies();
-  if (session) return session.operatorId;
-  redirect("/login");
-}
-
-/**
- * API-route-safe variant: returns null instead of redirecting.
- * Use in Route Handlers so the caller can return a proper JSON 401.
- */
-export async function getOperatorIdOrNull(): Promise<{ operatorId: string; userId: string | null } | null> {
-  return getSessionFromCookies();
-}
-
-export async function getUserId(): Promise<string> {
-  const session = await getSessionFromCookies();
-  if (!session || !session.userId) redirect("/login");
-  return session.userId;
-}
-
-export async function getUserRole(): Promise<string> {
-  const session = await getSessionFromCookies();
-  if (!session || !session.userId) return "admin"; // fallback for legacy sessions
-  const user = await prisma.user.findUnique({ where: { id: session.userId } });
-  if (!user) return "admin"; // fallback for legacy sessions
-  return user.role;
-}
-
-export async function getUser() {
-  const userId = await getUserId();
-  return prisma.user.findUniqueOrThrow({ where: { id: userId } });
-}
-
-export async function getOperator() {
-  const id = await getOperatorId();
-  return prisma.operator.findUniqueOrThrow({ where: { id } });
-}
+// ── Legacy helpers (keep existing routes working) ───────
 
 export async function destroySession(token: string): Promise<void> {
-  await prisma.session.delete({ where: { token } }).catch(() => {});
+  await deleteSession(token);
 }
 
 export async function isFirstRun(): Promise<boolean> {
@@ -85,17 +116,12 @@ export async function isFirstRun(): Promise<boolean> {
   return count === 0;
 }
 
-export function setSessionCookie(token: string) {
-  // Returns the cookie options for use with cookies().set()
-  return {
-    name: SESSION_COOKIE,
-    value: token,
-    httpOnly: true,
-    sameSite: "lax" as const,
-    path: "/",
-    secure: false,
-    maxAge: SESSION_EXPIRY_DAYS * 24 * 60 * 60,
-  };
+// ── Superadmin helpers ──────────────────────────────────
+
+export function excludeSuperadmin() {
+  return { role: { not: "superadmin" } };
 }
+
+// ── Exported constants ──────────────────────────────────
 
 export const SESSION_COOKIE_NAME = SESSION_COOKIE;

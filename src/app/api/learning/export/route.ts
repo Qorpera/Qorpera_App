@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-
-// TODO: Apply situationScopeFilter when multi-user access is enabled
+import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
 
 export async function GET(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   const exportSchema = z.object({ days: daysParam, format: z.enum(["csv"]).default("csv") });
   const parsed = parseQuery(exportSchema, req.nextUrl.searchParams);
   if (!parsed.success) {
@@ -18,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   // Load situations with related data
   const situations = await prisma.situation.findMany({
-    where: { operatorId, createdAt: { gte: since } },
+    where: { operatorId, createdAt: { gte: since }, ...situationScopeFilter(visibleDepts) },
     include: {
       situationType: {
         select: {

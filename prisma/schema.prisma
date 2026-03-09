@@ -29,7 +29,6 @@ model Operator {
   connectorDepartmentBindings ConnectorDepartmentBinding[]
 
   // v2: Situation-driven architecture
-  sessions            Session[]
   events              Event[]
   situationTypes      SituationType[]
   situations          Situation[]
@@ -44,23 +43,23 @@ model Operator {
 model User {
   id           String   @id @default(cuid())
   operatorId   String
-  email        String
-  passwordHash String
-  displayName  String
-  role         String   @default("member") // superadmin, admin, member, viewer
-  invitedBy    String?
-  scopeEntityId   String?
-  linkedEntityId  String?
-  createdAt    DateTime @default(now())
-
   operator     Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  sessions     Session[]
-  scopeEntity   Entity? @relation("UserScope", fields: [scopeEntityId], references: [id])
-  linkedEntity  Entity? @relation("UserLinkedEntity", fields: [linkedEntityId], references: [id])
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("member") // "superadmin" | "admin" | "member"
+  entityId     String?  @unique // FK to Entity — the base entity this user represents in the org chart
+  entity       Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  @@unique([operatorId, email])
+  sessions       Session[]
+  scopes         UserScope[]
+  invitesCreated Invite[]  @relation("InviteCreator")
+
   @@index([operatorId])
   @@index([email])
+  @@index([entityId])
 }
 
 model AppSetting {
@@ -71,15 +70,15 @@ model AppSetting {
 // ─── Auth ────────────────────────────────────────────────
 
 model Session {
-  id         String   @id @default(cuid())
-  operatorId String
-  userId     String?
-  token      String   @unique
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
-  operator Operator @relation(fields: [operatorId], references: [id])
-  user     User?    @relation(fields: [userId], references: [id])
+  @@index([token])
+  @@index([userId])
 }
 
 // ─── Layer 2: Knowledge Graph Engine ─────────────────────
@@ -154,8 +153,7 @@ model Entity {
   connectorBindings ConnectorDepartmentBinding[] @relation("ConnectorBindings")
   documentChunks    DocumentChunk[]
   internalDocument  InternalDocument? @relation("DocumentEntity")
-  scopedUsers   User[] @relation("UserScope")
-  linkedUsers   User[] @relation("UserLinkedEntity")
+  user              User?   // A base entity can have at most one user account
 
   @@index([operatorId, category])
   @@index([operatorId, parentDepartmentId])
@@ -510,18 +508,35 @@ model InternalDocument {
 // ─── Invites ────────────────────────────────────────────
 
 model Invite {
-  id           String    @id @default(cuid())
-  operatorId   String
-  operator     Operator  @relation(fields: [operatorId], references: [id])
-  email        String
-  role         String    @default("viewer")
-  departmentId String?
-  token        String    @unique
-  invitedBy    String
-  expiresAt    DateTime
-  claimedAt    DateTime?
-  claimedBy    String?
-  createdAt    DateTime  @default(now())
+  id              String    @id @default(cuid())
+  operatorId      String
+  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  entityId        String    // The base entity this invite is for
+  email           String    // Pre-filled from entity or entered by admin
+  role            String    @default("member")
+  passwordHash    String    // Admin sets the password
+  token           String    @unique
+  expiresAt       DateTime
+  claimedAt       DateTime?
+  claimedByUserId String?
+  createdById     String?   // The admin who created this invite (nullable if admin deleted)
+  createdBy       User?     @relation("InviteCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
 
+  @@index([token])
   @@index([operatorId])
+  @@index([entityId])
+}
+
+model UserScope {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  departmentEntityId String   // FK to Entity (a foundational/department entity)
+  grantedById        String?  // userId of who granted this — null for system-generated
+  createdAt          DateTime @default(now())
+
+  @@unique([userId, departmentEntityId])
+  @@index([userId])
+  @@index([departmentEntityId])
 }

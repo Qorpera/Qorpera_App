@@ -2,8 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useUser } from "./user-provider";
 
-const NAV_GROUPS = [
+type NavItem = { href: string; label: string; icon: string; badge?: boolean; superadminOnly?: boolean };
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
@@ -27,6 +31,7 @@ const NAV_GROUPS = [
   {
     label: "",
     items: [
+      { href: "/admin", label: "Admin", icon: "shield", superadminOnly: true },
       { href: "/account", label: "Account", icon: "user" },
       { href: "/settings", label: "Settings", icon: "settings" },
     ],
@@ -51,51 +56,73 @@ const ICONS: Record<string, string> = {
   settings: "M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z",
 };
 
+const ROLE_BADGE_COLORS: Record<string, string> = {
+  admin: "bg-purple-500/20 text-purple-300",
+  member: "bg-white/[0.06] text-white/40",
+  superadmin: "bg-amber-500/20 text-amber-300",
+};
+
 export function AppNav({ pendingApprovals = 0, collapsed = false }: { pendingApprovals?: number; collapsed?: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const fullPath = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
+  const { role, isSuperadmin, user } = useUser();
 
   return (
     <div className="space-y-5">
-      {NAV_GROUPS.map((group, gi) => (
-        <div key={gi}>
-          {group.label && !collapsed && (
-            <p className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/25">
-              {group.label}
-            </p>
-          )}
-          <div className="space-y-0.5">
-            {group.items.map((item) => {
-              const active = item.href.includes("?")
-                ? fullPath === item.href
-                : pathname === item.href || pathname?.startsWith(item.href + "/");
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  title={collapsed ? item.label : undefined}
-                  className={`flex items-center ${collapsed ? "justify-center" : "gap-2.5"} rounded-lg ${collapsed ? "px-2 py-2" : "px-2.5 py-2"} text-[13px] font-medium transition ${
-                    active
-                      ? "bg-purple-500/10 text-purple-300"
-                      : "text-white/50 hover:bg-white/[0.04] hover:text-white/70"
-                  }`}
-                >
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d={ICONS[item.icon] || ICONS.grid} />
-                  </svg>
-                  {!collapsed && <span className="flex-1">{item.label}</span>}
-                  {!collapsed && item.badge && pendingApprovals > 0 && (
-                    <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-purple-500 text-[10px] font-bold text-white px-1">
-                      {pendingApprovals}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
+      {NAV_GROUPS.map((group, gi) => {
+        const visibleItems = group.items.filter(
+          (item) => !item.superadminOnly || isSuperadmin,
+        );
+        if (visibleItems.length === 0) return null;
+        return (
+          <div key={gi}>
+            {group.label && !collapsed && (
+              <p className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/25">
+                {group.label}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {visibleItems.map((item) => {
+                const active = item.href.includes("?")
+                  ? fullPath === item.href
+                  : pathname === item.href || pathname?.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    title={collapsed ? item.label : undefined}
+                    className={`flex items-center ${collapsed ? "justify-center" : "gap-2.5"} rounded-lg ${collapsed ? "px-2 py-2" : "px-2.5 py-2"} text-[13px] font-medium transition ${
+                      active
+                        ? "bg-purple-500/10 text-purple-300"
+                        : "text-white/50 hover:bg-white/[0.04] hover:text-white/70"
+                    }`}
+                  >
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d={ICONS[item.icon] || ICONS.grid} />
+                    </svg>
+                    {!collapsed && <span className="flex-1">{item.label}</span>}
+                    {!collapsed && item.badge && pendingApprovals > 0 && (
+                      <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-purple-500 text-[10px] font-bold text-white px-1">
+                        {pendingApprovals}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
           </div>
+        );
+      })}
+
+      {/* Role badge */}
+      {!collapsed && user && role && (
+        <div className="px-2 pt-2">
+          <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${ROLE_BADGE_COLORS[role] || ROLE_BADGE_COLORS.member}`}>
+            {role.charAt(0).toUpperCase() + role.slice(1)}
+          </span>
         </div>
-      ))}
+      )}
     </div>
   );
 }

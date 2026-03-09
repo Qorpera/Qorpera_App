@@ -1,154 +1,142 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId, getUserRole } from "@/lib/auth";
+import { getSessionUser, hashPassword } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { z } from "zod";
 import crypto from "crypto";
 
-export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
-  const currentUserId = await getUserId();
-  const currentRole = await getUserRole();
+const InviteSchema = z.object({
+  entityId: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(8),
+  role: z.enum(["member", "admin"]).default("member"),
+});
 
-  if (currentRole !== "admin") {
+export async function POST(req: NextRequest) {
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  if (su.user.role !== "admin" && su.user.role !== "superadmin") {
     return NextResponse.json({ error: "Only admins can invite users" }, { status: 403 });
   }
 
-  const body = await req.json();
-  const { email, role, departmentId } = body;
-
-  if (!email) {
-    return NextResponse.json({ error: "email is required" }, { status: 400 });
+  const body = await req.json().catch(() => null);
+  const parsed = InviteSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid input" }, { status: 400 });
   }
 
-  const validRoles = ["admin", "supervisor", "finance", "sales", "support", "viewer"];
-  if (role && !validRoles.includes(role)) {
-    return NextResponse.json({ error: `Invalid role. Must be one of: ${validRoles.join(", ")}` }, { status: 400 });
-  }
+  const { entityId, email, password, role } = parsed.data;
+  const operatorId = su.operatorId;
 
-  // Non-admin roles require a department
-  const effectiveRole = role || "viewer";
-  if (effectiveRole !== "admin" && !departmentId) {
-    return NextResponse.json({ error: "departmentId is required for non-admin roles" }, { status: 400 });
-  }
-
-  // Validate department if provided
-  if (departmentId) {
-    const dept = await prisma.entity.findFirst({
-      where: { id: departmentId, operatorId, category: "foundational" },
-    });
-    if (!dept) {
-      return NextResponse.json({ error: "Department not found" }, { status: 404 });
-    }
-  }
-
-  // Check if user already exists
-  const existingUser = await prisma.user.findFirst({ where: { operatorId, email } });
-  if (existingUser) {
-    return NextResponse.json({ error: "A user with this email already exists" }, { status: 409 });
-  }
-
-  // Check for existing pending invite
-  const existingInvite = await prisma.invite.findFirst({
-    where: { operatorId, email, claimedAt: null, expiresAt: { gt: new Date() } },
+  // Validate entity
+  const entity = await prisma.entity.findFirst({
+    where: { id: entityId, operatorId, category: "base" },
+    include: { parentDepartment: { select: { displayName: true } } },
   });
-  if (existingInvite) {
-    // Return existing invite instead of creating duplicate
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-    return NextResponse.json({
-      id: existingInvite.id,
-      token: existingInvite.token,
-      inviteUrl: `${baseUrl}/invite/${existingInvite.token}`,
-      email: existingInvite.email,
-      role: existingInvite.role,
-      expiresAt: existingInvite.expiresAt,
-    });
+  if (!entity) {
+    return NextResponse.json({ error: "Entity not found or not a base entity in this operator" }, { status: 404 });
   }
 
-  const token = crypto.randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  // Check if entity already has a user account
+  const existingUser = await prisma.user.findFirst({ where: { entityId } });
+  if (existingUser) {
+    return NextResponse.json({ error: "This person already has an account" }, { status: 409 });
+  }
+
+  // Check email uniqueness
+  const emailTaken = await prisma.user.findUnique({ where: { email } });
+  if (emailTaken) {
+    return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+  }
+
+  // Check for pending invite for this entity
+  const pendingInvite = await prisma.invite.findFirst({
+    where: { operatorId, entityId, claimedAt: null, expiresAt: { gt: new Date() } },
+  });
+  if (pendingInvite) {
+    return NextResponse.json({
+      error: "Pending invite exists for this person",
+      existingInviteId: pendingInvite.id,
+    }, { status: 409 });
+  }
+
+  const passwordHash = await hashPassword(password);
+  const token = crypto.randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
   const invite = await prisma.invite.create({
     data: {
       operatorId,
+      entityId,
       email,
-      role: effectiveRole,
-      departmentId: departmentId || null,
+      role,
+      passwordHash,
       token,
-      invitedBy: currentUserId,
       expiresAt,
+      createdById: su.user.id,
     },
   });
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-
-  // Get department name if applicable
-  let departmentName = null;
-  if (departmentId) {
-    const dept = await prisma.entity.findUnique({ where: { id: departmentId }, select: { displayName: true } });
-    departmentName = dept?.displayName;
-  }
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const link = `${baseUrl}/invite/${token}`;
 
   return NextResponse.json({
-    id: invite.id,
-    token: invite.token,
-    inviteUrl: `${baseUrl}/invite/${token}`,
-    email: invite.email,
-    role: invite.role,
-    departmentName,
-    expiresAt: invite.expiresAt,
+    invite: {
+      id: invite.id,
+      email: invite.email,
+      role: invite.role,
+      entityName: entity.displayName,
+      departmentName: entity.parentDepartment?.displayName ?? null,
+      link,
+      expiresAt: invite.expiresAt,
+    },
   }, { status: 201 });
 }
 
 export async function GET() {
-  const operatorId = await getOperatorId();
+  // Alias for /api/users/invites — list pending invites
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  if (su.user.role !== "admin" && su.user.role !== "superadmin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
-  const [invites, users] = await Promise.all([
-    prisma.invite.findMany({
-      where: { operatorId },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.user.findMany({
-      where: { operatorId },
-      select: {
-        id: true, email: true, displayName: true, role: true,
-        scopeEntityId: true, linkedEntityId: true, createdAt: true,
-      },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
-
-  // Resolve department names for invites and users
-  const deptIds = [
-    ...invites.filter(i => i.departmentId).map(i => i.departmentId!),
-    ...users.filter(u => u.scopeEntityId).map(u => u.scopeEntityId!),
-  ];
-  const depts = deptIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: deptIds } },
-        select: { id: true, displayName: true },
-      })
-    : [];
-  const deptMap = new Map(depts.map(d => [d.id, d.displayName]));
-
-  // Resolve inviter names
-  const inviterIds = [...new Set(invites.map(i => i.invitedBy))];
-  const inviters = inviterIds.length > 0
-    ? await prisma.user.findMany({
-        where: { id: { in: inviterIds } },
-        select: { id: true, displayName: true },
-      })
-    : [];
-  const inviterMap = new Map(inviters.map(u => [u.id, u.displayName]));
-
-  return NextResponse.json({
-    invites: invites.map(i => ({
-      ...i,
-      departmentName: i.departmentId ? deptMap.get(i.departmentId) : null,
-      inviterName: inviterMap.get(i.invitedBy) ?? "Unknown",
-      status: i.claimedAt ? "claimed" : i.expiresAt < new Date() ? "expired" : "pending",
-    })),
-    users: users.map(u => ({
-      ...u,
-      departmentName: u.scopeEntityId ? deptMap.get(u.scopeEntityId) : "All (Admin)",
-    })),
+  const invites = await prisma.invite.findMany({
+    where: { operatorId: su.operatorId, claimedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
   });
+
+  const entityIds = invites.map((i) => i.entityId);
+  const entities = entityIds.length > 0
+    ? await prisma.entity.findMany({
+        where: { id: { in: entityIds } },
+        select: { id: true, displayName: true, parentDepartmentId: true },
+      })
+    : [];
+  const entityMap = new Map(entities.map((e) => [e.id, e]));
+
+  // Get department names
+  const deptIds = [...new Set(entities.filter((e) => e.parentDepartmentId).map((e) => e.parentDepartmentId!))];
+  const depts = deptIds.length > 0
+    ? await prisma.entity.findMany({ where: { id: { in: deptIds } }, select: { id: true, displayName: true } })
+    : [];
+  const deptMap = new Map(depts.map((d) => [d.id, d.displayName]));
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  return NextResponse.json(
+    invites.map((inv) => {
+      const ent = entityMap.get(inv.entityId);
+      return {
+        id: inv.id,
+        entityId: inv.entityId,
+        email: inv.email,
+        role: inv.role,
+        entityName: ent?.displayName ?? "Unknown",
+        departmentName: ent?.parentDepartmentId ? deptMap.get(ent.parentDepartmentId) ?? null : null,
+        link: `${baseUrl}/invite/${inv.token}`,
+        expiresAt: inv.expiresAt,
+        createdAt: inv.createdAt,
+      };
+    })
+  );
 }

@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-
-// TODO: Apply situationScopeFilter when multi-user access is enabled
+import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   const { id } = await params;
   const daysSchema = z.object({ days: daysParam });
   const parsed = parseQuery(daysSchema, req.nextUrl.searchParams);
@@ -40,6 +42,11 @@ export async function GET(
 
   if (!situationType || situationType.operatorId !== operatorId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Scope check: deny if situation type is scoped to a department the user can't see
+  if (visibleDepts !== "all" && situationType.scopeEntityId && !visibleDepts.includes(situationType.scopeEntityId)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 
   // Load scoped department

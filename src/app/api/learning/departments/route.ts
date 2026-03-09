@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-
-// TODO: Apply situationScopeFilter when multi-user access is enabled
+import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
 
 export async function GET(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   const daysSchema = z.object({ days: daysParam });
   const parsed = parseQuery(daysSchema, req.nextUrl.searchParams);
   if (!parsed.success) {
@@ -16,13 +18,14 @@ export async function GET(req: NextRequest) {
   const { days } = parsed.data;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  // Load all departments (foundational entities with type "department")
+  // Load departments (foundational entities with type "department"), filtered to visible
   const departments = await prisma.entity.findMany({
     where: {
       operatorId,
       category: "foundational",
       entityType: { slug: "department" },
       status: "active",
+      ...(visibleDepts !== "all" ? { id: { in: visibleDepts } } : {}),
     },
     select: { id: true, displayName: true },
   });
@@ -42,7 +45,7 @@ export async function GET(req: NextRequest) {
 
   // Load all situations in the period
   const situations = await prisma.situation.findMany({
-    where: { operatorId, createdAt: { gte: since } },
+    where: { operatorId, createdAt: { gte: since }, ...situationScopeFilter(visibleDepts) },
     select: {
       id: true,
       situationTypeId: true,
