@@ -7,3 +7,4 @@ _standalone/
 .env
 .env.local
 .data/
+uploads/

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
+import { encrypt } from "@/lib/encryption";
 
 export async function GET(req: NextRequest) {
   const operatorId = await getOperatorId();
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest) {
       provider: "stripe",
       name: "Stripe",
       status: "active",
-      config: JSON.stringify(config),
+      config: encrypt(JSON.stringify(config)),
     },
   });
 

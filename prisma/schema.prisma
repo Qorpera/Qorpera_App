@@ -1,11 +1,11 @@
-// Prisma schema for QorperaAPP — SQLite local database
+// Prisma schema for Qorpera — PostgreSQL
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -47,18 +47,20 @@ model User {
   email        String
   passwordHash String
   displayName  String
-  role         String   @default("viewer") // admin, supervisor, finance, sales, support, viewer
+  role         String   @default("member") // superadmin, admin, member, viewer
   invitedBy    String?
   scopeEntityId   String?
   linkedEntityId  String?
   createdAt    DateTime @default(now())
 
-  operator     Operator @relation(fields: [operatorId], references: [id])
+  operator     Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   sessions     Session[]
   scopeEntity   Entity? @relation("UserScope", fields: [scopeEntityId], references: [id])
   linkedEntity  Entity? @relation("UserLinkedEntity", fields: [linkedEntityId], references: [id])
 
   @@unique([operatorId, email])
+  @@index([operatorId])
+  @@index([email])
 }
 
 model AppSetting {

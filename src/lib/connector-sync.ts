@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
 import { materializeUnprocessed } from "@/lib/event-materializer";
+import { decrypt, encrypt } from "@/lib/encryption";
 
 export type SyncResult = {
   status: "success" | "partial" | "failed";
@@ -44,7 +45,7 @@ export async function runConnectorSync(
     };
   }
 
-  const config = connector.config ? JSON.parse(connector.config) : {};
+  const config = connector.config ? JSON.parse(decrypt(connector.config)) : {};
   let syncStatus: "success" | "partial" | "failed" = "success";
 
   try {
@@ -79,7 +80,7 @@ export async function runConnectorSync(
   await prisma.sourceConnector.update({
     where: { id: connectorId },
     data: {
-      config: JSON.stringify(config),
+      config: encrypt(JSON.stringify(config)),
       lastSyncAt: new Date(),
       status: syncStatus === "failed" ? "error" : "active",
     },

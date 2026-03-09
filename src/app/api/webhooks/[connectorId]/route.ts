@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getValidStripeToken } from "@/lib/connectors/stripe-auth";
 import { materializeEvent } from "@/lib/event-materializer";
 import { checkForSituationResolution } from "@/lib/situation-resolver";
+import { decrypt, encrypt } from "@/lib/encryption";
 
 const STRIPE_EVENT_MAP: Record<string, string> = {
   "invoice.payment_succeeded": "invoice.paid",
@@ -45,16 +46,17 @@ export async function POST(
   }
 
   // Verify authenticity by fetching the event from Stripe's API
-  const config = connector.config ? JSON.parse(connector.config) : {};
+  const config = connector.config ? JSON.parse(decrypt(connector.config)) : {};
+  const originalToken = config.access_token;
   let verifiedEvent: any;
   try {
     const token = await getValidStripeToken(config);
 
     // Persist refreshed tokens if they changed
-    if (config.access_token !== JSON.parse(connector.config || "{}").access_token) {
+    if (config.access_token !== originalToken) {
       await prisma.sourceConnector.update({
         where: { id: connectorId },
-        data: { config: JSON.stringify(config) },
+        data: { config: encrypt(JSON.stringify(config)) },
       });
     }
 

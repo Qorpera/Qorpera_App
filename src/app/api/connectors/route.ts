@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider, listProviders } from "@/lib/connectors/registry";
+import { encrypt } from "@/lib/encryption";
 
 export async function GET() {
   const operatorId = await getOperatorId();
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
       provider: providerId,
       name: name || "",
       status: "pending",
-      config: config ? JSON.stringify(config) : null,
+      config: config ? encrypt(JSON.stringify(config)) : null,
     },
   });
 

@@ -11,6 +11,14 @@ import { chunkDocument } from "./chunker";
 import { embedChunks } from "./embedder";
 import { invalidateCache } from "./chunk-cache";
 import { readFile } from "fs/promises";
+import path from "path";
+
+/** Resolve a document filePath (which may be relative) to an absolute path. */
+function resolveDocumentPath(filePath: string): string {
+  if (path.isAbsolute(filePath)) return filePath;
+  const storageBase = process.env.DOCUMENT_STORAGE_PATH || "./uploads/documents";
+  return path.join(storageBase, filePath);
+}
 
 // Text extraction (reused from existing extract route logic)
 export async function extractText(filePath: string, mimeType: string): Promise<string | null> {
@@ -82,7 +90,7 @@ export async function processDocument(
     // Step 1: Get text (extract if needed)
     let text = doc.rawText;
     if (!text) {
-      text = await extractText(doc.filePath, doc.mimeType);
+      text = await extractText(resolveDocumentPath(doc.filePath), doc.mimeType);
       if (!text) {
         await prisma.internalDocument.update({
           where: { id: documentId },

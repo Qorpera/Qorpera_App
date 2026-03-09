@@ -96,16 +96,18 @@ export async function POST(
     });
   }
 
-  // Write file to disk
-  const uploadDir = path.join(process.cwd(), "uploads", "documents");
+  // Write file to disk (per-operator isolation)
+  const storageBase = process.env.DOCUMENT_STORAGE_PATH || "./uploads/documents";
+  const uploadDir = path.join(storageBase, operatorId);
   await mkdir(uploadDir, { recursive: true });
 
   const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   const safeFileName = `${id}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-  const filePath = path.join(uploadDir, safeFileName);
+  const absolutePath = path.join(uploadDir, safeFileName);
+  const filePath = `${operatorId}/${safeFileName}`; // relative for DB storage
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(filePath, buffer);
+  await writeFile(absolutePath, buffer);
 
   // Ensure "document" entity type exists
   const def = HARDCODED_TYPE_DEFS["document"];
@@ -165,7 +167,7 @@ export async function POST(
   });
 
   // Extract text immediately
-  const rawText = await extractText(filePath, file.type);
+  const rawText = await extractText(absolutePath, file.type);
   if (rawText) {
     await prisma.internalDocument.update({
       where: { id: doc.id },

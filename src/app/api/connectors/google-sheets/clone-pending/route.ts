@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { decrypt, encrypt } from "@/lib/encryption";
 
 export async function POST() {
   const operatorId = await getOperatorId();
@@ -18,7 +19,7 @@ export async function POST() {
     );
   }
 
-  const config = JSON.parse(source.config);
+  const config = JSON.parse(decrypt(source.config));
 
   const connector = await prisma.sourceConnector.create({
     data: {
@@ -26,12 +27,12 @@ export async function POST() {
       provider: "google-sheets",
       name: "",
       status: "pending",
-      config: JSON.stringify({
+      config: encrypt(JSON.stringify({
         access_token: config.access_token,
         refresh_token: config.refresh_token,
         token_expiry: config.token_expiry,
         spreadsheet_id: "",
-      }),
+      })),
     },
   });
 

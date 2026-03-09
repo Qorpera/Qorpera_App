@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getValidAccessToken, extractFolderId } from "@/lib/connectors/google-auth";
+import { decrypt, encrypt } from "@/lib/encryption";
 
 export async function POST(req: Request) {
   try {
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const config = connector.config ? JSON.parse(connector.config) : {};
+    const config = connector.config ? JSON.parse(decrypt(connector.config)) : {};
     const folderId = extractFolderId(folderUrl);
 
     // Get a valid access token
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
     // Persist refreshed tokens back to the pending connector
     await prisma.sourceConnector.update({
       where: { id: connectorId },
-      data: { config: JSON.stringify(config) },
+      data: { config: encrypt(JSON.stringify(config)) },
     });
 
     // List spreadsheets in the folder
@@ -97,7 +98,7 @@ export async function POST(req: Request) {
     for (const ec of existingConnectors) {
       if (ec.config) {
         try {
-          const ecConfig = JSON.parse(ec.config);
+          const ecConfig = JSON.parse(decrypt(ec.config));
           if (ecConfig.spreadsheet_id) {
             existingSpreadsheetIds.add(ecConfig.spreadsheet_id);
           }
@@ -127,7 +128,7 @@ export async function POST(req: Request) {
           provider: "google-sheets",
           name: file.name,
           status: "active",
-          config: JSON.stringify(newConfig),
+          config: encrypt(JSON.stringify(newConfig)),
         },
       });
 

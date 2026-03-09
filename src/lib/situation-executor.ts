@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
+import { decrypt, encrypt } from "@/lib/encryption";
 
 export async function executeSituationAction(situationId: string) {
   const situation = await prisma.situation.findUnique({
@@ -48,13 +49,13 @@ export async function executeSituationAction(situationId: string) {
       throw new Error(`Provider "${connector.provider}" does not support action execution`);
     }
 
-    const config = JSON.parse(connector.config || "{}");
+    const config = JSON.parse(decrypt(connector.config || "{}"));
     const result = await provider.executeAction(config, proposed.action, proposed.params);
 
     // Persist config in case tokens were refreshed
     await prisma.sourceConnector.update({
       where: { id: connector.id },
-      data: { config: JSON.stringify(config) },
+      data: { config: encrypt(JSON.stringify(config)) },
     }).catch(() => {});
 
     if (result.success) {

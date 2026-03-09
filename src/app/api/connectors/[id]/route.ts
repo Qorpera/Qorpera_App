@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
+import { decrypt, encrypt } from "@/lib/encryption";
 
 export async function GET(
   _req: NextRequest,
@@ -24,7 +25,7 @@ export async function GET(
   // Strip sensitive fields from config for the response
   let safeConfig: Record<string, unknown> = {};
   if (connector.config) {
-    const parsed = JSON.parse(connector.config);
+    const parsed = JSON.parse(decrypt(connector.config));
     safeConfig = {
       spreadsheet_id: parsed.spreadsheet_id || "",
       hasTokens: !!(parsed.access_token && parsed.refresh_token),
@@ -53,7 +54,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const existingConfig = connector.config ? JSON.parse(connector.config) : {};
+  const existingConfig = connector.config ? JSON.parse(decrypt(connector.config)) : {};
   const updates: Record<string, unknown> = {};
 
   if (body.name !== undefined) updates.name = body.name;
@@ -62,7 +63,7 @@ export async function PATCH(
   // Merge config fields (spreadsheet_id, etc.) without overwriting tokens
   if (body.spreadsheet_id !== undefined) {
     existingConfig.spreadsheet_id = body.spreadsheet_id;
-    updates.config = JSON.stringify(existingConfig);
+    updates.config = encrypt(JSON.stringify(existingConfig));
   }
 
   // If finalizing from pending → active, test the connection
@@ -97,7 +98,7 @@ export async function PATCH(
   }
 
   if (!updates.config && body.spreadsheet_id !== undefined) {
-    updates.config = JSON.stringify(existingConfig);
+    updates.config = encrypt(JSON.stringify(existingConfig));
   }
 
   const updated = await prisma.sourceConnector.update({
@@ -108,7 +109,7 @@ export async function PATCH(
   // Strip sensitive config from response
   let safeConfig: Record<string, unknown> = {};
   if (updated.config) {
-    const parsed = JSON.parse(updated.config);
+    const parsed = JSON.parse(decrypt(updated.config));
     safeConfig = {
       spreadsheet_id: parsed.spreadsheet_id || "",
       hasTokens: !!(parsed.access_token && parsed.refresh_token),
