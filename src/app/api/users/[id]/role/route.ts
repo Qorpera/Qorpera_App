@@ -38,7 +38,6 @@ export async function PUT(
 
   // If demoting admin to member: ensure at least one scope exists
   if (targetUser.role === "admin" && role === "member" && targetUser.scopes.length === 0) {
-    // Create a scope for their entity's department
     if (targetUser.entity?.parentDepartmentId) {
       await prisma.userScope.create({
         data: {
@@ -47,6 +46,10 @@ export async function PUT(
           grantedById: su.user.id,
         },
       });
+    } else {
+      return NextResponse.json({
+        error: "Cannot demote: user has no department assignment. Assign a department scope first.",
+      }, { status: 400 });
     }
   }
 

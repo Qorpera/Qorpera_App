@@ -10,6 +10,9 @@ async function verifyEntityTypeOwnership(entityTypeId: string, operatorId: strin
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { id } = await params;
   if (!(await verifyEntityTypeOwnership(id, su.operatorId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -22,6 +25,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { id } = await params;
   if (!(await verifyEntityTypeOwnership(id, su.operatorId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -35,6 +41,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { id } = await params;
   if (!(await verifyEntityTypeOwnership(id, su.operatorId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

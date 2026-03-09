@@ -12,6 +12,10 @@ const RegisterSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  if (process.env.REGISTRATION_ENABLED !== "true") {
+    return NextResponse.json({ error: "Registration is currently closed" }, { status: 403 });
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = RegisterSchema.safeParse(body);
   if (!parsed.success) {

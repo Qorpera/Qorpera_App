@@ -10,6 +10,9 @@ const PROMOTION_MAP: Record<string, string> = {
 export async function POST(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { operatorId } = su;
   const { situationTypeId } = await req.json();
 

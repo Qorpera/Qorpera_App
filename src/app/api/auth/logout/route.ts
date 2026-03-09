@@ -12,5 +12,13 @@ export async function POST() {
 
   await clearSessionCookie();
 
+  // Clear superadmin operator-switching cookie
+  cookieStore.set("acting_operator_id", "", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+
   return NextResponse.json({ success: true });
 }

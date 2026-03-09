@@ -16,14 +16,17 @@ export async function POST(req: NextRequest) {
   const { operatorId } = su;
   const body = await req.json();
 
-  // If fromEntityId and toEntityId are provided, create an instance
+  // If fromEntityId and toEntityId are provided, create a relationship instance
   if (body.fromEntityId && body.toEntityId && body.relationshipTypeId) {
     const rel = await createRelationship(operatorId, body);
     if (!rel) return NextResponse.json({ error: "Entities not found" }, { status: 404 });
     return NextResponse.json(rel, { status: 201 });
   }
 
-  // Otherwise create a type
+  // Creating relationship TYPES is admin-only
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const type = await createRelationshipType(operatorId, body);
   return NextResponse.json(type, { status: 201 });
 }

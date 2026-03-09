@@ -16,6 +16,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { operatorId } = su;
   const body = await req.json();
   const t = await updateEntityType(operatorId, id, body);
@@ -27,6 +30,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { operatorId } = su;
   const ok = await deleteEntityType(operatorId, id);
   if (!ok) return NextResponse.json({ error: "Not found" }, { status: 404 });

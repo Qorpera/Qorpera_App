@@ -9,6 +9,7 @@ import { generatePreFilter } from "@/lib/situation-prefilter";
 import { getProvider } from "@/lib/connectors/registry";
 import { decrypt, encrypt } from "@/lib/encryption";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
+import { canAccessEntity } from "@/lib/user-scope";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,21 +56,6 @@ const COPILOT_TOOLS: AITool[] = [
         maxHops: { type: "number", description: "Max relationship hops (default 2)" },
       },
       required: ["entityId"],
-    },
-  },
-  {
-    name: "propose_action",
-    description: "Create an action proposal that requires operator approval before execution. Use for create, update, or delete actions on entities.",
-    parameters: {
-      type: "object",
-      properties: {
-        actionType: { type: "string", description: "Action type: create_entity, update_entity, delete_entity" },
-        description: { type: "string", description: "Human-readable description of the proposed action" },
-        entityId: { type: "string", description: "Target entity ID (for update/delete)" },
-        entityTypeSlug: { type: "string", description: "Entity type slug (for create)" },
-        inputData: { type: "object", description: "Action input data" },
-      },
-      required: ["actionType", "description"],
     },
   },
   {
@@ -316,7 +302,6 @@ CAPABILITIES:
 - List departments and get detailed department context
 - Get operational briefings: use when user asks "how are things", "what's happening", "give me an update"
 - Search department knowledge: use when user asks about policies, processes, or procedures
-- Propose actions (create, update, delete entities) that go through governance review
 - Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
 - Create new situation types scoped to specific departments
 
@@ -335,11 +320,10 @@ ${scopeFraming}
     };
     return descriptions[role] || descriptions.admin;
   })()}
-${userRole === "viewer" ? "\nIMPORTANT: The user has read-only access. Do NOT use the propose_action tool for this user. If they ask to make changes, explain that they need to contact an admin.\n" : ""}
+${userRole === "viewer" ? "\nIMPORTANT: The user has read-only access. If they ask to make changes, explain that they need to contact an admin.\n" : ""}
 GUIDELINES:
 - Be concise and direct in responses
 - When referencing entities, include their type and key properties
-- For write operations, always use propose_action so the operator can review
 - If the user asks about something that requires entity data, use the lookup or search tools first
 - Format entity data clearly with properties and relationships
 - When presenting graph traversal results, highlight the most relevant connections`;
@@ -361,6 +345,12 @@ async function executeTool(
       const typeSlug = args.typeSlug ? String(args.typeSlug) : undefined;
       const context = await getEntityContext(operatorId, query, typeSlug);
       if (!context) return `No entity found matching "${query}".`;
+
+      // Scope check
+      if (visibleDepts && visibleDepts !== "all") {
+        const allowed = await canAccessEntity(context.id, visibleDepts, operatorId);
+        if (!allowed) return `I don't have visibility into that entity's department.`;
+      }
 
       const propsStr = Object.entries(context.properties)
         .map(([k, v]) => `  ${k}: ${v}`)
@@ -387,7 +377,18 @@ async function executeTool(
       const query = String(args.query ?? "");
       const typeSlug = args.typeSlug ? String(args.typeSlug) : undefined;
       const limit = typeof args.limit === "number" ? args.limit : 10;
-      const results = await searchEntities(operatorId, query, typeSlug, limit);
+      let results = await searchEntities(operatorId, query, typeSlug, limit);
+
+      // Post-filter by department scope
+      if (visibleDepts && visibleDepts !== "all") {
+        const visibleSet = new Set(visibleDepts);
+        results = results.filter((e: { parentDepartmentId?: string | null; category?: string; id?: string }) => {
+          if (e.category === "foundational") return visibleSet.has(e.id || "");
+          if (e.category === "external") return true;
+          if (e.parentDepartmentId) return visibleSet.has(e.parentDepartmentId);
+          return false;
+        });
+      }
 
       if (results.length === 0) return `No entities found matching "${query}".`;
 
@@ -401,6 +402,13 @@ async function executeTool(
     case "search_around": {
       const entityId = String(args.entityId ?? "");
       const maxHops = typeof args.maxHops === "number" ? args.maxHops : 2;
+
+      // Scope check on the starting entity
+      if (visibleDepts && visibleDepts !== "all") {
+        const allowed = await canAccessEntity(entityId, visibleDepts, operatorId);
+        if (!allowed) return `I don't have visibility into that entity's department.`;
+      }
+
       const result = await searchAround(operatorId, entityId, maxHops);
 
       if (result.nodes.length === 0) return "No entities found in graph traversal.";

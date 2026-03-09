@@ -79,7 +79,7 @@ export async function PATCH(req: NextRequest) {
 
   if (body.markAllRead) {
     const result = await prisma.notification.updateMany({
-      where: { operatorId, read: false },
+      where: { operatorId, read: false, OR: [{ userId: su.user.id }, { userId: null }] },
       data: { read: true },
     });
     return NextResponse.json({ updated: result.count });

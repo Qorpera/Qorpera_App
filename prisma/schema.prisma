@@ -58,7 +58,6 @@ model User {
   invitesCreated Invite[]  @relation("InviteCreator")
 
   @@index([operatorId])
-  @@index([email])
   @@index([entityId])
 }
 

@@ -50,6 +50,7 @@ export type EntityFilters = {
   search?: string;
   limit?: number;
   offset?: number;
+  scopeFilter?: Record<string, unknown>;
 };
 
 // ── Entity Types ─────────────────────────────────────────────────────────────
@@ -214,12 +215,13 @@ export async function deleteProperty(entityTypeId: string, propertyId: string) {
 // ── Entities ─────────────────────────────────────────────────────────────────
 
 export async function listEntities(operatorId: string, filters: EntityFilters = {}) {
-  const { typeSlug, typeId, status, search, limit = 50, offset = 0 } = filters;
+  const { typeSlug, typeId, status, search, limit = 50, offset = 0, scopeFilter } = filters;
 
   // SQLite: no mode: "insensitive", use contains which SQLite handles case-insensitively
   const where: Record<string, unknown> = {
     operatorId,
     status: status ?? "active",
+    ...scopeFilter,
   };
 
   if (typeId) {

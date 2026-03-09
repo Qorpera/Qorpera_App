@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,18 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [registrationClosed, setRegistrationClosed] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/auth/registration-status")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.enabled) setRegistrationClosed(true);
+      })
+      .catch(() => {})
+      .finally(() => setChecking(false));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,6 +70,17 @@ export default function RegisterPage() {
           Set up a new Qorpera workspace for your company.
         </p>
 
+        {checking ? (
+          <p className="text-sm text-white/40 text-center">Loading...</p>
+        ) : registrationClosed ? (
+          <div className="text-center space-y-4">
+            <p className="text-sm text-white/50">Registration is currently closed.</p>
+            <p className="text-sm text-white/30">
+              Contact your administrator for an invite link, or{" "}
+              <a href="/login" className="text-purple-400 hover:text-purple-300">sign in</a>.
+            </p>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
             label="Company Name"
@@ -104,13 +127,16 @@ export default function RegisterPage() {
             {loading ? "Creating..." : "Create Account"}
           </Button>
         </form>
+        )}
 
+        {!registrationClosed && !checking && (
         <p className="text-center text-sm text-white/30 mt-6">
           Already have an account?{" "}
           <a href="/login" className="text-purple-400 hover:text-purple-300">
             Sign in
           </a>
         </p>
+        )}
       </div>
     </div>
   );

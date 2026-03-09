@@ -5,6 +5,9 @@ import { prisma } from "@/lib/db";
 export async function POST() {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { operatorId } = su;
 
   // Check for an existing active session (not completed, not in "active" phase)

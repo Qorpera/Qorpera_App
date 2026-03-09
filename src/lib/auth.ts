@@ -57,8 +57,10 @@ export async function setSessionCookie(token: string, expiresAt: Date): Promise<
 
 export async function clearSessionCookie(): Promise<void> {
   const cookieStore = await cookies();
+  const isLocalhost = (process.env.NEXT_PUBLIC_APP_URL || "").includes("localhost");
   cookieStore.set(SESSION_COOKIE, "", {
     httpOnly: true,
+    secure: !isLocalhost,
     sameSite: "lax",
     path: "/",
     maxAge: 0,
