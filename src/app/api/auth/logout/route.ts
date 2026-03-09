@@ -13,8 +13,10 @@ export async function POST() {
   await clearSessionCookie();
 
   // Clear superadmin operator-switching cookie
+  const isLocalhost = (process.env.NEXT_PUBLIC_APP_URL || "").includes("localhost");
   cookieStore.set("acting_operator_id", "", {
     httpOnly: true,
+    secure: !isLocalhost,
     sameSite: "lax",
     path: "/",
     maxAge: 0,

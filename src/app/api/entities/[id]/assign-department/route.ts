@@ -3,7 +3,6 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { relateEntities } from "@/lib/entity-resolution";
 import { assignDepartmentSchema, parseBody } from "@/lib/api-validation";
-import { getVisibleDepartmentIds, canAccessDepartment } from "@/lib/user-scope";
 
 export async function POST(
   req: NextRequest,

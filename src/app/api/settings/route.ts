@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 export async function GET() {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   const settings = await prisma.appSetting.findMany();
   const map = Object.fromEntries(settings.map((s) => [s.key, s.value]));
   return NextResponse.json(map);

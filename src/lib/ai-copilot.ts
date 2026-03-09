@@ -312,15 +312,10 @@ ${scopeFraming}
     const role = userRole || "admin";
     const descriptions: Record<string, string> = {
       admin: "Full access. Can manage all entities, types, policies, and governance settings.",
-      supervisor: "Can view all situations, approve proposals, and manage entity data.",
-      finance: "Focused on financial entities — invoices, payments, revenue data.",
-      sales: "Focused on sales entities — deals, contacts, pipeline data.",
-      support: "Focused on customer support — tickets, customer issues, resolution tracking.",
-      viewer: "Read-only access. Can view entities and ask questions but cannot propose changes.",
+      member: "Scoped access. Can view and interact with entities in assigned departments only.",
     };
     return descriptions[role] || descriptions.admin;
   })()}
-${userRole === "viewer" ? "\nIMPORTANT: The user has read-only access. If they ask to make changes, explain that they need to contact an admin.\n" : ""}
 GUIDELINES:
 - Be concise and direct in responses
 - When referencing entities, include their type and key properties
@@ -410,6 +405,31 @@ async function executeTool(
       }
 
       const result = await searchAround(operatorId, entityId, maxHops);
+
+      // Post-filter traversal results by department scope
+      if (visibleDepts && visibleDepts !== "all" && result.nodes.length > 0) {
+        const visibleSet = new Set(visibleDepts);
+        const nodeIds = result.nodes.map((n) => n.id);
+        const entities = await prisma.entity.findMany({
+          where: { id: { in: nodeIds } },
+          select: { id: true, parentDepartmentId: true, category: true },
+        });
+        const entityMap = new Map(entities.map((e) => [e.id, e]));
+        const allowedIds = new Set(
+          result.nodes
+            .filter((n) => {
+              const e = entityMap.get(n.id);
+              if (!e) return false;
+              if (e.category === "foundational") return visibleSet.has(e.id);
+              if (e.category === "external") return true;
+              if (e.parentDepartmentId) return visibleSet.has(e.parentDepartmentId);
+              return false;
+            })
+            .map((n) => n.id),
+        );
+        result.nodes = result.nodes.filter((n) => allowedIds.has(n.id));
+        result.edges = result.edges.filter((e) => allowedIds.has(e.source) && allowedIds.has(e.target));
+      }
 
       if (result.nodes.length === 0) return "No entities found in graph traversal.";
 

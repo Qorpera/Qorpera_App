@@ -9,8 +9,10 @@ export async function POST() {
   }
 
   const cookieStore = await cookies();
+  const isLocalhost = (process.env.NEXT_PUBLIC_APP_URL || "").includes("localhost");
   cookieStore.set("acting_operator_id", "", {
     httpOnly: true,
+    secure: !isLocalhost,
     sameSite: "lax",
     path: "/",
     maxAge: 0,

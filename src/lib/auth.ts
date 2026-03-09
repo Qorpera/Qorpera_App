@@ -107,12 +107,6 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   return { user, operatorId, isSuperadmin, actingAsOperator };
 }
 
-// ── Legacy helpers (keep existing routes working) ───────
-
-export async function destroySession(token: string): Promise<void> {
-  await deleteSession(token);
-}
-
 export async function isFirstRun(): Promise<boolean> {
   const count = await prisma.user.count();
   return count === 0;
