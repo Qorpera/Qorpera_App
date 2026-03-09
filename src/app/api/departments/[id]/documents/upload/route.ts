@@ -4,10 +4,14 @@ import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { isStructuralSlot } from "@/lib/document-slots";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
-import { extractText, processDocument } from "@/lib/rag/pipeline";
+import { extractText } from "@/lib/rag/pipeline";
+import { enqueueDocument } from "@/lib/rag/embedding-queue";
+import { checkRateLimit } from "@/lib/rate-limiter";
 import crypto from "crypto";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 const ALLOWED_MIMES = new Set([
   "text/plain",
@@ -36,6 +40,15 @@ export async function POST(
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 
+  // Rate limit: 10 uploads per operator per 5 minutes
+  const rl = checkRateLimit(`doc-upload:${operatorId}`, 10, 5 * 60 * 1000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many uploads. Please wait a few minutes." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)) } }
+    );
+  }
+
   // Verify department exists
   const department = await prisma.entity.findFirst({
     where: { id: departmentId, operatorId, category: "foundational" },
@@ -50,6 +63,12 @@ export async function POST(
 
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    return NextResponse.json(
+      { error: `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 10MB.` },
+      { status: 413 }
+    );
   }
   if (!ALLOWED_MIMES.has(file.type)) {
     return NextResponse.json(
@@ -154,10 +173,8 @@ export async function POST(
     });
   }
 
-  // Fire-and-forget: RAG pipeline (all docs get chunked & embedded)
-  processDocument(doc.id).catch((err) => {
-    console.error("[dept-doc-upload] RAG pipeline error:", err);
-  });
+  // Enqueue for batch processing (RAG pipeline)
+  enqueueDocument(doc.id);
 
   // Return the created document
   const result = await prisma.internalDocument.findUnique({

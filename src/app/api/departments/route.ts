@@ -3,6 +3,7 @@ import { getOperatorId, getUserId, getUserRole } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { createDepartmentSchema, parseBody } from "@/lib/api-validation";
 
 export async function GET() {
   const operatorId = await getOperatorId();
@@ -87,14 +88,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
   const body = await req.json();
-  const { name, description, mapX, mapY } = body;
-
-  if (!name || typeof name !== "string" || !name.trim()) {
-    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  const parsed = parseBody(createDepartmentSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
-  if (!description || typeof description !== "string" || !description.trim()) {
-    return NextResponse.json({ error: "description is required" }, { status: 400 });
-  }
+  const { name, description, mapX, mapY } = parsed.data;
 
   // Ensure department entity type exists
   let deptType = await prisma.entityType.findFirst({
@@ -123,9 +121,9 @@ export async function POST(req: NextRequest) {
     data: {
       operatorId,
       entityTypeId: deptType.id,
-      displayName: name.trim(),
+      displayName: name,
       category: "foundational",
-      description: description.trim(),
+      description,
       mapX: posX,
       mapY: posY,
     },

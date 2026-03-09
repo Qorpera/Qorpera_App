@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { getEntity, updateEntity, deleteEntity } from "@/lib/entity-model-store";
+import { updateEntitySchema, parseBody } from "@/lib/api-validation";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -14,7 +15,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const operatorId = await getOperatorId();
   const body = await req.json();
-  const entity = await updateEntity(operatorId, id, body);
+  const parsed = parseBody(updateEntitySchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+  const entity = await updateEntity(operatorId, id, parsed.data);
   if (!entity) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(entity);
 }

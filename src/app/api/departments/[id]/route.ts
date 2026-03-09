@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { updateDepartmentSchema, parseBody } from "@/lib/api-validation";
 
 export async function GET(
   _req: NextRequest,
@@ -102,6 +103,10 @@ export async function PATCH(
   }
 
   const body = await req.json();
+  const parsed = parseBody(updateDepartmentSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
   const dept = await prisma.entity.findFirst({
     where: { id, operatorId, category: "foundational", status: "active" },
@@ -111,10 +116,10 @@ export async function PATCH(
   }
 
   const data: Record<string, unknown> = {};
-  if (body.name !== undefined) data.displayName = String(body.name).trim();
-  if (body.description !== undefined) data.description = String(body.description).trim();
-  if (typeof body.mapX === "number") data.mapX = body.mapX;
-  if (typeof body.mapY === "number") data.mapY = body.mapY;
+  if (parsed.data.displayName !== undefined) data.displayName = parsed.data.displayName;
+  if (parsed.data.description !== undefined) data.description = parsed.data.description;
+  if (parsed.data.mapX !== undefined) data.mapX = parsed.data.mapX;
+  if (parsed.data.mapY !== undefined) data.mapY = parsed.data.mapY;
 
   const updated = await prisma.entity.update({
     where: { id },

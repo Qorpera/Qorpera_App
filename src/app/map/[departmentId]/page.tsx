@@ -327,6 +327,9 @@ function DepartmentDetailInner() {
   /* ---- connected data ---- */
   const [bindings, setBindings] = useState<ConnectorBinding[]>([]);
   const [connectedEntities, setConnectedEntities] = useState<ConnectedEntityGroup[]>([]);
+  const [connectedOffset, setConnectedOffset] = useState(0);
+  const [connectedHasMore, setConnectedHasMore] = useState(false);
+  const [connectedTotal, setConnectedTotal] = useState(0);
   const [availableConnectors, setAvailableConnectors] = useState<AvailableConnector[]>([]);
   const [showBindingModal, setShowBindingModal] = useState(false);
   const [bindingModalStep, setBindingModalStep] = useState<1 | 2>(1);
@@ -394,7 +397,10 @@ function DepartmentDetailInner() {
       if (!deptRes.ok) { setNotFound(true); return; }
       setDept(await deptRes.json());
       if (membersRes.ok) setMembers(await membersRes.json());
-      if (linksRes.ok) setExternalLinks(await linksRes.json());
+      if (linksRes.ok) {
+        const linksData = await linksRes.json();
+        setExternalLinks(linksData.links ?? linksData);
+      }
     } finally {
       setLoading(false);
     }
@@ -407,7 +413,10 @@ function DepartmentDetailInner() {
 
   const fetchExternalLinks = useCallback(async () => {
     const res = await fetchApi(`/api/departments/${deptId}/external-links`);
-    if (res.ok) setExternalLinks(await res.json());
+    if (res.ok) {
+      const data = await res.json();
+      setExternalLinks(data.links ?? data);
+    }
   }, [deptId]);
 
   const fetchBindings = useCallback(async () => {
@@ -418,13 +427,33 @@ function DepartmentDetailInner() {
     }
   }, [deptId]);
 
-  const fetchConnectedEntities = useCallback(async () => {
-    const res = await fetchApi(`/api/departments/${deptId}/connected-entities?limit=50`);
+  const fetchConnectedEntities = useCallback(async (append = false) => {
+    const currentOffset = append ? connectedOffset : 0;
+    const res = await fetchApi(`/api/departments/${deptId}/connected-entities?limit=50&offset=${currentOffset}`);
     if (res.ok) {
       const data = await res.json();
-      setConnectedEntities(data.groups ?? []);
+      const newGroups: ConnectedEntityGroup[] = data.groups ?? [];
+      if (append && currentOffset > 0) {
+        setConnectedEntities((prev) => {
+          const merged = new Map<string, ConnectedEntityGroup>();
+          for (const g of prev) merged.set(g.typeSlug, { ...g, entities: [...g.entities] });
+          for (const g of newGroups) {
+            const existing = merged.get(g.typeSlug);
+            if (existing) {
+              existing.entities.push(...g.entities);
+            } else {
+              merged.set(g.typeSlug, g);
+            }
+          }
+          return Array.from(merged.values());
+        });
+      } else {
+        setConnectedEntities(newGroups);
+      }
+      setConnectedHasMore(data.hasMore ?? false);
+      setConnectedTotal(data.totalCount ?? 0);
     }
-  }, [deptId]);
+  }, [deptId, connectedOffset]);
 
   const fetchAvailableConnectors = useCallback(async () => {
     const res = await fetchApi("/api/connectors");
@@ -1448,6 +1477,18 @@ function DepartmentDetailInner() {
                       </div>
                     );
                   })}
+                  {connectedHasMore && (
+                    <button
+                      onClick={() => {
+                        const newOffset = connectedOffset + 50;
+                        setConnectedOffset(newOffset);
+                        fetchConnectedEntities(true);
+                      }}
+                      className="w-full py-2 text-xs text-purple-400 hover:text-purple-300 transition"
+                    >
+                      Load more ({connectedTotal - connectedOffset - 50} remaining)
+                    </button>
+                  )}
                 </div>
               )}
             </div>

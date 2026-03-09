@@ -8,6 +8,7 @@
 
 import { prisma } from "@/lib/db";
 import { embedChunks } from "./embedder";
+import { getCachedChunks, setCachedChunks, type CachedChunk } from "./chunk-cache";
 
 export interface RAGResult {
   content: string;
@@ -49,48 +50,100 @@ export async function retrieveRelevantContext(
   const [queryEmbedding] = await embedChunks([query]);
   if (!queryEmbedding) return [];
 
-  // Load chunks scoped to departments
-  const whereClause: Record<string, unknown> = {
-    operatorId,
-    embedding: { not: null },
-  };
+  let allChunks: CachedChunk[] = [];
 
   if (departmentIds.length > 0) {
-    whereClause.entity = {
-      category: "internal",
-      parentDepartmentId: { in: departmentIds },
-    };
-  }
+    // Per-department cached loading
+    for (const deptId of departmentIds) {
+      const cached = getCachedChunks(deptId);
+      if (cached) {
+        allChunks.push(...cached);
+        continue;
+      }
 
-  const chunks = await prisma.documentChunk.findMany({
-    where: whereClause,
-    include: {
-      entity: {
-        select: {
-          id: true,
-          displayName: true,
-          parentDepartmentId: true,
-          parentDepartment: {
-            select: { displayName: true },
+      // Quick count check — skip departments with no embedded chunks
+      const countResult = await prisma.documentChunk.count({
+        where: {
+          operatorId,
+          embedding: { not: null },
+          entity: { category: "internal", parentDepartmentId: deptId },
+        },
+      });
+      if (countResult === 0) {
+        setCachedChunks(deptId, []);
+        continue;
+      }
+
+      // Cache miss — load from DB
+      const dbChunks = await prisma.documentChunk.findMany({
+        where: {
+          operatorId,
+          embedding: { not: null },
+          entity: { category: "internal", parentDepartmentId: deptId },
+        },
+        include: {
+          entity: {
+            select: {
+              id: true,
+              displayName: true,
+              parentDepartment: { select: { displayName: true } },
+            },
+          },
+        },
+      });
+
+      const parsed = dbChunks.map((chunk) => ({
+        entityId: chunk.entity.id,
+        chunkIndex: chunk.chunkIndex,
+        content: chunk.content,
+        embedding: JSON.parse(chunk.embedding!) as number[],
+        documentName: chunk.entity.displayName,
+        departmentName: chunk.entity.parentDepartment?.displayName ?? "Unknown",
+      }));
+
+      setCachedChunks(deptId, parsed);
+      allChunks.push(...parsed);
+    }
+  } else {
+    // No department filter — load all chunks (no caching for global queries)
+    const chunks = await prisma.documentChunk.findMany({
+      where: {
+        operatorId,
+        embedding: { not: null },
+      },
+      include: {
+        entity: {
+          select: {
+            id: true,
+            displayName: true,
+            parentDepartment: { select: { displayName: true } },
           },
         },
       },
-    },
-  });
+    });
 
-  if (chunks.length === 0) return [];
+    allChunks = chunks.map((chunk) => ({
+      entityId: chunk.entity.id,
+      chunkIndex: chunk.chunkIndex,
+      content: chunk.content,
+      embedding: JSON.parse(chunk.embedding!) as number[],
+      documentName: chunk.entity.displayName,
+      departmentName: chunk.entity.parentDepartment?.displayName ?? "Unknown",
+    }));
+  }
+
+  if (allChunks.length === 0) return [];
 
   // Score all chunks
-  const scored = chunks
+  const scored = allChunks
     .map((chunk) => {
-      const embedding = JSON.parse(chunk.embedding!) as number[];
-      const score = cosineSimilarity(queryEmbedding, embedding);
+      const score = cosineSimilarity(queryEmbedding, chunk.embedding);
       return {
         content: chunk.content,
         score,
-        documentName: chunk.entity.displayName,
-        departmentName: chunk.entity.parentDepartment?.displayName ?? "Unknown",
-        entityId: chunk.entity.id,
+        documentName: chunk.documentName,
+        departmentName: chunk.departmentName,
+        entityId: chunk.entityId,
         chunkIndex: chunk.chunkIndex,
       };
     })

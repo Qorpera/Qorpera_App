@@ -4,11 +4,12 @@ import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const operatorId = await getOperatorId();
   const { id } = await params;
+  const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "100"), 500);
   const _userId = await getUserId();
   const _visibleDepts = await getVisibleDepartmentIds(operatorId, _userId);
   if (_visibleDepts !== "all" && !_visibleDepts.includes(id)) {
@@ -98,5 +99,5 @@ export async function GET(
     });
   }
 
-  return NextResponse.json(results);
+  return NextResponse.json({ links: results.slice(0, limit), totalCount: results.length, hasMore: results.length > limit });
 }

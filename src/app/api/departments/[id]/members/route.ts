@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { CATEGORY_PRIORITY } from "@/lib/hardcoded-type-defs";
+import { createMemberSchema, parseBody } from "@/lib/api-validation";
 
 export async function GET(
   _req: NextRequest,
@@ -51,17 +52,11 @@ export async function POST(
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
   const body = await req.json();
-  const { name, role, email } = body;
-
-  if (!name || typeof name !== "string" || !name.trim()) {
-    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  const parsed = parseBody(createMemberSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
-  if (!role || typeof role !== "string" || !role.trim()) {
-    return NextResponse.json({ error: "role is required" }, { status: 400 });
-  }
-  if (!email || typeof email !== "string" || !email.trim()) {
-    return NextResponse.json({ error: "email is required" }, { status: 400 });
-  }
+  const { name, role, email } = parsed.data;
 
   // Validate parent department
   const dept = await prisma.entity.findFirst({

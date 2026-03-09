@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { listPolicies, createPolicy, updatePolicy, deletePolicy } from "@/lib/policy-engine";
+import { createPolicySchema, parseBody } from "@/lib/api-validation";
 
 export async function GET() {
   const operatorId = await getOperatorId();
@@ -11,7 +12,11 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const operatorId = await getOperatorId();
   const body = await req.json();
-  const policy = await createPolicy(operatorId, body);
+  const parsed = parseBody(createPolicySchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+  const policy = await createPolicy(operatorId, parsed.data);
   return NextResponse.json(policy, { status: 201 });
 }
 

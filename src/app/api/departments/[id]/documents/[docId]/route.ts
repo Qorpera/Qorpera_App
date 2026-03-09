@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { invalidateCache } from "@/lib/rag/chunk-cache";
 
 export async function DELETE(
   _req: NextRequest,
@@ -36,6 +37,8 @@ export async function DELETE(
       where: { id: doc.entityId },
     });
   }
+
+  invalidateCache(departmentId);
 
   return NextResponse.json({ deleted: true });
 }

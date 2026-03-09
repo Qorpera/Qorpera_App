@@ -169,6 +169,7 @@ model PropertyValue {
   property EntityProperty @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@unique([entityId, propertyId])
+  @@index([propertyId, value])
 }
 
 model EntityMention {
@@ -214,6 +215,8 @@ model Relationship {
   toEntity         Entity           @relation("ToEntity", fields: [toEntityId], references: [id])
 
   @@unique([relationshipTypeId, fromEntityId, toEntityId])
+  @@index([fromEntityId])
+  @@index([toEntityId])
 }
 
 // ─── Source Connectors & Sync ────────────────────────────
@@ -285,6 +288,7 @@ model ConnectorDepartmentBinding {
   updatedAt         DateTime  @updatedAt
 
   @@unique([connectorId, departmentId])
+  @@index([departmentId])
 }
 
 // ─── Document Chunks (RAG) ──────────────────────────────
@@ -496,6 +500,9 @@ model InternalDocument {
   departmentId      String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  @@index([operatorId, departmentId])
+  @@index([entityId])
 }
 
 // ─── Invites ────────────────────────────────────────────

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 interface Message {
   role: "user" | "assistant";
   content: string;
+  createdAt?: string;
 }
 
 type OrientationMode = {
@@ -22,7 +23,10 @@ export default function CopilotPage() {
   const [orientationMode, setOrientationMode] = useState<OrientationMode>(null);
   const [completingOrientation, setCompletingOrientation] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasAutoTriggered = useRef(false);
 
@@ -47,18 +51,20 @@ export default function CopilotPage() {
             setOrientationMode({ sessionId: session.id, phase: session.phase });
 
             // Load persisted messages for this orientation session
-            const msgRes = await fetch(`/api/copilot/messages?sessionId=${session.id}`);
+            const msgRes = await fetch(`/api/copilot/messages?sessionId=${session.id}&limit=50`);
             if (msgRes.ok) {
-              const { messages: dbMessages } = await msgRes.json();
+              const { messages: dbMessages, hasMore: more } = await msgRes.json();
               const loaded: Message[] = dbMessages
                 .filter((m: { role: string }) => m.role === "user" || m.role === "assistant")
-                .map((m: { role: string; content: string }) => ({
+                .map((m: { role: string; content: string; createdAt: string }) => ({
                   role: m.role as "user" | "assistant",
                   content: m.content,
+                  createdAt: m.createdAt,
                 }));
               if (loaded.length > 0) {
                 setMessages(loaded);
               }
+              setHasMoreMessages(more ?? false);
             }
           }
         }
@@ -191,6 +197,43 @@ export default function CopilotPage() {
     }
   }, []);
 
+  const handleLoadEarlier = useCallback(async () => {
+    if (!hasMoreMessages || loadingEarlier) return;
+    setLoadingEarlier(true);
+    const oldest = messages.find((m) => m.createdAt);
+    const before = oldest?.createdAt ?? new Date().toISOString();
+    const sessionId = orientationMode?.sessionId ?? "default";
+    const container = messagesContainerRef.current;
+    const prevScrollHeight = container?.scrollHeight ?? 0;
+    try {
+      const res = await fetch(`/api/copilot/messages?sessionId=${sessionId}&limit=50&before=${encodeURIComponent(before)}`);
+      if (res.ok) {
+        const { messages: older, hasMore: more } = await res.json();
+        const loaded: Message[] = older
+          .filter((m: { role: string }) => m.role === "user" || m.role === "assistant")
+          .map((m: { role: string; content: string; createdAt: string }) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            createdAt: m.createdAt,
+          }));
+        if (loaded.length > 0) {
+          setMessages((prev) => [...loaded, ...prev]);
+          // Maintain scroll position
+          requestAnimationFrame(() => {
+            if (container) {
+              container.scrollTop = container.scrollHeight - prevScrollHeight;
+            }
+          });
+        }
+        setHasMoreMessages(more ?? false);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }, [hasMoreMessages, loadingEarlier, messages, orientationMode]);
+
   const isOrientation = !!orientationMode;
 
   return (
@@ -216,7 +259,7 @@ export default function CopilotPage() {
         )}
 
         {/* Messages area */}
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-6">
           {initializing ? (
             <div className="flex items-center justify-center h-full">
               <div className="w-6 h-6 rounded-full border-2 border-purple-500/40 border-t-purple-400 animate-spin" />
@@ -249,6 +292,22 @@ export default function CopilotPage() {
           ) : null}
 
           <div className="max-w-3xl mx-auto space-y-4">
+            {hasMoreMessages && (
+              <div className="flex justify-center pb-2">
+                <button
+                  onClick={handleLoadEarlier}
+                  disabled={loadingEarlier}
+                  className="text-xs text-purple-400 hover:text-purple-300 transition-colors disabled:opacity-50"
+                >
+                  {loadingEarlier ? (
+                    <span className="flex items-center gap-2">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-purple-400/30 border-t-purple-400" />
+                      Loading...
+                    </span>
+                  ) : "Load earlier messages"}
+                </button>
+              </div>
+            )}
             {messages.map((msg, i) => (
               <div
                 key={i}

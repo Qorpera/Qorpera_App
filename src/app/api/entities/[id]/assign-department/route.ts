@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { relateEntities } from "@/lib/entity-resolution";
+import { assignDepartmentSchema, parseBody } from "@/lib/api-validation";
 
 export async function POST(
   req: NextRequest,
@@ -10,11 +11,11 @@ export async function POST(
   const operatorId = await getOperatorId();
   const { id } = await params;
   const body = await req.json();
-
-  const { departmentId } = body;
-  if (!departmentId) {
-    return NextResponse.json({ error: "departmentId is required" }, { status: 400 });
+  const parsed = parseBody(assignDepartmentSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const { departmentId } = parsed.data;
 
   const entity = await prisma.entity.findFirst({
     where: { id, operatorId, status: "active" },

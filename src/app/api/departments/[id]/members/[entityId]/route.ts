@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { updateMemberSchema, parseBody } from "@/lib/api-validation";
 
 export async function PATCH(
   req: NextRequest,
@@ -15,6 +16,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
   const body = await req.json();
+  const parsed = parseBody(updateMemberSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
   // Validate member exists, belongs to this department, is base category
   const member = await prisma.entity.findFirst({
@@ -32,17 +37,17 @@ export async function PATCH(
   }
 
   // Update displayName
-  if (body.name !== undefined) {
+  if (parsed.data.displayName !== undefined) {
     await prisma.entity.update({
       where: { id: entityId },
-      data: { displayName: String(body.name).trim() },
+      data: { displayName: parsed.data.displayName },
     });
   }
 
   // Update properties
   const propsToUpdate: Array<{ slug: string; value: string }> = [];
-  if (body.role !== undefined) propsToUpdate.push({ slug: "role", value: String(body.role).trim() });
-  if (body.email !== undefined) propsToUpdate.push({ slug: "email", value: String(body.email).trim().toLowerCase() });
+  if (parsed.data.role !== undefined) propsToUpdate.push({ slug: "role", value: parsed.data.role });
+  if (parsed.data.email !== undefined) propsToUpdate.push({ slug: "email", value: parsed.data.email.toLowerCase() });
 
   if (propsToUpdate.length > 0) {
     const propDefs = await prisma.entityProperty.findMany({

@@ -3,6 +3,7 @@ import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { relateEntities } from "@/lib/entity-resolution";
+import { createBindingSchema, parseBody } from "@/lib/api-validation";
 
 async function backfillBindingEntities(
   operatorId: string,
@@ -112,11 +113,11 @@ export async function POST(
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
   const body = await req.json();
-
-  const { connectorId, entityTypeFilter } = body;
-  if (!connectorId) {
-    return NextResponse.json({ error: "connectorId is required" }, { status: 400 });
+  const parsed = parseBody(createBindingSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
+  const { connectorId, entityTypeFilter } = parsed.data;
 
   const dept = await prisma.entity.findFirst({
     where: { id, operatorId, category: "foundational", status: "active" },

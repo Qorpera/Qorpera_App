@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { paginationParams, parseQuery } from "@/lib/api-validation";
 
 export async function GET(
   req: NextRequest,
@@ -15,8 +16,11 @@ export async function GET(
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 
-  const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "50"), 200);
-  const offset = Number(req.nextUrl.searchParams.get("offset") || "0");
+  const parsed = parseQuery(paginationParams, req.nextUrl.searchParams);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+  const { limit, offset } = parsed.data;
 
   const dept = await prisma.entity.findFirst({
     where: { id, operatorId, category: "foundational", status: "active" },
@@ -31,8 +35,12 @@ export async function GET(
   });
 
   if (!relType) {
-    return NextResponse.json({ groups: [] });
+    return NextResponse.json({ groups: [], totalCount: 0, limit, offset, hasMore: false });
   }
+
+  const totalCount = await prisma.relationship.count({
+    where: { relationshipTypeId: relType.id, toEntityId: id },
+  });
 
   const relationships = await prisma.relationship.findMany({
     where: {
@@ -92,5 +100,5 @@ export async function GET(
     });
   }
 
-  return NextResponse.json({ groups: Array.from(groupMap.values()) });
+  return NextResponse.json({ groups: Array.from(groupMap.values()), totalCount, limit, offset, hasMore: offset + limit < totalCount });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId, getUserId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { updateBindingSchema, parseBody } from "@/lib/api-validation";
 
 export async function PATCH(
   req: NextRequest,
@@ -15,6 +16,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
   const body = await req.json();
+  const parsed = parseBody(updateBindingSchema, body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
   const binding = await prisma.connectorDepartmentBinding.findFirst({
     where: { id: bindingId, departmentId: id },
@@ -24,11 +29,14 @@ export async function PATCH(
   }
 
   const data: Record<string, unknown> = {};
-  if (body.entityTypeFilter !== undefined) {
-    data.entityTypeFilter = body.entityTypeFilter ? JSON.stringify(body.entityTypeFilter) : null;
+  if (parsed.data.entityTypeFilter !== undefined) {
+    data.entityTypeFilter = parsed.data.entityTypeFilter ? JSON.stringify(parsed.data.entityTypeFilter) : null;
   }
-  if (typeof body.enabled === "boolean") {
-    data.enabled = body.enabled;
+  if (parsed.data.eventTypeFilter !== undefined) {
+    data.eventTypeFilter = parsed.data.eventTypeFilter ? JSON.stringify(parsed.data.eventTypeFilter) : null;
+  }
+  if (parsed.data.enabled !== undefined) {
+    data.enabled = parsed.data.enabled;
   }
 
   const updated = await prisma.connectorDepartmentBinding.update({

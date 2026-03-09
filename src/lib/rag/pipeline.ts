@@ -9,6 +9,7 @@
 import { prisma } from "@/lib/db";
 import { chunkDocument } from "./chunker";
 import { embedChunks } from "./embedder";
+import { invalidateCache } from "./chunk-cache";
 import { readFile } from "fs/promises";
 
 // Text extraction (reused from existing extract route logic)
@@ -143,9 +144,12 @@ export async function processDocument(
       data: { embeddingStatus: "complete" },
     });
 
+    // Invalidate chunk cache for this department
+    if (doc.departmentId) invalidateCache(doc.departmentId);
+
     return { chunks: chunks.length };
   } catch (err) {
-    console.error("[rag/pipeline] Processing error:", err);
+    console.error(`[rag/pipeline] Processing failed for "${doc.fileName}":`, err);
     await prisma.internalDocument.update({
       where: { id: documentId },
       data: { embeddingStatus: "error" },

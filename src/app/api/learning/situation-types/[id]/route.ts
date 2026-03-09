@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOperatorId } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { z } from "zod";
+import { daysParam, parseQuery } from "@/lib/api-validation";
 
 // TODO: Apply situationScopeFilter when multi-user access is enabled
 
@@ -10,7 +12,12 @@ export async function GET(
 ) {
   const operatorId = await getOperatorId();
   const { id } = await params;
-  const days = parseInt(req.nextUrl.searchParams.get("days") ?? "30", 10);
+  const daysSchema = z.object({ days: daysParam });
+  const parsed = parseQuery(daysSchema, req.nextUrl.searchParams);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+  const { days } = parsed.data;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   // Load the situation type
