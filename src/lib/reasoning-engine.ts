@@ -118,15 +118,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       confidence: situation.confidence,
       triggerEntity: {
         displayName: context.triggerEntity.displayName,
+        type: context.triggerEntity.type,
+        category: context.triggerEntity.category,
         properties: context.triggerEntity.properties,
       },
-      neighborhood: context.neighborhood.entities.map((n) => ({
-        displayName: n.displayName,
-        entityType: n.type,
-        relationship: n.relationshipType,
-        properties: n.properties,
-      })),
-      organizationalContext: context.organizationalContext,
+      departments: context.departments,
+      departmentKnowledge: context.departmentKnowledge,
+      relatedEntities: context.relatedEntities,
       recentEvents: context.recentEvents.map((e) => ({
         type: e.eventType,
         timestamp: e.createdAt,
@@ -139,7 +137,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       businessContext: businessContextStr,
     };
 
-    const systemPrompt = buildReasoningSystemPrompt(businessContextStr);
+    const systemPrompt = buildReasoningSystemPrompt(businessContextStr, businessCtx?.businessSummary?.split(/[.,\n]/)[0]);
     let userPrompt = buildReasoningUserPrompt(reasoningInput);
 
     // 6b. Edit instruction injection

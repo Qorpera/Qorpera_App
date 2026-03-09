@@ -34,29 +34,70 @@ export async function buildDepartmentDataContext(operatorId: string, visibleDept
       return role ? `${m.displayName} (${role})` : m.displayName;
     });
 
-    // Count digital entities by type
-    const digitalCounts = await prisma.entity.groupBy({
-      by: ["entityTypeId"],
-      where: { operatorId, parentDepartmentId: dept.id, category: "digital", status: "active" },
-      _count: true,
-    });
-    const typeIds = digitalCounts.map(c => c.entityTypeId);
-    const types = typeIds.length > 0
-      ? await prisma.entityType.findMany({ where: { id: { in: typeIds } }, select: { id: true, name: true } })
-      : [];
-    const typeMap = new Map(types.map(t => [t.id, t.name]));
-    const digitalSummary = digitalCounts
-      .map(c => `${c._count} ${typeMap.get(c.entityTypeId) || "items"}`)
-      .join(", ");
-
-    // Count external entities linked to this department
-    const externalCount = await prisma.relationship.count({
+    // Count digital entities linked via department-member relationships
+    const digitalRelationships = await prisma.relationship.findMany({
       where: {
-        toEntityId: dept.id,
-        relationshipType: { slug: "department-member" },
-        fromEntity: { category: "external" },
+        OR: [
+          { fromEntityId: dept.id, relationshipType: { slug: "department-member" } },
+          { toEntityId: dept.id, relationshipType: { slug: "department-member" } },
+        ],
       },
+      select: { fromEntityId: true, toEntityId: true },
     });
+    const linkedEntityIds = digitalRelationships
+      .map(r => r.fromEntityId === dept.id ? r.toEntityId : r.fromEntityId);
+
+    let digitalSummary = "";
+    if (linkedEntityIds.length > 0) {
+      const digitalEntities = await prisma.entity.findMany({
+        where: { id: { in: linkedEntityIds }, category: "digital", status: "active" },
+        select: { entityTypeId: true, id: true },
+      });
+
+      const countByType = new Map<string, number>();
+      for (const e of digitalEntities) {
+        countByType.set(e.entityTypeId, (countByType.get(e.entityTypeId) ?? 0) + 1);
+      }
+
+      if (countByType.size > 0) {
+        const typeIds = [...countByType.keys()];
+        const types = await prisma.entityType.findMany({
+          where: { id: { in: typeIds } },
+          select: { id: true, name: true },
+        });
+        const typeMap = new Map(types.map(t => [t.id, t.name]));
+        digitalSummary = [...countByType.entries()]
+          .map(([typeId, count]) => `${count} ${typeMap.get(typeId) || "items"}`)
+          .join(", ");
+      }
+    }
+
+    // Count external entities linked to this department's members
+    const digitalMemberIds = linkedEntityIds.length > 0
+      ? (await prisma.entity.findMany({
+          where: { id: { in: linkedEntityIds }, category: "digital", status: "active" },
+          select: { id: true },
+        })).map(e => e.id)
+      : [];
+    const deptMemberIds = [...members.map(m => m.id), ...digitalMemberIds];
+
+    let externalCount = 0;
+    if (deptMemberIds.length > 0) {
+      const externalRels = await prisma.relationship.findMany({
+        where: {
+          OR: [
+            { fromEntityId: { in: deptMemberIds }, toEntity: { category: "external", status: "active" } },
+            { toEntityId: { in: deptMemberIds }, fromEntity: { category: "external", status: "active" } },
+          ],
+        },
+        select: { fromEntityId: true, toEntityId: true },
+      });
+      const externalIds = new Set(
+        externalRels.flatMap(r => [r.fromEntityId, r.toEntityId])
+          .filter(id => !deptMemberIds.includes(id) && id !== dept.id)
+      );
+      externalCount = externalIds.size;
+    }
 
     // Load documents
     const docs = await prisma.internalDocument.findMany({

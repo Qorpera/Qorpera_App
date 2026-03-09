@@ -1,5 +1,5 @@
+import type { DepartmentContext, RAGReference, EntitySummary } from "@/lib/context-assembly";
 import type { PermittedAction, BlockedAction } from "@/lib/policy-evaluator";
-import type { OrganizationalContextEntry } from "@/lib/context-assembly";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -8,14 +8,22 @@ export interface ReasoningInput {
   severity: number;
   confidence: number;
 
-  triggerEntity: { displayName: string; properties: Record<string, string> };
-  neighborhood: Array<{
+  triggerEntity: {
     displayName: string;
-    entityType: string;
-    relationship: string;
+    type: string;
+    category: string;
     properties: Record<string, string>;
-  }>;
-  organizationalContext?: OrganizationalContextEntry[];
+  };
+
+  departments: DepartmentContext[];
+  departmentKnowledge: RAGReference[];
+
+  relatedEntities: {
+    base: EntitySummary[];
+    digital: EntitySummary[];
+    external: EntitySummary[];
+  };
+
   recentEvents: Array<{ type: string; timestamp: string; payload: unknown }>;
   priorSituations: Array<{
     analysis?: string;
@@ -34,12 +42,12 @@ export interface ReasoningInput {
 
 // ── System Prompt ────────────────────────────────────────────────────────────
 
-export function buildReasoningSystemPrompt(businessContext: string | null): string {
+export function buildReasoningSystemPrompt(businessContext: string | null, companyName?: string): string {
   const bizSection = businessContext
     ? `\nBUSINESS CONTEXT:\n${businessContext}\n`
     : "";
 
-  return `You are the AI operations agent for this company. You analyze operational situations and recommend actions.
+  return `You are the AI operations agent for ${companyName || "this company"}. You analyze operational situations and recommend actions.
 ${bizSection}
 BEHAVIOR:
 - Be specific: reference actual data values (names, amounts, dates), not generic summaries.
@@ -91,25 +99,60 @@ Detection confidence: ${input.confidence.toFixed(2)}`);
   const propsStr = Object.entries(input.triggerEntity.properties)
     .map(([k, v]) => `  ${k}: ${v}`)
     .join("\n");
-  sections.push(`ENTITY: ${input.triggerEntity.displayName}
+  sections.push(`ENTITY: ${input.triggerEntity.displayName} [${input.triggerEntity.type}, ${input.triggerEntity.category}]
 ${propsStr || "  (no properties)"}`);
 
-  // CONTEXT
-  const contextParts: string[] = [];
-
-  if (input.neighborhood.length > 0) {
-    const neighborStr = input.neighborhood
-      .map((n) => {
-        const nProps = Object.entries(n.properties)
-          .slice(0, 5)
-          .map(([k, v]) => `    ${k}: ${v}`)
-          .join("\n");
-        return `  - ${n.displayName} (${n.entityType}, ${n.relationship})${nProps ? "\n" + nProps : ""}`;
+  // DEPARTMENT CONTEXT
+  if (input.departments.length > 0) {
+    const deptStr = input.departments
+      .map((d) => {
+        const lines = [`  ${d.name}${d.description ? ` — ${d.description}` : ""}`];
+        if (d.lead) lines.push(`    Lead: ${d.lead.name} (${d.lead.role})`);
+        lines.push(`    Team size: ${d.memberCount}`);
+        return lines.join("\n");
       })
       .join("\n");
-    contextParts.push(`Related entities:\n${neighborStr}`);
+    sections.push(`DEPARTMENT CONTEXT:\n${deptStr}`);
+  } else {
+    sections.push("DEPARTMENT CONTEXT:\nNo department association found for this entity.");
   }
 
+  // DEPARTMENT KNOWLEDGE (RAG)
+  const relevantKnowledge = input.departmentKnowledge.filter((r) => r.score > 0.3);
+  if (relevantKnowledge.length > 0) {
+    const knowledgeStr = relevantKnowledge
+      .map((r) => `  From '${r.documentName}' (${r.departmentName}):\n    "${r.content}"`)
+      .join("\n");
+    sections.push(`DEPARTMENT KNOWLEDGE:\n${knowledgeStr}`);
+  } else {
+    sections.push("DEPARTMENT KNOWLEDGE:\nNo relevant documents found. Upload process docs, policies, or playbooks to departments for richer context.");
+  }
+
+  // RELATED ENTITIES — grouped by category
+  const categoryGroups: { label: string; items: EntitySummary[] }[] = [
+    { label: "People", items: input.relatedEntities.base },
+    { label: "Operational Data", items: input.relatedEntities.digital },
+    { label: "External Parties", items: input.relatedEntities.external },
+  ];
+
+  const entityParts = categoryGroups
+    .filter((g) => g.items.length > 0)
+    .map((g) => {
+      const lines = g.items.map((n) => {
+        const topProps = Object.entries(n.properties)
+          .slice(0, 3)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(", ");
+        return `  - ${n.displayName} (${n.type}, ${n.relationship})${topProps ? ` — ${topProps}` : ""}`;
+      });
+      return `${g.label}:\n${lines.join("\n")}`;
+    });
+
+  if (entityParts.length > 0) {
+    sections.push(`RELATED ENTITIES:\n${entityParts.join("\n\n")}`);
+  }
+
+  // RECENT EVENTS
   if (input.recentEvents.length > 0) {
     const eventsStr = input.recentEvents
       .slice(0, 10)
@@ -120,21 +163,7 @@ ${propsStr || "  (no properties)"}`);
         return `  - [${e.timestamp}] ${e.type}${payloadStr}`;
       })
       .join("\n");
-    contextParts.push(`Recent events:\n${eventsStr}`);
-  }
-
-  if (contextParts.length > 0) {
-    sections.push(`CONTEXT:\n${contextParts.join("\n\n")}`);
-  }
-
-  // ORGANIZATIONAL CONTEXT
-  if (input.organizationalContext && input.organizationalContext.length > 0) {
-    const chain = input.organizationalContext
-      .map((o) => `${o.displayName} (${o.type})`)
-      .join(" → ");
-    sections.push(`ORGANIZATIONAL CONTEXT:\n${chain}`);
-  } else {
-    sections.push("ORGANIZATIONAL CONTEXT:\nNo organizational context available. Upload team/org documents to improve routing and escalation.");
+    sections.push(`RECENT EVENTS:\n${eventsStr}`);
   }
 
   // PRIOR SIMILAR SITUATIONS

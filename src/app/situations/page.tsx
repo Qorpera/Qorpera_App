@@ -53,7 +53,12 @@ interface SituationDetail {
   triggerEntityId: string | null;
   contextSnapshot: {
     triggerEntity?: { displayName: string; type: string; properties: Record<string, string> };
-    neighborhood?: { entities: Array<{ id: string; type: string; displayName: string; relationshipType: string; direction: string; properties: Record<string, string> }> };
+    relatedEntities?: {
+      base?: Array<{ id: string; type: string; displayName: string; relationship: string; direction: string; properties: Record<string, string> }>;
+      digital?: Array<{ id: string; type: string; displayName: string; relationship: string; direction: string; properties: Record<string, string> }>;
+      external?: Array<{ id: string; type: string; displayName: string; relationship: string; direction: string; properties: Record<string, string> }>;
+    };
+    departments?: Array<{ id: string; name: string; description: string | null; lead: { name: string; role: string } | null; memberCount: number }>;
     recentEvents?: Array<{ id: string; source: string; eventType: string; createdAt: string }>;
     priorSituations?: Array<{ id: string; triggerEntityName: string; status: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>;
   } | null;
@@ -545,20 +550,27 @@ function SituationCard({
               )}
 
               {/* Related Entities */}
-              {detail.contextSnapshot?.neighborhood?.entities && detail.contextSnapshot.neighborhood.entities.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Related Entities</h4>
-                  <div className="space-y-1">
-                    {detail.contextSnapshot.neighborhood.entities.slice(0, 5).map((e) => (
-                      <div key={e.id} className="flex items-center gap-2 text-xs">
-                        <span className="text-white/30">{e.direction === "outgoing" ? "\u2192" : "\u2190"}</span>
-                        <Badge variant="default">{e.type}</Badge>
-                        <span className="text-white/70">{e.displayName}</span>
-                        <span className="text-white/30">({e.relationshipType})</span>
+              {detail.contextSnapshot?.relatedEntities && (
+                (() => {
+                  const re = detail.contextSnapshot.relatedEntities;
+                  const all = [...(re.base ?? []), ...(re.digital ?? []), ...(re.external ?? [])];
+                  if (all.length === 0) return null;
+                  return (
+                    <div>
+                      <h4 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Related Entities</h4>
+                      <div className="space-y-1">
+                        {all.slice(0, 5).map((e: { id: string; type: string; displayName: string; direction: string; relationship: string }) => (
+                          <div key={e.id} className="flex items-center gap-2 text-xs">
+                            <span className="text-white/30">{e.direction === "outgoing" ? "\u2192" : "\u2190"}</span>
+                            <Badge variant="default">{e.type}</Badge>
+                            <span className="text-white/70">{e.displayName}</span>
+                            <span className="text-white/30">({e.relationship})</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                  );
+                })()
               )}
 
               {/* Event Timeline */}
