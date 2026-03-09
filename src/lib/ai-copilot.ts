@@ -132,6 +132,36 @@ const COPILOT_TOOLS: AITool[] = [
     },
   },
   {
+    name: "get_operational_briefing",
+    description: "Get a summary of current operational status across departments. Shows active situations, pending actions, and key metrics grouped by department. Use when user asks 'how are things', 'what's the status', 'give me an update', 'any issues today'.",
+    parameters: {
+      type: "object",
+      properties: {
+        departmentName: {
+          type: "string",
+          description: "Optional: focus on a specific department by name. If omitted, briefing covers all visible departments.",
+        },
+        period: {
+          type: "string",
+          enum: ["today", "week", "month"],
+          description: "Time period to cover. Defaults to 'week'.",
+        },
+      },
+    },
+  },
+  {
+    name: "search_department_knowledge",
+    description: "Search uploaded documents across departments for relevant information. Use when the user asks about processes, policies, procedures, or any topic that might be covered in uploaded documents.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to search for" },
+        departmentName: { type: "string", description: "Optional: limit search to a specific department" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "create_situation_type",
     description: "Create a new situation type that the system will watch for. When creating a situation type, always specify which department it applies to using scopeDepartmentName. For example, if the user says 'overdue invoices are a problem in Finance', set scopeDepartmentName to 'Finance'.",
     parameters: {
@@ -249,8 +279,12 @@ async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInf
     ? `\nACTIVE SITUATION TYPES (${situationTypes.length} watching):\n${situationTypes.map((s) => `- ${s.name} (${s.slug}): ${s.description} [${s.autonomyLevel}]`).join("\n")}\n`
     : "";
 
+  const scopeNote = visibleDepts && visibleDepts !== "all"
+    ? "\nIMPORTANT: You have limited visibility. Only discuss departments and data you can see. If asked about other departments, say you don't have visibility into that area."
+    : "";
+
   const deptSection = deptContext
-    ? `\nORGANIZATIONAL STRUCTURE:\n${deptContext}\n`
+    ? `\nORGANIZATIONAL STRUCTURE:\n${deptContext}${scopeNote}\n`
     : "";
 
   // Scoped user framing
@@ -279,6 +313,8 @@ CAPABILITIES:
 - Search across entities by keyword
 - Explore the entity graph to discover connections
 - List departments and get detailed department context
+- Get operational briefings: use when user asks "how are things", "what's happening", "give me an update"
+- Search department knowledge: use when user asks about policies, processes, or procedures
 - Propose actions (create, update, delete entities) that go through governance review
 - Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
 - Create new situation types scoped to specific departments
@@ -315,7 +351,9 @@ async function executeTool(
   toolName: string,
   args: Record<string, unknown>,
   orientationSessionId?: string,
+  visibleDepts?: string[] | "all",
 ): Promise<string> {
+  const deptVisFilter = visibleDepts && visibleDepts !== "all" ? { id: { in: visibleDepts } } : {};
   switch (toolName) {
     case "lookup_entity": {
       const query = String(args.query ?? "");
@@ -513,9 +551,9 @@ async function executeTool(
 
       if (!hq) return "No organization found. Complete onboarding first.";
 
-      // Load departments
+      // Load departments (filtered by visibility)
       const departments = await prisma.entity.findMany({
-        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active" },
+        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active", ...deptVisFilter },
         select: { id: true, displayName: true, description: true },
         orderBy: { displayName: "asc" },
       });
@@ -580,6 +618,11 @@ async function executeTool(
           },
         });
         if (dept) scopeEntityId = dept.id;
+      }
+
+      // Verify visibility
+      if (scopeEntityId && visibleDepts !== "all" && visibleDepts && !visibleDepts.includes(scopeEntityId)) {
+        return "You don't have visibility into that department.";
       }
 
       const situationType = await prisma.situationType.upsert({
@@ -659,7 +702,7 @@ async function executeTool(
 
     case "list_departments": {
       const departments = await prisma.entity.findMany({
-        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active" },
+        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active", ...deptVisFilter },
         select: { id: true, displayName: true, description: true },
         orderBy: { displayName: "asc" },
       });
@@ -685,19 +728,19 @@ async function executeTool(
     }
 
     case "get_department_context": {
-      const departmentName = String(args.departmentName ?? "");
+      const name = String(args.departmentName ?? args.department_name ?? "");
       const dept = await prisma.entity.findFirst({
         where: {
           operatorId,
           category: "foundational",
-          displayName: { contains: departmentName },
-          entityType: { slug: "department" },
+          displayName: { contains: name },
           status: "active",
+          ...deptVisFilter,
         },
         select: { id: true, displayName: true, description: true },
       });
 
-      if (!dept) return `Department "${departmentName}" not found.`;
+      if (!dept) return `Department "${name}" not found or not accessible.`;
 
       // Members
       const members = await prisma.entity.findMany({
@@ -705,69 +748,212 @@ async function executeTool(
         include: { propertyValues: { include: { property: { select: { slug: true } } } } },
         orderBy: { displayName: "asc" },
       });
-      const memberLines = members.map(m => {
-        const role = m.propertyValues.find(pv => pv.property.slug === "role")?.value;
-        const email = m.propertyValues.find(pv => pv.property.slug === "email")?.value;
-        let line = `  - ${m.displayName}`;
-        if (role) line += ` (${role})`;
-        if (email) line += ` <${email}>`;
-        return line;
-      });
 
       // Documents
       const docs = await prisma.internalDocument.findMany({
         where: { departmentId: dept.id, operatorId, status: { not: "replaced" } },
-        select: { fileName: true, documentType: true, status: true },
+        select: { fileName: true, documentType: true, embeddingStatus: true },
       });
-      const docLines = docs.map(d => `  - ${d.fileName} [${d.documentType}] (${d.status})`);
 
-      // Digital entity counts
-      const digitalCounts = await prisma.entity.groupBy({
-        by: ["entityTypeId"],
-        where: { operatorId, parentDepartmentId: dept.id, category: "digital", status: "active" },
-        _count: true,
-      });
-      const typeIds = digitalCounts.map(c => c.entityTypeId);
-      const types = typeIds.length > 0
-        ? await prisma.entityType.findMany({ where: { id: { in: typeIds } }, select: { id: true, name: true } })
-        : [];
-      const typeMap = new Map(types.map(t => [t.id, t.name]));
-
-      // Recent situations
-      const situations = await prisma.situation.findMany({
+      // Digital entities via department-member relationships
+      const deptMemberRels = await prisma.relationship.findMany({
         where: {
-          operatorId,
-          situationType: { scopeEntityId: dept.id },
+          OR: [
+            { fromEntityId: dept.id, relationshipType: { slug: "department-member" } },
+            { toEntityId: dept.id, relationshipType: { slug: "department-member" } },
+          ],
         },
-        include: { situationType: { select: { name: true } } },
-        orderBy: { createdAt: "desc" },
-        take: 5,
+        select: { fromEntityId: true, toEntityId: true },
       });
+      const linkedIds = deptMemberRels.map(r => r.fromEntityId === dept.id ? r.toEntityId : r.fromEntityId);
 
-      const sections: string[] = [
-        `Department: ${dept.displayName}`,
-        dept.description ? `Description: ${dept.description}` : null,
-        `\nMembers (${members.length}):`,
-        memberLines.length > 0 ? memberLines.join("\n") : "  (none)",
-        `\nDocuments (${docs.length}):`,
-        docLines.length > 0 ? docLines.join("\n") : "  (none)",
-      ].filter((s): s is string => s !== null);
-
-      if (digitalCounts.length > 0) {
-        const countsStr = digitalCounts
-          .map(c => `${c._count} ${typeMap.get(c.entityTypeId) || "items"}`)
-          .join(", ");
-        sections.push(`\nConnected data: ${countsStr}`);
-      }
-
-      if (situations.length > 0) {
-        sections.push(`\nRecent situations:`);
-        for (const s of situations) {
-          sections.push(`  - ${s.situationType.name} (${s.status})`);
+      let digitalSummary = "None";
+      if (linkedIds.length > 0) {
+        const digitalEntities = await prisma.entity.findMany({
+          where: { id: { in: linkedIds }, category: "digital", status: "active" },
+          include: { entityType: { select: { name: true } } },
+        });
+        const countByType = new Map<string, number>();
+        for (const e of digitalEntities) {
+          countByType.set(e.entityType.name, (countByType.get(e.entityType.name) ?? 0) + 1);
+        }
+        if (countByType.size > 0) {
+          digitalSummary = [...countByType.entries()].map(([t, c]) => `${c} ${t}`).join(", ");
         }
       }
 
-      return sections.join("\n");
+      // Active situations
+      const activeSits = await prisma.situation.findMany({
+        where: {
+          operatorId,
+          situationType: { scopeEntityId: dept.id },
+          status: { in: ["detected", "proposed", "reasoning", "executing", "auto_executing"] },
+        },
+        include: { situationType: { select: { name: true } } },
+        take: 10,
+      });
+
+      const lines: string[] = [
+        `Department: ${dept.displayName}`,
+        dept.description ? `Purpose: ${dept.description}` : "",
+        "",
+        `Team (${members.length}):`,
+        ...members.map(m => {
+          const role = m.propertyValues.find(pv => pv.property.slug === "role")?.value;
+          const email = m.propertyValues.find(pv => pv.property.slug === "email")?.value;
+          let line = `  - ${m.displayName}`;
+          if (role) line += ` (${role})`;
+          if (email) line += ` <${email}>`;
+          return line;
+        }),
+        "",
+        `Connected Data: ${digitalSummary}`,
+        "",
+        `Documents (${docs.length}):`,
+        ...docs.map(d => `  - ${d.fileName} [${d.documentType}] (${d.embeddingStatus})`),
+        "",
+        `Active Situations (${activeSits.length}):`,
+        ...(activeSits.length > 0
+          ? activeSits.map(s => `  - ${s.situationType.name} (${s.status})`)
+          : ["  None"]),
+      ].filter(l => l !== undefined);
+
+      return lines.join("\n");
+    }
+
+    case "get_operational_briefing": {
+      const deptName = args.departmentName ? String(args.departmentName) : null;
+      const period = String(args.period || "week");
+
+      const now = new Date();
+      const periodStart = new Date(now);
+      if (period === "today") periodStart.setHours(0, 0, 0, 0);
+      else if (period === "week") periodStart.setDate(now.getDate() - 7);
+      else periodStart.setDate(now.getDate() - 30);
+
+      let targetDepts: Array<{ id: string; displayName: string; description: string | null }>;
+
+      if (deptName) {
+        const dept = await prisma.entity.findFirst({
+          where: {
+            operatorId, category: "foundational", entityType: { slug: "department" },
+            displayName: { contains: deptName },
+            status: "active",
+            ...deptVisFilter,
+          },
+          select: { id: true, displayName: true, description: true },
+        });
+        if (!dept) return `Department "${deptName}" not found or not accessible.`;
+        targetDepts = [dept];
+      } else {
+        targetDepts = await prisma.entity.findMany({
+          where: {
+            operatorId, category: "foundational", entityType: { slug: "department" },
+            status: "active", ...deptVisFilter,
+          },
+          select: { id: true, displayName: true, description: true },
+          orderBy: { displayName: "asc" },
+        });
+      }
+
+      if (targetDepts.length === 0) return "No departments found.";
+
+      const sections: string[] = [];
+
+      for (const dept of targetDepts) {
+        const situations = await prisma.situation.findMany({
+          where: {
+            operatorId,
+            createdAt: { gte: periodStart },
+            situationType: { scopeEntityId: dept.id },
+          },
+          include: { situationType: { select: { name: true } } },
+          orderBy: { createdAt: "desc" },
+        });
+
+        const active = situations.filter(s => ["detected", "proposed", "reasoning", "auto_executing", "executing"].includes(s.status)).length;
+        const resolved = situations.filter(s => s.status === "resolved").length;
+        const pending = situations.filter(s => s.status === "proposed");
+
+        let section = `${dept.displayName}${dept.description ? ` — ${dept.description}` : ""}`;
+        section += `\n  Situations (${period}): ${situations.length} total (${active} active, ${resolved} resolved)`;
+
+        if (pending.length > 0) {
+          section += `\n  Needs attention:`;
+          for (const s of pending.slice(0, 3)) {
+            section += `\n    - ${s.situationType.name} (severity: ${s.severity.toFixed(1)})`;
+          }
+          if (pending.length > 3) section += `\n    ... and ${pending.length - 3} more`;
+        }
+
+        if (situations.length === 0) {
+          section += `\n  All clear — no situations detected.`;
+        }
+
+        sections.push(section);
+      }
+
+      // Unscoped situations
+      const unscoped = await prisma.situation.findMany({
+        where: {
+          operatorId, createdAt: { gte: periodStart },
+          situationType: { scopeEntityId: null },
+        },
+        include: { situationType: { select: { name: true } } },
+      });
+      if (unscoped.length > 0) {
+        sections.push(`Global (no department scope): ${unscoped.length} situations`);
+      }
+
+      const header = deptName
+        ? `Operational briefing for ${deptName} (${period}):`
+        : `Operational briefing across ${targetDepts.length} departments (${period}):`;
+
+      return `${header}\n\n${sections.join("\n\n")}`;
+    }
+
+    case "search_department_knowledge": {
+      const query = String(args.query ?? "");
+      if (!query) return "Please provide a search query.";
+
+      let searchDeptIds: string[] = [];
+
+      if (args.departmentName) {
+        const dept = await prisma.entity.findFirst({
+          where: {
+            operatorId, category: "foundational", entityType: { slug: "department" },
+            displayName: { contains: String(args.departmentName) },
+            ...deptVisFilter,
+          },
+          select: { id: true },
+        });
+        if (dept) searchDeptIds = [dept.id];
+        else return `Department "${args.departmentName}" not found or not accessible.`;
+      } else {
+        const depts = await prisma.entity.findMany({
+          where: {
+            operatorId, category: "foundational", entityType: { slug: "department" },
+            ...deptVisFilter,
+          },
+          select: { id: true },
+        });
+        searchDeptIds = depts.map(d => d.id);
+      }
+
+      if (searchDeptIds.length === 0) return "No departments available to search.";
+
+      try {
+        const { retrieveRelevantContext } = await import("@/lib/rag/retriever");
+        const results = await retrieveRelevantContext(query, operatorId, searchDeptIds, 5);
+
+        if (results.length === 0) return "No relevant documents found for this query.";
+
+        return results
+          .map(r => `From "${r.documentName}" (${r.departmentName}, relevance: ${r.score.toFixed(2)}):\n${r.content.slice(0, 500)}`)
+          .join("\n\n---\n\n");
+      } catch {
+        return "Document search is not available — embeddings may not be configured.";
+      }
     }
 
     default:
@@ -856,6 +1042,7 @@ export async function chat(
               toolCall.name,
               toolCall.arguments,
               orientation?.sessionId,
+              scopeInfo?.visibleDepts ?? "all",
             );
             currentMessages.push({
               role: "tool",

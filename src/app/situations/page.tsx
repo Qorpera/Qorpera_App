@@ -25,10 +25,13 @@ interface SituationItem {
 
 interface ReasoningData {
   analysis: string;
+  evidenceSummary?: string;
   consideredActions: Array<{
     action: string;
-    pros: string[];
-    cons: string[];
+    evidenceFor?: string[];
+    evidenceAgainst?: string[];
+    pros?: string[];
+    cons?: string[];
     expectedOutcome: string;
   }>;
   chosenAction: ProposedAction | null;
@@ -489,31 +492,44 @@ function SituationCard({
                         <p className="text-xs text-white/60">{detail.reasoning.analysis}</p>
                       </div>
 
+                      {/* Evidence Summary */}
+                      {detail.reasoning.evidenceSummary && (
+                        <div className="bg-purple-500/5 border border-purple-500/15 rounded-lg p-3">
+                          <h5 className="text-xs font-semibold text-purple-300 mb-1">Evidence</h5>
+                          <p className="text-xs text-purple-200/60">{detail.reasoning.evidenceSummary}</p>
+                        </div>
+                      )}
+
                       {/* Considered actions */}
                       {detail.reasoning.consideredActions.length > 0 && (
                         <div>
                           <h5 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Considered Actions</h5>
                           <div className="space-y-2">
-                            {detail.reasoning.consideredActions.map((ca, i) => (
-                              <div key={i} className="bg-white/[0.03] rounded-lg p-3 space-y-1.5">
-                                <span className="text-xs font-medium text-white/70">{ca.action}</span>
-                                {ca.pros.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {ca.pros.map((p, j) => (
-                                      <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300">{p}</span>
-                                    ))}
-                                  </div>
-                                )}
-                                {ca.cons.length > 0 && (
-                                  <div className="flex flex-wrap gap-1">
-                                    {ca.cons.map((c, j) => (
-                                      <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-300">{c}</span>
-                                    ))}
-                                  </div>
-                                )}
-                                <p className="text-[10px] text-white/40">{ca.expectedOutcome}</p>
-                              </div>
-                            ))}
+                            {detail.reasoning.consideredActions.map((ca, i) => {
+                              const hasEvidence = "evidenceFor" in ca;
+                              const supportItems = hasEvidence ? (ca.evidenceFor ?? []) : (ca.pros ?? []);
+                              const againstItems = hasEvidence ? (ca.evidenceAgainst ?? []) : (ca.cons ?? []);
+                              return (
+                                <div key={i} className="bg-white/[0.03] rounded-lg p-3 space-y-1.5">
+                                  <span className="text-xs font-medium text-white/70">{ca.action}</span>
+                                  {supportItems.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {supportItems.map((p, j) => (
+                                        <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300">{p}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {againstItems.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {againstItems.map((c, j) => (
+                                        <span key={j} className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-300">{c}</span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <p className="text-[10px] text-white/40">{ca.expectedOutcome}</p>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       )}

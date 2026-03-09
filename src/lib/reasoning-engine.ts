@@ -11,10 +11,11 @@ import { executeSituationAction } from "@/lib/situation-executor";
 
 const ReasoningOutputSchema = z.object({
   analysis: z.string().min(10),
+  evidenceSummary: z.string().min(10),
   consideredActions: z.array(z.object({
     action: z.string(),
-    pros: z.array(z.string()),
-    cons: z.array(z.string()),
+    evidenceFor: z.array(z.string()),
+    evidenceAgainst: z.array(z.string()),
     expectedOutcome: z.string(),
   })),
   chosenAction: z.object({
@@ -105,7 +106,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     const effectiveAutonomy = getEffectiveAutonomy(situation.situationType, policyResult);
 
     // 6. Build prompt
-    const businessCtx = await getBusinessContext(situation.operatorId);
+    const [businessCtx, operator] = await Promise.all([
+      getBusinessContext(situation.operatorId),
+      prisma.operator.findUnique({
+        where: { id: situation.operatorId },
+        select: { companyName: true },
+      }),
+    ]);
     const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
 
     const reasoningInput: ReasoningInput = {
@@ -137,7 +144,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       businessContext: businessContextStr,
     };
 
-    const systemPrompt = buildReasoningSystemPrompt(businessContextStr, businessCtx?.businessSummary?.split(/[.,\n]/)[0]);
+    const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
     let userPrompt = buildReasoningUserPrompt(reasoningInput);
 
     // 6b. Edit instruction injection
@@ -224,6 +231,28 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         },
       });
       return;
+    }
+
+    // 8b. Post-reasoning policy verification — catch LLM ignoring BLOCKED instructions
+    if (reasoning!.chosenAction) {
+      const chosenName = reasoning!.chosenAction.action;
+      const isPermitted = policyResult.permitted.some(
+        (p) => p.name === chosenName,
+      );
+      const isBlocked = policyResult.blocked.some(
+        (b) => b.name === chosenName,
+      );
+
+      if (!isPermitted || isBlocked) {
+        console.warn(
+          `[reasoning-engine] AI proposed blocked/unpermitted action "${reasoning.chosenAction.action}" for situation ${situationId}. Overriding to null.`,
+        );
+        reasoning = {
+          ...reasoning,
+          chosenAction: null,
+          analysis: reasoning.analysis + "\n\n[SYSTEM: Proposed action was overridden — it violates governance policy.]",
+        };
+      }
     }
 
     // 9. Store reasoning
