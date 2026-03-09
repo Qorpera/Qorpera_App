@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const sessionId = req.nextUrl.searchParams.get("sessionId") ?? "default";
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || "50"), 200);
   const beforeParam = req.nextUrl.searchParams.get("before");
 
-  const where: Record<string, unknown> = { operatorId, sessionId };
+  const where: Record<string, unknown> = { operatorId, sessionId, userId: user.id };
   if (beforeParam) {
     where.createdAt = { lt: new Date(beforeParam) };
   }

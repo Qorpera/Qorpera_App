@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider, listProviders } from "@/lib/connectors/registry";
 import { encrypt } from "@/lib/encryption";
 
 export async function GET() {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
 
   const connectors = await prisma.sourceConnector.findMany({
     where: { operatorId },
@@ -41,7 +43,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  const { operatorId } = su;
   const body = await req.json();
   const { provider: providerId, name, config } = body;
 

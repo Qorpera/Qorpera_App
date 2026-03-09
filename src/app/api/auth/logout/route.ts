@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { destroySession, SESSION_COOKIE_NAME } from "@/lib/auth";
+import { deleteSession, clearSessionCookie, SESSION_COOKIE_NAME } from "@/lib/auth";
 import { cookies } from "next/headers";
 
 export async function POST() {
@@ -7,16 +7,20 @@ export async function POST() {
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
   if (token) {
-    await destroySession(token);
+    await deleteSession(token);
   }
 
-  cookieStore.set(SESSION_COOKIE_NAME, "", {
+  await clearSessionCookie();
+
+  // Clear superadmin operator-switching cookie
+  const isLocalhost = (process.env.NEXT_PUBLIC_APP_URL || "").includes("localhost");
+  cookieStore.set("acting_operator_id", "", {
     httpOnly: true,
+    secure: !isLocalhost,
     sameSite: "lax",
     path: "/",
-    secure: false,
     maxAge: 0,
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ success: true });
 }

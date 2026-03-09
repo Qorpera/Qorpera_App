@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
 import { decrypt, encrypt } from "@/lib/encryption";
@@ -8,7 +8,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const { id } = await params;
 
   const connector = await prisma.sourceConnector.findFirst({
@@ -42,7 +44,10 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  const { operatorId } = su;
   const { id } = await params;
   const body = await req.json();
 
@@ -123,7 +128,10 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  const { operatorId } = su;
   const { id } = await params;
 
   const connector = await prisma.sourceConnector.findFirst({

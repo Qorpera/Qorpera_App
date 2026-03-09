@@ -1,9 +1,12 @@
+import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { getEntityCounts } from "@/lib/entity-model-store";
 
 export default async function DashboardPage() {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) redirect("/login");
+  const { operatorId } = su;
 
   const counts = await getEntityCounts(operatorId);
 

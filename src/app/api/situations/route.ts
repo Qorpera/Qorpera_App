@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
 
 export async function GET(req: NextRequest) {
-  const operatorId = await getOperatorId();
-  const userId = await getUserId();
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   const params = req.nextUrl.searchParams;
 
   const statusParam = params.get("status");

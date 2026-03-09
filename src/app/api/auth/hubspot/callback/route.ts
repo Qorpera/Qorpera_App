@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { encrypt } from "@/lib/encryption";
 
 export async function GET(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");

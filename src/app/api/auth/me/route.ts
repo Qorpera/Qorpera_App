@@ -1,38 +1,48 @@
 import { NextResponse } from "next/server";
-import { getSessionFromCookies } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export async function GET() {
-  const session = await getSessionFromCookies();
-  if (!session?.userId) {
+  const su = await getSessionUser();
+  if (!su) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: {
-      id: true,
-      displayName: true,
-      email: true,
-      role: true,
-      scopeEntityId: true,
-      linkedEntityId: true,
-      createdAt: true,
-      operatorId: true,
-    },
-  });
+  const { user, operatorId, isSuperadmin, actingAsOperator } = su;
 
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  // Get scopes
+  let scopes: string[] | "all" = "all";
+  if (user.role !== "admin" && user.role !== "superadmin") {
+    const userScopes = await prisma.userScope.findMany({
+      where: { userId: user.id },
+      select: { departmentEntityId: true },
+    });
+    scopes = userScopes.map((s) => s.departmentEntityId);
   }
 
-  const operator = await prisma.operator.findUnique({
-    where: { id: user.operatorId },
-    select: { displayName: true },
-  });
+  // When acting as another operator, fetch that operator's details
+  let operator = { id: operatorId, companyName: user.operator.companyName, industry: user.operator.industry };
+  if (actingAsOperator && operatorId !== user.operatorId) {
+    const actingOp = await prisma.operator.findUnique({
+      where: { id: operatorId },
+      select: { id: true, companyName: true, industry: true },
+    });
+    if (actingOp) {
+      operator = actingOp;
+    }
+  }
 
   return NextResponse.json({
-    ...user,
-    operatorName: operator?.displayName ?? null,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      entityId: user.entityId,
+    },
+    operator,
+    isSuperadmin,
+    actingAsOperator,
+    scopes,
   });
 }

@@ -10,6 +10,7 @@ import { DOCUMENT_SLOT_TYPES, type SlotType, isStructuralSlot } from "@/lib/docu
 import { fetchApi } from "@/lib/fetch-api";
 import { CONNECTOR_ENTITY_TYPES } from "@/lib/connector-entity-types";
 import { EntityRow } from "@/components/entity-row";
+import { useUser } from "@/components/user-provider";
 
 /* Inline diff types to avoid importing structural-extraction.ts (has server-only deps) */
 type DiffAction = "create" | "update" | "flag-missing";
@@ -311,13 +312,13 @@ function DepartmentDetailInner() {
   const params = useParams();
   const router = useRouter();
   const deptId = params.departmentId as string;
+  const { isAdmin } = useUser();
 
   const [dept, setDept] = useState<DeptDetail | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(true);
 
   const searchParams = useSearchParams();
 
@@ -380,6 +381,16 @@ function DepartmentDetailInner() {
   /* ---- delete doc confirmation ---- */
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
 
+  /* ---- entity account creation (invite flow) ---- */
+  const [inviteEntityId, setInviteEntityId] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [invitePassword, setInvitePassword] = useState("");
+  const [inviteRole, setInviteRole] = useState("member");
+  const [inviteCreating, setInviteCreating] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const [entityAccountStatus, setEntityAccountStatus] = useState<Record<string, "account" | "pending" | null>>({});
+  const [entityInviteLinks, setEntityInviteLinks] = useState<Record<string, string>>({});
+
   const slotFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const contextFileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -394,6 +405,7 @@ function DepartmentDetailInner() {
         fetchApi(`/api/departments/${deptId}/members`),
         fetchApi(`/api/departments/${deptId}/external-links`),
       ]);
+      if (deptRes.status === 403) { router.push("/map"); return; }
       if (!deptRes.ok) { setNotFound(true); return; }
       setDept(await deptRes.json());
       if (membersRes.ok) setMembers(await membersRes.json());
@@ -405,6 +417,33 @@ function DepartmentDetailInner() {
       setLoading(false);
     }
   }, [deptId]);
+
+  // Load account statuses for members (which entities have user accounts or pending invites)
+  const loadAccountStatuses = useCallback(async () => {
+    try {
+      const [usersRes, invitesRes] = await Promise.all([
+        fetchApi("/api/users"),
+        fetchApi("/api/users/invite"),
+      ]);
+      const statuses: Record<string, "account" | "pending" | null> = {};
+      const links: Record<string, string> = {};
+      if (usersRes.ok) {
+        const users: Array<{ entityId: string | null; email: string }> = await usersRes.json();
+        for (const u of users) {
+          if (u.entityId) statuses[u.entityId] = "account";
+        }
+      }
+      if (invitesRes.ok) {
+        const invites: Array<{ id: string; entityId: string; link: string }> = await invitesRes.json();
+        for (const inv of invites) {
+          if (!statuses[inv.entityId]) statuses[inv.entityId] = "pending";
+          links[inv.entityId] = inv.link;
+        }
+      }
+      setEntityAccountStatus(statuses);
+      setEntityInviteLinks(links);
+    } catch { /* best-effort */ }
+  }, []);
 
   const loadDocs = useCallback(async () => {
     const res = await fetchApi(`/api/departments/${deptId}/documents`);
@@ -477,11 +516,8 @@ function DepartmentDetailInner() {
   }, []);
 
   useEffect(() => {
-    load(); loadDocs(); fetchBindings(); fetchConnectedEntities(); fetchProviders();
-    fetchApi("/api/auth/me").then((r) => r.json()).then((data) => {
-      setIsAdmin(data.role === "admin");
-    }).catch(() => {});
-  }, [load, loadDocs, fetchBindings, fetchConnectedEntities, fetchProviders]);
+    load(); loadDocs(); fetchBindings(); fetchConnectedEntities(); fetchProviders(); loadAccountStatuses();
+  }, [load, loadDocs, fetchBindings, fetchConnectedEntities, fetchProviders, loadAccountStatuses]);
 
   // Handle OAuth return
   useEffect(() => {
@@ -1080,34 +1116,133 @@ function DepartmentDetailInner() {
                 }
 
                 /* ---- display row ---- */
+                const acctStatus = entityAccountStatus[m.id];
+                const isInviteTarget = inviteEntityId === m.id;
+
                 return (
-                  <div key={m.id} className="group py-2.5 flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <span className="text-sm font-medium text-white/90">{m.displayName}</span>
-                      {role && <span className="ml-3 text-sm text-white/40">{role}</span>}
-                      {email && <span className="ml-3 text-xs text-white/30">{email}</span>}
+                  <div key={m.id}>
+                    <div className="group py-2.5 flex items-center justify-between">
+                      <div className="min-w-0 flex-1 flex items-center gap-2">
+                        <span className="text-sm font-medium text-white/90">{m.displayName}</span>
+                        {role && <span className="text-sm text-white/40">{role}</span>}
+                        {email && <span className="text-xs text-white/30">{email}</span>}
+                        {/* Account status badges */}
+                        {acctStatus === "account" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Has Account</span>
+                        )}
+                        {acctStatus === "pending" && (
+                          <span className="inline-flex items-center gap-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
+                            Invite Pending
+                            <button
+                              className="text-purple-400 hover:text-purple-300"
+                              onClick={() => {
+                                const link = entityInviteLinks[m.id];
+                                if (link) { navigator.clipboard.writeText(link); setToast("Link copied"); }
+                              }}
+                            >
+                              copy
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-1 items-center">
+                        {isAdmin && !acctStatus && (
+                          <button
+                            onClick={() => {
+                              setInviteEntityId(m.id);
+                              setInviteEmail(email || "");
+                              setInvitePassword("");
+                              setInviteRole("member");
+                              setInviteError("");
+                            }}
+                            className="text-[10px] text-purple-400 hover:text-purple-300 mr-2"
+                          >
+                            Create Account
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                            <button onClick={() => startEdit(m)} title="Edit" className="p-1 text-white/30 hover:text-white/60">
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                              </svg>
+                            </button>
+                            <button onClick={() => setRemoveId(m.id)} title="Remove" className="p-1 text-white/30 hover:text-red-400">
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    {isAdmin && (
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                      <button
-                        onClick={() => startEdit(m)}
-                        title="Edit"
-                        className="p-1 text-white/30 hover:text-white/60"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => setRemoveId(m.id)}
-                        title="Remove"
-                        className="p-1 text-white/30 hover:text-red-400"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
+                    {/* Inline invite form */}
+                    {isInviteTarget && (
+                      <div className="pb-3 pl-4 space-y-2">
+                        <div className="flex gap-2 items-end">
+                          <div className="flex-1">
+                            <label className="text-[10px] text-white/40 block mb-0.5">Email</label>
+                            <input
+                              type="email"
+                              value={inviteEmail}
+                              onChange={(e) => setInviteEmail(e.target.value)}
+                              className="w-full bg-white/5 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white/90 outline-none focus:border-purple-500/50"
+                              placeholder="email@company.com"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="text-[10px] text-white/40 block mb-0.5">Password</label>
+                            <input
+                              type="password"
+                              value={invitePassword}
+                              onChange={(e) => setInvitePassword(e.target.value)}
+                              className="w-full bg-white/5 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white/90 outline-none focus:border-purple-500/50"
+                              placeholder="Min 8 chars"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-white/40 block mb-0.5">Role</label>
+                            <select
+                              value={inviteRole}
+                              onChange={(e) => setInviteRole(e.target.value)}
+                              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white/70"
+                            >
+                              <option value="member">Member</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          </div>
+                        </div>
+                        {inviteError && <p className="text-xs text-red-400">{inviteError}</p>}
+                        <div className="flex gap-2">
+                          <button
+                            disabled={inviteCreating || !inviteEmail || invitePassword.length < 8}
+                            className="text-xs text-purple-400 hover:text-purple-300 disabled:text-white/20"
+                            onClick={async () => {
+                              setInviteCreating(true);
+                              setInviteError("");
+                              try {
+                                const res = await fetchApi("/api/users/invite", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ entityId: m.id, email: inviteEmail, password: invitePassword, role: inviteRole }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) { setInviteError(data.error || "Failed"); return; }
+                                navigator.clipboard.writeText(data.invite.link);
+                                setToast("Invite created! Link copied to clipboard.");
+                                setInviteEntityId(null);
+                                loadAccountStatuses();
+                              } catch { setInviteError("Connection error"); }
+                              finally { setInviteCreating(false); }
+                            }}
+                          >
+                            {inviteCreating ? "Creating..." : "Create & Copy Link"}
+                          </button>
+                          <button className="text-xs text-white/40 hover:text-white/60" onClick={() => setInviteEntityId(null)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 );

@@ -1,9 +1,11 @@
 "use client";
 
 import { type ReactNode, useState, useEffect, Suspense } from "react";
+import { useRouter } from "next/navigation";
 import { AppNav } from "./app-nav";
 import { ToastProvider } from "./ui/toast";
 import { NotificationBell } from "./notification-bell";
+import { useUser } from "./user-provider";
 
 function QorperaLogo({ className = "w-7 h-7" }: { className?: string }) {
   return (
@@ -27,6 +29,40 @@ function CollapseChevron({ collapsed }: { collapsed: boolean }) {
     >
       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
     </svg>
+  );
+}
+
+function SuperadminBanner() {
+  const router = useRouter();
+  const { isSuperadmin, actingAsOperator } = useUser();
+  const [companyName, setCompanyName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isSuperadmin && actingAsOperator) {
+      fetch("/api/auth/me")
+        .then((r) => r.json())
+        .then((data) => setCompanyName(data.operator?.companyName || "Unknown"))
+        .catch(() => {});
+    }
+  }, [isSuperadmin, actingAsOperator]);
+
+  if (!isSuperadmin || !actingAsOperator || !companyName) return null;
+
+  return (
+    <div className="bg-amber-500/15 border-b border-amber-500/20 px-4 py-1.5 flex items-center justify-between flex-shrink-0">
+      <span className="text-xs text-amber-300">
+        Viewing as: <span className="font-medium">{companyName}</span>
+      </span>
+      <button
+        className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+        onClick={async () => {
+          await fetch("/api/admin/exit-operator", { method: "POST" });
+          router.push("/admin");
+        }}
+      >
+        Exit
+      </button>
+    </div>
   );
 }
 
@@ -98,6 +134,8 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
 
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Superadmin banner */}
+          <SuperadminBanner />
           {/* Top bar */}
           <div className="flex items-center justify-end gap-3 px-5 py-2 border-b border-white/[0.04] flex-shrink-0">
             {topBarContent}

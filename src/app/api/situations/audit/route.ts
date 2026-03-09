@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { auditPreFilters } from "@/lib/situation-audit";
 
 export async function POST() {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+  const { operatorId } = su;
 
   const results = await auditPreFilters(operatorId);
 

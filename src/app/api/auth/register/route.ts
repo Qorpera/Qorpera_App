@@ -1,126 +1,100 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { hashPassword, createSession, setSessionCookie, isFirstRun } from "@/lib/auth";
-import { cookies } from "next/headers";
+import { hashPassword, createSession, setSessionCookie } from "@/lib/auth";
+import { z } from "zod";
+
+const RegisterSchema = z.object({
+  companyName: z.string().min(1),
+  name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(8),
+  industry: z.string().optional(),
+});
 
 export async function POST(req: NextRequest) {
-  // Only allow registration if no users exist
-  const firstRun = await isFirstRun();
-  if (!firstRun) {
-    return NextResponse.json({ error: "Operator already registered" }, { status: 409 });
+  if (process.env.REGISTRATION_ENABLED !== "true") {
+    return NextResponse.json({ error: "Registration is currently closed" }, { status: 403 });
   }
 
-  const body = await req.json();
-  const { companyName, industry, displayName, email, password } = body;
+  const body = await req.json().catch(() => null);
+  const parsed = RegisterSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid input" }, { status: 400 });
+  }
 
-  if (!companyName || !displayName || !email || !password) {
-    return NextResponse.json({ error: "companyName, displayName, email, and password are required" }, { status: 400 });
+  const { companyName, name, email, password, industry } = parsed.data;
+
+  // Check email uniqueness
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    return NextResponse.json({ error: "Email already in use" }, { status: 409 });
   }
 
   const passwordHash = await hashPassword(password);
 
-  // Check if an Operator already exists (migration from Day 1 state)
-  let operator = await prisma.operator.findFirst();
-  if (!operator) {
-    operator = await prisma.operator.create({
-      data: { displayName: companyName, email, passwordHash, companyName, industry: industry || null },
+  // Transaction: create operator, user, seed structure
+  const result = await prisma.$transaction(async (tx) => {
+    // Create Operator
+    const operator = await tx.operator.create({
+      data: { displayName: companyName, companyName, industry: industry || null },
     });
-  }
 
-  // Create the first User with admin role
-  const user = await prisma.user.create({
-    data: {
-      operatorId: operator.id,
-      email,
-      displayName,
-      passwordHash,
-      role: "admin",
-    },
-  });
-
-  const token = await createSession(operator.id, user.id);
-  const cookieStore = await cookies();
-  const cookieOpts = setSessionCookie(token);
-  cookieStore.set(cookieOpts.name, cookieOpts.value, {
-    httpOnly: cookieOpts.httpOnly,
-    sameSite: cookieOpts.sameSite,
-    path: cookieOpts.path,
-    secure: cookieOpts.secure,
-    maxAge: cookieOpts.maxAge,
-  });
-
-  // Seed foundational structure (best-effort)
-  try {
+    // Seed foundational entity types
     const { HARDCODED_TYPE_DEFS } = await import("@/lib/hardcoded-type-defs");
 
-    // Ensure "organization" entity type
-    let orgType = await prisma.entityType.findFirst({
-      where: { operatorId: operator.id, slug: "organization" },
+    // Organization type
+    const orgDef = HARDCODED_TYPE_DEFS["organization"];
+    const orgType = await tx.entityType.create({
+      data: {
+        operatorId: operator.id,
+        slug: orgDef.slug,
+        name: orgDef.name,
+        description: orgDef.description,
+        icon: orgDef.icon,
+        color: orgDef.color,
+        defaultCategory: orgDef.defaultCategory,
+      },
     });
-    if (!orgType) {
-      const def = HARDCODED_TYPE_DEFS["organization"];
-      orgType = await prisma.entityType.create({
-        data: {
-          operatorId: operator.id,
-          slug: def.slug,
-          name: def.name,
-          description: def.description,
-          icon: def.icon,
-          color: def.color,
-          defaultCategory: def.defaultCategory,
-        },
-      });
-    }
 
-    // Ensure "department" entity type
-    const deptType = await prisma.entityType.findFirst({
-      where: { operatorId: operator.id, slug: "department" },
+    // Department type
+    const deptDef = HARDCODED_TYPE_DEFS["department"];
+    const deptType = await tx.entityType.create({
+      data: {
+        operatorId: operator.id,
+        slug: deptDef.slug,
+        name: deptDef.name,
+        description: deptDef.description,
+        icon: deptDef.icon,
+        color: deptDef.color,
+        defaultCategory: deptDef.defaultCategory,
+      },
     });
-    if (!deptType) {
-      const def = HARDCODED_TYPE_DEFS["department"];
-      await prisma.entityType.create({
-        data: {
-          operatorId: operator.id,
-          slug: def.slug,
-          name: def.name,
-          description: def.description,
-          icon: def.icon,
-          color: def.color,
-          defaultCategory: def.defaultCategory,
-        },
-      });
-    }
 
-    // Ensure "team-member" entity type
-    const tmType = await prisma.entityType.findFirst({
-      where: { operatorId: operator.id, slug: "team-member" },
+    // Team-member type with properties
+    const tmDef = HARDCODED_TYPE_DEFS["team-member"];
+    await tx.entityType.create({
+      data: {
+        operatorId: operator.id,
+        slug: tmDef.slug,
+        name: tmDef.name,
+        description: tmDef.description,
+        icon: tmDef.icon,
+        color: tmDef.color,
+        defaultCategory: tmDef.defaultCategory,
+        properties: {
+          create: tmDef.properties.map((p: { slug: string; name: string; dataType: string; identityRole?: string }, i: number) => ({
+            slug: p.slug,
+            name: p.name,
+            dataType: p.dataType,
+            identityRole: p.identityRole ?? null,
+            displayOrder: i,
+          })),
+        },
+      },
     });
-    if (!tmType) {
-      const def = HARDCODED_TYPE_DEFS["team-member"];
-      await prisma.entityType.create({
-        data: {
-          operatorId: operator.id,
-          slug: def.slug,
-          name: def.name,
-          description: def.description,
-          icon: def.icon,
-          color: def.color,
-          defaultCategory: def.defaultCategory,
-          properties: {
-            create: def.properties.map((p, i) => ({
-              slug: p.slug,
-              name: p.name,
-              dataType: p.dataType,
-              identityRole: p.identityRole ?? null,
-              displayOrder: i,
-            })),
-          },
-        },
-      });
-    }
 
-    // Create CompanyHQ entity
-    const companyHQ = await prisma.entity.create({
+    // CompanyHQ entity
+    await tx.entity.create({
       data: {
         operatorId: operator.id,
         entityTypeId: orgType.id,
@@ -132,44 +106,43 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Set admin user scope to CompanyHQ (sees everything)
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { scopeEntityId: companyHQ.id },
+    // Create User (admin)
+    const user = await tx.user.create({
+      data: {
+        operatorId: operator.id,
+        email,
+        name,
+        passwordHash,
+        role: "admin",
+      },
     });
 
-    // Create orientation session with "mapping" phase
-    await prisma.orientationSession.create({
+    // OrientationSession
+    await tx.orientationSession.create({
       data: { operatorId: operator.id, phase: "mapping" },
     });
 
-    // Seed department-member relationship type
-    const deptTypeForRel = await prisma.entityType.findFirst({
-      where: { operatorId: operator.id, slug: "department" }
+    // Department-member relationship type
+    await tx.relationshipType.create({
+      data: {
+        operatorId: operator.id,
+        name: "Department Member",
+        slug: "department-member",
+        fromEntityTypeId: deptType.id,
+        toEntityTypeId: deptType.id,
+        description: "Links an entity to the department it belongs to",
+      },
     });
-    if (deptTypeForRel) {
-      await prisma.relationshipType.upsert({
-        where: { operatorId_slug: { operatorId: operator.id, slug: "department-member" } },
-        create: {
-          operatorId: operator.id,
-          name: "Department Member",
-          slug: "department-member",
-          fromEntityTypeId: deptTypeForRel.id,
-          toEntityTypeId: deptTypeForRel.id,
-          description: "Links an entity to the department it belongs to",
-        },
-        update: {},
-      });
-    }
-  } catch (seedErr) {
-    console.error("[register] Failed to seed foundational structure:", seedErr);
-  }
+
+    return { user, operator };
+  });
+
+  // Create session + set cookie
+  const { token, expiresAt } = await createSession(result.user.id);
+  await setSessionCookie(token, expiresAt);
 
   return NextResponse.json({
-    id: user.id,
-    operatorId: operator.id,
-    displayName,
-    email,
-    role: "admin",
+    user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role },
+    operator: { id: result.operator.id, companyName: result.operator.companyName },
   }, { status: 201 });
 }

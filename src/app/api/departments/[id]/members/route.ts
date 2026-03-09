@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
@@ -10,10 +10,11 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id } = await params;
-  const _userId = await getUserId();
-  const _visibleDepts = await getVisibleDepartmentIds(operatorId, _userId);
+  const _visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (_visibleDepts !== "all" && !_visibleDepts.includes(id)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
@@ -44,10 +45,11 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id } = await params;
-  const _userId2 = await getUserId();
-  const _visibleDepts2 = await getVisibleDepartmentIds(operatorId, _userId2);
+  const _visibleDepts2 = await getVisibleDepartmentIds(operatorId, user.id);
   if (_visibleDepts2 !== "all" && !_visibleDepts2.includes(id)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }

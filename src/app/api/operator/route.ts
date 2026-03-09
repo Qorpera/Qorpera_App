@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserRole } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export async function GET() {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const operator = await prisma.operator.findUnique({
     where: { id: operatorId },
     select: { id: true, displayName: true, companyName: true, industry: true },
@@ -15,9 +17,10 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  const operatorId = await getOperatorId();
-  const role = await getUserRole();
-  if (role !== "admin") {
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
+  if (su.user.role !== "admin" && su.user.role !== "superadmin") {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 

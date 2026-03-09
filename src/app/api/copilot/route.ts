@@ -1,14 +1,14 @@
-import { NextRequest } from "next/server";
-import { getOperatorId, getUserId, getUserRole } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth";
 import { chat, type OrientationInfo } from "@/lib/ai-copilot";
 import { prisma } from "@/lib/db";
 import type { AIMessage } from "@/lib/ai-provider";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
-  const userId = await getUserId();
-  const userRole = await getUserRole();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const body = await req.json();
 
   const message = body.message as string | undefined;
@@ -40,23 +40,23 @@ export async function POST(req: NextRequest) {
 
   // Store user message
   await prisma.copilotMessage.create({
-    data: { operatorId, userId, sessionId, role: "user", content: message },
+    data: { operatorId, userId: user.id, sessionId, role: "user", content: message },
   });
 
   // Build scope info for copilot system prompt
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   let scopeInfo: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" } | undefined;
   if (visibleDepts !== "all") {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { displayName: true, scopeEntityId: true } });
+    const scopeUser = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true, entityId: true, entity: { select: { parentDepartmentId: true } } } });
     let departmentName: string | undefined;
-    if (user?.scopeEntityId) {
-      const dept = await prisma.entity.findUnique({ where: { id: user.scopeEntityId }, select: { displayName: true } });
+    if (scopeUser?.entity?.parentDepartmentId) {
+      const dept = await prisma.entity.findUnique({ where: { id: scopeUser.entity.parentDepartmentId }, select: { displayName: true } });
       departmentName = dept?.displayName ?? undefined;
     }
-    scopeInfo = { userName: user?.displayName, departmentName, visibleDepts };
+    scopeInfo = { userName: scopeUser?.name, departmentName, visibleDepts };
   }
 
-  const stream = await chat(operatorId, message, history, userRole, orientation, scopeInfo);
+  const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo);
 
   // Tee the stream: one for the HTTP response, one to capture for persistence
   const [responseStream, captureStream] = stream.tee();
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       }
       if (fullText.trim()) {
         await prisma.copilotMessage.create({
-          data: { operatorId, userId, sessionId, role: "assistant", content: fullText },
+          data: { operatorId, userId: user.id, sessionId, role: "assistant", content: fullText },
         });
       }
     } catch {

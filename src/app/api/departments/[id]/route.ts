@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { updateDepartmentSchema, parseBody } from "@/lib/api-validation";
@@ -8,11 +8,12 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const operatorId = await getOperatorId();
-  const userId = await getUserId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id } = await params;
 
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (visibleDepts !== "all" && !visibleDepts.includes(id)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
@@ -93,11 +94,12 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const operatorId = await getOperatorId();
-  const patchUserId = await getUserId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
   const { id } = await params;
 
-  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, patchUserId);
+  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (patchVisibleDepts !== "all" && !patchVisibleDepts.includes(id)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
@@ -144,11 +146,15 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const operatorId = await getOperatorId();
-  const delUserId = await getUserId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
+  if (user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
   const { id } = await params;
 
-  const delVisibleDepts = await getVisibleDepartmentIds(operatorId, delUserId);
+  const delVisibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
   if (delVisibleDepts !== "all" && !delVisibleDepts.includes(id)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }

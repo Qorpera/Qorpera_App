@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 const PROMOTION_MAP: Record<string, string> = {
@@ -8,7 +8,12 @@ const PROMOTION_MAP: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+  const { operatorId } = su;
   const { situationTypeId } = await req.json();
 
   const st = await prisma.situationType.findFirst({

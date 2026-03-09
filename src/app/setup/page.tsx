@@ -59,7 +59,7 @@ export default function SetupPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyName, displayName, email, password, industry: industry || undefined }),
+        body: JSON.stringify({ companyName, name: displayName, email, password, industry: industry || undefined }),
       });
 
       if (res.status === 409) {

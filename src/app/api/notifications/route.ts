@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId, getUserId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
 
 export async function GET(req: NextRequest) {
-  const operatorId = await getOperatorId();
-  const userId = await getUserId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
+  const userId = su.user.id;
   const url = new URL(req.url);
 
   const unreadOnly = url.searchParams.get("unreadOnly") === "true";
@@ -70,12 +72,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId } = su;
   const body = await req.json();
 
   if (body.markAllRead) {
     const result = await prisma.notification.updateMany({
-      where: { operatorId, read: false },
+      where: { operatorId, read: false, OR: [{ userId: su.user.id }, { userId: null }] },
       data: { read: true },
     });
     return NextResponse.json({ updated: result.count });

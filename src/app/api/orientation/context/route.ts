@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOperatorId } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 
@@ -8,7 +8,12 @@ const contextSchema = z.object({
 });
 
 export async function PATCH(req: NextRequest) {
-  const operatorId = await getOperatorId();
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+  const { operatorId } = su;
 
   const body = await req.json().catch(() => ({}));
   const parsed = contextSchema.safeParse(body);

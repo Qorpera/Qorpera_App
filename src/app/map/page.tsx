@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { fetchApi } from "@/lib/fetch-api";
+import { useUser } from "@/components/user-provider";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -77,10 +78,10 @@ function defaultPosition(index: number, total: number) {
 
 export default function MapPage() {
   const router = useRouter();
+  const { isAdmin } = useUser();
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(true);
 
   /* ---- add / edit modal ---- */
   const [modalOpen, setModalOpen] = useState(false);
@@ -176,9 +177,6 @@ export default function MapPage() {
   useEffect(() => {
     loadDepartments();
     fetchUnrouted();
-    fetchApi("/api/auth/me").then((r) => r.json()).then((data) => {
-      setIsAdmin(data.role === "admin");
-    }).catch(() => {});
     const iv = setInterval(loadDepartments, POLL_MS);
     return () => clearInterval(iv);
   }, [loadDepartments, fetchUnrouted]);

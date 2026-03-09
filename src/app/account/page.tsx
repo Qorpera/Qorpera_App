@@ -7,12 +7,9 @@ import { Button } from "@/components/ui/button";
 import { fetchApi } from "@/lib/fetch-api";
 
 interface UserProfile {
-  id: string;
-  displayName: string;
-  email: string;
-  role: string;
-  createdAt: string;
-  operatorName: string | null;
+  user: { id: string; name: string; email: string; role: string };
+  operator: { id: string; companyName: string | null };
+  isSuperadmin: boolean;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -56,12 +53,8 @@ export default function AccountPage() {
     );
   }
 
-  const roleClass = ROLE_COLORS[profile.role] ?? ROLE_COLORS.member;
-  const joined = new Date(profile.createdAt).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const { user, operator } = profile;
+  const roleClass = ROLE_COLORS[user.role] ?? ROLE_COLORS.member;
 
   return (
     <AppShell>
@@ -69,11 +62,11 @@ export default function AccountPage() {
         {/* Avatar + name */}
         <div className="flex items-center gap-5 mb-8">
           <div className="w-16 h-16 rounded-full bg-purple-500/15 border border-purple-500/20 flex items-center justify-center text-2xl font-semibold text-purple-300">
-            {profile.displayName.charAt(0).toUpperCase()}
+            {user.name.charAt(0).toUpperCase()}
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-white/90">{profile.displayName}</h1>
-            <p className="text-sm text-white/40 mt-0.5">{profile.email}</p>
+            <h1 className="text-xl font-semibold text-white/90">{user.name}</h1>
+            <p className="text-sm text-white/40 mt-0.5">{user.email}</p>
           </div>
         </div>
 
@@ -82,21 +75,16 @@ export default function AccountPage() {
           <div className="flex items-center justify-between">
             <span className="text-sm text-white/40">Role</span>
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${roleClass}`}>
-              {profile.role.charAt(0).toUpperCase() + profile.role.slice(1)}
+              {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
             </span>
           </div>
 
-          {profile.operatorName && (
+          {operator.companyName && (
             <div className="flex items-center justify-between">
               <span className="text-sm text-white/40">Organization</span>
-              <span className="text-sm text-white/70">{profile.operatorName}</span>
+              <span className="text-sm text-white/70">{operator.companyName}</span>
             </div>
           )}
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-white/40">Member since</span>
-            <span className="text-sm text-white/70">{joined}</span>
-          </div>
         </div>
 
         {/* Logout */}

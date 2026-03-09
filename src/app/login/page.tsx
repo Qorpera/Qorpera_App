@@ -41,7 +41,13 @@ export default function LoginPage() {
       });
 
       if (res.ok) {
-        router.push("/");
+        const data = await res.json();
+        // Superadmin → /admin, others → check onboarding
+        if (data.user?.role === "superadmin") {
+          router.push("/admin");
+        } else {
+          router.push("/");
+        }
         return;
       }
 
@@ -111,9 +117,9 @@ export default function LoginPage() {
         </form>
 
         <p className="text-center text-sm text-white/30 mt-6">
-          First time?{" "}
-          <a href="/setup" className="text-purple-400 hover:text-purple-300">
-            Set up your workspace
+          New company?{" "}
+          <a href="/register" className="text-purple-400 hover:text-purple-300">
+            Register here
           </a>
         </p>
       </div>
