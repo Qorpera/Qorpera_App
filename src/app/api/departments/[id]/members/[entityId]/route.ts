@@ -97,7 +97,8 @@ export async function DELETE(
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 
-  const member = await prisma.entity.findFirst({
+  // Check if this is a home member (parentDepartmentId = this dept)
+  const homeMember = await prisma.entity.findFirst({
     where: {
       id: entityId,
       operatorId,
@@ -105,14 +106,30 @@ export async function DELETE(
       status: "active",
     },
   });
-  if (!member) {
-    return NextResponse.json({ error: "Member not found in this department" }, { status: 404 });
+
+  if (homeMember) {
+    await prisma.entity.update({
+      where: { id: entityId },
+      data: { parentDepartmentId: null },
+    });
+    return NextResponse.json({ ok: true });
   }
 
-  await prisma.entity.update({
-    where: { id: entityId },
-    data: { parentDepartmentId: null },
+  // Check if this is a cross-department member linked via relationship
+  const crossRel = await prisma.relationship.findFirst({
+    where: {
+      relationshipType: { slug: "department-member", operatorId },
+      OR: [
+        { fromEntityId: entityId, toEntityId: id },
+        { fromEntityId: id, toEntityId: entityId },
+      ],
+    },
   });
 
-  return NextResponse.json({ ok: true });
+  if (crossRel) {
+    await prisma.relationship.delete({ where: { id: crossRel.id } });
+    return NextResponse.json({ ok: true });
+  }
+
+  return NextResponse.json({ error: "Member not found in this department" }, { status: 404 });
 }

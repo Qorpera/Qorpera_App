@@ -382,6 +382,30 @@ function OnboardingPage() {
     }
   }
 
+  const [deletingDept, setDeletingDept] = useState(false);
+
+  async function handleDeleteDepartment(dept: Department) {
+    if (dept.memberCount > 0) {
+      const ok = window.confirm(
+        `"${dept.displayName}" has ${dept.memberCount} member${dept.memberCount > 1 ? "s" : ""}. Delete this department?`
+      );
+      if (!ok) return;
+    }
+    setDeletingDept(true);
+    try {
+      const res = await fetch(`/api/departments/${dept.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setDeptError(err?.error ?? "Failed to delete department");
+        return;
+      }
+      delete positionsRef.current[dept.id];
+      await loadDepartments();
+    } finally {
+      setDeletingDept(false);
+    }
+  }
+
   const deptCount = departments.filter(d => d.entityType?.slug === "department").length;
   const canContinueStep2 = deptCount >= 2;
 
@@ -559,6 +583,11 @@ function OnboardingPage() {
     if (realDepts.length > 0 && !expandedDocDept) {
       setExpandedDocDept(realDepts[0].id);
     }
+    // Poll for doc status updates every 5 seconds
+    const poll = setInterval(() => {
+      realDepts.forEach(d => loadDocs(d.id));
+    }, 5000);
+    return () => clearInterval(poll);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
@@ -613,6 +642,24 @@ function OnboardingPage() {
     } finally {
       if (isSlot) setUploadingSlot(null);
       else setUploadingContext(false);
+    }
+  }
+
+  async function handleDeleteDoc(deptId: string, docId: string) {
+    try {
+      const res = await fetch(`/api/departments/${deptId}/documents/${docId}`, { method: "DELETE" });
+      if (res.ok) await loadDocs(deptId);
+    } catch {
+      setDocError("Failed to delete document");
+    }
+  }
+
+  async function handleRetryDoc(deptId: string, docId: string) {
+    try {
+      await fetch(`/api/departments/${deptId}/documents/${docId}/reprocess`, { method: "POST" });
+      await loadDocs(deptId);
+    } catch {
+      setDocError("Failed to retry processing");
     }
   }
 
@@ -923,6 +970,7 @@ function OnboardingPage() {
               positionsRef={positionsRef}
               dragId={dragId}
               onCardMouseDown={onCardMouseDown}
+              onDeleteDepartment={handleDeleteDepartment}
             />
 
             {addingDept ? (
@@ -980,6 +1028,16 @@ function OnboardingPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                     <span className="text-xs text-white/70">{dept.displayName}</span>
+                    <button
+                      onClick={() => handleDeleteDepartment(dept)}
+                      disabled={deletingDept}
+                      className="ml-0.5 text-white/20 hover:text-red-400 transition"
+                      title="Delete department"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
                 ))}
               </div>
@@ -1047,14 +1105,21 @@ function OnboardingPage() {
                         {members.length > 0 ? (
                           <div className="space-y-2">
                             {members.map(m => {
-                              const role = m.propertyValues.find(pv => pv.property.slug === "role")?.value ?? "";
+                              const isCross = !!m.crossDepartment;
+                              const homeDept = m.homeDepartment;
+                              const role = m.departmentRole || m.propertyValues.find(pv => pv.property.slug === "role")?.value || "";
                               const email = m.propertyValues.find(pv => pv.property.slug === "email")?.value ?? "";
                               return (
                                 <div key={m.id} className="flex items-center gap-2 text-sm">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isCross ? "bg-amber-400" : "bg-purple-400"}`} />
                                   <span className="text-white/80">{m.displayName}</span>
                                   {role && <span className="text-white/30">— {role}</span>}
                                   {email && <span className="text-white/20">— {email}</span>}
+                                  {isCross && homeDept && (
+                                    <span className="text-[10px] text-amber-400/60 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/15">
+                                      Home: {homeDept}
+                                    </span>
+                                  )}
                                 </div>
                               );
                             })}
@@ -1198,8 +1263,11 @@ function OnboardingPage() {
                               <div
                                 key={slotType}
                                 className={`relative rounded-lg border p-3 ${
-                                  doc ? "border-white/[0.1] bg-white/[0.02]" : "border-dashed border-white/[0.08]"
-                                }`}
+                                  doc ? "border-white/[0.1] bg-white/[0.02]" : "border-dashed border-white/[0.08] cursor-pointer hover:border-white/15 hover:bg-white/[0.02]"
+                                } transition`}
+                                onClick={() => {
+                                  if (!doc && !isUploading) slotFileInputRefs.current[`${dept.id}-${slotType}`]?.click();
+                                }}
                               >
                                 <div className="flex items-center gap-2 mb-1">
                                   <svg className={`w-3.5 h-3.5 ${doc ? "text-purple-400" : "text-white/20"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1218,8 +1286,8 @@ function OnboardingPage() {
                                       )}
                                       {needsReview && (
                                         <button
-                                          onClick={() => {
-                                            // Re-fetch extraction to show modal
+                                          onClick={(e) => {
+                                            e.stopPropagation();
                                             fetch(`/api/departments/${dept.id}/documents/${doc.id}/extract`, { method: "POST" })
                                               .then(r => r.json())
                                               .then(data => {
@@ -1233,6 +1301,20 @@ function OnboardingPage() {
                                           Review Changes
                                         </button>
                                       )}
+                                      {(doc.embeddingStatus === "error" || doc.embeddingStatus === "pending" || doc.embeddingStatus === "processing") && (
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); handleRetryDoc(dept.id, doc.id); }}
+                                          className="text-[10px] text-purple-400 hover:text-purple-300 font-medium"
+                                        >
+                                          Retry
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); handleDeleteDoc(dept.id, doc.id); }}
+                                        className="text-[10px] text-red-400/60 hover:text-red-400 font-medium"
+                                      >
+                                        Remove
+                                      </button>
                                     </div>
                                   </div>
                                 ) : (
@@ -1240,17 +1322,13 @@ function OnboardingPage() {
                                     <input
                                       ref={el => { slotFileInputRefs.current[`${dept.id}-${slotType}`] = el; }}
                                       type="file"
-                                      accept=".txt,.csv,.pdf,.docx"
+                                      accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
                                       className="hidden"
                                       onChange={e => handleSlotFileChange(e, dept.id, slotType)}
                                     />
-                                    <button
-                                      onClick={() => slotFileInputRefs.current[`${dept.id}-${slotType}`]?.click()}
-                                      disabled={isUploading}
-                                      className="text-[10px] text-white/30 hover:text-white/50 transition"
-                                    >
+                                    <span className="text-[10px] text-white/30">
                                       {isUploading ? "Uploading..." : "Click to upload"}
-                                    </button>
+                                    </span>
                                   </>
                                 )}
                               </div>
@@ -1263,11 +1341,25 @@ function OnboardingPage() {
                           <div className="text-xs text-white/30">Context Documents</div>
                           {docs?.contextDocs && docs.contextDocs.length > 0 && (
                             <div className="space-y-1">
-                              {docs.contextDocs.map(doc => (
-                                <div key={doc.id} className="flex items-center gap-2 text-sm">
+                              {docs.contextDocs.map(cdoc => (
+                                <div key={cdoc.id} className="flex items-center gap-2 text-sm">
                                   <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
-                                  <span className="text-white/60 text-xs truncate flex-1">{doc.fileName}</span>
-                                  <EmbeddingBadge status={doc.embeddingStatus} />
+                                  <span className="text-white/60 text-xs truncate flex-1">{cdoc.fileName}</span>
+                                  <EmbeddingBadge status={cdoc.embeddingStatus} />
+                                  {(cdoc.embeddingStatus === "error" || cdoc.embeddingStatus === "pending" || cdoc.embeddingStatus === "processing") && (
+                                    <button
+                                      onClick={() => handleRetryDoc(dept.id, cdoc.id)}
+                                      className="text-[10px] text-purple-400 hover:text-purple-300 font-medium shrink-0"
+                                    >
+                                      Retry
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleDeleteDoc(dept.id, cdoc.id)}
+                                    className="text-[10px] text-red-400/60 hover:text-red-400 font-medium shrink-0"
+                                  >
+                                    Remove
+                                  </button>
                                 </div>
                               ))}
                             </div>
@@ -1275,7 +1367,7 @@ function OnboardingPage() {
                           <input
                             ref={contextFileInputRef}
                             type="file"
-                            accept=".txt,.csv,.pdf,.docx"
+                            accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
                             multiple
                             className="hidden"
                             onChange={e => handleContextFileChange(e, dept.id)}

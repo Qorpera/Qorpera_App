@@ -4,9 +4,13 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { encrypt } from "@/lib/encryption";
 
+const APP_BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
-  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!su) {
+    return NextResponse.redirect(new URL("/login", APP_BASE));
+  }
   const { operatorId } = su;
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -29,13 +33,13 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}hubspot=error&reason=${error}`, req.url)
+      new URL(`${returnBase}${sep}hubspot=error&reason=${error}`, APP_BASE)
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}hubspot=error&reason=missing_params`, req.url)
+      new URL(`${returnBase}${sep}hubspot=error&reason=missing_params`, APP_BASE)
     );
   }
 
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
 
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}hubspot=error&reason=invalid_state`, req.url)
+      new URL(`${returnBase}${sep}hubspot=error&reason=invalid_state`, APP_BASE)
     );
   }
 
@@ -59,9 +63,7 @@ export async function GET(req: NextRequest) {
       code,
       client_id: process.env.HUBSPOT_CLIENT_ID!,
       client_secret: process.env.HUBSPOT_CLIENT_SECRET!,
-      redirect_uri:
-        process.env.HUBSPOT_REDIRECT_URI ||
-        "http://localhost:3000/api/auth/hubspot/callback",
+      redirect_uri: `${APP_BASE}/api/auth/hubspot/callback`,
       grant_type: "authorization_code",
     }),
   });
@@ -70,7 +72,7 @@ export async function GET(req: NextRequest) {
     const errBody = await tokenResp.text();
     console.error("HubSpot token exchange failed:", errBody);
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}hubspot=error&reason=token_exchange`, req.url)
+      new URL(`${returnBase}${sep}hubspot=error&reason=token_exchange`, APP_BASE)
     );
   }
 
@@ -110,6 +112,6 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.redirect(
-    new URL(`${returnBase}${sep}hubspot=connected`, req.url)
+    new URL(`${returnBase}${sep}hubspot=connected`, APP_BASE)
   );
 }

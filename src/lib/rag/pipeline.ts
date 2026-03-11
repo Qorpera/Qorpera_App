@@ -26,6 +26,8 @@ export async function extractText(filePath: string, mimeType: string): Promise<s
 
   switch (mimeType) {
     case "text/plain":
+    case "text/markdown":
+    case "text/x-markdown":
       return buffer.toString("utf-8");
 
     case "text/csv": {
@@ -45,6 +47,17 @@ export async function extractText(filePath: string, mimeType: string): Promise<s
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({ buffer });
       return result.value;
+    }
+
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const sheets = workbook.SheetNames.map(name => {
+        const sheet = workbook.Sheets[name];
+        const csv = XLSX.utils.sheet_to_csv(sheet);
+        return `Sheet: ${name}\n${csv}`;
+      });
+      return sheets.join("\n\n");
     }
 
     case "application/pdf": {
@@ -115,7 +128,7 @@ export async function processDocument(
       return { chunks: 0, error: "No chunks produced from text" };
     }
 
-    // Step 3: Embed
+    // Step 3: Embed (gracefully handles missing API key)
     const embeddings = await embedChunks(chunks.map((c) => c.content));
 
     // Step 4: Store — delete old chunks first (idempotent)
@@ -146,7 +159,7 @@ export async function processDocument(
       });
     }
 
-    // Update status
+    // Update status — "complete" even if embeddings are null (text search still works)
     await prisma.internalDocument.update({
       where: { id: documentId },
       data: { embeddingStatus: "complete" },

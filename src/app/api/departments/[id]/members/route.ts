@@ -6,6 +6,13 @@ import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { CATEGORY_PRIORITY } from "@/lib/hardcoded-type-defs";
 import { createMemberSchema, parseBody } from "@/lib/api-validation";
 
+const MEMBER_INCLUDE = {
+  entityType: { select: { slug: true, name: true, icon: true, color: true } },
+  propertyValues: {
+    include: { property: { select: { slug: true, name: true, dataType: true } } },
+  },
+} as const;
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -27,18 +34,56 @@ export async function GET(
     return NextResponse.json({ error: "Department not found" }, { status: 404 });
   }
 
-  const members = await prisma.entity.findMany({
+  // Home members (parentDepartmentId = this department)
+  const homeMembers = await prisma.entity.findMany({
     where: { parentDepartmentId: id, category: "base", status: "active" },
-    include: {
-      entityType: { select: { slug: true, name: true, icon: true, color: true } },
-      propertyValues: {
-        include: { property: { select: { slug: true, name: true, dataType: true } } },
-      },
-    },
+    include: MEMBER_INCLUDE,
     orderBy: { displayName: "asc" },
   });
 
-  return NextResponse.json(members);
+  // Cross-department members linked via department-member relationship
+  const deptMemberRels = await prisma.relationship.findMany({
+    where: {
+      OR: [
+        { toEntityId: id, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
+        { fromEntityId: id, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+      ],
+    },
+    select: { id: true, fromEntityId: true, toEntityId: true, metadata: true },
+  });
+
+  const crossMemberIds = deptMemberRels.map(r => r.fromEntityId === id ? r.toEntityId : r.fromEntityId);
+  const homeMemberIds = new Set(homeMembers.map(m => m.id));
+  const uniqueCrossIds = crossMemberIds.filter(mid => !homeMemberIds.has(mid));
+
+  let crossMembers: Array<Record<string, unknown>> = [];
+  if (uniqueCrossIds.length > 0) {
+    const crossEntities = await prisma.entity.findMany({
+      where: { id: { in: uniqueCrossIds }, status: "active" },
+      include: {
+        ...MEMBER_INCLUDE,
+        parentDepartment: { select: { id: true, displayName: true } },
+      },
+      orderBy: { displayName: "asc" },
+    });
+
+    crossMembers = crossEntities.map(entity => {
+      const rel = deptMemberRels.find(r =>
+        r.fromEntityId === entity.id || r.toEntityId === entity.id
+      );
+      const meta = rel?.metadata ? JSON.parse(rel.metadata) : {};
+      return {
+        ...entity,
+        crossDepartment: true,
+        homeDepartment: entity.parentDepartment?.displayName ?? null,
+        homeDepartmentId: entity.parentDepartment?.id ?? null,
+        departmentRole: meta.role ?? null,
+        relationshipId: rel?.id ?? null,
+      };
+    });
+  }
+
+  return NextResponse.json([...homeMembers, ...crossMembers]);
 }
 
 export async function POST(
@@ -109,18 +154,84 @@ export async function POST(
         value: emailNorm,
         entity: { operatorId, status: "active" },
       },
-      include: { entity: { select: { id: true, parentDepartmentId: true, category: true } } },
+      include: {
+        entity: {
+          include: { parentDepartment: { select: { id: true, displayName: true } } },
+        },
+      },
     });
 
     if (existingPV) {
       const existing = existingPV.entity;
 
-      // Already in a different department
-      if (existing.parentDepartmentId && existing.parentDepartmentId !== id) {
+      // Already in THIS department (actual duplicate)
+      if (existing.parentDepartmentId === id) {
         return NextResponse.json(
-          { error: "This person already belongs to another department" },
+          { error: "This person already belongs to this department" },
           { status: 409 },
         );
+      }
+
+      // Check if already linked to this dept via department-member relationship
+      if (existing.parentDepartmentId && existing.parentDepartmentId !== id) {
+        const existingRel = await prisma.relationship.findFirst({
+          where: {
+            relationshipType: { slug: "department-member", operatorId },
+            OR: [
+              { fromEntityId: existing.id, toEntityId: id },
+              { fromEntityId: id, toEntityId: existing.id },
+            ],
+          },
+        });
+        if (existingRel) {
+          return NextResponse.json(
+            { error: "This person is already a member of this department" },
+            { status: 409 },
+          );
+        }
+
+        // Create cross-department membership via department-member relationship
+        // Ensure department-member relationship type exists
+        let relType = await prisma.relationshipType.findFirst({
+          where: { operatorId, slug: "department-member" },
+        });
+        if (!relType) {
+          // Need department entity type for from/to
+          const deptType = await prisma.entityType.findFirst({ where: { operatorId, slug: "department" } });
+          relType = await prisma.relationshipType.create({
+            data: {
+              operatorId,
+              name: "Department Member",
+              slug: "department-member",
+              fromEntityTypeId: tmType.id,
+              toEntityTypeId: deptType?.id ?? tmType.id,
+              description: "Links a person to a department they belong to",
+            },
+          });
+        }
+
+        await prisma.relationship.create({
+          data: {
+            relationshipTypeId: relType.id,
+            fromEntityId: existing.id,
+            toEntityId: id,
+            metadata: JSON.stringify({ role: role.trim() }),
+          },
+        });
+
+        // Return existing entity with cross-department info
+        const result = await prisma.entity.findUnique({
+          where: { id: existing.id },
+          include: MEMBER_INCLUDE,
+        });
+
+        return NextResponse.json({
+          ...result,
+          crossDepartment: true,
+          homeDepartment: existing.parentDepartment?.displayName ?? null,
+          homeDepartmentId: existing.parentDepartmentId,
+          departmentRole: role.trim(),
+        }, { status: 201 });
       }
 
       // Existing entity, no department — assign to this one
@@ -134,12 +245,7 @@ export async function POST(
       const updated = await prisma.entity.update({
         where: { id: existing.id },
         data: updateData,
-        include: {
-          entityType: { select: { slug: true, name: true, icon: true, color: true } },
-          propertyValues: {
-            include: { property: { select: { slug: true, name: true, dataType: true } } },
-          },
-        },
+        include: MEMBER_INCLUDE,
       });
 
       return NextResponse.json(updated);
@@ -175,12 +281,7 @@ export async function POST(
 
   const result = await prisma.entity.findUnique({
     where: { id: entity.id },
-    include: {
-      entityType: { select: { slug: true, name: true, icon: true, color: true } },
-      propertyValues: {
-        include: { property: { select: { slug: true, name: true, dataType: true } } },
-      },
-    },
+    include: MEMBER_INCLUDE,
   });
 
   return NextResponse.json(result, { status: 201 });

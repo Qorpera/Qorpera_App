@@ -4,9 +4,13 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { encrypt } from "@/lib/encryption";
 
+const APP_BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
-  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!su) {
+    return NextResponse.redirect(new URL("/login", APP_BASE));
+  }
   const { operatorId } = su;
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -29,13 +33,13 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=${error}`, req.url)
+      new URL(`${returnBase}${sep}google=error&reason=${error}`, APP_BASE)
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=missing_params`, req.url)
+      new URL(`${returnBase}${sep}google=error&reason=missing_params`, APP_BASE)
     );
   }
 
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
 
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=invalid_state`, req.url)
+      new URL(`${returnBase}${sep}google=error&reason=invalid_state`, APP_BASE)
     );
   }
 
@@ -59,7 +63,7 @@ export async function GET(req: NextRequest) {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/api/auth/google/callback",
+      redirect_uri: `${APP_BASE}/api/auth/google/callback`,
       grant_type: "authorization_code",
     }),
   });
@@ -68,7 +72,7 @@ export async function GET(req: NextRequest) {
     const errBody = await tokenResp.text();
     console.error("Google token exchange failed:", errBody);
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=token_exchange`, req.url)
+      new URL(`${returnBase}${sep}google=error&reason=token_exchange`, APP_BASE)
     );
   }
 
@@ -93,6 +97,6 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.redirect(
-    new URL(`${returnBase}${sep}google=connected`, req.url)
+    new URL(`${returnBase}${sep}google=connected`, APP_BASE)
   );
 }

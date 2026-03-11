@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { isFirstRun, getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const firstRun = await isFirstRun();
   if (firstRun) redirect("/setup");

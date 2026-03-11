@@ -16,8 +16,11 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_MIMES = new Set([
   "text/plain",
   "text/csv",
+  "text/markdown",
+  "text/x-markdown",
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
 
 const VALID_DOC_TYPES = new Set([
@@ -73,7 +76,7 @@ export async function POST(
   }
   if (!ALLOWED_MIMES.has(file.type)) {
     return NextResponse.json(
-      { error: `Unsupported file type: ${file.type}. Accepted: TXT, CSV, PDF, DOCX` },
+      { error: `Unsupported file type: ${file.type}. Accepted: TXT, CSV, PDF, DOCX, MD, XLSX` },
       { status: 400 },
     );
   }

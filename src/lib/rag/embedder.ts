@@ -58,14 +58,26 @@ export function clearEmbeddingConfigCache() {
 
 const BATCH_SIZE = 20;
 
-export async function embedChunks(texts: string[]): Promise<number[][]> {
+export async function embedChunks(texts: string[]): Promise<(number[] | null)[]> {
   const config = await getEmbeddingConfig();
-  const allEmbeddings: number[][] = [];
+
+  // If no API key and not using Ollama, skip embedding — store chunks without vectors
+  if (!config.apiKey && config.provider !== "ollama") {
+    console.warn("[embedder] No embedding API key configured — storing chunks without embeddings");
+    return texts.map(() => null);
+  }
+
+  const allEmbeddings: (number[] | null)[] = [];
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
-    const embeddings = await embedBatch(config, batch);
-    allEmbeddings.push(...embeddings);
+    try {
+      const embeddings = await embedBatch(config, batch);
+      allEmbeddings.push(...embeddings);
+    } catch (err) {
+      console.error(`[embedder] Batch ${i / BATCH_SIZE} failed, storing without embeddings:`, err);
+      allEmbeddings.push(...batch.map(() => null));
+    }
   }
 
   return allEmbeddings;

@@ -18,6 +18,11 @@ export interface Member {
     property: { slug: string; name: string; dataType: string };
     value: string;
   }>;
+  crossDepartment?: boolean;
+  homeDepartment?: string | null;
+  homeDepartmentId?: string | null;
+  departmentRole?: string | null;
+  relationshipId?: string | null;
 }
 
 export interface InternalDoc {

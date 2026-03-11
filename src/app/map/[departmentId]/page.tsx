@@ -55,6 +55,10 @@ interface Member {
   id: string;
   displayName: string;
   propertyValues: PropertyValue[];
+  crossDepartment?: boolean;
+  homeDepartment?: string | null;
+  departmentRole?: string | null;
+  relationshipId?: string | null;
 }
 
 interface ExternalLink {
@@ -1118,14 +1122,20 @@ function DepartmentDetailInner() {
                 /* ---- display row ---- */
                 const acctStatus = entityAccountStatus[m.id];
                 const isInviteTarget = inviteEntityId === m.id;
+                const displayRole = m.departmentRole || role;
 
                 return (
                   <div key={m.id}>
                     <div className="group py-2.5 flex items-center justify-between">
                       <div className="min-w-0 flex-1 flex items-center gap-2">
                         <span className="text-sm font-medium text-white/90">{m.displayName}</span>
-                        {role && <span className="text-sm text-white/40">{role}</span>}
+                        {displayRole && <span className="text-sm text-white/40">{displayRole}</span>}
                         {email && <span className="text-xs text-white/30">{email}</span>}
+                        {m.crossDepartment && m.homeDepartment && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/15 text-amber-400/60">
+                            Home: {m.homeDepartment}
+                          </span>
+                        )}
                         {/* Account status badges */}
                         {acctStatus === "account" && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Has Account</span>
@@ -1294,7 +1304,7 @@ function DepartmentDetailInner() {
                         <input
                           ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
                           type="file"
-                          accept=".txt,.csv,.pdf,.docx"
+                          accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
                           className="hidden"
                           onChange={(e) => handleSlotFileChange(e, slotType)}
                         />
@@ -1344,7 +1354,7 @@ function DepartmentDetailInner() {
                             <input
                               ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
                               type="file"
-                              accept=".txt,.csv,.pdf,.docx"
+                              accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
                               className="hidden"
                               onChange={(e) => handleSlotFileChange(e, slotType)}
                             />
@@ -1389,7 +1399,7 @@ function DepartmentDetailInner() {
             <input
               ref={contextFileInputRef}
               type="file"
-              accept=".txt,.csv,.pdf,.docx"
+              accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
               multiple
               className="hidden"
               onChange={handleContextFileChange}

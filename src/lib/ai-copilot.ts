@@ -602,8 +602,8 @@ async function executeTool(
         const desc = dept.description ? ` \u2014 ${dept.description}` : "";
         lines.push(`${prefix}${dept.displayName}${desc}`);
 
-        // Load members
-        const members = await prisma.entity.findMany({
+        // Load home members
+        const homeMembers = await prisma.entity.findMany({
           where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
           include: {
             propertyValues: { include: { property: { select: { slug: true } } } },
@@ -611,13 +611,39 @@ async function executeTool(
           orderBy: { displayName: "asc" },
         });
 
-        for (let mi = 0; mi < members.length; mi++) {
-          const m = members[mi];
-          const mIsLast = mi === members.length - 1;
+        // Load cross-department members
+        const crossRels = await prisma.relationship.findMany({
+          where: {
+            OR: [
+              { toEntityId: dept.id, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
+              { fromEntityId: dept.id, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+            ],
+          },
+          select: { fromEntityId: true, toEntityId: true, metadata: true },
+        });
+        const homeMemberIds = new Set(homeMembers.map(m => m.id));
+        const crossIds = crossRels
+          .map(r => r.fromEntityId === dept.id ? r.toEntityId : r.fromEntityId)
+          .filter(cid => !homeMemberIds.has(cid));
+        const crossMembers = crossIds.length > 0
+          ? await prisma.entity.findMany({
+              where: { id: { in: crossIds }, status: "active" },
+              include: { propertyValues: { include: { property: { select: { slug: true } } } } },
+              orderBy: { displayName: "asc" },
+            })
+          : [];
+
+        const allMembers = [...homeMembers, ...crossMembers];
+        for (let mi = 0; mi < allMembers.length; mi++) {
+          const m = allMembers[mi];
+          const mIsLast = mi === allMembers.length - 1;
           const mPrefix = mIsLast ? "\u2514\u2500\u2500 " : "\u251C\u2500\u2500 ";
-          const role = m.propertyValues.find(pv => pv.property.slug === "role")?.value;
+          const crossRel = crossRels.find(r => r.fromEntityId === m.id || r.toEntityId === m.id);
+          const crossRole = crossRel?.metadata ? JSON.parse(crossRel.metadata).role : null;
+          const role = crossRole || m.propertyValues.find(pv => pv.property.slug === "role")?.value;
           const roleStr = role ? ` (${role})` : "";
-          lines.push(`${childPrefix}${mPrefix}${m.displayName}${roleStr}`);
+          const crossTag = crossRel ? " [shared]" : "";
+          lines.push(`${childPrefix}${mPrefix}${m.displayName}${roleStr}${crossTag}`);
         }
       }
 
@@ -771,20 +797,14 @@ async function executeTool(
 
       if (!dept) return `Department "${name}" not found or not accessible.`;
 
-      // Members
-      const members = await prisma.entity.findMany({
+      // Home members
+      const homeMembers = await prisma.entity.findMany({
         where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
         include: { propertyValues: { include: { property: { select: { slug: true } } } } },
         orderBy: { displayName: "asc" },
       });
 
-      // Documents
-      const docs = await prisma.internalDocument.findMany({
-        where: { departmentId: dept.id, operatorId, status: { not: "replaced" } },
-        select: { fileName: true, documentType: true, embeddingStatus: true },
-      });
-
-      // Digital entities via department-member relationships
+      // Cross-department members + digital entities via department-member relationships
       const deptMemberRels = await prisma.relationship.findMany({
         where: {
           OR: [
@@ -792,9 +812,25 @@ async function executeTool(
             { toEntityId: dept.id, relationshipType: { slug: "department-member" } },
           ],
         },
-        select: { fromEntityId: true, toEntityId: true },
+        select: { fromEntityId: true, toEntityId: true, metadata: true },
       });
       const linkedIds = deptMemberRels.map(r => r.fromEntityId === dept.id ? r.toEntityId : r.fromEntityId);
+      const homeMemberIds = new Set(homeMembers.map(m => m.id));
+      const crossPersonIds = linkedIds.filter(lid => !homeMemberIds.has(lid));
+      const crossPersonMembers = crossPersonIds.length > 0
+        ? await prisma.entity.findMany({
+            where: { id: { in: crossPersonIds }, category: "base", status: "active" },
+            include: { propertyValues: { include: { property: { select: { slug: true } } } } },
+            orderBy: { displayName: "asc" },
+          })
+        : [];
+      const members = [...homeMembers, ...crossPersonMembers];
+
+      // Documents
+      const docs = await prisma.internalDocument.findMany({
+        where: { departmentId: dept.id, operatorId, status: { not: "replaced" } },
+        select: { fileName: true, documentType: true, embeddingStatus: true },
+      });
 
       let digitalSummary = "None";
       if (linkedIds.length > 0) {
@@ -828,11 +864,14 @@ async function executeTool(
         "",
         `Team (${members.length}):`,
         ...members.map(m => {
-          const role = m.propertyValues.find(pv => pv.property.slug === "role")?.value;
+          const crossRel = deptMemberRels.find(r => r.fromEntityId === m.id || r.toEntityId === m.id);
+          const crossRole = crossRel?.metadata ? JSON.parse(crossRel.metadata).role : null;
+          const role = crossRole || m.propertyValues.find(pv => pv.property.slug === "role")?.value;
           const email = m.propertyValues.find(pv => pv.property.slug === "email")?.value;
           let line = `  - ${m.displayName}`;
           if (role) line += ` (${role})`;
           if (email) line += ` <${email}>`;
+          if (crossRel) line += ` [shared member]`;
           return line;
         }),
         "",

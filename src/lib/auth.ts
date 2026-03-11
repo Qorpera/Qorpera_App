@@ -2,7 +2,7 @@ import { prisma } from "./db";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import crypto from "crypto";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import type { User, Operator } from "@prisma/client";
 
 const SESSION_COOKIE = "session_token";

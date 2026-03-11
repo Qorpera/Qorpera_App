@@ -186,14 +186,41 @@ async function loadDepartmentContext(
     select: { id: true, displayName: true, description: true },
   });
 
-  const members = await prisma.entity.findMany({
+  // Home members
+  const homeMembers = await prisma.entity.findMany({
     where: { operatorId, parentDepartmentId: deptId, category: "base", status: "active" },
     include: { propertyValues: { include: { property: { select: { slug: true } } } } },
   });
 
+  // Cross-department members via department-member relationship
+  const deptMemberRels = await prisma.relationship.findMany({
+    where: {
+      OR: [
+        { toEntityId: deptId, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
+        { fromEntityId: deptId, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+      ],
+    },
+    select: { fromEntityId: true, toEntityId: true, metadata: true },
+  });
+  const crossIds = deptMemberRels
+    .map(r => r.fromEntityId === deptId ? r.toEntityId : r.fromEntityId)
+    .filter(id => !homeMembers.some(m => m.id === id));
+
+  const crossMembers = crossIds.length > 0
+    ? await prisma.entity.findMany({
+        where: { id: { in: crossIds }, status: "active" },
+        include: { propertyValues: { include: { property: { select: { slug: true } } } } },
+      })
+    : [];
+
+  const allMembers = [...homeMembers, ...crossMembers];
+
   let lead: { name: string; role: string } | null = null;
-  for (const m of members) {
-    const roleVal = m.propertyValues.find((pv) => pv.property.slug === "role")?.value;
+  for (const m of allMembers) {
+    // For cross-department members, check metadata role first
+    const crossRel = deptMemberRels.find(r => r.fromEntityId === m.id || r.toEntityId === m.id);
+    const crossRole = crossRel?.metadata ? JSON.parse(crossRel.metadata).role : null;
+    const roleVal = crossRole || m.propertyValues.find((pv) => pv.property.slug === "role")?.value;
     if (roleVal && /lead|manager|head|director/i.test(roleVal)) {
       lead = { name: m.displayName, role: roleVal };
       break;
@@ -205,7 +232,7 @@ async function loadDepartmentContext(
     name: dept?.displayName ?? "Unknown Department",
     description: dept?.description ?? null,
     lead,
-    memberCount: members.length,
+    memberCount: allMembers.length,
   };
 }
 

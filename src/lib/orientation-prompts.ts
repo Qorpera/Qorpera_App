@@ -22,15 +22,41 @@ export async function buildDepartmentDataContext(operatorId: string, visibleDept
   const sections: string[] = [];
 
   for (const dept of departments) {
-    // Load members
-    const members = await prisma.entity.findMany({
+    // Load home members
+    const homeMembers = await prisma.entity.findMany({
       where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
       include: {
         propertyValues: { include: { property: { select: { slug: true } } } },
       },
     });
+
+    // Load cross-department members via department-member relationship
+    const crossRels = await prisma.relationship.findMany({
+      where: {
+        OR: [
+          { toEntityId: dept.id, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
+          { fromEntityId: dept.id, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+        ],
+      },
+      select: { fromEntityId: true, toEntityId: true, metadata: true },
+    });
+    const homeMemberIds = new Set(homeMembers.map(m => m.id));
+    const crossIds = crossRels
+      .map(r => r.fromEntityId === dept.id ? r.toEntityId : r.fromEntityId)
+      .filter(id => !homeMemberIds.has(id));
+    const crossMembers = crossIds.length > 0
+      ? await prisma.entity.findMany({
+          where: { id: { in: crossIds }, status: "active" },
+          include: { propertyValues: { include: { property: { select: { slug: true } } } } },
+        })
+      : [];
+
+    const members = [...homeMembers, ...crossMembers];
     const memberNames = members.map(m => {
-      const role = m.propertyValues.find(pv => pv.property.slug === "role")?.value;
+      // Use cross-department role if available
+      const crossRel = crossRels.find(r => r.fromEntityId === m.id || r.toEntityId === m.id);
+      const crossRole = crossRel?.metadata ? JSON.parse(crossRel.metadata).role : null;
+      const role = crossRole || m.propertyValues.find(pv => pv.property.slug === "role")?.value;
       return role ? `${m.displayName} (${role})` : m.displayName;
     });
 
