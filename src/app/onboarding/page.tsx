@@ -42,9 +42,7 @@ const CARD_H = 80;
 const CLICK_THRESHOLD = 5;
 
 const SLOT_ICONS: Record<string, string> = {
-  network: "M12 3v3m0 12v3m-6-9H3m18 0h-3",
-  wallet: "M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 110-6h1.5M3 12v6.75A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V12",
-  banknotes: "M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75",
+  network: "M12 3v3m0 12v3m-6-9H3m18 0h-3m-2.25-5.25L17.25 5.25m-10.5 0L8.25 6.75m0 10.5l-1.5 1.5m10.5-1.5l1.5 1.5M12 9a3 3 0 100 6 3 3 0 000-6z",
   "clipboard-list": "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
 };
 
@@ -126,6 +124,7 @@ function OnboardingPage() {
   const [memberEmail, setMemberEmail] = useState("");
   const [memberError, setMemberError] = useState("");
   const [savingMember, setSavingMember] = useState(false);
+  const [removingMember, setRemovingMember] = useState<string | null>(null);
   const [memberHints, setMemberHints] = useState<Record<string, string>>({});
   const [savingStep3, setSavingStep3] = useState(false);
 
@@ -150,10 +149,19 @@ function OnboardingPage() {
   const [expandedConnDept, setExpandedConnDept] = useState<string | null>(null);
   const [bindingsPerDept, setBindingsPerDept] = useState<Record<string, ConnectorBinding[]>>({});
   const [providers, setProviders] = useState<Provider[]>([]);
+  type SheetEntry = { id: string; name: string; selected: boolean };
+  const [sheetsByConnector, setSheetsByConnector] = useState<Record<string, SheetEntry[]>>({});
+  const [savingSheets, setSavingSheets] = useState<string | null>(null);
+  const [manualSheetUrl, setManualSheetUrl] = useState("");
 
   // Step 6 state (sync)
   const [syncStarted, setSyncStarted] = useState(false);
   const [syncDone, setSyncDone] = useState(false);
+  const [manualSyncInProgress, setManualSyncInProgress] = useState(false);
+  const [manualSyncResult, setManualSyncResult] = useState<{
+    synced: Array<{ name: string; status: string }>;
+    errors: Array<{ name: string; error: string }>;
+  } | null>(null);
   const [deptEntityCounts, setDeptEntityCounts] = useState<Record<string, number>>({});
   const [totalEntities, setTotalEntities] = useState(0);
   const [totalRelationships, setTotalRelationships] = useState(0);
@@ -190,6 +198,15 @@ function OnboardingPage() {
       // Load departments state
       setDepartments(allDepts);
       initPositions(allDepts);
+
+      // If returning from OAuth, force step 5 so the callback effect can fire
+      const isOAuthReturn = searchParams.get("hubspot") === "connected"
+        || searchParams.get("stripe") === "connected"
+        || searchParams.get("google") === "connected";
+      if (isOAuthReturn) {
+        setStep(5);
+        return;
+      }
 
       const depts = allDepts.filter(d => d.entityType?.slug === "department");
 
@@ -598,22 +615,40 @@ function OnboardingPage() {
     setDocError("");
 
     try {
+      console.log(`[upload] Starting upload: ${file.name} (${file.type}, ${(file.size/1024).toFixed(1)}KB) as ${documentType} to dept ${deptId}`);
+
       const formData = new FormData();
       formData.append("file", file);
       formData.append("documentType", documentType);
 
-      const res = await fetch(`/api/departments/${deptId}/documents/upload`, {
-        method: "POST",
-        body: formData,
-      });
+      let res: Response;
+      try {
+        res = await fetch(`/api/departments/${deptId}/documents/upload`, {
+          method: "POST",
+          body: formData,
+        });
+      } catch (fetchErr) {
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        console.error("[upload] Fetch failed:", msg);
+        setDocError(`Upload failed: ${msg}`);
+        return;
+      }
 
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        setDocError(err?.error ?? "Upload failed");
+        let errorMsg = `Upload failed (${res.status})`;
+        try {
+          const err = await res.json();
+          errorMsg = err?.error || errorMsg;
+        } catch {
+          try { errorMsg = await res.text() || errorMsg; } catch { /* fallback */ }
+        }
+        console.error("[upload] Server error:", errorMsg);
+        setDocError(errorMsg);
         return;
       }
 
       const doc = await res.json();
+      console.log(`[upload] Success: ${doc.id} — ${doc.fileName}`);
       await loadDocs(deptId);
 
       // Auto-trigger extraction for structural docs
@@ -639,6 +674,10 @@ function OnboardingPage() {
           setExtractingDoc(null);
         }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[upload] Unexpected error:", msg);
+      setDocError(`Upload error: ${msg}`);
     } finally {
       if (isSlot) setUploadingSlot(null);
       else setUploadingContext(false);
@@ -663,19 +702,24 @@ function OnboardingPage() {
     }
   }
 
-  function handleSlotFileChange(e: React.ChangeEvent<HTMLInputElement>, deptId: string, slotType: string) {
-    const file = e.target.files?.[0];
-    if (file) uploadFile(deptId, file, slotType);
+  async function handleSlotFileChange(e: React.ChangeEvent<HTMLInputElement>, deptId: string, slotType: string) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     e.target.value = "";
+    for (let i = 0; i < files.length; i++) {
+      await uploadFile(deptId, files[i], slotType);
+      if (i < files.length - 1) await new Promise(r => setTimeout(r, 200));
+    }
   }
 
-  function handleContextFileChange(e: React.ChangeEvent<HTMLInputElement>, deptId: string) {
+  async function handleContextFileChange(e: React.ChangeEvent<HTMLInputElement>, deptId: string) {
     const files = e.target.files;
-    if (!files) return;
-    for (let i = 0; i < files.length; i++) {
-      uploadFile(deptId, files[i], "context");
-    }
+    if (!files || files.length === 0) return;
     e.target.value = "";
+    for (let i = 0; i < files.length; i++) {
+      await uploadFile(deptId, files[i], "context");
+      if (i < files.length - 1) await new Promise(r => setTimeout(r, 200));
+    }
   }
 
   async function handleConfirmDiff() {
@@ -760,7 +804,7 @@ function OnboardingPage() {
       const boundConnectorIds = new Set(existingBindings.map(b => b.connectorId));
 
       const newConnector = connectors.find((c: { id: string; status: string }) =>
-        c.status === "active" && !boundConnectorIds.has(c.id)
+        (c.status === "active" || c.status === "pending") && !boundConnectorIds.has(c.id)
       );
 
       if (newConnector) {
@@ -793,6 +837,8 @@ function OnboardingPage() {
   }
 
   const totalBindings = Object.values(bindingsPerDept).reduce((sum, b) => sum + b.length, 0);
+  const activeBindings = Object.values(bindingsPerDept).reduce((sum, b) => sum + b.filter(x => x.connector.status === "active").length, 0);
+  const pendingBindings = totalBindings - activeBindings;
   const canContinueStep5 = realDepts.some(d => (d.connectorCount > 0) || ((bindingsPerDept[d.id]?.length ?? 0) > 0));
 
   async function handleStep5Continue() {
@@ -1120,6 +1166,30 @@ function OnboardingPage() {
                                       Home: {homeDept}
                                     </span>
                                   )}
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      setRemovingMember(m.id);
+                                      try {
+                                        await fetch(`/api/departments/${dept.id}/members/${m.id}`, { method: "DELETE" });
+                                        await loadMembers(dept.id);
+                                        await loadDepartments();
+                                      } finally {
+                                        setRemovingMember(null);
+                                      }
+                                    }}
+                                    disabled={removingMember === m.id}
+                                    className="ml-auto text-white/20 hover:text-red-400 transition shrink-0"
+                                    title="Remove"
+                                  >
+                                    {removingMember === m.id ? (
+                                      <div className="w-3 h-3 rounded-full border border-white/20 border-t-white/40 animate-spin" />
+                                    ) : (
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    )}
+                                  </button>
                                 </div>
                               );
                             })}
@@ -1207,7 +1277,17 @@ function OnboardingPage() {
         {/* ============================================================ */}
         {/*  Step 4: Share Knowledge (Documents — optional)               */}
         {/* ============================================================ */}
-        {step === 4 && (
+        {step === 4 && (() => {
+          const allDocs = Object.values(docsPerDept).flatMap(d => {
+            if (!d) return [];
+            return [...Object.values(d.slots).flat(), ...d.contextDocs];
+          });
+          const totalDocs = allDocs.length;
+          const processingDocs = allDocs.filter(d => d.embeddingStatus === "processing" || d.embeddingStatus === "pending");
+          const errorDocs = allDocs.filter(d => d.embeddingStatus === "error");
+          const completeDocs = allDocs.filter(d => d.embeddingStatus === "complete");
+
+          return (
           <div className="space-y-6">
             <div className="text-center space-y-2">
               <p className="text-xs text-white/30 uppercase tracking-wider">Step 4 of 6</p>
@@ -1217,8 +1297,45 @@ function OnboardingPage() {
               </p>
             </div>
 
+            {totalDocs > 0 && (
+              <div className={`rounded-lg px-4 py-2.5 text-xs flex items-center gap-2 ${
+                errorDocs.length > 0
+                  ? "bg-red-500/10 border border-red-500/15 text-red-400"
+                  : processingDocs.length > 0
+                    ? "bg-amber-500/10 border border-amber-500/15 text-amber-400"
+                    : "bg-emerald-500/10 border border-emerald-500/15 text-emerald-400"
+              }`}>
+                {errorDocs.length > 0 ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+                    </svg>
+                    <span>Error processing: {errorDocs.map(d => d.fileName).join(", ")}</span>
+                  </>
+                ) : processingDocs.length > 0 ? (
+                  <>
+                    <div className="w-3 h-3 rounded-full border-2 border-amber-400/40 border-t-amber-400 animate-spin shrink-0" />
+                    <span>Processing {processingDocs.length} {processingDocs.length === 1 ? "document" : "documents"}...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>All {completeDocs.length} {completeDocs.length === 1 ? "document" : "documents"} processed successfully</span>
+                  </>
+                )}
+              </div>
+            )}
+
             {docError && (
-              <p className="text-xs text-red-400 text-center">{docError}</p>
+              <div className="rounded-lg px-4 py-2.5 text-xs bg-red-500/10 border border-red-500/15 text-red-400 flex items-center gap-2">
+                <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+                </svg>
+                <span className="flex-1">{docError}</span>
+                <button onClick={() => setDocError("")} className="text-red-400/60 hover:text-red-400 ml-2">×</button>
+              </div>
             )}
 
             <div className="space-y-4">
@@ -1241,7 +1358,7 @@ function OnboardingPage() {
                       <div className="flex items-center gap-3 ml-3">
                         {docs && (
                           <span className="text-xs text-white/30">
-                            {Object.values(docs.slots).filter(Boolean).length + docs.contextDocs.length} docs
+                            {Object.values(docs.slots).flat().length + docs.contextDocs.length} docs
                           </span>
                         )}
                         <ChevronDown open={isExpanded} />
@@ -1254,74 +1371,100 @@ function OnboardingPage() {
                         <div className="grid grid-cols-2 gap-2">
                           {(Object.keys(DOCUMENT_SLOT_TYPES) as SlotType[]).map(slotType => {
                             const slotDef = DOCUMENT_SLOT_TYPES[slotType];
-                            const doc = docs?.slots[slotType];
+                            const slotDocs = docs?.slots[slotType] ?? [];
                             const isUploading = uploadingSlot === slotType;
-                            const isExtracting = doc && extractingDoc === doc.id;
-                            const needsReview = doc?.status === "extracted";
 
                             return (
                               <div
                                 key={slotType}
                                 className={`relative rounded-lg border p-3 ${
-                                  doc ? "border-white/[0.1] bg-white/[0.02]" : "border-dashed border-white/[0.08] cursor-pointer hover:border-white/15 hover:bg-white/[0.02]"
+                                  slotDocs.length > 0 ? "border-white/[0.1] bg-white/[0.02]" : "border-dashed border-white/[0.08]"
                                 } transition`}
-                                onClick={() => {
-                                  if (!doc && !isUploading) slotFileInputRefs.current[`${dept.id}-${slotType}`]?.click();
-                                }}
                               >
-                                <div className="flex items-center gap-2 mb-1">
-                                  <svg className={`w-3.5 h-3.5 ${doc ? "text-purple-400" : "text-white/20"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <svg className={`w-3.5 h-3.5 ${slotDocs.length > 0 ? "text-purple-400" : "text-white/20"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d={SLOT_ICONS[slotDef.icon] || ""} />
                                   </svg>
                                   <span className="text-xs font-medium text-white/70">{slotDef.label}</span>
+                                  {slotDocs.length > 0 && (
+                                    <span className="text-[10px] text-white/30 ml-auto">{slotDocs.length} file{slotDocs.length !== 1 ? "s" : ""}</span>
+                                  )}
                                 </div>
 
-                                {doc ? (
-                                  <div className="space-y-1">
-                                    <p className="text-[10px] text-white/40 truncate">{doc.fileName}</p>
-                                    <div className="flex items-center gap-2">
-                                      <EmbeddingBadge status={doc.embeddingStatus} />
-                                      {isExtracting && (
-                                        <span className="text-[10px] text-amber-400/70">Extracting...</span>
-                                      )}
-                                      {needsReview && (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            fetch(`/api/departments/${dept.id}/documents/${doc.id}/extract`, { method: "POST" })
-                                              .then(r => r.json())
-                                              .then(data => {
-                                                if (data.diff) {
-                                                  setDiffModal({ deptId: dept.id, docId: doc.id, slotType, diff: data.diff });
-                                                }
-                                              });
-                                          }}
-                                          className="text-[10px] text-amber-400 hover:text-amber-300 font-medium"
-                                        >
-                                          Review Changes
-                                        </button>
-                                      )}
-                                      {(doc.embeddingStatus === "error" || doc.embeddingStatus === "pending" || doc.embeddingStatus === "processing") && (
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); handleRetryDoc(dept.id, doc.id); }}
-                                          className="text-[10px] text-purple-400 hover:text-purple-300 font-medium"
-                                        >
-                                          Retry
-                                        </button>
-                                      )}
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); handleDeleteDoc(dept.id, doc.id); }}
-                                        className="text-[10px] text-red-400/60 hover:text-red-400 font-medium"
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <>
+                                {slotDocs.length > 0 ? (
+                                  <div className="space-y-1.5">
+                                    {slotDocs.map(doc => {
+                                      const isExtracting = extractingDoc === doc.id;
+                                      const needsReview = doc.status === "extracted";
+                                      return (
+                                        <div key={doc.id} className="space-y-1">
+                                          <p className="text-[10px] text-white/40 truncate">{doc.fileName}</p>
+                                          <div className="flex items-center gap-2">
+                                            <EmbeddingBadge status={doc.embeddingStatus} />
+                                            {isExtracting && (
+                                              <span className="text-[10px] text-amber-400/70">Extracting...</span>
+                                            )}
+                                            {needsReview && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  fetch(`/api/departments/${dept.id}/documents/${doc.id}/extract`, { method: "POST" })
+                                                    .then(r => r.json())
+                                                    .then(data => {
+                                                      if (data.diff) {
+                                                        setDiffModal({ deptId: dept.id, docId: doc.id, slotType, diff: data.diff });
+                                                      }
+                                                    });
+                                                }}
+                                                className="text-[10px] text-amber-400 hover:text-amber-300 font-medium"
+                                              >
+                                                Review Changes
+                                              </button>
+                                            )}
+                                            {(doc.embeddingStatus === "error" || doc.embeddingStatus === "pending" || doc.embeddingStatus === "processing") && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); handleRetryDoc(dept.id, doc.id); }}
+                                                className="text-[10px] text-purple-400 hover:text-purple-300 font-medium"
+                                              >
+                                                Retry
+                                              </button>
+                                            )}
+                                            <button
+                                              onClick={(e) => { e.stopPropagation(); handleDeleteDoc(dept.id, doc.id); }}
+                                              className="text-[10px] text-red-400/60 hover:text-red-400 font-medium"
+                                            >
+                                              Remove
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
                                     <input
                                       ref={el => { slotFileInputRefs.current[`${dept.id}-${slotType}`] = el; }}
                                       type="file"
+                                      multiple
+                                      accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
+                                      className="hidden"
+                                      onChange={e => handleSlotFileChange(e, dept.id, slotType)}
+                                    />
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); slotFileInputRefs.current[`${dept.id}-${slotType}`]?.click(); }}
+                                      className="text-[10px] text-purple-400 hover:text-purple-300 font-medium mt-1"
+                                    >
+                                      {isUploading ? "Uploading..." : "+ Add more"}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div
+                                    className="cursor-pointer hover:border-white/15 hover:bg-white/[0.02] transition rounded p-1"
+                                    onClick={() => {
+                                      if (!isUploading) slotFileInputRefs.current[`${dept.id}-${slotType}`]?.click();
+                                    }}
+                                  >
+                                    <input
+                                      ref={el => { slotFileInputRefs.current[`${dept.id}-${slotType}`] = el; }}
+                                      type="file"
+                                      multiple
                                       accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
                                       className="hidden"
                                       onChange={e => handleSlotFileChange(e, dept.id, slotType)}
@@ -1329,7 +1472,7 @@ function OnboardingPage() {
                                     <span className="text-[10px] text-white/30">
                                       {isUploading ? "Uploading..." : "Click to upload"}
                                     </span>
-                                  </>
+                                  </div>
                                 )}
                               </div>
                             );
@@ -1407,7 +1550,8 @@ function OnboardingPage() {
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ============================================================ */}
         {/*  Step 5: Connect Your Tools                                   */}
@@ -1462,19 +1606,123 @@ function OnboardingPage() {
                                 ? b.entityTypeFilter.map(slug => entityTypes?.find(t => t.slug === slug)?.label ?? slug).join(", ")
                                 : "All types";
 
+                              const isPending = b.connector.status === "pending";
                               return (
-                                <div key={b.id} className="flex items-center gap-2 py-1.5">
-                                  <span
-                                    className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                                    style={{ backgroundColor: providerColor }}
-                                  >
-                                    {providerLabel.slice(0, 2).toUpperCase()}
-                                  </span>
-                                  <span className="text-sm text-white/80">{providerLabel}</span>
-                                  <svg className="w-3 h-3 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  <span className="text-xs text-white/30 ml-auto">{filterLabel}</span>
+                                <div key={b.id} className="py-1.5">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                                      style={{ backgroundColor: providerColor }}
+                                    >
+                                      {providerLabel.slice(0, 2).toUpperCase()}
+                                    </span>
+                                    <span className="text-sm text-white/80">{providerLabel}</span>
+                                    {isPending ? (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15">
+                                        Pending setup
+                                      </span>
+                                    ) : (
+                                      <svg className="w-3 h-3 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                    <span className="text-xs text-white/30 ml-auto">{filterLabel}</span>
+                                  </div>
+                                  {b.connector.provider === "google-sheets" && (() => {
+                                    const cid = b.connectorId;
+                                    const sheets = sheetsByConnector[cid];
+                                    // Auto-load sheets on first render
+                                    if (sheets === undefined) {
+                                      fetch(`/api/connectors/${cid}`)
+                                        .then(r => r.json())
+                                        .then(data => {
+                                          setSheetsByConnector(prev => ({
+                                            ...prev,
+                                            [cid]: (data.config?.spreadsheets || []) as SheetEntry[],
+                                          }));
+                                        })
+                                        .catch(() => setSheetsByConnector(prev => ({ ...prev, [cid]: [] })));
+                                    }
+                                    if (!sheets) return <p className="text-[10px] text-white/30 mt-1 ml-7">Loading spreadsheets...</p>;
+                                    if (sheets.length > 0) return (
+                                      <div className="mt-2 ml-7 space-y-2">
+                                        <p className="text-[10px] text-white/40">{sheets.length} spreadsheet{sheets.length !== 1 ? "s" : ""} found</p>
+                                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                                          {sheets.map(s => (
+                                            <label key={s.id} className="flex items-center gap-2 cursor-pointer">
+                                              <input
+                                                type="checkbox"
+                                                checked={s.selected}
+                                                onChange={() => {
+                                                  setSheetsByConnector(prev => ({
+                                                    ...prev,
+                                                    [cid]: (prev[cid] || []).map(x => x.id === s.id ? { ...x, selected: !x.selected } : x),
+                                                  }));
+                                                }}
+                                                className="rounded border-white/20 bg-white/5 text-purple-500 focus:ring-purple-500/30"
+                                              />
+                                              <span className="text-[11px] text-white/60 truncate">{s.name}</span>
+                                            </label>
+                                          ))}
+                                        </div>
+                                        <button
+                                          className="text-[10px] text-purple-400 hover:text-purple-300 font-medium"
+                                          disabled={savingSheets === cid}
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            setSavingSheets(cid);
+                                            await fetch(`/api/connectors/${cid}`, {
+                                              method: "PATCH",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ spreadsheets: sheetsByConnector[cid] }),
+                                            });
+                                            setSavingSheets(null);
+                                            loadBindings(dept.id);
+                                          }}
+                                        >
+                                          {savingSheets === cid ? "Saving..." : `Save (${sheets.filter(x => x.selected).length} selected)`}
+                                        </button>
+                                      </div>
+                                    );
+                                    // Zero sheets — manual input
+                                    return (
+                                      <div className="mt-2 ml-7 space-y-2">
+                                        <p className="text-[10px] text-white/40">No recently modified spreadsheets found. Add manually:</p>
+                                        <div className="flex gap-2">
+                                          <input
+                                            type="text"
+                                            value={manualSheetUrl}
+                                            onChange={(e) => setManualSheetUrl(e.target.value)}
+                                            placeholder="Paste Google Sheets URL"
+                                            className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1 text-[11px] text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-purple-500/40"
+                                          />
+                                          <button
+                                            className="text-[10px] text-purple-400 hover:text-purple-300 font-medium px-2"
+                                            disabled={!manualSheetUrl.trim() || savingSheets === cid}
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              setSavingSheets(cid);
+                                              const idMatch = manualSheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                                              const sheetId = idMatch ? idMatch[1] : manualSheetUrl.trim();
+                                              await fetch(`/api/connectors/${cid}`, {
+                                                method: "PATCH",
+                                                headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({
+                                                  spreadsheet_ids: [sheetId],
+                                                  spreadsheets: [{ id: sheetId, name: "Manual", selected: true }],
+                                                }),
+                                              });
+                                              setManualSheetUrl("");
+                                              setSavingSheets(null);
+                                              loadBindings(dept.id);
+                                            }}
+                                          >
+                                            Add
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               );
                             })}
@@ -1524,8 +1772,11 @@ function OnboardingPage() {
                 Connect at least 1 tool to continue
               </span>
               {totalBindings > 0 && (
-                <span className="text-xs font-medium text-emerald-400 ml-auto">
-                  {totalBindings} {totalBindings === 1 ? "binding" : "bindings"}
+                <span className="text-xs font-medium ml-auto">
+                  <span className="text-emerald-400">{activeBindings} active</span>
+                  {pendingBindings > 0 && (
+                    <span className="text-amber-400 ml-1.5">({pendingBindings} pending)</span>
+                  )}
                 </span>
               )}
             </div>
@@ -1564,6 +1815,54 @@ function OnboardingPage() {
                   ? "Here's what we discovered from your connected tools."
                   : "Syncing and analyzing your connected data sources."}
               </p>
+            </div>
+
+            {/* Manual Start Sync button */}
+            <div className="flex flex-col items-center gap-3">
+              <Button
+                variant="primary"
+                size="md"
+                disabled={manualSyncInProgress}
+                onClick={async () => {
+                  setManualSyncInProgress(true);
+                  setManualSyncResult(null);
+                  try {
+                    const res = await fetch("/api/connectors/sync-all", { method: "POST" });
+                    if (res.ok) {
+                      const data = await res.json();
+                      setManualSyncResult({
+                        synced: (data.synced || []).map((s: { name: string; status: string }) => ({ name: s.name, status: s.status })),
+                        errors: (data.errors || []).map((e: { name: string; error: string }) => ({ name: e.name, error: e.error })),
+                      });
+                    } else {
+                      setManualSyncResult({ synced: [], errors: [{ name: "Sync", error: "Request failed" }] });
+                    }
+                  } catch {
+                    setManualSyncResult({ synced: [], errors: [{ name: "Sync", error: "Network error" }] });
+                  }
+                  setManualSyncInProgress(false);
+                }}
+              >
+                {manualSyncInProgress ? (
+                  <span className="flex items-center gap-2">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Syncing...
+                  </span>
+                ) : "Start Sync"}
+              </Button>
+              {manualSyncResult && (
+                <div className="w-full space-y-1">
+                  <p className="text-xs text-center text-white/60">
+                    Synced {manualSyncResult.synced.length} connector{manualSyncResult.synced.length !== 1 ? "s" : ""}.
+                    {manualSyncResult.errors.length > 0 && (
+                      <span className="text-red-400"> {manualSyncResult.errors.length} error{manualSyncResult.errors.length !== 1 ? "s" : ""}.</span>
+                    )}
+                  </p>
+                  {manualSyncResult.errors.map((e, i) => (
+                    <p key={i} className="text-[11px] text-red-400/80 text-center">{e.name}: {e.error}</p>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Per-department progress */}

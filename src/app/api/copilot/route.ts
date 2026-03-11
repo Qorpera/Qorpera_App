@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
 
   // Detect orientation mode
   let orientation: OrientationInfo = null;
-  let sessionId = "default";
+  let sessionId = typeof body.sessionId === "string" && body.sessionId.trim()
+    ? body.sessionId.trim()
+    : "default";
 
   const orientationSession = await prisma.orientationSession.findFirst({
     where: { operatorId, completedAt: null },

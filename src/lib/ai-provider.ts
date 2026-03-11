@@ -37,24 +37,48 @@ type AIConfig = {
   model: string;
 };
 
+export type AIFunction = "reasoning" | "copilot" | "embedding" | "orientation";
+
 type CallOptions = {
   tools?: AITool[];
   temperature?: number;
   maxTokens?: number;
+  aiFunction?: AIFunction;
 };
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-export async function getAIConfig(): Promise<AIConfig> {
+export async function getAIConfig(aiFunction?: AIFunction): Promise<AIConfig> {
+  const keysToFetch = ["ai_provider", "ai_api_key", "ai_base_url", "ai_model"];
+  if (aiFunction) {
+    keysToFetch.push(
+      `ai_${aiFunction}_provider`,
+      `ai_${aiFunction}_key`,
+      `ai_${aiFunction}_model`,
+    );
+  }
+
   const settings = await prisma.appSetting.findMany({
-    where: { key: { in: ["ai_provider", "ai_api_key", "ai_base_url", "ai_model"] } },
+    where: { key: { in: keysToFetch } },
   });
   const map = new Map(settings.map((s) => [s.key, s.value]));
 
-  const provider = map.get("ai_provider") || process.env.AI_PROVIDER || "ollama";
-  const apiKey = map.get("ai_api_key") || process.env.AI_API_KEY;
+  // Function-specific keys override generic keys, which override env vars
+  const provider =
+    (aiFunction && map.get(`ai_${aiFunction}_provider`)) ||
+    map.get("ai_provider") ||
+    process.env.AI_PROVIDER ||
+    "ollama";
+  const apiKey =
+    (aiFunction && map.get(`ai_${aiFunction}_key`)) ||
+    map.get("ai_api_key") ||
+    process.env.AI_API_KEY;
   const baseUrl = map.get("ai_base_url") || defaultBaseUrlForProvider(provider);
-  const model = map.get("ai_model") || process.env.AI_MODEL || defaultModelForProvider(provider);
+  const model =
+    (aiFunction && map.get(`ai_${aiFunction}_model`)) ||
+    map.get("ai_model") ||
+    process.env.AI_MODEL ||
+    defaultModelForProvider(provider);
 
   return { provider, apiKey, baseUrl, model };
 }
@@ -91,7 +115,7 @@ export async function callLLM(
   messages: AIMessage[],
   options?: CallOptions,
 ): Promise<AIResponse> {
-  const config = await getAIConfig();
+  const config = await getAIConfig(options?.aiFunction);
 
   switch (config.provider) {
     case "openai":
@@ -111,7 +135,7 @@ export async function* streamLLM(
   messages: AIMessage[],
   options?: CallOptions,
 ): AsyncGenerator<string> {
-  const config = await getAIConfig();
+  const config = await getAIConfig(options?.aiFunction);
 
   switch (config.provider) {
     case "openai":
@@ -195,14 +219,20 @@ async function callOpenAI(
   const tools = buildOpenAITools(options?.tools);
   if (tools) body.tools = tools;
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const url = `${baseUrl}/chat/completions`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (fetchErr) {
+    throw new Error(`OpenAI unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -244,14 +274,20 @@ async function* streamOpenAI(
       : { max_completion_tokens: options.maxTokens })),
   };
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const url = `${baseUrl}/chat/completions`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (fetchErr) {
+    throw new Error(`OpenAI unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -338,15 +374,21 @@ async function callAnthropic(
   const tools = buildAnthropicTools(options?.tools);
   if (tools) body.tools = tools;
 
-  const res = await fetch(`${baseUrl}/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.apiKey ?? "",
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
+  const url = `${baseUrl}/messages`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey ?? "",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (fetchErr) {
+    throw new Error(`Anthropic unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -393,15 +435,21 @@ async function* streamAnthropic(
     ...(options?.temperature !== undefined && { temperature: options.temperature }),
   };
 
-  const res = await fetch(`${baseUrl}/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.apiKey ?? "",
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
+  const url = `${baseUrl}/messages`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey ?? "",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (fetchErr) {
+    throw new Error(`Anthropic unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -488,11 +536,17 @@ async function callOllama(
   const tools = buildOpenAITools(options?.tools);
   if (tools) body.tools = tools;
 
-  const res = await fetch(`${baseUrl}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const url = `${baseUrl}/api/chat`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (fetchErr) {
+    throw new Error(`Ollama unreachable at ${url} — is Ollama running? (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -534,11 +588,17 @@ async function* streamOllama(
     },
   };
 
-  const res = await fetch(`${baseUrl}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const url = `${baseUrl}/api/chat`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (fetchErr) {
+    throw new Error(`Ollama unreachable at ${url} — is Ollama running? (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+  }
 
   if (!res.ok) {
     const text = await res.text();

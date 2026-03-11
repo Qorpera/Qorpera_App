@@ -49,3 +49,7 @@ export function stopSituationCrons() {
   if (detectionInterval) { clearInterval(detectionInterval); detectionInterval = null; }
   if (auditInterval) { clearInterval(auditInterval); auditInterval = null; }
 }
+
+export function isCronRunning(): boolean {
+  return detectionInterval !== null;
+}

@@ -40,11 +40,10 @@ export async function GET(
     },
   });
 
-  // Build slots object — most recent doc per slot type
-  const slots: Record<string, typeof docs[0] | null> = {};
+  // Build slots object — all docs per slot type (excluding replaced)
+  const slots: Record<string, typeof docs[0][]> = {};
   for (const slotType of Object.keys(DOCUMENT_SLOT_TYPES) as SlotType[]) {
-    const doc = docs.find((d) => d.documentType === slotType && d.status !== "replaced");
-    slots[slotType] = doc ?? null;
+    slots[slotType] = docs.filter((d) => d.documentType === slotType && d.status !== "replaced");
   }
 
   // Context docs — all non-slot documents

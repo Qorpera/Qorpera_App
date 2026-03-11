@@ -34,7 +34,7 @@ export interface InternalDoc {
 }
 
 export interface DocsData {
-  slots: Record<string, InternalDoc | null>;
+  slots: Record<string, InternalDoc[]>;
   contextDocs: InternalDoc[];
 }
 

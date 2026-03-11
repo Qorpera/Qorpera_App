@@ -1,17 +1,28 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { getAIConfig, callLLM } from "@/lib/ai-provider";
+import { getAIConfig, callLLM, type AIFunction } from "@/lib/ai-provider";
 
-export async function POST() {
+const VALID_FUNCTIONS = new Set(["reasoning", "copilot", "embedding", "orientation"]);
+
+export async function POST(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+
+  let aiFunction: AIFunction | undefined;
   try {
-    const config = await getAIConfig();
+    const body = await req.json().catch(() => ({}));
+    if (body.aiFunction && VALID_FUNCTIONS.has(body.aiFunction)) {
+      aiFunction = body.aiFunction as AIFunction;
+    }
+  } catch { /* empty body is fine */ }
+
+  try {
+    const config = await getAIConfig(aiFunction);
 
     const response = await callLLM(
       [{ role: "user", content: "Respond with exactly: OK" }],
-      { maxTokens: 10, temperature: 0 },
+      { maxTokens: 10, temperature: 0, aiFunction },
     );
 
     return NextResponse.json({

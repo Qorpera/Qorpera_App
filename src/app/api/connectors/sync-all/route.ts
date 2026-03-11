@@ -14,7 +14,6 @@ export async function POST() {
       where: {
         operatorId,
         status: "active",
-        lastSyncAt: null,
       },
     });
 

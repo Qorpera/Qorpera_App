@@ -30,6 +30,8 @@ export async function GET(
     const parsed = JSON.parse(decrypt(connector.config));
     safeConfig = {
       spreadsheet_id: parsed.spreadsheet_id || "",
+      spreadsheet_ids: parsed.spreadsheet_ids || [],
+      spreadsheets: parsed.spreadsheets || [],
       hasTokens: !!(parsed.access_token && parsed.refresh_token),
     };
   }
@@ -65,19 +67,31 @@ export async function PATCH(
   if (body.name !== undefined) updates.name = body.name;
   if (body.status !== undefined) updates.status = body.status;
 
-  // Merge config fields (spreadsheet_id, etc.) without overwriting tokens
+  // Merge config fields (spreadsheet_id, spreadsheet_ids, spreadsheets) without overwriting tokens
   if (body.spreadsheet_id !== undefined) {
     existingConfig.spreadsheet_id = body.spreadsheet_id;
+    updates.config = encrypt(JSON.stringify(existingConfig));
+  }
+  if (body.spreadsheet_ids !== undefined && Array.isArray(body.spreadsheet_ids)) {
+    existingConfig.spreadsheet_ids = body.spreadsheet_ids;
+    existingConfig.spreadsheet_id = body.spreadsheet_ids[0] || "";
+    updates.config = encrypt(JSON.stringify(existingConfig));
+  }
+  if (body.spreadsheets !== undefined && Array.isArray(body.spreadsheets)) {
+    existingConfig.spreadsheets = body.spreadsheets;
+    const selectedIds = body.spreadsheets.filter((s: { selected?: boolean }) => s.selected !== false).map((s: { id: string }) => s.id);
+    existingConfig.spreadsheet_ids = selectedIds;
+    existingConfig.spreadsheet_id = selectedIds[0] || "";
     updates.config = encrypt(JSON.stringify(existingConfig));
   }
 
   // If finalizing from pending → active, test the connection
   if (
     connector.status === "pending" &&
-    (body.status === "active" || body.spreadsheet_id)
+    (body.status === "active" || body.spreadsheet_id || body.spreadsheet_ids?.length || body.spreadsheets?.length)
   ) {
     const provider = getProvider(connector.provider);
-    if (provider && existingConfig.spreadsheet_id) {
+    if (provider && (existingConfig.spreadsheet_id || existingConfig.spreadsheet_ids?.length)) {
       const test = await provider.testConnection(existingConfig);
       if (test.ok) {
         updates.status = "active";
@@ -117,6 +131,8 @@ export async function PATCH(
     const parsed = JSON.parse(decrypt(updated.config));
     safeConfig = {
       spreadsheet_id: parsed.spreadsheet_id || "",
+      spreadsheet_ids: parsed.spreadsheet_ids || [],
+      spreadsheets: parsed.spreadsheets || [],
       hasTokens: !!(parsed.access_token && parsed.refresh_token),
     };
   }

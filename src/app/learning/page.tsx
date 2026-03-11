@@ -200,13 +200,13 @@ export default function LearningPage() {
     <AppShell>
       <div className="p-8 max-w-6xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3 sticky top-0 z-10 bg-[rgba(8,12,16,0.95)] py-3 -mt-3 backdrop-blur-sm">
+        <div className="flex items-center justify-between flex-wrap gap-3 sticky top-0 z-10 bg-[rgba(8,12,16,1)] py-3 -mt-3">
           <h1 className="text-2xl font-semibold text-white/90">Learning</h1>
           <div className="flex items-center gap-2 flex-wrap">
             <select
               value={period}
               onChange={(e) => setPeriod(Number(e.target.value))}
-              className="wf-soft px-3 py-1.5 text-sm text-white/70 bg-transparent border-0 outline-none cursor-pointer"
+              className="wf-soft px-3 py-1.5 text-sm text-white/70 bg-[rgba(15,20,25,0.95)] border-0 outline-none cursor-pointer [&>option]:bg-[rgb(15,20,25)] [&>option]:text-white/80"
             >
               <option value={7}>Last 7 days</option>
               <option value={30}>Last 30 days</option>
@@ -215,7 +215,7 @@ export default function LearningPage() {
             <select
               value={departmentFilter ?? ""}
               onChange={(e) => setDepartmentFilter(e.target.value || null)}
-              className="wf-soft px-3 py-1.5 text-sm text-white/70 bg-transparent border-0 outline-none cursor-pointer"
+              className="wf-soft px-3 py-1.5 text-sm text-white/70 bg-[rgba(15,20,25,0.95)] border-0 outline-none cursor-pointer [&>option]:bg-[rgb(15,20,25)] [&>option]:text-white/80"
             >
               <option value="">All Departments</option>
               {departments

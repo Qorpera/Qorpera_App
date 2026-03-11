@@ -25,9 +25,7 @@ const ALLOWED_MIMES = new Set([
 
 const VALID_DOC_TYPES = new Set([
   "org-chart",
-  "budget",
-  "compensation",
-  "team-roster",
+  "playbook",
   "context",
 ]);
 
@@ -61,9 +59,16 @@ export async function POST(
     return NextResponse.json({ error: "Department not found" }, { status: 404 });
   }
 
-  const formData = await req.formData();
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch (formErr) {
+    console.error("[doc-upload] Failed to parse FormData:", formErr);
+    return NextResponse.json({ error: "Invalid request body — expected multipart form data" }, { status: 400 });
+  }
   const file = formData.get("file") as File | null;
   const documentType = formData.get("documentType") as string | null;
+  console.log(`[doc-upload] FormData received: file=${file?.name ?? "null"} (${file?.size ?? 0} bytes, ${file?.type ?? "?"}), documentType=${documentType}`);
 
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -87,23 +92,20 @@ export async function POST(
     );
   }
 
-  // For structural slots: mark existing doc as replaced
-  if (isStructuralSlot(documentType)) {
-    await prisma.internalDocument.updateMany({
-      where: {
-        departmentId,
-        operatorId,
-        documentType,
-        status: { not: "replaced" },
-      },
-      data: { status: "replaced" },
-    });
-  }
-
   // Write file to disk (per-operator isolation)
   const storageBase = process.env.DOCUMENT_STORAGE_PATH || "./uploads/documents";
   const uploadDir = path.join(storageBase, operatorId);
-  await mkdir(uploadDir, { recursive: true });
+  console.log(`[doc-upload] Storage: ${uploadDir}, file: ${file.name}, type: ${documentType}, size: ${file.size}`);
+
+  try {
+    await mkdir(uploadDir, { recursive: true });
+  } catch (mkdirErr) {
+    console.error("[doc-upload] Failed to create upload directory:", uploadDir, mkdirErr);
+    return NextResponse.json(
+      { error: `Storage error: cannot create directory ${uploadDir}` },
+      { status: 500 },
+    );
+  }
 
   const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   const safeFileName = `${id}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
@@ -111,7 +113,16 @@ export async function POST(
   const filePath = `${operatorId}/${safeFileName}`; // relative for DB storage
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(absolutePath, buffer);
+  try {
+    await writeFile(absolutePath, buffer);
+    console.log(`[doc-upload] File written: ${absolutePath} (${buffer.length} bytes)`);
+  } catch (writeErr) {
+    console.error("[doc-upload] Failed to write file:", absolutePath, writeErr);
+    return NextResponse.json(
+      { error: `Storage error: cannot write file. Check DOCUMENT_STORAGE_PATH permissions.` },
+      { status: 500 },
+    );
+  }
 
   // Ensure "document" entity type exists
   const def = HARDCODED_TYPE_DEFS["document"];
@@ -170,13 +181,18 @@ export async function POST(
     },
   });
 
-  // Extract text immediately
-  const rawText = await extractText(absolutePath, file.type);
-  if (rawText) {
-    await prisma.internalDocument.update({
-      where: { id: doc.id },
-      data: { rawText },
-    });
+  // Extract text immediately (non-fatal if it fails)
+  try {
+    const rawText = await extractText(absolutePath, file.type);
+    if (rawText) {
+      await prisma.internalDocument.update({
+        where: { id: doc.id },
+        data: { rawText },
+      });
+      console.log(`[doc-upload] Text extracted: ${rawText.length} chars for ${doc.id}`);
+    }
+  } catch (extractErr) {
+    console.error("[doc-upload] Text extraction failed (non-fatal):", extractErr);
   }
 
   // Enqueue for batch processing (RAG pipeline)

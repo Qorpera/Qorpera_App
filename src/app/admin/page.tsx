@@ -14,12 +14,23 @@ interface OperatorInfo {
   onboardingPhase: string;
 }
 
+interface SystemStatus {
+  situationTypeCount: number;
+  lastDetectionRun: string | null;
+  totalSituationsDetected: number;
+  activeConnectors: number;
+  aiProviderConfigured: boolean;
+  aiReachable: boolean;
+  cronRunning: boolean;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [operators, setOperators] = useState<OperatorInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("");
   const [entering, setEntering] = useState<string | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
 
   useEffect(() => {
     // Verify superadmin access
@@ -37,6 +48,11 @@ export default function AdminPage() {
         }
         setUserName(me.user.name);
         setOperators(ops);
+        // Fetch system status for superadmin
+        fetch("/api/situations/status")
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => { if (data) setSystemStatus(data); })
+          .catch(() => {});
       })
       .catch(() => router.replace("/map"))
       .finally(() => setLoading(false));
@@ -148,7 +164,90 @@ export default function AdminPage() {
             ))}
           </div>
         )}
+        {/* System Status — superadmin only */}
+        {systemStatus && (
+          <div className="mt-10">
+            <h2 className="text-lg font-medium text-white/70 mb-4">System Status</h2>
+            <div className="wf-soft p-6 space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {/* Situation Types */}
+                <div>
+                  <p className="text-xs text-white/40 mb-1">Situation Types</p>
+                  <p className="text-lg font-medium text-white/80">{systemStatus.situationTypeCount}</p>
+                </div>
+                {/* Last Detection */}
+                <div>
+                  <p className="text-xs text-white/40 mb-1">Last Detection Run</p>
+                  <p className="text-sm text-white/70">
+                    {systemStatus.lastDetectionRun ? formatRelativeTime(systemStatus.lastDetectionRun) : "never"}
+                  </p>
+                </div>
+                {/* Total Situations */}
+                <div>
+                  <p className="text-xs text-white/40 mb-1">Total Situations</p>
+                  <p className="text-lg font-medium text-white/80">{systemStatus.totalSituationsDetected}</p>
+                </div>
+                {/* Active Connectors */}
+                <div>
+                  <p className="text-xs text-white/40 mb-1">Active Connectors</p>
+                  <p className="text-lg font-medium text-white/80">{systemStatus.activeConnectors}</p>
+                </div>
+                {/* AI Provider */}
+                <div>
+                  <p className="text-xs text-white/40 mb-1">AI Provider</p>
+                  <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                    systemStatus.aiProviderConfigured
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : "bg-red-500/15 text-red-400"
+                  }`}>
+                    {systemStatus.aiProviderConfigured ? "Configured" : "Not configured"}
+                  </span>
+                </div>
+                {/* AI Reachable */}
+                <div>
+                  <p className="text-xs text-white/40 mb-1">AI Reachable</p>
+                  <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                    systemStatus.aiReachable
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : systemStatus.aiProviderConfigured
+                        ? "bg-amber-500/15 text-amber-400"
+                        : "bg-red-500/15 text-red-400"
+                  }`}>
+                    {systemStatus.aiReachable ? "Yes" : "No"}
+                  </span>
+                </div>
+              </div>
+              {/* Cron status - full width */}
+              <div className="pt-2 border-t border-white/[0.06]">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-white/40">Detection Cron:</p>
+                  <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                    systemStatus.cronRunning
+                      ? "bg-emerald-500/15 text-emerald-400"
+                      : "bg-red-500/15 text-red-400"
+                  }`}>
+                    {systemStatus.cronRunning ? "Running" : "Stopped"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+function formatRelativeTime(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
 }

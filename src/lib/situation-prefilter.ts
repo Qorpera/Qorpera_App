@@ -58,7 +58,7 @@ Keep the signals broad — 1-3 conditions maximum. Use days_past/days_until for 
   try {
     const response = await callLLM(
       [{ role: "user", content: prompt }],
-      { temperature: 0.1, maxTokens: 500 },
+      { temperature: 0.1, maxTokens: 500, aiFunction: "reasoning" },
     );
 
     const parsed = extractJSON(response.content);
@@ -120,7 +120,7 @@ Make this filter BROADER than before — it's a coarse filter, not a final decis
   try {
     const response = await callLLM(
       [{ role: "user", content: prompt }],
-      { temperature: 0.1, maxTokens: 500 },
+      { temperature: 0.1, maxTokens: 500, aiFunction: "reasoning" },
     );
 
     const parsed = extractJSON(response.content);

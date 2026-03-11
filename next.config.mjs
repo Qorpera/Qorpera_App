@@ -2,7 +2,7 @@
 const nextConfig = {
   output: "standalone",
   experimental: {
-    serverComponentsExternalPackages: ["@prisma/client", "prisma", "pdf-parse", "mammoth"],
+    serverComponentsExternalPackages: ["@prisma/client", "prisma", "pdf-parse", "mammoth", "xlsx", "papaparse"],
   },
 };
 

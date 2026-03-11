@@ -12,25 +12,9 @@ export interface ExtractedPerson {
   reportsTo?: string; // name of manager
 }
 
-export interface ExtractedBudgetItem {
-  property: string; // property slug (e.g., "annual-budget", "headcount-target")
-  value: string;
-  label: string; // human-readable label
-}
-
-export interface ExtractedCompensation {
-  personName: string;
-  salary?: string;
-  currency?: string;
-  bonus?: string;
-  notes?: string;
-}
-
 export type ExtractionResult =
   | { type: "org-chart"; people: ExtractedPerson[] }
-  | { type: "team-roster"; people: ExtractedPerson[] }
-  | { type: "budget"; items: ExtractedBudgetItem[] }
-  | { type: "compensation"; entries: ExtractedCompensation[] };
+  | { type: "playbook" };
 
 // ── Diff Types ───────────────────────────────────────────────────────────────
 
@@ -92,78 +76,6 @@ Respond with ONLY this JSON:
 }`;
 }
 
-function buildTeamRosterPrompt(departmentName: string): string {
-  return `You are analyzing a team roster for the "${departmentName}" department.
-
-Extract every person listed with their:
-- name (full name)
-- role (job title, position, or function)
-- email (if listed)
-- phone (if listed)
-
-RULES:
-1. Only extract PEOPLE with their attributes.
-2. Use names exactly as written.
-3. If a field is not present, omit it.
-
-Respond with ONLY this JSON:
-{
-  "people": [
-    { "name": "Full Name", "role": "Job Title", "email": "email@example.com", "phone": "+1234567890" }
-  ]
-}`;
-}
-
-function buildBudgetPrompt(departmentName: string): string {
-  return `You are analyzing a budget document for the "${departmentName}" department.
-
-Extract key financial figures and targets. Look for:
-- Annual budget / total budget allocation
-- Headcount target or approved positions
-- Revenue target (if applicable)
-- Cost center or budget code
-- Any other named financial metrics with values
-
-RULES:
-1. Only extract concrete numbers and values, not narrative text.
-2. Preserve currency symbols and units.
-3. Use descriptive kebab-case slugs for property names (e.g., "annual-budget", "headcount-target").
-
-Respond with ONLY this JSON:
-{
-  "items": [
-    { "property": "annual-budget", "value": "500000 DKK", "label": "Annual Budget" }
-  ]
-}`;
-}
-
-function buildCompensationPrompt(departmentName: string, existingMembers: string[]): string {
-  const memberList =
-    existingMembers.length > 0
-      ? `\nKNOWN TEAM MEMBERS IN THIS DEPARTMENT:\n${existingMembers.map((m) => `- ${m}`).join("\n")}\n`
-      : "";
-
-  return `You are analyzing a compensation document for the "${departmentName}" department.
-${memberList}
-Extract salary and compensation data for each person mentioned:
-- personName (match to known team members when possible)
-- salary (annual salary amount with currency)
-- currency (currency code, e.g., DKK, USD, EUR)
-- bonus (bonus amount or percentage if listed)
-- notes (any relevant compensation notes)
-
-RULES:
-1. Match person names to the known team members list when the names clearly correspond.
-2. Preserve exact amounts as written.
-3. If a field is not present, omit it.
-
-Respond with ONLY this JSON:
-{
-  "entries": [
-    { "personName": "Full Name", "salary": "650000", "currency": "DKK", "bonus": "10%" }
-  ]
-}`;
-}
 
 // ── Extract ──────────────────────────────────────────────────────────────────
 
@@ -186,58 +98,24 @@ export async function extractStructuralDocument(
   const deptName = department.displayName;
   const text = doc.rawText.slice(0, 15000); // Safety limit
 
-  let systemPrompt: string;
-
   switch (doc.documentType) {
-    case "org-chart":
-      systemPrompt = buildOrgChartPrompt(deptName);
-      break;
-    case "team-roster":
-      systemPrompt = buildTeamRosterPrompt(deptName);
-      break;
-    case "budget":
-      systemPrompt = buildBudgetPrompt(deptName);
-      break;
-    case "compensation": {
-      // Load existing members for name matching
-      const members = await prisma.entity.findMany({
-        where: { operatorId, parentDepartmentId: doc.departmentId, category: "base" },
-        select: { displayName: true },
-      });
-      systemPrompt = buildCompensationPrompt(
-        deptName,
-        members.map((m) => m.displayName),
-      );
-      break;
+    case "org-chart": {
+      const systemPrompt = buildOrgChartPrompt(deptName);
+      const messages: AIMessage[] = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Extract from this document:\n\n${text}` },
+      ];
+      const response = await callLLM(messages, { temperature: 0.1, maxTokens: 4000, aiFunction: "reasoning" });
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("LLM did not return valid JSON");
+      const parsed = JSON.parse(jsonMatch[0]);
+      return { type: "org-chart", people: parsed.people ?? [] };
     }
+    case "playbook":
+      // Playbooks don't extract entities — just return empty
+      return { type: "playbook" };
     default:
       throw new Error(`Unknown structural document type: ${doc.documentType}`);
-  }
-
-  const messages: AIMessage[] = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: `Extract from this document:\n\n${text}` },
-  ];
-
-  const response = await callLLM(messages, { temperature: 0.1, maxTokens: 4000 });
-
-  // Parse response
-  const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("LLM did not return valid JSON");
-
-  const parsed = JSON.parse(jsonMatch[0]);
-
-  switch (doc.documentType) {
-    case "org-chart":
-      return { type: "org-chart", people: parsed.people ?? [] };
-    case "team-roster":
-      return { type: "team-roster", people: parsed.people ?? [] };
-    case "budget":
-      return { type: "budget", items: parsed.items ?? [] };
-    case "compensation":
-      return { type: "compensation", entries: parsed.entries ?? [] };
-    default:
-      throw new Error(`Unknown type: ${doc.documentType}`);
   }
 }
 
@@ -263,16 +141,12 @@ export async function generateExtractionDiff(
     },
   });
 
-  if (extraction.type === "org-chart" || extraction.type === "team-roster") {
+  if (extraction.type === "org-chart") {
     return generatePeopleDiff(extraction.people, currentMembers);
   }
 
-  if (extraction.type === "budget") {
-    return generateBudgetDiff(extraction.items, departmentId);
-  }
-
-  if (extraction.type === "compensation") {
-    return generateCompensationDiff(extraction.entries, currentMembers);
+  if (extraction.type === "playbook") {
+    return { type: "playbook", summary: "Playbook uploaded (no entity extraction)" };
   }
 
   return { type: (extraction as ExtractionResult).type, summary: "Unknown extraction type" };
@@ -367,93 +241,6 @@ function generatePeopleDiff(
     type: "people",
     people: diffs,
     summary: parts.length > 0 ? parts.join(", ") : "No changes detected",
-  };
-}
-
-function generateBudgetDiff(
-  items: ExtractedBudgetItem[],
-  departmentId: string,
-): ExtractionDiff {
-  // Budget items become properties on the department entity itself
-  const diffs: PropertyDiff[] = items.map((item) => ({
-    action: "create" as const, // Will check for existing in confirm step
-    targetEntityId: departmentId,
-    targetEntityName: "Department",
-    property: item.property,
-    label: item.label,
-    newValue: item.value,
-    selected: true,
-  }));
-
-  return {
-    type: "properties",
-    properties: diffs,
-    summary: `${items.length} budget item${items.length !== 1 ? "s" : ""} extracted`,
-  };
-}
-
-function generateCompensationDiff(
-  entries: ExtractedCompensation[],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  currentMembers: any[],
-): ExtractionDiff {
-  const diffs: PropertyDiff[] = [];
-
-  for (const entry of entries) {
-    // Match to existing member
-    const match = currentMembers.find(
-      (m) =>
-        m.displayName.toLowerCase().trim() === entry.personName.toLowerCase().trim() ||
-        m.displayName.toLowerCase().includes(entry.personName.toLowerCase()),
-    );
-
-    if (!match) continue; // Skip unmatched (user can review)
-
-    if (entry.salary) {
-      const currentSalary = match.propertyValues.find(
-        (pv: { property: { slug: string } }) => pv.property.slug === "salary",
-      )?.value;
-      diffs.push({
-        action: currentSalary ? "update" : "create",
-        targetEntityId: match.id,
-        targetEntityName: match.displayName,
-        property: "salary",
-        label: "Salary",
-        oldValue: currentSalary,
-        newValue: entry.salary,
-        selected: true,
-      });
-    }
-
-    if (entry.currency) {
-      diffs.push({
-        action: "create",
-        targetEntityId: match.id,
-        targetEntityName: match.displayName,
-        property: "salary-currency",
-        label: "Salary Currency",
-        newValue: entry.currency,
-        selected: true,
-      });
-    }
-
-    if (entry.bonus) {
-      diffs.push({
-        action: "create",
-        targetEntityId: match.id,
-        targetEntityName: match.displayName,
-        property: "bonus",
-        label: "Bonus",
-        newValue: entry.bonus,
-        selected: true,
-      });
-    }
-  }
-
-  return {
-    type: "properties",
-    properties: diffs,
-    summary: `Compensation data for ${entries.length} team member${entries.length !== 1 ? "s" : ""}`,
   };
 }
 

@@ -189,7 +189,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       ];
 
       try {
-        const response = await callLLM(messages, { temperature: 0.2, maxTokens: 4096 });
+        const response = await callLLM(messages, { temperature: 0.2, maxTokens: 4096, aiFunction: "reasoning" });
         rawResponse = response.content;
 
         // 8. Validate response

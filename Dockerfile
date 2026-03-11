@@ -29,6 +29,11 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+# External packages needed at runtime (serverComponentsExternalPackages)
+COPY --from=builder /app/node_modules/pdf-parse ./node_modules/pdf-parse
+COPY --from=builder /app/node_modules/mammoth ./node_modules/mammoth
+COPY --from=builder /app/node_modules/xlsx ./node_modules/xlsx
+COPY --from=builder /app/node_modules/papaparse ./node_modules/papaparse
 
 # Document storage directory
 RUN mkdir -p /data/documents && chown nextjs:nodejs /data/documents

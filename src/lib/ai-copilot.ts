@@ -1076,13 +1076,14 @@ export async function chat(
         while (maxIterations > 0) {
           maxIterations--;
 
-          const response = await callLLM(currentMessages, { tools, temperature: 0.3 });
+          const aiFn = orientation ? "orientation" as const : "copilot" as const;
+          const response = await callLLM(currentMessages, { tools, temperature: 0.3, aiFunction: aiFn });
 
           if (!response.toolCalls?.length) {
             if (response.content) {
               controller.enqueue(encoder.encode(response.content));
             } else {
-              for await (const chunk of streamLLM(currentMessages, { temperature: 0.3 })) {
+              for await (const chunk of streamLLM(currentMessages, { temperature: 0.3, aiFunction: aiFn })) {
                 controller.enqueue(encoder.encode(chunk));
               }
             }
@@ -1122,7 +1123,12 @@ export async function chat(
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        controller.enqueue(encoder.encode(`Error: ${errMsg}`));
+        const errStack = err instanceof Error ? err.stack : undefined;
+        const errCause = err instanceof Error && err.cause ? String(err.cause) : undefined;
+        console.error("[copilot] Chat error:", { message: errMsg, cause: errCause, stack: errStack });
+        let detail = errMsg;
+        if (errCause) detail += ` (cause: ${errCause})`;
+        controller.enqueue(encoder.encode(`Error: ${detail}`));
       } finally {
         controller.close();
       }

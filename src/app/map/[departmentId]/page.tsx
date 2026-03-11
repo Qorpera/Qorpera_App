@@ -120,7 +120,7 @@ interface SlotDocument {
 }
 
 interface DocumentsResponse {
-  slots: Record<string, SlotDocument | null>;
+  slots: Record<string, SlotDocument[]>;
   contextDocs: SlotDocument[];
 }
 
@@ -151,18 +151,6 @@ function SlotIcon({ icon, className }: { icon: string; className?: string }) {
       return (
         <svg className={cn} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v3m0 12v3m-6-9H3m18 0h-3m-2.25-5.25L17.25 5.25m-10.5 0L8.25 6.75m0 10.5l-1.5 1.5m10.5-1.5l1.5 1.5M12 9a3 3 0 100 6 3 3 0 000-6z" />
-        </svg>
-      );
-    case "wallet":
-      return (
-        <svg className={cn} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 110-6h1.5M3 12v6.75A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V12M3 12V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25V12M3 12h18M15 12a3 3 0 100 6 3 3 0 000-6z" />
-        </svg>
-      );
-    case "banknotes":
-      return (
-        <svg className={cn} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
         </svg>
       );
     case "clipboard-list":
@@ -544,8 +532,8 @@ function DepartmentDetailInner() {
   useEffect(() => {
     if (!docsData) return;
     const hasProcessing =
-      Object.values(docsData.slots).some(
-        (d) => d && (d.status === "processing" || d.embeddingStatus === "processing"),
+      Object.values(docsData.slots).flat().some(
+        (d) => d.status === "processing" || d.embeddingStatus === "processing",
       ) ||
       docsData.contextDocs.some(
         (d) => d.status === "processing" || d.embeddingStatus === "processing",
@@ -1269,15 +1257,14 @@ function DepartmentDetailInner() {
           <div className="grid grid-cols-2 gap-3">
             {(Object.entries(DOCUMENT_SLOT_TYPES) as [SlotType, typeof DOCUMENT_SLOT_TYPES[SlotType]][]).map(
               ([slotType, slotDef]) => {
-                const doc = docsData?.slots[slotType] ?? null;
+                const slotDocs = docsData?.slots[slotType] ?? [];
                 const isUploading = uploadingSlot === slotType;
-                const isExtracting = doc && extractingDoc === doc.id;
 
                 return (
                   <div
                     key={slotType}
                     className={`rounded-lg border p-4 transition ${
-                      doc
+                      slotDocs.length > 0
                         ? "border-white/10 border-l-2 border-l-purple-500/50"
                         : "border-dashed border-white/10 hover:border-white/20"
                     }`}
@@ -1287,15 +1274,12 @@ function DepartmentDetailInner() {
                         <SlotIcon icon={slotDef.icon} className="w-4 h-4 text-white/40" />
                         <span className="text-sm font-medium text-white/70">{slotDef.label}</span>
                       </div>
-                      {doc && doc.status === "confirmed" && (
-                        <span className="w-2 h-2 rounded-full bg-green-500" title="Confirmed" />
-                      )}
-                      {doc && doc.status === "extracted" && (
-                        <span className="w-2 h-2 rounded-full bg-amber-500" title="Needs review" />
+                      {slotDocs.length > 0 && (
+                        <span className="text-[10px] text-white/30">{slotDocs.length} file{slotDocs.length !== 1 ? "s" : ""}</span>
                       )}
                     </div>
 
-                    {!doc && !isUploading && isAdmin && (
+                    {slotDocs.length === 0 && !isUploading && isAdmin && (
                       <button
                         onClick={() => slotFileInputRefs.current[slotType]?.click()}
                         className="w-full py-4 border border-dashed border-white/10 rounded-md text-xs text-white/30 hover:text-white/50 hover:border-white/20 transition"
@@ -1310,7 +1294,7 @@ function DepartmentDetailInner() {
                         />
                       </button>
                     )}
-                    {!doc && !isUploading && !isAdmin && (
+                    {slotDocs.length === 0 && !isUploading && !isAdmin && (
                       <p className="py-4 text-center text-xs text-white/20">No document uploaded</p>
                     )}
 
@@ -1324,33 +1308,58 @@ function DepartmentDetailInner() {
                       </div>
                     )}
 
-                    {doc && !isUploading && (
-                      <div>
-                        <p className="text-xs text-white/50 truncate">{doc.fileName}</p>
-                        <div className="mt-2">
-                          <StatusBadge status={doc.status} embeddingStatus={doc.embeddingStatus} />
-                        </div>
-                        {isExtracting && (
-                          <p className="text-xs text-amber-400 mt-2 flex items-center gap-1">
-                            <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                            Extracting...
-                          </p>
-                        )}
-                        <div className="flex gap-2 mt-3">
-                          {doc.status === "extracted" && isAdmin && (
-                            <button
-                              onClick={() => handleReExtract(doc.id, slotType).then(() => {/* modal opens via handler */})}
-                              className="text-[11px] text-purple-400 hover:text-purple-300"
-                            >
-                              Review Changes
-                            </button>
-                          )}
-                          {isAdmin && (
+                    {slotDocs.length > 0 && !isUploading && (
+                      <div className="space-y-2">
+                        {slotDocs.map((doc) => {
+                          const isExtracting = extractingDoc === doc.id;
+                          return (
+                            <div key={doc.id}>
+                              <p className="text-xs text-white/50 truncate">{doc.fileName}</p>
+                              <div className="mt-1">
+                                <StatusBadge status={doc.status} embeddingStatus={doc.embeddingStatus} />
+                              </div>
+                              {isExtracting && (
+                                <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
+                                  <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                                  Extracting...
+                                </p>
+                              )}
+                              <div className="flex gap-2 mt-2">
+                                {doc.status === "extracted" && isAdmin && (
+                                  <button
+                                    onClick={() => handleReExtract(doc.id, slotType).then(() => {/* modal opens via handler */})}
+                                    className="text-[11px] text-purple-400 hover:text-purple-300"
+                                  >
+                                    Review Changes
+                                  </button>
+                                )}
+                                {doc.status === "confirmed" && isAdmin && (
+                                  <button
+                                    onClick={() => handleReExtract(doc.id, slotType)}
+                                    disabled={!!isExtracting}
+                                    className="text-[11px] text-white/40 hover:text-white/60"
+                                  >
+                                    Re-extract
+                                  </button>
+                                )}
+                                {isAdmin && (
+                                  <button
+                                    onClick={() => setDeleteDocId(doc.id)}
+                                    className="text-[11px] text-red-400/60 hover:text-red-400"
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {isAdmin && (
                           <button
                             onClick={() => slotFileInputRefs.current[slotType]?.click()}
-                            className="text-[11px] text-white/40 hover:text-white/60"
+                            className="text-[11px] text-purple-400 hover:text-purple-300 mt-1"
                           >
-                            Replace
+                            + Add more
                             <input
                               ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
                               type="file"
@@ -1359,17 +1368,7 @@ function DepartmentDetailInner() {
                               onChange={(e) => handleSlotFileChange(e, slotType)}
                             />
                           </button>
-                          )}
-                          {doc.status === "confirmed" && isAdmin && (
-                            <button
-                              onClick={() => handleReExtract(doc.id, slotType)}
-                              disabled={!!isExtracting}
-                              className="text-[11px] text-white/40 hover:text-white/60"
-                            >
-                              Re-extract
-                            </button>
-                          )}
-                        </div>
+                        )}
                       </div>
                     )}
                   </div>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider, listProviders } from "@/lib/connectors/registry";
-import { encrypt } from "@/lib/encryption";
+import { encrypt, decrypt } from "@/lib/encryption";
 
 export async function GET() {
   const su = await getSessionUser();
@@ -23,21 +23,31 @@ export async function GET() {
   const providers = listProviders();
   const providerMap = Object.fromEntries(providers.map((p) => [p.id, p.name]));
 
-  const items = connectors.map((c) => ({
-    id: c.id,
-    provider: c.provider,
-    providerName: providerMap[c.provider] || c.provider,
-    name: c.name,
-    status: c.status,
-    lastSyncAt: c.lastSyncAt?.toISOString() ?? null,
-    lastSyncResult: c.syncLogs[0]
-      ? {
-          eventsCreated: c.syncLogs[0].eventsCreated,
-          status: c.syncLogs[0].status,
-          createdAt: c.syncLogs[0].createdAt.toISOString(),
-        }
-      : undefined,
-  }));
+  const items = connectors.map((c) => {
+    let spreadsheetCount = 0;
+    if (c.provider === "google-sheets" && c.config) {
+      try {
+        const parsed = JSON.parse(decrypt(c.config));
+        spreadsheetCount = (parsed.spreadsheet_ids || []).length;
+      } catch { /* ignore */ }
+    }
+    return {
+      id: c.id,
+      provider: c.provider,
+      providerName: providerMap[c.provider] || c.provider,
+      name: c.name,
+      status: c.status,
+      lastSyncAt: c.lastSyncAt?.toISOString() ?? null,
+      spreadsheetCount,
+      lastSyncResult: c.syncLogs[0]
+        ? {
+            eventsCreated: c.syncLogs[0].eventsCreated,
+            status: c.syncLogs[0].status,
+            createdAt: c.syncLogs[0].createdAt.toISOString(),
+          }
+        : undefined,
+    };
+  });
 
   return NextResponse.json({ connectors: items });
 }

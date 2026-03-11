@@ -478,7 +478,7 @@ Respond with ONLY valid JSON (no markdown): an array with one object per entity 
     try {
       const response = await callLLM(
         [{ role: "user", content: prompt }],
-        { temperature: 0.1, maxTokens: 1000 },
+        { temperature: 0.1, maxTokens: 1000, aiFunction: "reasoning" },
       );
 
       const parsed = extractJSONArray(response.content);

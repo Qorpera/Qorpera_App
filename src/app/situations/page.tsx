@@ -90,6 +90,15 @@ export default function SituationsPage() {
   const [detail, setDetail] = useState<SituationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // System status for header indicator
+  const [sysStatus, setSysStatus] = useState<{
+    situationTypeCount: number;
+    lastDetectionRun: string | null;
+    cronRunning: boolean;
+    aiProviderConfigured: boolean;
+    aiReachable: boolean;
+  } | null>(null);
+
   // Interaction state
   const [activeMode, setActiveMode] = useState<ActiveMode>(null);
   const [feedbackText, setFeedbackText] = useState("");
@@ -120,6 +129,14 @@ export default function SituationsPage() {
   }, []);
 
   useEffect(() => { fetchSituations(); }, [fetchSituations]);
+
+  // Fetch system status on mount
+  useEffect(() => {
+    fetch("/api/situations/status")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setSysStatus(data); })
+      .catch(() => {});
+  }, []);
 
   // 15-second polling
   useEffect(() => {
@@ -197,6 +214,28 @@ export default function SituationsPage() {
             ) : "Run Detection"}
           </Button>
         </div>
+
+        {/* Status indicator */}
+        {sysStatus && (
+          <div className="text-xs">
+            {sysStatus.cronRunning && sysStatus.aiReachable ? (
+              <p className="text-emerald-400/80">
+                Detection active
+                {sysStatus.lastDetectionRun && (
+                  <> &mdash; last run: {timeAgo(sysStatus.lastDetectionRun)}</>
+                )}
+                {" "}&mdash; {sysStatus.situationTypeCount} type{sysStatus.situationTypeCount !== 1 ? "s" : ""} monitored
+              </p>
+            ) : (
+              <p className="text-amber-400/80">
+                Detection not running
+                {!sysStatus.aiProviderConfigured && " \u2014 no AI provider configured"}
+                {sysStatus.aiProviderConfigured && !sysStatus.aiReachable && " \u2014 AI credentials missing"}
+                {sysStatus.aiReachable && !sysStatus.cronRunning && " \u2014 cron not started"}
+              </p>
+            )}
+          </div>
+        )}
 
         {loading && (
           <div className="flex justify-center py-16">

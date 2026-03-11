@@ -26,11 +26,18 @@ export const googleSheetsProvider: ConnectorProvider = {
   async testConnection(config) {
     try {
       const token = await getValidAccessToken(config);
-      const spreadsheetId = extractSpreadsheetId(
-        config.spreadsheet_id as string
-      );
+      // Support both spreadsheet_ids (array) and spreadsheet_id (single)
+      let testId = "";
+      if (config.spreadsheet_ids && Array.isArray(config.spreadsheet_ids) && config.spreadsheet_ids.length > 0) {
+        testId = config.spreadsheet_ids[0] as string;
+      } else if (config.spreadsheet_id) {
+        testId = extractSpreadsheetId(config.spreadsheet_id as string);
+      }
+      if (!testId) {
+        return { ok: false, error: "No spreadsheet ID configured" };
+      }
       const resp = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=properties.title`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${testId}?fields=properties.title`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!resp.ok)
@@ -46,48 +53,79 @@ export const googleSheetsProvider: ConnectorProvider = {
 
   async *sync(config, since?) {
     const token = await getValidAccessToken(config);
-    const spreadsheetId = extractSpreadsheetId(
-      config.spreadsheet_id as string
-    );
 
-    const metaResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (!metaResp.ok)
-      throw new Error(`Failed to read spreadsheet: ${metaResp.status}`);
-    const meta = await metaResp.json();
+    // Support both spreadsheet_ids (array) and spreadsheet_id (single, backward compat)
+    const spreadsheetIds: string[] = [];
+    if (config.spreadsheet_ids && Array.isArray(config.spreadsheet_ids)) {
+      spreadsheetIds.push(...(config.spreadsheet_ids as string[]));
+    } else if (config.spreadsheet_id) {
+      spreadsheetIds.push(extractSpreadsheetId(config.spreadsheet_id as string));
+    }
 
-    for (const sheet of meta.sheets) {
-      const sheetName = sheet.properties.title;
+    // Check for new spreadsheets since last sync
+    if (config.access_token) {
+      try {
+        const sinceDate = (config.last_discovery as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const driveResp = await fetch(
+          `https://www.googleapis.com/drive/v3/files?` + new URLSearchParams({
+            q: `mimeType='application/vnd.google-apps.spreadsheet' and modifiedTime>'${sinceDate}' and trashed=false`,
+            fields: "files(id)",
+            pageSize: "100",
+          }),
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (driveResp.ok) {
+          const data = await driveResp.json();
+          const newIds = (data.files || []).map((f: { id: string }) => f.id);
+          for (const id of newIds) {
+            if (!spreadsheetIds.includes(id)) spreadsheetIds.push(id);
+          }
+        }
+      } catch { /* ignore discovery errors during sync */ }
+    }
 
-      // Quote sheet name to avoid A1-notation ambiguity (e.g. "Ark1" → "'Ark1'")
-      const quotedName = `'${sheetName.replace(/'/g, "''")}'`;
-      const dataResp = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(quotedName)}`,
+    for (const sheetId of spreadsheetIds) {
+      const metaResp = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (!dataResp.ok) continue;
-      const { values } = await dataResp.json();
-      if (!values || values.length < 2) continue;
+      if (!metaResp.ok) {
+        console.warn(`[GoogleSheets] Failed to read spreadsheet ${sheetId}: ${metaResp.status}`);
+        continue;
+      }
+      const meta = await metaResp.json();
 
-      const headers = values[0] as string[];
+      for (const sheet of meta.sheets) {
+        const sheetName = sheet.properties.title;
 
-      for (let i = 1; i < values.length; i++) {
-        const row = values[i] as string[];
-        const payload: Record<string, unknown> = {
-          _sheet: sheetName,
-          _row: i + 1,
-          _spreadsheetId: spreadsheetId,
-        };
-        for (let j = 0; j < headers.length; j++) {
-          payload[headers[j]] = row[j] ?? "";
+        // Quote sheet name to avoid A1-notation ambiguity (e.g. "Ark1" → "'Ark1'")
+        const quotedName = `'${sheetName.replace(/'/g, "''")}'`;
+        const dataResp = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(quotedName)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!dataResp.ok) continue;
+        const { values } = await dataResp.json();
+        if (!values || values.length < 2) continue;
+
+        const headers = values[0] as string[];
+
+        for (let i = 1; i < values.length; i++) {
+          const row = values[i] as string[];
+          const payload: Record<string, unknown> = {
+            _sheet: sheetName,
+            _row: i + 1,
+            _spreadsheetId: sheetId,
+          };
+          for (let j = 0; j < headers.length; j++) {
+            payload[headers[j]] = row[j] ?? "";
+          }
+
+          yield {
+            eventType: "row.synced",
+            payload,
+          };
         }
-
-        yield {
-          eventType: "row.synced",
-          payload,
-        };
       }
     }
   },

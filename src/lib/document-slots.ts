@@ -2,29 +2,15 @@ export const DOCUMENT_SLOT_TYPES = {
   "org-chart": {
     label: "Org Chart",
     icon: "network",
-    description: "Organizational chart showing team members and reporting lines",
+    description: "Organizational structure documents — org charts, reporting lines, hierarchy",
     extractsEntities: true,
     extractsProperties: false,
   },
-  "budget": {
-    label: "Budget",
-    icon: "wallet",
-    description: "Department budget allocation and financial targets",
-    extractsEntities: false,
-    extractsProperties: true,
-  },
-  "compensation": {
-    label: "Compensation",
-    icon: "banknotes",
-    description: "Team member salary and compensation data",
-    extractsEntities: false,
-    extractsProperties: true,
-  },
-  "team-roster": {
-    label: "Team Roster",
+  "playbook": {
+    label: "Playbook",
     icon: "clipboard-list",
-    description: "List of team members with roles and contact information",
-    extractsEntities: true,
+    description: "Job manuals, process guides, SOPs for the department",
+    extractsEntities: false,
     extractsProperties: false,
   },
 } as const;

@@ -31,16 +31,8 @@ const SLOT_ICONS: Record<string, { label: string; path: string }> = {
     label: "Org Chart",
     path: "M12 3v3m0 12v3m-6-9H3m18 0h-3m-2.25-5.25L17.25 5.25m-10.5 0L8.25 6.75m0 10.5l-1.5 1.5m10.5-1.5l1.5 1.5M12 9a3 3 0 100 6 3 3 0 000-6z",
   },
-  budget: {
-    label: "Budget",
-    path: "M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 110-6h1.5M3 12v6.75A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V12M3 12V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25V12M3 12h18M15 12a3 3 0 100 6 3 3 0 000-6z",
-  },
-  compensation: {
-    label: "Compensation",
-    path: "M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z",
-  },
-  "team-roster": {
-    label: "Team Roster",
+  playbook: {
+    label: "Playbook",
     path: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
   },
 };
@@ -713,7 +705,7 @@ export default function MapPage() {
                     if (editMode) { startEditing(dept.id); return; }
                     router.push(`/map/${dept.id}`);
                   }}
-                  className={`absolute wf-soft px-4 py-3 select-none transition-shadow hover:brightness-110 hover:shadow-lg hover:shadow-black/20 ${
+                  className={`absolute wf-soft px-4 py-3 select-none transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-black/20 hover:border-white/20 hover:scale-[1.02] ${
                     editMode ? "border border-amber-500/20" : ""
                   } ${dragId === dept.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : "cursor-pointer"}`}
                   style={{

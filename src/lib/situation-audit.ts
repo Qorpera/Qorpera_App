@@ -115,7 +115,7 @@ For each entity, determine if it currently matches the situation pattern.
 Respond with ONLY valid JSON (no markdown): an array with one object per entity in order:
 [{ "matches": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation" }]`,
       }],
-      { temperature: 0.1, maxTokens: 1500 },
+      { temperature: 0.1, maxTokens: 1500, aiFunction: "reasoning" },
     );
 
     const parsed = extractJSONArray(response.content);

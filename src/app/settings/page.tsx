@@ -9,18 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/components/user-provider";
 
-type Tab = "ai" | "governance" | "connections" | "data" | "autonomy" | "team";
-
-type SituationTypeItem = {
-  id: string;
-  name: string;
-  slug: string;
-  autonomyLevel: string;
-  consecutiveApprovals: number;
-  totalApproved: number;
-  totalProposed: number;
-  approvalRate: number;
-};
+type Tab = "ai" | "connections" | "team";
 
 type ConnectorItem = {
   id: string;
@@ -29,6 +18,7 @@ type ConnectorItem = {
   name: string;
   status: string;
   lastSyncAt: string | null;
+  spreadsheetCount?: number;
   lastSyncResult?: {
     eventsCreated: number;
     status: string;
@@ -79,6 +69,22 @@ const CLOUD_MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }
   ],
 };
 
+const EMBEDDING_MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  openai: [
+    { value: "text-embedding-3-small", label: "text-embedding-3-small (Recommended)" },
+    { value: "text-embedding-3-large", label: "text-embedding-3-large" },
+    { value: "text-embedding-ada-002", label: "text-embedding-ada-002 (Legacy)" },
+  ],
+  anthropic: [
+    { value: "text-embedding-3-small", label: "text-embedding-3-small (via OpenAI)" },
+  ],
+  ollama: [
+    { value: "nomic-embed-text", label: "nomic-embed-text" },
+    { value: "mxbai-embed-large", label: "mxbai-embed-large" },
+    { value: "all-minilm", label: "all-minilm" },
+  ],
+};
+
 export default function SettingsPage() {
   return (
     <Suspense>
@@ -89,7 +95,7 @@ export default function SettingsPage() {
 
 function SettingsPageInner() {
   const { toast } = useToast();
-  const { isAdmin } = useUser();
+  const { isAdmin, isSuperadmin } = useUser();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const googleParam = searchParams.get("google");
@@ -97,55 +103,52 @@ function SettingsPageInner() {
   const stripeParam = searchParams.get("stripe");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "autonomy" ? "autonomy" : tabParam === "team" ? "team" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : "ai"
   );
 
   // AI state
-  const [aiProvider, setAiProvider] = useState("ollama");
-  const [aiApiKey, setAiApiKey] = useState("");
+  type FnConfig = { provider: string; apiKey: string; model: string };
+  type TestResult = { ok: boolean; provider?: string; model?: string; baseUrl?: string; response?: string; error?: string };
+  const AI_FUNCTIONS = ["reasoning", "copilot", "embedding", "orientation"] as const;
+  type AIFn = typeof AI_FUNCTIONS[number];
+  const AI_FN_LABELS: Record<AIFn, { label: string; desc: string }> = {
+    reasoning: { label: "Reasoning", desc: "Situation detection, analysis, and pre-filtering" },
+    copilot: { label: "Copilot", desc: "Interactive chat assistant" },
+    embedding: { label: "Embeddings", desc: "Document processing and vector search" },
+    orientation: { label: "Orientation", desc: "Onboarding conversation" },
+  };
+  const DEFAULT_FN: FnConfig = { provider: "ollama", apiKey: "", model: "" };
+  const [sameForAll, setSameForAll] = useState(true);
   const [aiBaseUrl, setAiBaseUrl] = useState("http://localhost:11434");
-  const [aiModel, setAiModel] = useState("");
+  const [fnConfigs, setFnConfigs] = useState<Record<AIFn, FnConfig>>({
+    reasoning: { ...DEFAULT_FN },
+    copilot: { ...DEFAULT_FN },
+    embedding: { ...DEFAULT_FN },
+    orientation: { ...DEFAULT_FN },
+  });
   const [aiSaving, setAiSaving] = useState(false);
-  const [aiTesting, setAiTesting] = useState(false);
-  const [aiTestResult, setAiTestResult] = useState<{
-    ok: boolean;
-    provider?: string;
-    model?: string;
-    baseUrl?: string;
-    response?: string;
-    error?: string;
-  } | null>(null);
+  const [aiTesting, setAiTesting] = useState<AIFn | "all" | null>(null);
+  const [aiTestResults, setAiTestResults] = useState<Partial<Record<AIFn | "all", TestResult>>>({});
   const [aiSaved, setAiSaved] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<Array<{ value: string; label: string }>>([]);
-
-  // Governance state
-  const [govApprovalThreshold, setGovApprovalThreshold] = useState("");
-  const [govAutoApproveReads, setGovAutoApproveReads] = useState(true);
-  const [govMaxPending, setGovMaxPending] = useState("50");
-  const [govExpiryHours, setGovExpiryHours] = useState("72");
-  const [govSaving, setGovSaving] = useState(false);
 
   // Connections state
   const [connectors, setConnectors] = useState<ConnectorItem[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncAllResult, setSyncAllResult] = useState<{
+    synced: Array<{ name: string; status: string }>;
+    errors: Array<{ name: string; error: string }>;
+  } | null>(null);
 
   // Connector bindings (read-only overview)
   const [connectorBindings, setConnectorBindings] = useState<Record<string, Array<{ id: string; departmentId: string; departmentName: string; enabled: boolean }>>>({});
-
-  // Autonomy state
-  const [autoSupervisedConsecutive, setAutoSupervisedConsecutive] = useState("10");
-  const [autoSupervisedRate, setAutoSupervisedRate] = useState("90");
-  const [autoNotifyConsecutive, setAutoNotifyConsecutive] = useState("20");
-  const [autoNotifyRate, setAutoNotifyRate] = useState("95");
-  const [autoSaving, setAutoSaving] = useState(false);
-  const [situationTypes, setSituationTypes] = useState<SituationTypeItem[]>([]);
-  const [autoLoading, setAutoLoading] = useState(false);
-  const [promotingId, setPromotingId] = useState<string | null>(null);
-  const [demotingId, setDemotingId] = useState<string | null>(null);
-
-  // Data state
-  const [dataAction, setDataAction] = useState<string | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
+  // Google Sheets spreadsheet picker
+  type SheetEntry = { id: string; name: string; selected: boolean };
+  const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
+  const [sheetsByConnector, setSheetsByConnector] = useState<Record<string, SheetEntry[]>>({});
+  const [savingSheets, setSavingSheets] = useState<string | null>(null);
+  const [manualSheetUrl, setManualSheetUrl] = useState("");
 
   // Team state
   type TeamUserScope = { id: string; departmentEntityId: string; departmentName: string };
@@ -162,30 +165,6 @@ function SettingsPageInner() {
   const [bulkSource, setBulkSource] = useState("");
   const [bulkTarget, setBulkTarget] = useState("");
   const [bulkRunning, setBulkRunning] = useState(false);
-
-  // Load autonomy settings and situation types
-  const loadSituationTypes = useCallback(() => {
-    fetch("/api/situation-types")
-      .then((r) => r.json())
-      .then((data) => setSituationTypes(data))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "autonomy") {
-      setAutoLoading(true);
-      Promise.all([
-        fetch("/api/autonomy/settings").then((r) => r.json()),
-        fetch("/api/situation-types").then((r) => r.json()),
-      ]).then(([settings, types]) => {
-        setAutoSupervisedConsecutive(String(settings.supervisedToNotifyConsecutive));
-        setAutoSupervisedRate(String(Math.round(settings.supervisedToNotifyRate * 100)));
-        setAutoNotifyConsecutive(String(settings.notifyToAutonomousConsecutive));
-        setAutoNotifyRate(String(Math.round(settings.notifyToAutonomousRate * 100)));
-        setSituationTypes(types);
-      }).catch(() => {}).finally(() => setAutoLoading(false));
-    }
-  }, [activeTab]);
 
   // Load team data
   const loadTeamData = useCallback(async () => {
@@ -207,9 +186,10 @@ function SettingsPageInner() {
     if (activeTab === "team") loadTeamData();
   }, [activeTab, loadTeamData]);
 
-  // Fetch Ollama models when provider is ollama
+  // Fetch Ollama models when any function uses ollama
+  const anyOllama = Object.values(fnConfigs).some(c => c.provider === "ollama");
   useEffect(() => {
-    if (aiProvider !== "ollama") return;
+    if (!anyOllama) return;
     const url = aiBaseUrl || "http://localhost:11434";
     fetch(`${url}/api/tags`)
       .then((r) => r.json())
@@ -228,34 +208,43 @@ function SettingsPageInner() {
           { value: "deepseek-r1", label: "deepseek-r1" },
         ]);
       });
-  }, [aiProvider, aiBaseUrl]);
+  }, [anyOllama, aiBaseUrl]);
 
   // Load AI settings from DB
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((data: Record<string, string>) => {
-        if (data.ai_provider) setAiProvider(data.ai_provider);
         if (data.ai_base_url) setAiBaseUrl(data.ai_base_url);
-        if (data.ai_api_key) setAiApiKey(data.ai_api_key);
-        if (data.ai_model) setAiModel(data.ai_model);
-      })
-      .catch(() => {});
-  }, []);
 
-  // Load governance config
-  useEffect(() => {
-    fetch("/api/governance")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.requireApprovalAboveAmount != null) {
-          setGovApprovalThreshold(String(data.requireApprovalAboveAmount));
+        const loaded: Record<AIFn, FnConfig> = {
+          reasoning: { ...DEFAULT_FN },
+          copilot: { ...DEFAULT_FN },
+          embedding: { ...DEFAULT_FN },
+          orientation: { ...DEFAULT_FN },
+        };
+        const genericProvider = data.ai_provider || "ollama";
+        const genericKey = data.ai_api_key || "";
+        const genericModel = data.ai_model || "";
+
+        for (const fn of AI_FUNCTIONS) {
+          loaded[fn] = {
+            provider: data[`ai_${fn}_provider`] || genericProvider,
+            apiKey: data[`ai_${fn}_key`] || genericKey,
+            model: data[`ai_${fn}_model`] || genericModel,
+          };
         }
-        setGovAutoApproveReads(data.autoApproveReadActions ?? true);
-        setGovMaxPending(String(data.maxPendingProposals ?? 50));
-        setGovExpiryHours(String(data.approvalExpiryHours ?? 72));
+        setFnConfigs(loaded);
+
+        // Detect if all functions use the same config
+        const allSame = AI_FUNCTIONS.every(fn =>
+          loaded[fn].provider === loaded.reasoning.provider &&
+          loaded[fn].apiKey === loaded.reasoning.apiKey
+        );
+        setSameForAll(allSame);
       })
       .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load connectors and providers
@@ -317,25 +306,51 @@ function SettingsPageInner() {
   }, [stripeParam]);
 
 
+  // Helper to update a single function config
+  const updateFnConfig = (fn: AIFn, patch: Partial<FnConfig>) => {
+    setFnConfigs(prev => {
+      const updated = { ...prev, [fn]: { ...prev[fn], ...patch } };
+      // If sameForAll, propagate to all functions
+      if (sameForAll) {
+        const val = { ...updated[fn] };
+        for (const f of AI_FUNCTIONS) updated[f] = { ...val };
+      }
+      return updated;
+    });
+  };
+
+  // The "primary" function shown when sameForAll
+  const primaryFn: AIFn = "copilot";
+
   // Save AI settings
   const handleSaveAi = async () => {
     setAiSaving(true);
     try {
-      const payload: Record<string, string> = { ai_provider: aiProvider };
-      if (aiProvider === "ollama" && aiBaseUrl) payload.ai_base_url = aiBaseUrl;
-      if (aiProvider !== "ollama") {
-        // Clear base URL so provider default kicks in
-        payload.ai_base_url = "";
+      const payload: Record<string, string> = {};
+      // Base URL
+      const hasOllama = Object.values(fnConfigs).some(c => c.provider === "ollama");
+      payload.ai_base_url = hasOllama && aiBaseUrl ? aiBaseUrl : "";
+      // Generic keys (backward compat — use copilot values)
+      payload.ai_provider = fnConfigs.copilot.provider;
+      if (fnConfigs.copilot.apiKey) payload.ai_api_key = fnConfigs.copilot.apiKey;
+      payload.ai_model = fnConfigs.copilot.model;
+      // Per-function keys
+      for (const fn of AI_FUNCTIONS) {
+        payload[`ai_${fn}_provider`] = fnConfigs[fn].provider;
+        if (fnConfigs[fn].apiKey) payload[`ai_${fn}_key`] = fnConfigs[fn].apiKey;
+        payload[`ai_${fn}_model`] = fnConfigs[fn].model;
       }
-      if (aiApiKey) payload.ai_api_key = aiApiKey;
-      if (aiModel) payload.ai_model = aiModel;
+      // Also update embedding_provider/embedding_api_key for embedder backward compat
+      payload.embedding_provider = fnConfigs.embedding.provider;
+      if (fnConfigs.embedding.apiKey) payload.embedding_api_key = fnConfigs.embedding.apiKey;
+
       await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       setAiSaved(true);
-      setAiTestResult(null);
+      setAiTestResults({});
       setTimeout(() => setAiSaved(false), 3000);
       toast("AI settings saved", "success");
     } catch {
@@ -345,109 +360,32 @@ function SettingsPageInner() {
     }
   };
 
-  const handleTestConnection = async () => {
-    setAiTesting(true);
-    setAiTestResult(null);
+  const handleTestConnection = async (fn?: AIFn) => {
+    const key = fn || "all";
+    setAiTesting(key);
+    setAiTestResults(prev => ({ ...prev, [key]: undefined }));
     try {
-      const res = await fetch("/api/settings/test-ai", { method: "POST" });
+      const res = await fetch("/api/settings/test-ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aiFunction: fn }),
+      });
       const data = await res.json();
-      setAiTestResult(data);
+      setAiTestResults(prev => ({ ...prev, [key]: data }));
     } catch (err) {
-      setAiTestResult({
-        ok: false,
-        error: err instanceof Error ? err.message : "Request failed",
-      });
+      setAiTestResults(prev => ({
+        ...prev,
+        [key]: { ok: false, error: err instanceof Error ? err.message : "Request failed" },
+      }));
     } finally {
-      setAiTesting(false);
-    }
-  };
-
-  const handleSaveGovernance = async () => {
-    setGovSaving(true);
-    try {
-      const res = await fetch("/api/governance", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          requireApprovalAboveAmount: govApprovalThreshold
-            ? parseFloat(govApprovalThreshold)
-            : null,
-          autoApproveReadActions: govAutoApproveReads,
-          maxPendingProposals: parseInt(govMaxPending) || 50,
-          approvalExpiryHours: parseInt(govExpiryHours) || 72,
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast("Governance settings saved", "success");
-    } catch {
-      toast("Failed to save governance settings", "error");
-    } finally {
-      setGovSaving(false);
-    }
-  };
-
-  const handleSaveAutonomy = async () => {
-    setAutoSaving(true);
-    try {
-      await fetch("/api/autonomy/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          graduation_supervised_to_notify_consecutive: parseInt(autoSupervisedConsecutive) || 10,
-          graduation_supervised_to_notify_rate: (parseInt(autoSupervisedRate) || 90) / 100,
-          graduation_notify_to_autonomous_consecutive: parseInt(autoNotifyConsecutive) || 20,
-          graduation_notify_to_autonomous_rate: (parseInt(autoNotifyRate) || 95) / 100,
-        }),
-      });
-      toast("Autonomy thresholds saved", "success");
-    } catch {
-      toast("Failed to save thresholds", "error");
-    } finally {
-      setAutoSaving(false);
-    }
-  };
-
-  const handlePromote = async (stId: string) => {
-    setPromotingId(stId);
-    try {
-      await fetch("/api/autonomy/promote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ situationTypeId: stId }),
-      });
-      toast("Promoted successfully", "success");
-      loadSituationTypes();
-    } catch {
-      toast("Promotion failed", "error");
-    } finally {
-      setPromotingId(null);
-    }
-  };
-
-  const handleDemote = async (stId: string) => {
-    setDemotingId(stId);
-    try {
-      await fetch("/api/autonomy/demote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ situationTypeId: stId }),
-      });
-      toast("Demoted successfully", "success");
-      loadSituationTypes();
-    } catch {
-      toast("Demotion failed", "error");
-    } finally {
-      setDemotingId(null);
+      setAiTesting(null);
     }
   };
 
   const allTabs: { key: Tab; label: string; adminOnly?: boolean }[] = [
-    { key: "ai", label: "AI Provider" },
-    { key: "governance", label: "Governance", adminOnly: true },
-    { key: "autonomy", label: "Autonomy", adminOnly: true },
+    { key: "ai", label: "AI Configuration" },
     { key: "connections", label: "Connections", adminOnly: true },
     { key: "team", label: "Team", adminOnly: true },
-    { key: "data", label: "Data Management" },
   ];
   const tabs = allTabs.filter((t) => !t.adminOnly || isAdmin);
 
@@ -491,179 +429,284 @@ function SettingsPageInner() {
         </div>
 
         {/* AI Provider Tab */}
-        {activeTab === "ai" && (
-          <div className="wf-soft p-6 space-y-5">
-            <h2 className="text-lg font-medium text-white/80">
-              AI Provider Configuration
-            </h2>
-            <Select
-              label="Provider"
-              options={PROVIDER_OPTIONS}
-              value={aiProvider}
-              onChange={(e) => {
-                const newProvider = e.target.value;
-                setAiProvider(newProvider);
-                // Auto-select the first model for the new provider
-                const models = newProvider === "ollama" ? ollamaModels : (CLOUD_MODEL_OPTIONS[newProvider] ?? []);
-                if (models.length > 0) setAiModel(models[0].value);
-              }}
-            />
-            {aiProvider !== "ollama" && (
-              <Input
-                label="API Key"
-                type="password"
-                value={aiApiKey}
-                onChange={(e) => setAiApiKey(e.target.value)}
-                placeholder="sk-..."
-              />
-            )}
-            {aiProvider === "ollama" && (
-              <Input
-                label="Base URL"
-                value={aiBaseUrl}
-                onChange={(e) => setAiBaseUrl(e.target.value)}
-                placeholder="http://localhost:11434"
-              />
-            )}
-            <Select
-              label="Model"
-              options={aiProvider === "ollama" ? ollamaModels : (CLOUD_MODEL_OPTIONS[aiProvider] ?? [])}
-              value={aiModel}
-              onChange={(e) => setAiModel(e.target.value)}
-            />
-            <div className="flex items-center gap-3 pt-2">
-              <Button
-                variant="primary"
-                onClick={handleSaveAi}
-                disabled={aiSaving}
-              >
-                {aiSaving ? "Saving..." : "Save"}
-              </Button>
-              <Button
-                variant="default"
-                onClick={handleTestConnection}
-                disabled={aiTesting}
-              >
-                {aiTesting ? "Testing..." : "Test Connection"}
-              </Button>
-              {aiSaved && (
-                <span className="text-xs text-emerald-400">Saved</span>
-              )}
-            </div>
+        {activeTab === "ai" && (() => {
+          const getModelOptions = (fn: AIFn, provider: string) => {
+            if (fn === "embedding") return provider === "ollama" ? (EMBEDDING_MODEL_OPTIONS.ollama ?? []) : (EMBEDDING_MODEL_OPTIONS[provider] ?? EMBEDDING_MODEL_OPTIONS.openai);
+            return provider === "ollama" ? ollamaModels : (CLOUD_MODEL_OPTIONS[provider] ?? []);
+          };
 
-            {/* Test result */}
-            {aiTestResult && (
-              <div
-                className={`rounded-lg p-4 text-sm space-y-1 ${
-                  aiTestResult.ok
-                    ? "bg-emerald-500/10 border border-emerald-500/20"
-                    : "bg-red-500/10 border border-red-500/20"
-                }`}
-              >
-                {aiTestResult.ok ? (
+          const renderTestResult = (key: AIFn | "all") => {
+            const result = aiTestResults[key];
+            if (!result) return null;
+            return (
+              <div className={`rounded-lg p-3 text-sm space-y-1 ${result.ok ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-red-500/10 border border-red-500/20"}`}>
+                {result.ok ? (
                   <>
-                    <div className="flex items-center gap-2 text-emerald-400 font-medium">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                      Connection successful
-                    </div>
-                    <div className="text-white/50 text-xs space-y-0.5 pt-1">
-                      <div>Provider: <span className="text-white/70">{aiTestResult.provider}</span></div>
-                      <div>Model: <span className="text-white/70">{aiTestResult.model}</span></div>
-                      {aiTestResult.baseUrl && (
-                        <div>URL: <span className="text-white/70">{aiTestResult.baseUrl}</span></div>
-                      )}
-                      <div>Response: <span className="text-white/70">&quot;{aiTestResult.response}&quot;</span></div>
+                    <div className="flex items-center gap-2 text-emerald-400 font-medium text-xs">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                      Connected — {result.provider} / {result.model}
                     </div>
                   </>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2 text-red-400 font-medium">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      Connection failed
+                    <div className="flex items-center gap-2 text-red-400 font-medium text-xs">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      Failed
                     </div>
-                    <div className="text-red-300/70 text-xs pt-1">{aiTestResult.error}</div>
+                    <div className="text-red-300/70 text-[11px]">{result.error}</div>
                   </>
+                )}
+              </div>
+            );
+          };
+
+          const renderFnSection = (fn: AIFn) => {
+            const cfg = fnConfigs[fn];
+            const meta = AI_FN_LABELS[fn];
+            const models = getModelOptions(fn, cfg.provider);
+            const testKey = fn;
+            return (
+              <div key={fn} className="wf-soft p-5 space-y-4">
+                <div>
+                  <h3 className="text-sm font-medium text-white/80">{meta.label}</h3>
+                  <p className="text-xs text-white/35 mt-0.5">{meta.desc}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Select
+                    label="Provider"
+                    options={PROVIDER_OPTIONS}
+                    value={cfg.provider}
+                    onChange={(e) => {
+                      const np = e.target.value;
+                      const ms = getModelOptions(fn, np);
+                      updateFnConfig(fn, { provider: np, model: ms.length > 0 ? ms[0].value : "" });
+                    }}
+                  />
+                  <Select
+                    label="Model"
+                    options={models}
+                    value={cfg.model}
+                    onChange={(e) => updateFnConfig(fn, { model: e.target.value })}
+                  />
+                </div>
+                {cfg.provider !== "ollama" && (
+                  <Input
+                    label="API Key"
+                    type="password"
+                    value={cfg.apiKey}
+                    onChange={(e) => updateFnConfig(fn, { apiKey: e.target.value })}
+                    placeholder="sk-..."
+                  />
+                )}
+                <div className="flex items-center gap-2">
+                  <Button variant="default" size="sm" onClick={() => handleTestConnection(fn)} disabled={aiTesting === fn}>
+                    {aiTesting === fn ? "Testing..." : "Test"}
+                  </Button>
+                  {renderTestResult(testKey)}
+                </div>
+              </div>
+            );
+          };
+
+          return (
+          <div className="space-y-5">
+            <div className="wf-soft p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-medium text-white/80">AI Configuration</h2>
+                {aiSaved && <span className="text-xs text-emerald-400">Saved</span>}
+              </div>
+
+              {/* Same for all toggle */}
+              <label className="flex items-center gap-3 cursor-pointer">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !sameForAll;
+                    setSameForAll(next);
+                    if (next) {
+                      // Propagate primary config to all
+                      const src = fnConfigs[primaryFn];
+                      setFnConfigs(prev => {
+                        const u = { ...prev };
+                        for (const f of AI_FUNCTIONS) u[f] = { ...src };
+                        return u;
+                      });
+                    }
+                  }}
+                  className={`relative w-9 h-5 rounded-full transition ${sameForAll ? "bg-purple-500" : "bg-white/10"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${sameForAll ? "translate-x-4" : ""}`} />
+                </button>
+                <span className="text-sm text-white/60">Use same provider for all functions</span>
+              </label>
+
+              {/* Unified mode */}
+              {sameForAll && (() => {
+                const cfg = fnConfigs[primaryFn];
+                const chatModels = cfg.provider === "ollama" ? ollamaModels : (CLOUD_MODEL_OPTIONS[cfg.provider] ?? []);
+                return (
+                  <div className="space-y-4">
+                    <Select
+                      label="Provider"
+                      options={PROVIDER_OPTIONS}
+                      value={cfg.provider}
+                      onChange={(e) => {
+                        const np = e.target.value;
+                        const ms = np === "ollama" ? ollamaModels : (CLOUD_MODEL_OPTIONS[np] ?? []);
+                        const embMs = EMBEDDING_MODEL_OPTIONS[np] ?? EMBEDDING_MODEL_OPTIONS.openai;
+                        const newModel = ms.length > 0 ? ms[0].value : "";
+                        const embModel = embMs.length > 0 ? embMs[0].value : "text-embedding-3-small";
+                        setFnConfigs(prev => {
+                          const u = { ...prev };
+                          for (const f of AI_FUNCTIONS) {
+                            u[f] = { ...u[f], provider: np, model: f === "embedding" ? embModel : newModel };
+                          }
+                          return u;
+                        });
+                      }}
+                    />
+                    {cfg.provider !== "ollama" && (
+                      <Input
+                        label="API Key"
+                        type="password"
+                        value={cfg.apiKey}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setFnConfigs(prev => {
+                            const u = { ...prev };
+                            for (const f of AI_FUNCTIONS) u[f] = { ...u[f], apiKey: v };
+                            return u;
+                          });
+                        }}
+                        placeholder="sk-..."
+                      />
+                    )}
+                    {cfg.provider === "ollama" && (
+                      <Input
+                        label="Base URL"
+                        value={aiBaseUrl}
+                        onChange={(e) => setAiBaseUrl(e.target.value)}
+                        placeholder="http://localhost:11434"
+                      />
+                    )}
+                    <Select
+                      label="Model"
+                      options={chatModels}
+                      value={cfg.model}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setFnConfigs(prev => {
+                          const u = { ...prev };
+                          for (const f of AI_FUNCTIONS) {
+                            if (f !== "embedding") u[f] = { ...u[f], model: v };
+                          }
+                          return u;
+                        });
+                      }}
+                    />
+                    <p className="text-[11px] text-white/30">
+                      Embedding model: {fnConfigs.embedding.model || "auto"}
+                    </p>
+                  </div>
+                );
+              })()}
+
+              <div className="flex items-center gap-3 pt-1">
+                <Button variant="primary" onClick={handleSaveAi} disabled={aiSaving}>
+                  {aiSaving ? "Saving..." : "Save"}
+                </Button>
+                {sameForAll && (
+                  <Button variant="default" onClick={() => handleTestConnection()} disabled={!!aiTesting}>
+                    {aiTesting === "all" ? "Testing..." : "Test Connection"}
+                  </Button>
+                )}
+              </div>
+
+              {sameForAll && renderTestResult("all")}
+            </div>
+
+            {/* Per-function sections */}
+            {!sameForAll && (
+              <div className="space-y-4">
+                {AI_FUNCTIONS.map(fn => renderFnSection(fn))}
+                {Object.values(fnConfigs).some(c => c.provider === "ollama") && (
+                  <div className="wf-soft p-5">
+                    <Input
+                      label="Ollama Base URL"
+                      value={aiBaseUrl}
+                      onChange={(e) => setAiBaseUrl(e.target.value)}
+                      placeholder="http://localhost:11434"
+                    />
+                  </div>
                 )}
               </div>
             )}
           </div>
-        )}
-
-        {/* Governance Tab */}
-        {activeTab === "governance" && (
-          <div className="wf-soft p-6 space-y-5">
-            <h2 className="text-lg font-medium text-white/80">
-              Governance Configuration
-            </h2>
-            <Input
-              label="Approval Threshold (amount)"
-              type="number"
-              value={govApprovalThreshold}
-              onChange={(e) => setGovApprovalThreshold(e.target.value)}
-              placeholder="Leave empty for no threshold"
-            />
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-white/70">
-                  Auto-approve read actions
-                </div>
-                <div className="text-xs text-white/35">
-                  Allow read operations without policy checks
-                </div>
-              </div>
-              <button
-                onClick={() => setGovAutoApproveReads(!govAutoApproveReads)}
-                className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors ${
-                  govAutoApproveReads ? "bg-purple-500" : "bg-white/10"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                    govAutoApproveReads
-                      ? "translate-x-5"
-                      : "translate-x-1"
-                  }`}
-                />
-              </button>
-            </div>
-            <Input
-              label="Max Pending Proposals"
-              type="number"
-              value={govMaxPending}
-              onChange={(e) => setGovMaxPending(e.target.value)}
-            />
-            <Input
-              label="Approval Expiry (hours)"
-              type="number"
-              value={govExpiryHours}
-              onChange={(e) => setGovExpiryHours(e.target.value)}
-            />
-            <div className="flex gap-3 pt-2">
-              <Button
-                variant="primary"
-                onClick={handleSaveGovernance}
-                disabled={govSaving}
-              >
-                {govSaving ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Connections Tab — Read-only overview */}
         {activeTab === "connections" && (
           <div className="space-y-5">
             <div className="wf-soft p-6 space-y-4">
-              <h2 className="text-lg font-medium text-white/80">
-                Connected Sources
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-medium text-white/80">
+                  Connected Sources
+                </h2>
+                {connectors.length > 0 && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={syncingAll}
+                    onClick={async () => {
+                      setSyncingAll(true);
+                      setSyncAllResult(null);
+                      try {
+                        const res = await fetch("/api/connectors/sync-all", { method: "POST" });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setSyncAllResult({
+                            synced: (data.synced || []).map((s: { name: string; status: string }) => ({ name: s.name, status: s.status })),
+                            errors: (data.errors || []).map((e: { name: string; error: string }) => ({ name: e.name, error: e.error })),
+                          });
+                          loadConnectors();
+                        } else {
+                          setSyncAllResult({ synced: [], errors: [{ name: "Sync", error: "Request failed" }] });
+                        }
+                      } catch {
+                        setSyncAllResult({ synced: [], errors: [{ name: "Sync", error: "Network error" }] });
+                      }
+                      setSyncingAll(false);
+                    }}
+                  >
+                    {syncingAll ? (
+                      <span className="flex items-center gap-2">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        Syncing...
+                      </span>
+                    ) : "Sync All"}
+                  </Button>
+                )}
+              </div>
               <p className="text-sm text-white/40">
                 Connectors are managed from within departments. This page shows a global overview of all connected data sources.
               </p>
+              {syncAllResult && (
+                <div className="bg-white/[0.03] rounded-lg px-4 py-3 space-y-1">
+                  <p className="text-xs text-white/60">
+                    Synced {syncAllResult.synced.length} connector{syncAllResult.synced.length !== 1 ? "s" : ""}.
+                    {syncAllResult.errors.length > 0 && (
+                      <span className="text-red-400"> {syncAllResult.errors.length} error{syncAllResult.errors.length !== 1 ? "s" : ""}.</span>
+                    )}
+                  </p>
+                  {syncAllResult.synced.map((s, i) => (
+                    <p key={i} className="text-[11px] text-emerald-400/70">{s.name}: {s.status}</p>
+                  ))}
+                  {syncAllResult.errors.map((e, i) => (
+                    <p key={i} className="text-[11px] text-red-400/80">{e.name}: {e.error}</p>
+                  ))}
+                </div>
+              )}
 
               {connectors.length === 0 && (
                 <p className="text-sm text-white/25">
@@ -673,6 +716,11 @@ function SettingsPageInner() {
 
               {connectors.map((c) => {
                 const bindings = connectorBindings[c.id] || [];
+                const isGoogle = c.provider === "google-sheets";
+                const sheetCount = c.spreadsheetCount || 0;
+                const isExpanded = expandedConnector === c.id;
+                const sheets = sheetsByConnector[c.id] || [];
+
                 return (
                   <div
                     key={c.id}
@@ -682,7 +730,9 @@ function SettingsPageInner() {
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-white/80">
-                            {c.name || c.providerName}
+                            {isGoogle && sheetCount > 0
+                              ? `Google Sheets — ${sheetCount} spreadsheet${sheetCount !== 1 ? "s" : ""} synced`
+                              : c.name || c.providerName}
                           </span>
                           {statusBadge(c.status)}
                         </div>
@@ -703,7 +753,127 @@ function SettingsPageInner() {
                           )}
                         </div>
                       </div>
+                      {isGoogle && (
+                        <button
+                          className="text-xs text-purple-400 hover:text-purple-300"
+                          onClick={async () => {
+                            if (isExpanded) {
+                              setExpandedConnector(null);
+                              return;
+                            }
+                            setExpandedConnector(c.id);
+                            if (!sheetsByConnector[c.id]) {
+                              const res = await fetch(`/api/connectors/${c.id}`);
+                              if (res.ok) {
+                                const data = await res.json();
+                                const ss = (data.config?.spreadsheets || []) as SheetEntry[];
+                                setSheetsByConnector(prev => ({ ...prev, [c.id]: ss }));
+                              }
+                            }
+                          }}
+                        >
+                          {isExpanded ? "Close" : "Manage Sheets"}
+                        </button>
+                      )}
                     </div>
+
+                    {/* Google Sheets spreadsheet picker */}
+                    {isGoogle && isExpanded && (
+                      <div className="bg-white/[0.02] rounded-lg p-4 space-y-3 border border-white/[0.06]">
+                        {sheets.length > 0 ? (
+                          <>
+                            <p className="text-xs text-white/50">
+                              {sheets.length} spreadsheet{sheets.length !== 1 ? "s" : ""} found from the last 30 days
+                            </p>
+                            <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                              {sheets.map((sheet) => (
+                                <label key={sheet.id} className="flex items-center gap-2.5 py-1 cursor-pointer group">
+                                  <input
+                                    type="checkbox"
+                                    checked={sheet.selected}
+                                    onChange={() => {
+                                      setSheetsByConnector(prev => ({
+                                        ...prev,
+                                        [c.id]: (prev[c.id] || []).map(s =>
+                                          s.id === sheet.id ? { ...s, selected: !s.selected } : s
+                                        ),
+                                      }));
+                                    }}
+                                    className="rounded border-white/20 bg-white/5 text-purple-500 focus:ring-purple-500/30"
+                                  />
+                                  <span className="text-sm text-white/70 group-hover:text-white/90 transition truncate">{sheet.name}</span>
+                                  <span className="text-[10px] text-white/20 ml-auto shrink-0 font-mono">{sheet.id.slice(0, 12)}...</span>
+                                </label>
+                              ))}
+                            </div>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              disabled={savingSheets === c.id}
+                              onClick={async () => {
+                                setSavingSheets(c.id);
+                                try {
+                                  await fetch(`/api/connectors/${c.id}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ spreadsheets: sheetsByConnector[c.id] }),
+                                  });
+                                  toast("Spreadsheet selection saved", "success");
+                                  loadConnectors();
+                                } catch {
+                                  toast("Failed to save", "error");
+                                }
+                                setSavingSheets(null);
+                              }}
+                            >
+                              {savingSheets === c.id ? "Saving..." : `Save (${(sheetsByConnector[c.id] || []).filter(s => s.selected).length} selected)`}
+                            </Button>
+                          </>
+                        ) : (
+                          <div className="space-y-3">
+                            <p className="text-xs text-white/40">No recently modified spreadsheets found. Add one manually:</p>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={manualSheetUrl}
+                                onChange={(e) => setManualSheetUrl(e.target.value)}
+                                placeholder="Paste Google Sheets URL or ID"
+                                className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-purple-500/40"
+                              />
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                disabled={!manualSheetUrl.trim() || savingSheets === c.id}
+                                onClick={async () => {
+                                  setSavingSheets(c.id);
+                                  const idMatch = manualSheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                                  const sheetId = idMatch ? idMatch[1] : manualSheetUrl.trim();
+                                  try {
+                                    await fetch(`/api/connectors/${c.id}`, {
+                                      method: "PATCH",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        spreadsheet_ids: [sheetId],
+                                        spreadsheets: [{ id: sheetId, name: "Manual", selected: true }],
+                                      }),
+                                    });
+                                    toast("Spreadsheet added", "success");
+                                    setManualSheetUrl("");
+                                    loadConnectors();
+                                  } catch {
+                                    toast("Failed", "error");
+                                  }
+                                  setSavingSheets(null);
+                                }}
+                              >
+                                Add
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Department bindings */}
                     {bindings.length > 0 ? (
                       <div className="flex flex-wrap gap-2 pt-1">
@@ -724,115 +894,6 @@ function SettingsPageInner() {
                     ) : (
                       <p className="text-[11px] text-white/25 pt-1">Not bound to any department</p>
                     )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Autonomy Tab */}
-        {activeTab === "autonomy" && (
-          <div className="space-y-5">
-            <div className="wf-soft p-6 space-y-5">
-              <h2 className="text-lg font-medium text-white/80">
-                Global Graduation Thresholds
-              </h2>
-              {autoLoading ? (
-                <div className="flex justify-center py-4">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-purple-400" />
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-3">
-                    <p className="text-xs text-white/40 uppercase tracking-wider font-semibold">Supervised → Notify</p>
-                    <Input
-                      label="Consecutive approvals required"
-                      type="number"
-                      value={autoSupervisedConsecutive}
-                      onChange={(e) => setAutoSupervisedConsecutive(e.target.value)}
-                    />
-                    <Input
-                      label="Minimum approval rate (%)"
-                      type="number"
-                      value={autoSupervisedRate}
-                      onChange={(e) => setAutoSupervisedRate(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-3 pt-2">
-                    <p className="text-xs text-white/40 uppercase tracking-wider font-semibold">Notify → Autonomous</p>
-                    <Input
-                      label="Consecutive approvals required"
-                      type="number"
-                      value={autoNotifyConsecutive}
-                      onChange={(e) => setAutoNotifyConsecutive(e.target.value)}
-                    />
-                    <Input
-                      label="Minimum approval rate (%)"
-                      type="number"
-                      value={autoNotifyRate}
-                      onChange={(e) => setAutoNotifyRate(e.target.value)}
-                    />
-                  </div>
-                  <div className="pt-2">
-                    <Button variant="primary" onClick={handleSaveAutonomy} disabled={autoSaving}>
-                      {autoSaving ? "Saving..." : "Save"}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="wf-soft p-6 space-y-4">
-              <h2 className="text-lg font-medium text-white/80">
-                Situation Type Autonomy Levels
-              </h2>
-              {situationTypes.length === 0 && !autoLoading && (
-                <p className="text-sm text-white/35">No situation types configured yet.</p>
-              )}
-              {situationTypes.map((st) => {
-                const levelColor = st.autonomyLevel === "autonomous"
-                  ? "bg-emerald-500/15 text-emerald-400"
-                  : st.autonomyLevel === "notify"
-                    ? "bg-amber-500/15 text-amber-400"
-                    : "bg-white/10 text-white/50";
-                return (
-                  <div key={st.id} className="py-3 border-b border-white/[0.06] last:border-0">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-white/80">{st.name}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${levelColor}`}>
-                          {st.autonomyLevel}
-                        </span>
-                      </div>
-                      <div className="flex gap-2">
-                        {st.autonomyLevel !== "autonomous" && (
-                          <Button
-                            variant="default"
-                            size="sm"
-                            onClick={() => handlePromote(st.id)}
-                            disabled={promotingId !== null}
-                          >
-                            {promotingId === st.id ? "..." : "Promote"}
-                          </Button>
-                        )}
-                        {st.autonomyLevel !== "supervised" && (
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => handleDemote(st.id)}
-                            disabled={demotingId !== null}
-                          >
-                            {demotingId === st.id ? "..." : "Demote"}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex gap-4 text-xs text-white/40">
-                      <span>Consecutive: <span className="text-white/60">{st.consecutiveApprovals}</span></span>
-                      <span>Approved: <span className="text-white/60">{st.totalApproved}/{st.totalProposed}</span></span>
-                      <span>Rate: <span className="text-white/60">{(st.approvalRate * 100).toFixed(0)}%</span></span>
-                    </div>
                   </div>
                 );
               })}
@@ -1118,134 +1179,6 @@ function SettingsPageInner() {
           </div>
         )}
 
-        {/* Data Management Tab */}
-        {activeTab === "data" && (
-          <div className="wf-soft p-6 space-y-5">
-            <h2 className="text-lg font-medium text-white/80">
-              Data Management
-            </h2>
-
-            <div className="space-y-4">
-              {/* Reset Database */}
-              <div className="flex items-center justify-between py-3 border-b border-white/[0.06]">
-                <div>
-                  <div className="text-sm text-white/70">Reset Database</div>
-                  <div className="text-xs text-white/35">
-                    Delete all entities, types, and relationships. This cannot be
-                    undone.
-                  </div>
-                </div>
-                {!confirmReset ? (
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => setConfirmReset(true)}
-                    disabled={dataAction !== null}
-                  >
-                    Reset
-                  </Button>
-                ) : (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setConfirmReset(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={async () => {
-                        setDataAction("resetting");
-                        try {
-                          await fetch("/api/data/reset", { method: "POST" });
-                          toast("Database reset complete", "success");
-                        } catch {
-                          toast("Reset failed", "error");
-                        } finally {
-                          setDataAction(null);
-                          setConfirmReset(false);
-                        }
-                      }}
-                      disabled={dataAction !== null}
-                    >
-                      {dataAction === "resetting"
-                        ? "Resetting..."
-                        : "Confirm Reset"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {/* Re-seed Demo Data */}
-              <div className="flex items-center justify-between py-3 border-b border-white/[0.06]">
-                <div>
-                  <div className="text-sm text-white/70">
-                    Re-seed Demo Data
-                  </div>
-                  <div className="text-xs text-white/35">
-                    Populate the database with sample entities and relationships.
-                  </div>
-                </div>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={async () => {
-                    setDataAction("seeding");
-                    try {
-                      await fetch("/api/data/seed", { method: "POST" });
-                      toast("Demo data seeded", "success");
-                    } catch {
-                      toast("Seeding failed", "error");
-                    } finally {
-                      setDataAction(null);
-                    }
-                  }}
-                  disabled={dataAction !== null}
-                >
-                  {dataAction === "seeding" ? "Seeding..." : "Seed Data"}
-                </Button>
-              </div>
-
-              {/* Export Database */}
-              <div className="flex items-center justify-between py-3">
-                <div>
-                  <div className="text-sm text-white/70">Export Database</div>
-                  <div className="text-xs text-white/35">
-                    Download all data as a JSON file.
-                  </div>
-                </div>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={async () => {
-                    setDataAction("exporting");
-                    try {
-                      const res = await fetch("/api/data/export");
-                      if (!res.ok) throw new Error();
-                      const blob = await res.blob();
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = "qorpera-export.json";
-                      a.click();
-                      URL.revokeObjectURL(url);
-                      toast("Export downloaded", "success");
-                    } catch {
-                      toast("Export failed", "error");
-                    } finally {
-                      setDataAction(null);
-                    }
-                  }}
-                  disabled={dataAction !== null}
-                >
-                  {dataAction === "exporting" ? "Exporting..." : "Export"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </AppShell>
   );

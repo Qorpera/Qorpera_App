@@ -25,7 +25,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Governance",
     items: [
-      { href: "/policies", label: "Policies", icon: "shield" },
+      { href: "/governance", label: "Governance", icon: "shield" },
     ],
   },
   {

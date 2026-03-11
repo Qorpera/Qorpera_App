@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { fetchApi } from "@/lib/fetch-api";
 
 interface UserProfile {
@@ -19,9 +20,11 @@ const ROLE_COLORS: Record<string, string> = {
 
 export default function AccountPage() {
   const router = useRouter();
+  const { toast } = useToast();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     fetchApi("/api/auth/me")
@@ -96,6 +99,40 @@ export default function AccountPage() {
             disabled={loggingOut}
           >
             {loggingOut ? "Signing out..." : "Sign Out"}
+          </Button>
+        </div>
+
+        {/* Export My Data */}
+        <div className="mt-8 pt-8 border-t border-white/[0.06]">
+          <h2 className="text-sm font-medium text-white/60 mb-2">Export My Data</h2>
+          <p className="text-xs text-white/35 mb-4">
+            Download your personal data (profile, conversations, approvals) as a JSON file.
+          </p>
+          <Button
+            variant="default"
+            size="sm"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true);
+              try {
+                const res = await fetchApi("/api/users/export");
+                if (!res.ok) throw new Error();
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "qorpera-my-data.json";
+                a.click();
+                URL.revokeObjectURL(url);
+                toast("Export downloaded", "success");
+              } catch {
+                toast("Export failed", "error");
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            {exporting ? "Exporting..." : "Export My Data"}
           </Button>
         </div>
       </div>
