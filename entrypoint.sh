@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-echo "[entrypoint] Pushing database schema..."
-npx prisma db push --skip-generate --accept-data-loss
+echo "[entrypoint] Applying database migrations..."
+npx prisma migrate deploy
 
 if [ -n "$SUPERADMIN_EMAIL" ] && [ -n "$SUPERADMIN_PASSWORD" ]; then
   echo "[entrypoint] Seeding superadmin..."

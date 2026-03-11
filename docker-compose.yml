@@ -4,7 +4,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgresql://qorpera:qorpera_secret@postgres:5432/qorpera
+      - DATABASE_URL=${DATABASE_URL:-postgresql://qorpera:qorpera_secret@postgres:5432/qorpera}
       - DOCUMENT_STORAGE_PATH=/data/documents
       - NEXT_PUBLIC_APP_URL=http://localhost:3000
     env_file:

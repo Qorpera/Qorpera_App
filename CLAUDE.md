@@ -5,10 +5,37 @@ Operational intelligence platform for leadership. Next.js App Router + Prisma (P
 ## Commands
 - Build: `npm run build`
 - Dev: `npm run dev`
-- DB push: `npx prisma db push`
+- DB migrate (dev): `npx prisma migrate dev --name <description>`
+- DB push (test only): `npx prisma db push` — ONLY against local Postgres
+- DB deploy (production): `npx prisma migrate deploy`
 - DB studio: `npx prisma studio`
 - Create superadmin: `npx tsx scripts/create-superadmin.ts`
 - Stress seed: `npx tsx scripts/stress-seed.ts`
+
+## Database Workflow (CRITICAL)
+
+Two databases, two workflows:
+
+**Neon (production, persistent):**
+- Used via `npm run dev` with `DATABASE_URL` pointing to Neon in `.env`
+- Qorpera's own operator account lives here — never wipe this
+- Schema changes: `npx prisma migrate dev --name <description>` generates migration files
+- Review the generated SQL in `prisma/migrations/` before committing
+- `prisma migrate deploy` applies pending migrations (used in Docker CMD)
+
+**Local Docker Postgres (testing, disposable):**
+- Used via `docker compose up` — defaults to local Postgres
+- `docker compose down -v` is safe — wipes test data only
+- Can use `prisma db push` for fast iteration during testing
+
+**After any schema change in `prisma/schema.prisma`:**
+1. Run `npx prisma migrate dev --name <short-description>` (generates SQL migration file)
+2. Review the SQL in `prisma/migrations/<timestamp>_<name>/migration.sql`
+3. Commit the migration file to git
+4. `prisma migrate deploy` runs automatically in Docker on startup
+
+**NEVER run `prisma db push` against Neon in production.**
+**NEVER run `prisma migrate reset` against Neon.**
 
 ## Auth Pattern (Day 24 — CRITICAL)
 - Every API route MUST call `getSessionUser(request)` from `src/lib/auth.ts` as its first operation
