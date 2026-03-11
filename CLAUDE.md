@@ -103,3 +103,14 @@ Operational intelligence platform for leadership. Next.js App Router + Prisma (P
 - Settings connections tab still interactive (users could create rootless connectors)
 - Autonomy history shows current level only (no historical tracking)
 - Step 6 double-advance could partially fail (recovers on refresh)
+
+## Bug Fixing Protocol
+
+When a bug is reported, do NOT start by trying to fix it.
+
+Instead:
+1. Write a test that reproduces the bug and confirms it fails
+2. Spawn subagents to attempt fixes
+3. The fix is only accepted when the test passes
+
+Commit the test and the fix together.
