@@ -31,7 +31,7 @@ export function useUser() {
   return useContext(UserContext);
 }
 
-const PUBLIC_PATHS = ["/login", "/register", "/invite", "/setup"];
+const PUBLIC_PATHS = ["/login", "/register", "/invite"];
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const router = useRouter();

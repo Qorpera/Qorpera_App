@@ -1288,7 +1288,7 @@ function DepartmentDetailInner() {
                         <input
                           ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
                           type="file"
-                          accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
+                          accept=".txt,.csv,.pdf,.docx,.md,.xlsx,.xls,text/plain,text/csv,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                           className="hidden"
                           onChange={(e) => handleSlotFileChange(e, slotType)}
                         />
@@ -1343,12 +1343,29 @@ function DepartmentDetailInner() {
                                   </button>
                                 )}
                                 {isAdmin && (
-                                  <button
-                                    onClick={() => setDeleteDocId(doc.id)}
-                                    className="text-[11px] text-red-400/60 hover:text-red-400"
-                                  >
-                                    Remove
-                                  </button>
+                                  deleteDocId === doc.id ? (
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => handleDeleteDoc(doc.id)}
+                                        className="text-[11px] text-red-400 hover:text-red-300"
+                                      >
+                                        Delete
+                                      </button>
+                                      <button
+                                        onClick={() => setDeleteDocId(null)}
+                                        className="text-[11px] text-white/40 hover:text-white/60"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => setDeleteDocId(doc.id)}
+                                      className="text-[11px] text-red-400/60 hover:text-red-400"
+                                    >
+                                      Remove
+                                    </button>
+                                  )
                                 )}
                               </div>
                             </div>
@@ -1363,7 +1380,7 @@ function DepartmentDetailInner() {
                             <input
                               ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
                               type="file"
-                              accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
+                              accept=".txt,.csv,.pdf,.docx,.md,.xlsx,.xls,text/plain,text/csv,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                               className="hidden"
                               onChange={(e) => handleSlotFileChange(e, slotType)}
                             />
@@ -1398,7 +1415,7 @@ function DepartmentDetailInner() {
             <input
               ref={contextFileInputRef}
               type="file"
-              accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
+              accept=".txt,.csv,.pdf,.docx,.md,.xlsx,.xls,text/plain,text/csv,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
               multiple
               className="hidden"
               onChange={handleContextFileChange}

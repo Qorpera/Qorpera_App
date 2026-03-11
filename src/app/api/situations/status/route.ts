@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { getAIConfig } from "@/lib/ai-provider";
 import { prisma } from "@/lib/db";
 import { isCronRunning } from "@/lib/situation-cron";
 
@@ -36,27 +37,14 @@ export async function GET() {
       where: { operatorId, status: "active" },
     });
 
-    // 5. AI provider configured
-    const aiProviderSetting = await prisma.appSetting.findUnique({
-      where: { key: "ai_provider" },
-    });
-    const aiProviderConfigured = !!(aiProviderSetting?.value);
-
-    // 6. AI reachable (check if provider + credentials are set)
+    // 5+6. AI provider configured & reachable — use getAIConfig() so DB + env fallback is respected
+    const aiConfig = await getAIConfig("reasoning");
+    const aiProviderConfigured = !!aiConfig.provider;
     let aiReachable = false;
-    if (aiProviderConfigured) {
-      const provider = aiProviderSetting!.value;
-      if (provider === "ollama") {
-        const baseUrlSetting = await prisma.appSetting.findUnique({
-          where: { key: "ai_base_url" },
-        });
-        aiReachable = !!(baseUrlSetting?.value);
-      } else {
-        const apiKeySetting = await prisma.appSetting.findUnique({
-          where: { key: "ai_api_key" },
-        });
-        aiReachable = !!(apiKeySetting?.value);
-      }
+    if (aiConfig.provider === "ollama") {
+      aiReachable = !!aiConfig.baseUrl;
+    } else {
+      aiReachable = !!aiConfig.apiKey;
     }
 
     // 7. Cron running

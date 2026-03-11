@@ -16,12 +16,27 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_MIMES = new Set([
   "text/plain",
   "text/csv",
+  "application/csv",
+  "text/comma-separated-values",
   "text/markdown",
   "text/x-markdown",
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
 ]);
+
+// Fallback: map file extensions to an accepted MIME when browser sends
+// "application/octet-stream" or an empty string
+const EXT_FALLBACK: Record<string, string> = {
+  ".csv": "text/csv",
+  ".md": "text/markdown",
+  ".txt": "text/plain",
+  ".pdf": "application/pdf",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".xls": "application/vnd.ms-excel",
+};
 
 const VALID_DOC_TYPES = new Set([
   "org-chart",
@@ -68,7 +83,6 @@ export async function POST(
   }
   const file = formData.get("file") as File | null;
   const documentType = formData.get("documentType") as string | null;
-  console.log(`[doc-upload] FormData received: file=${file?.name ?? "null"} (${file?.size ?? 0} bytes, ${file?.type ?? "?"}), documentType=${documentType}`);
 
   if (!file) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -79,11 +93,20 @@ export async function POST(
       { status: 413 }
     );
   }
-  if (!ALLOWED_MIMES.has(file.type)) {
-    return NextResponse.json(
-      { error: `Unsupported file type: ${file.type}. Accepted: TXT, CSV, PDF, DOCX, MD, XLSX` },
-      { status: 400 },
-    );
+  // Resolve MIME — fall back to extension when browser sends octet-stream or empty
+  let resolvedMime = file.type;
+  if (!ALLOWED_MIMES.has(resolvedMime)) {
+    const ext = path.extname(file.name).toLowerCase();
+    const fallback = EXT_FALLBACK[ext];
+    if (fallback) {
+      resolvedMime = fallback;
+    } else {
+      console.error(`[doc-upload] Rejected MIME "${file.type}" for file "${file.name}"`);
+      return NextResponse.json(
+        { error: `Unsupported file type: ${file.type}. Accepted: TXT, CSV, PDF, DOCX, MD, XLSX, XLS` },
+        { status: 400 },
+      );
+    }
   }
   if (!documentType || !VALID_DOC_TYPES.has(documentType)) {
     return NextResponse.json(
@@ -95,7 +118,6 @@ export async function POST(
   // Write file to disk (per-operator isolation)
   const storageBase = process.env.DOCUMENT_STORAGE_PATH || "./uploads/documents";
   const uploadDir = path.join(storageBase, operatorId);
-  console.log(`[doc-upload] Storage: ${uploadDir}, file: ${file.name}, type: ${documentType}, size: ${file.size}`);
 
   try {
     await mkdir(uploadDir, { recursive: true });
@@ -115,7 +137,6 @@ export async function POST(
   const buffer = Buffer.from(await file.arrayBuffer());
   try {
     await writeFile(absolutePath, buffer);
-    console.log(`[doc-upload] File written: ${absolutePath} (${buffer.length} bytes)`);
   } catch (writeErr) {
     console.error("[doc-upload] Failed to write file:", absolutePath, writeErr);
     return NextResponse.json(
@@ -172,7 +193,7 @@ export async function POST(
     data: {
       operatorId,
       fileName: file.name,
-      mimeType: file.type,
+      mimeType: resolvedMime,
       filePath,
       documentType,
       departmentId,
@@ -183,13 +204,12 @@ export async function POST(
 
   // Extract text immediately (non-fatal if it fails)
   try {
-    const rawText = await extractText(absolutePath, file.type);
+    const rawText = await extractText(absolutePath, resolvedMime);
     if (rawText) {
       await prisma.internalDocument.update({
         where: { id: doc.id },
         data: { rawText },
       });
-      console.log(`[doc-upload] Text extracted: ${rawText.length} chars for ${doc.id}`);
     }
   } catch (extractErr) {
     console.error("[doc-upload] Text extraction failed (non-fatal):", extractErr);

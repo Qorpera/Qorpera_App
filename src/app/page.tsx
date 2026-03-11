@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const firstRun = await isFirstRun();
-  if (firstRun) redirect("/setup");
+  if (firstRun) redirect("/register");
 
   const su = await getSessionUser();
   if (!su) redirect("/login");

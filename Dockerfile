@@ -13,7 +13,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
-RUN npm run build:next && npm run build:stage
+RUN npm run build:next
+
+# Entrypoint tools (prisma CLI, tsx, bcryptjs + all transitive deps)
+# Builds in parallel with the builder stage
+FROM base AS tools
+WORKDIR /tools
+RUN npm init -y && npm install prisma@6.19.2 tsx bcryptjs
 
 # Production
 FROM base AS runner
@@ -34,6 +40,12 @@ COPY --from=builder /app/node_modules/pdf-parse ./node_modules/pdf-parse
 COPY --from=builder /app/node_modules/mammoth ./node_modules/mammoth
 COPY --from=builder /app/node_modules/xlsx ./node_modules/xlsx
 COPY --from=builder /app/node_modules/papaparse ./node_modules/papaparse
+# Entrypoint tools: prisma CLI, tsx, bcryptjs (merges into node_modules)
+COPY --from=tools /tools/node_modules ./node_modules
+# Scripts and entrypoint
+COPY --from=builder /app/scripts ./scripts
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 # Document storage directory
 RUN mkdir -p /data/documents && chown nextjs:nodejs /data/documents
@@ -44,4 +56,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["sh", "-c", "npx prisma@6.19.2 db push --skip-generate --accept-data-loss && node server.js"]
+CMD ["./entrypoint.sh"]

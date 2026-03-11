@@ -19,7 +19,7 @@ export default function LoginPage() {
       .then((r) => r.json())
       .then((data) => {
         if (data.firstRun) {
-          router.replace("/setup");
+          router.replace("/register");
         } else if (data.authenticated) {
           router.replace("/");
         } else {

@@ -615,8 +615,6 @@ function OnboardingPage() {
     setDocError("");
 
     try {
-      console.log(`[upload] Starting upload: ${file.name} (${file.type}, ${(file.size/1024).toFixed(1)}KB) as ${documentType} to dept ${deptId}`);
-
       const formData = new FormData();
       formData.append("file", file);
       formData.append("documentType", documentType);
@@ -629,7 +627,6 @@ function OnboardingPage() {
         });
       } catch (fetchErr) {
         const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        console.error("[upload] Fetch failed:", msg);
         setDocError(`Upload failed: ${msg}`);
         return;
       }
@@ -642,13 +639,11 @@ function OnboardingPage() {
         } catch {
           try { errorMsg = await res.text() || errorMsg; } catch { /* fallback */ }
         }
-        console.error("[upload] Server error:", errorMsg);
         setDocError(errorMsg);
         return;
       }
 
       const doc = await res.json();
-      console.log(`[upload] Success: ${doc.id} — ${doc.fileName}`);
       await loadDocs(deptId);
 
       // Auto-trigger extraction for structural docs
@@ -676,7 +671,6 @@ function OnboardingPage() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("[upload] Unexpected error:", msg);
       setDocError(`Upload error: ${msg}`);
     } finally {
       if (isSlot) setUploadingSlot(null);
@@ -1443,7 +1437,7 @@ function OnboardingPage() {
                                       ref={el => { slotFileInputRefs.current[`${dept.id}-${slotType}`] = el; }}
                                       type="file"
                                       multiple
-                                      accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
+                                      accept=".txt,.csv,.pdf,.docx,.md,.xlsx,.xls,text/plain,text/csv,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                                       className="hidden"
                                       onChange={e => handleSlotFileChange(e, dept.id, slotType)}
                                     />
@@ -1465,7 +1459,7 @@ function OnboardingPage() {
                                       ref={el => { slotFileInputRefs.current[`${dept.id}-${slotType}`] = el; }}
                                       type="file"
                                       multiple
-                                      accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
+                                      accept=".txt,.csv,.pdf,.docx,.md,.xlsx,.xls,text/plain,text/csv,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                                       className="hidden"
                                       onChange={e => handleSlotFileChange(e, dept.id, slotType)}
                                     />
@@ -1510,7 +1504,7 @@ function OnboardingPage() {
                           <input
                             ref={contextFileInputRef}
                             type="file"
-                            accept=".txt,.csv,.pdf,.docx,.md,.xlsx"
+                            accept=".txt,.csv,.pdf,.docx,.md,.xlsx,.xls,text/plain,text/csv,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                             multiple
                             className="hidden"
                             onChange={e => handleContextFileChange(e, dept.id)}

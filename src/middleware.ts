@@ -15,7 +15,6 @@ const PUBLIC_PATHS = [
   "/login",
   "/register",
   "/invite",
-  "/setup",
 ];
 
 const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];

@@ -2,16 +2,19 @@ import { prisma } from "@/lib/db";
 import { detectSituations } from "@/lib/situation-detector";
 import { auditPreFilters } from "@/lib/situation-audit";
 
-let detectionInterval: ReturnType<typeof setInterval> | null = null;
-let auditInterval: ReturnType<typeof setInterval> | null = null;
+// Store on globalThis so references survive Next.js HMR in dev mode
+const g = globalThis as typeof globalThis & {
+  _situationDetectionInterval?: ReturnType<typeof setInterval>;
+  _situationAuditInterval?: ReturnType<typeof setInterval>;
+};
 
 // ── Start cron jobs (uses setInterval — no external dependency) ──────────────
 
 export function startSituationCrons() {
-  if (detectionInterval) return; // already running
+  if (g._situationDetectionInterval) return; // already running
 
   // Detection: every 15 minutes
-  detectionInterval = setInterval(async () => {
+  g._situationDetectionInterval = setInterval(async () => {
     try {
       const operators = await prisma.operator.findMany({ select: { id: true } });
       for (const op of operators) {
@@ -26,7 +29,7 @@ export function startSituationCrons() {
   }, 15 * 60 * 1000);
 
   // Audit: daily (every 24 hours)
-  auditInterval = setInterval(async () => {
+  g._situationAuditInterval = setInterval(async () => {
     try {
       const operators = await prisma.operator.findMany({ select: { id: true } });
       for (const op of operators) {
@@ -46,10 +49,10 @@ export function startSituationCrons() {
 }
 
 export function stopSituationCrons() {
-  if (detectionInterval) { clearInterval(detectionInterval); detectionInterval = null; }
-  if (auditInterval) { clearInterval(auditInterval); auditInterval = null; }
+  if (g._situationDetectionInterval) { clearInterval(g._situationDetectionInterval); g._situationDetectionInterval = undefined; }
+  if (g._situationAuditInterval) { clearInterval(g._situationAuditInterval); g._situationAuditInterval = undefined; }
 }
 
 export function isCronRunning(): boolean {
-  return detectionInterval !== null;
+  return g._situationDetectionInterval !== undefined;
 }
