@@ -1,7 +1,6 @@
 import type {
   ConnectorProvider,
   ConnectorConfig,
-  SyncEvent,
   ConnectorCapability,
   InferredSchema,
 } from "./types";
@@ -82,7 +81,7 @@ export const hubspotProvider: ConnectorProvider = {
     for await (const result of searchObjects(token, "contacts", since)) {
       const p = result.properties;
       contactIds.push(result.id);
-      yield {
+      yield { kind: "event" as const, data: {
         eventType: "contact.synced",
         payload: {
           id: result.id,
@@ -95,13 +94,13 @@ export const hubspotProvider: ConnectorProvider = {
           lifecyclestage: p.lifecyclestage,
           hs_lead_status: p.hs_lead_status,
         },
-      };
+      } };
     }
 
     // ── Sync companies ───────────────────────────────────
     for await (const result of searchObjects(token, "companies", since)) {
       const p = result.properties;
-      yield {
+      yield { kind: "event" as const, data: {
         eventType: "company.synced",
         payload: {
           id: result.id,
@@ -114,14 +113,14 @@ export const hubspotProvider: ConnectorProvider = {
           state: p.state,
           country: p.country,
         },
-      };
+      } };
     }
 
     // ── Sync deals ───────────────────────────────────────
     for await (const result of searchObjects(token, "deals", since)) {
       const p = result.properties;
       dealIds.push(result.id);
-      yield {
+      yield { kind: "event" as const, data: {
         eventType: "deal.synced",
         payload: {
           id: result.id,
@@ -131,14 +130,14 @@ export const hubspotProvider: ConnectorProvider = {
           pipeline: p.pipeline,
           closedate: p.closedate,
         },
-      };
+      } };
     }
 
     // ── Associations: contact → company ──────────────────
     for await (const assoc of batchAssociations(
       token, "contacts", "companies", contactIds
     )) {
-      yield {
+      yield { kind: "event" as const, data: {
         eventType: "association.found",
         payload: {
           fromSourceSystem: "hubspot",
@@ -147,14 +146,14 @@ export const hubspotProvider: ConnectorProvider = {
           toExternalId: assoc.toId,
           relationshipType: "works-at",
         },
-      };
+      } };
     }
 
     // ── Associations: deal → company ─────────────────────
     for await (const assoc of batchAssociations(
       token, "deals", "companies", dealIds
     )) {
-      yield {
+      yield { kind: "event" as const, data: {
         eventType: "association.found",
         payload: {
           fromSourceSystem: "hubspot",
@@ -163,14 +162,14 @@ export const hubspotProvider: ConnectorProvider = {
           toExternalId: assoc.toId,
           relationshipType: "deal-for",
         },
-      };
+      } };
     }
 
     // ── Associations: deal → contact ─────────────────────
     for await (const assoc of batchAssociations(
       token, "deals", "contacts", dealIds
     )) {
-      yield {
+      yield { kind: "event" as const, data: {
         eventType: "association.found",
         payload: {
           fromSourceSystem: "hubspot",
@@ -179,7 +178,7 @@ export const hubspotProvider: ConnectorProvider = {
           toExternalId: assoc.toId,
           relationshipType: "deal-contact",
         },
-      };
+      } };
     }
 
     // ── Engagement emails ────────────────────────────────
@@ -213,7 +212,7 @@ export const hubspotProvider: ConnectorProvider = {
           if (ts < since.getTime()) continue;
         }
         emailIds.push(result.id);
-        yield {
+        yield { kind: "event" as const, data: {
           eventType: "email.synced",
           payload: {
             id: result.id,
@@ -224,7 +223,7 @@ export const hubspotProvider: ConnectorProvider = {
             timestamp: p.hs_timestamp,
             status: p.hs_email_status,
           },
-        };
+        } };
       }
 
       emailAfter = data.paging?.next?.after;
@@ -235,13 +234,13 @@ export const hubspotProvider: ConnectorProvider = {
       token, "emails", "contacts", emailIds
     )) {
       // Emit as additional context (not a KGE relationship)
-      yield {
+      yield { kind: "event" as const, data: {
         eventType: "email.synced",
         payload: {
           id: assoc.fromId,
           contactId: assoc.toId,
         },
-      };
+      } };
     }
   },
 

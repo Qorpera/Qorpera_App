@@ -1,7 +1,6 @@
 import type {
   ConnectorProvider,
   ConnectorConfig,
-  SyncEvent,
   InferredSchema,
 } from "./types";
 import { getValidAccessToken } from "./google-auth";
@@ -121,10 +120,10 @@ export const googleSheetsProvider: ConnectorProvider = {
             payload[headers[j]] = row[j] ?? "";
           }
 
-          yield {
+          yield { kind: "event" as const, data: {
             eventType: "row.synced",
             payload,
-          };
+          } };
         }
       }
     }

@@ -49,13 +49,13 @@ export interface ConnectorProvider {
   }>;
 
   /**
-   * Pull data from the external system as events.
-   * Yields events one at a time. The caller writes each to the Event table.
+   * Pull data from the external system as a typed stream of events,
+   * content, and activity signals.
    */
   sync(
     config: ConnectorConfig,
     since?: Date
-  ): AsyncGenerator<SyncEvent>;
+  ): AsyncGenerator<import("./sync-types").SyncYield>;
 
   /**
    * Execute an action in the external system (optional).

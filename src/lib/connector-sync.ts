@@ -2,11 +2,15 @@ import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
 import { materializeUnprocessed } from "@/lib/event-materializer";
 import { decrypt, encrypt } from "@/lib/encryption";
+import { ingestContent } from "@/lib/content-pipeline";
+import { ingestActivity, resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 
 export type SyncResult = {
   status: "success" | "partial" | "failed";
   eventsCreated: number;
   eventsSkipped: number;
+  contentIngested: number;
+  activitiesIngested: number;
   errors: string[];
   durationMs: number;
 };
@@ -19,6 +23,8 @@ export async function runConnectorSync(
   const errors: string[] = [];
   let eventsCreated = 0;
   let eventsSkipped = 0;
+  let contentIngested = 0;
+  let activitiesIngested = 0;
 
   const connector = await prisma.sourceConnector.findFirst({
     where: { id: connectorId, operatorId },
@@ -29,6 +35,8 @@ export async function runConnectorSync(
       status: "failed",
       eventsCreated: 0,
       eventsSkipped: 0,
+      contentIngested: 0,
+      activitiesIngested: 0,
       errors: ["Connector not found"],
       durationMs: Date.now() - start,
     };
@@ -40,6 +48,8 @@ export async function runConnectorSync(
       status: "failed",
       eventsCreated: 0,
       eventsSkipped: 0,
+      contentIngested: 0,
+      activitiesIngested: 0,
       errors: [`Unknown provider: ${connector.provider}`],
       durationMs: Date.now() - start,
     };
@@ -51,21 +61,68 @@ export async function runConnectorSync(
   try {
     const since = connector.lastSyncAt ?? undefined;
 
-    for await (const event of provider.sync(config, since)) {
-      try {
-        await prisma.event.create({
-          data: {
-            operatorId,
-            connectorId,
-            source: connector.provider,
-            eventType: event.eventType,
-            payload: JSON.stringify(event.payload),
-          },
-        });
-        eventsCreated++;
-      } catch (err) {
-        // Likely a duplicate or constraint violation
-        eventsSkipped++;
+    for await (const item of provider.sync(config, since)) {
+      switch (item.kind) {
+        case "event": {
+          try {
+            await prisma.event.create({
+              data: {
+                operatorId,
+                connectorId,
+                source: connector.provider,
+                eventType: item.data.eventType,
+                payload: JSON.stringify(item.data.payload),
+              },
+            });
+            eventsCreated++;
+          } catch (err) {
+            // Likely a duplicate or constraint violation
+            eventsSkipped++;
+          }
+          break;
+        }
+
+        case "content": {
+          try {
+            const deptIds = await resolveDepartmentsFromEmails(
+              operatorId,
+              item.data.participantEmails,
+            );
+            await ingestContent({
+              operatorId,
+              sourceType: item.data.sourceType,
+              sourceId: item.data.sourceId,
+              content: item.data.content,
+              entityId: item.data.entityId,
+              departmentIds: deptIds,
+              metadata: item.data.metadata,
+            });
+            contentIngested++;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`Content ingestion error: ${msg}`);
+          }
+          break;
+        }
+
+        case "activity": {
+          try {
+            const result = await ingestActivity({
+              operatorId,
+              connectorId,
+              signalType: item.data.signalType,
+              actorEmail: item.data.actorEmail,
+              targetEmails: item.data.targetEmails,
+              metadata: item.data.metadata,
+              occurredAt: item.data.occurredAt,
+            });
+            if (result) activitiesIngested++;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`Activity ingestion error: ${msg}`);
+          }
+          break;
+        }
       }
     }
   } catch (err) {
@@ -145,10 +202,36 @@ export async function runConnectorSync(
     }
   }
 
+  // Identity resolution: find entities updated during this sync and check for merges
+  if (eventsCreated > 0) {
+    const syncCutoff = new Date(start);
+    prisma.entity
+      .findMany({
+        where: { operatorId, updatedAt: { gte: syncCutoff } },
+        select: { id: true },
+      })
+      .then(async (entities) => {
+        if (entities.length === 0) return;
+        const { runIdentityResolution } = await import("@/lib/identity-resolution");
+        const ids = entities.map((e) => e.id);
+        return runIdentityResolution(operatorId, ids);
+      })
+      .then((result) => {
+        if (result && (result.autoMerged > 0 || result.suggested > 0)) {
+          console.log(
+            `[identity-resolution] operator=${operatorId}: ${result.autoMerged} auto-merged, ${result.suggested} suggestions`,
+          );
+        }
+      })
+      .catch((err) => console.error("[identity-resolution] Error:", err));
+  }
+
   return {
     status: syncStatus,
     eventsCreated,
     eventsSkipped,
+    contentIngested,
+    activitiesIngested,
     errors,
     durationMs,
   };

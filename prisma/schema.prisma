@@ -230,8 +230,9 @@ model SourceConnector {
   name       String   @default("")  // user-facing label
   status     String   @default("active")  // active, paused, error, disconnected, pending
   config     String?  // JSON - provider-specific config
-  lastSyncAt DateTime?
-  createdAt  DateTime @default(now())
+  lastSyncAt          DateTime?
+  consecutiveFailures Int      @default(0)
+  createdAt           DateTime @default(now())
 
   materializerConfig String?  // JSON: dynamic materializer rules from ontology inference
 
@@ -581,6 +582,7 @@ model EntityMergeLog {
   mergeType       String    // "auto_identity" | "ml_high_confidence" | "admin_manual"
   confidence      Float?    // ML confidence score (null for deterministic merges)
   signals         String?   // JSON: what triggered the merge
+  snapshot        String?   // JSON: full state of absorbed entity before merge, for reversal
   reversible      Boolean   @default(true)
   reversedAt      DateTime?
   createdAt       DateTime  @default(now())

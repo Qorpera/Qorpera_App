@@ -1,7 +1,6 @@
 import type {
   ConnectorProvider,
   ConnectorConfig,
-  SyncEvent,
   ConnectorCapability,
   InferredSchema,
 } from "./types";
@@ -73,7 +72,7 @@ export const stripeProvider: ConnectorProvider = {
 
       for (const cust of data.data || []) {
         customerIds.push(cust.id);
-        yield {
+        yield { kind: "event" as const, data: {
           eventType: "customer.synced",
           payload: {
             id: cust.id,
@@ -85,7 +84,7 @@ export const stripeProvider: ConnectorProvider = {
             balance: cust.balance,
             delinquent: cust.delinquent,
           },
-        };
+        } };
       }
 
       hasMore = data.has_more === true;
@@ -110,7 +109,7 @@ export const stripeProvider: ConnectorProvider = {
       for (const inv of data.data || []) {
         invoiceIds.push(inv.id);
 
-        yield {
+        yield { kind: "event" as const, data: {
           eventType: "invoice.created",
           payload: {
             id: inv.id,
@@ -124,10 +123,10 @@ export const stripeProvider: ConnectorProvider = {
             paid: inv.paid,
             created: inv.created,
           },
-        };
+        } };
 
         if (inv.status === "paid") {
-          yield {
+          yield { kind: "event" as const, data: {
             eventType: "invoice.paid",
             payload: {
               id: inv.id,
@@ -137,7 +136,7 @@ export const stripeProvider: ConnectorProvider = {
               paid_at: inv.status_transitions?.paid_at,
               customer: inv.customer,
             },
-          };
+          } };
         }
 
         if (
@@ -145,7 +144,7 @@ export const stripeProvider: ConnectorProvider = {
           inv.due_date &&
           inv.due_date < Math.floor(Date.now() / 1000)
         ) {
-          yield {
+          yield { kind: "event" as const, data: {
             eventType: "invoice.overdue",
             payload: {
               id: inv.id,
@@ -155,12 +154,12 @@ export const stripeProvider: ConnectorProvider = {
               due_date: inv.due_date,
               customer: inv.customer,
             },
-          };
+          } };
         }
 
         // Customer → Invoice association
         if (inv.customer) {
-          yield {
+          yield { kind: "event" as const, data: {
             eventType: "association.found",
             payload: {
               fromSourceSystem: "stripe",
@@ -169,7 +168,7 @@ export const stripeProvider: ConnectorProvider = {
               toExternalId: inv.id,
               relationshipType: "invoiced",
             },
-          };
+          } };
         }
       }
 
@@ -193,7 +192,7 @@ export const stripeProvider: ConnectorProvider = {
       const data = await resp.json();
 
       for (const charge of data.data || []) {
-        yield {
+        yield { kind: "event" as const, data: {
           eventType: "payment.received",
           payload: {
             id: charge.id,
@@ -204,11 +203,11 @@ export const stripeProvider: ConnectorProvider = {
             invoice: charge.invoice,
             created: charge.created,
           },
-        };
+        } };
 
         // Payment → Invoice association
         if (charge.invoice) {
-          yield {
+          yield { kind: "event" as const, data: {
             eventType: "association.found",
             payload: {
               fromSourceSystem: "stripe",
@@ -217,12 +216,12 @@ export const stripeProvider: ConnectorProvider = {
               toExternalId: charge.invoice,
               relationshipType: "payment-for",
             },
-          };
+          } };
         }
 
         // Payment → Customer association
         if (charge.customer) {
-          yield {
+          yield { kind: "event" as const, data: {
             eventType: "association.found",
             payload: {
               fromSourceSystem: "stripe",
@@ -231,7 +230,7 @@ export const stripeProvider: ConnectorProvider = {
               toExternalId: charge.customer,
               relationshipType: "paid-by",
             },
-          };
+          } };
         }
       }
 
