@@ -7,7 +7,6 @@ export interface Department {
   mapX: number | null;
   mapY: number | null;
   memberCount: number;
-  connectorCount: number;
   entityType: { slug: string };
 }
 

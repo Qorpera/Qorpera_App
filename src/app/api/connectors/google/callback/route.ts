@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=${error}`, APP_BASE)
+      new URL(`${returnBase}${sep}google=error&reason=${encodeURIComponent(error)}`, APP_BASE)
     );
   }
 
@@ -57,14 +57,24 @@ export async function GET(req: NextRequest) {
   }
   cookieStore.delete("google_oauth_state");
 
+  // Verify env vars before token exchange
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    console.error("[google-oauth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET");
+    return NextResponse.redirect(
+      new URL(`${returnBase}${sep}google=error&reason=server_config`, APP_BASE)
+    );
+  }
+
   // Exchange code for tokens
   const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       code,
-      client_id: process.env.GOOGLE_CLIENT_ID!,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+      client_id: clientId,
+      client_secret: clientSecret,
       redirect_uri: `${APP_BASE}/api/connectors/google/callback`,
       grant_type: "authorization_code",
     }),

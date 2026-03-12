@@ -3,6 +3,7 @@ import type {
   ConnectorConfig,
 } from "./types";
 import type { SyncYield } from "./sync-types";
+import type { EntityInput, ExternalRef } from "@/lib/entity-resolution";
 import { getValidAccessToken } from "./google-auth";
 
 // ── Types ───────────────────────────────────────────────────
@@ -175,17 +176,14 @@ function isAutomatedEmail(
 
 async function ensureContactEntity(
   operatorId: string,
-  participant: { email: string; name?: string }
+  participant: { email: string; name?: string },
+  ensureType: (operatorId: string, slug: string) => Promise<void>,
+  upsert: (operatorId: string, typeSlug: string, input: EntityInput, externalRef?: ExternalRef) => Promise<string>,
 ): Promise<string | null> {
   try {
-    const { ensureHardcodedEntityType } = await import(
-      "@/lib/event-materializer"
-    );
-    await ensureHardcodedEntityType(operatorId, "contact");
+    await ensureType(operatorId, "contact");
 
-    const { upsertEntity } = await import("@/lib/entity-resolution");
-
-    const entityId = await upsertEntity(
+    const entityId = await upsert(
       operatorId,
       "contact",
       {
@@ -211,10 +209,19 @@ async function ensureContactEntity(
 
 // ── Message processing ──────────────────────────────────────
 
-function* processMessage(
+type ProcessedMessage = {
+  yields: SyncYield[];
+  meta: {
+    isAutomated: boolean;
+    participants: { email: string; name?: string }[];
+    threadEntry: ThreadEntry;
+  };
+};
+
+function processMessage(
   message: GmailMessage,
   userEmail: string
-): Generator<SyncYield & { _meta?: { isAutomated: boolean; participants: { email: string; name?: string }[]; threadEntry: ThreadEntry } }> {
+): ProcessedMessage {
   const headers = message.payload.headers;
   const from = getHeader(headers, "From");
   const to = getHeader(headers, "To");
@@ -250,8 +257,10 @@ function* processMessage(
     }
   }
 
-  // --- YIELD 1: Event ---
-  yield {
+  const yields: SyncYield[] = [];
+
+  // --- Event ---
+  yields.push({
     kind: "event" as const,
     data: {
       eventType: direction === "sent" ? "email.sent" : "email.received",
@@ -270,16 +279,11 @@ function* processMessage(
         isAutomated: automated,
       },
     },
-    _meta: {
-      isAutomated: automated,
-      participants,
-      threadEntry: { id: message.id, date, direction, senderEmail: senderEmail || "" },
-    },
-  };
+  });
 
-  // --- YIELD 2: Content (if body has meaningful text) ---
+  // --- Content (if body has meaningful text) ---
   if (bodyText && bodyText.trim().length > 50) {
-    yield {
+    yields.push({
       kind: "content" as const,
       data: {
         sourceType: "email",
@@ -297,11 +301,11 @@ function* processMessage(
         },
         participantEmails: allEmails,
       },
-    };
+    });
   }
 
-  // --- YIELD 3: Activity signal ---
-  yield {
+  // --- Activity signal ---
+  yields.push({
     kind: "activity" as const,
     data: {
       signalType: direction === "sent" ? "email_sent" : "email_received",
@@ -316,6 +320,15 @@ function* processMessage(
         isAutomated: automated,
       },
       occurredAt: date,
+    },
+  });
+
+  return {
+    yields,
+    meta: {
+      isAutomated: automated,
+      participants,
+      threadEntry: { id: message.id, date, direction, senderEmail: senderEmail || "" },
     },
   };
 }
@@ -461,18 +474,25 @@ async function* syncGmail(
 ): AsyncGenerator<SyncYield> {
   const operatorId = config._operatorId as string | undefined;
 
-  // 1. Get authenticated user's email
-  const profileResp = await fetch(
-    "https://gmail.googleapis.com/gmail/v1/users/me/profile",
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!profileResp.ok) {
-    throw new Error(
-      `Gmail API error: ${profileResp.status} ${profileResp.statusText}`
+  // Import entity creation utilities once for this sync run
+  const { ensureHardcodedEntityType } = await import("@/lib/event-materializer");
+  const { upsertEntity } = await import("@/lib/entity-resolution");
+
+  // 1. Get authenticated user's email (prefer config, fallback to API)
+  let userEmail = (config.email_address as string) || "";
+  if (!userEmail) {
+    const profileResp = await fetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     );
+    if (!profileResp.ok) {
+      throw new Error(
+        `Gmail API error: ${profileResp.status} ${profileResp.statusText}`
+      );
+    }
+    const profile = await profileResp.json();
+    userEmail = profile.emailAddress;
   }
-  const profile = await profileResp.json();
-  const userEmail: string = profile.emailAddress;
   console.log(`[google-sync] Gmail connected as: ${userEmail}`);
 
   // 2. Determine sync window
@@ -493,40 +513,29 @@ async function* syncGmail(
     const messages = await fetchMessageBatch(accessToken, batch);
 
     for (const message of messages) {
-      for (const item of processMessage(message, userEmail)) {
-        // Extract metadata before yielding
-        const meta = (item as any)._meta as
-          | { isAutomated: boolean; participants: { email: string; name?: string }[]; threadEntry: ThreadEntry }
-          | undefined;
+      const { yields: items, meta } = processMessage(message, userEmail);
 
-        // Yield the SyncYield (strip _meta before passing to orchestrator)
-        const { _meta, ...syncItem } = item as any;
-        yield syncItem as SyncYield;
+      // Yield all sync items
+      for (const item of items) {
+        yield item;
+      }
 
-        // Post-yield processing (only on the first yield per message — the event)
-        if (meta && operatorId) {
-          // Track thread entries for response time
-          if (!threadMessages.has(message.threadId)) {
-            threadMessages.set(message.threadId, []);
-          }
-          threadMessages.get(message.threadId)!.push(meta.threadEntry);
+      // Post-yield processing: thread tracking and entity creation
+      if (operatorId) {
+        // Track thread entries for response time
+        if (!threadMessages.has(message.threadId)) {
+          threadMessages.set(message.threadId, []);
+        }
+        threadMessages.get(message.threadId)!.push(meta.threadEntry);
 
-          // Entity creation for non-automated emails
-          if (!meta.isAutomated) {
-            for (const participant of meta.participants) {
-              // Skip the authenticated user
-              if (
-                participant.email.toLowerCase() ===
-                userEmail.toLowerCase()
-              ) {
-                continue;
-              }
-              // Skip already-created in this sync run
-              if (createdEmails.has(participant.email)) continue;
-              createdEmails.add(participant.email);
+        // Entity creation for non-automated emails
+        if (!meta.isAutomated) {
+          for (const participant of meta.participants) {
+            if (participant.email.toLowerCase() === userEmail.toLowerCase()) continue;
+            if (createdEmails.has(participant.email)) continue;
+            createdEmails.add(participant.email);
 
-              await ensureContactEntity(operatorId, participant);
-            }
+            await ensureContactEntity(operatorId, participant, ensureHardcodedEntityType, upsertEntity);
           }
         }
       }
