@@ -259,27 +259,8 @@ function processMessage(
 
   const yields: SyncYield[] = [];
 
-  // --- Event ---
-  yields.push({
-    kind: "event" as const,
-    data: {
-      eventType: direction === "sent" ? "email.sent" : "email.received",
-      payload: {
-        externalId: message.id,
-        subject,
-        from: fromParsed,
-        to: toParsed,
-        cc: ccParsed,
-        threadId: message.threadId,
-        messageId: messageIdHeader,
-        snippet: message.snippet,
-        direction,
-        timestamp: date.toISOString(),
-        entityRefs: allEmails,
-        isAutomated: automated,
-      },
-    },
-  });
+  // Note: no event yield here — entity creation is handled by ensureContactEntity()
+  // in the sync loop, and email events don't need materializer processing.
 
   // --- Content (if body has meaningful text) ---
   if (bodyText && bodyText.trim().length > 50) {
@@ -582,27 +563,483 @@ async function* syncGmail(
 }
 
 async function* syncDrive(
-  _accessToken: string,
-  _since?: Date,
-  _config?: ConnectorConfig
+  accessToken: string,
+  since: Date | undefined,
+  config: ConnectorConfig
 ): AsyncGenerator<SyncYield> {
-  console.log("[google-sync] Drive sync: not yet implemented");
+  const syncAfter = since || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+  const supportedMimeTypes = new Set([
+    "application/vnd.google-apps.document",
+    "application/vnd.google-apps.presentation",
+    "application/pdf",
+    "text/plain",
+    "text/csv",
+    "text/markdown",
+  ]);
+
+  // List files modified since last sync
+  let fileCount = 0;
+  let processedCount = 0;
+  let contentCount = 0;
+  let pageToken: string | undefined;
+
+  do {
+    const url = new URL("https://www.googleapis.com/drive/v3/files");
+    url.searchParams.set(
+      "q",
+      `modifiedTime > '${syncAfter.toISOString()}' and trashed = false`
+    );
+    url.searchParams.set(
+      "fields",
+      "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,owners,lastModifyingUser,shared,size)"
+    );
+    url.searchParams.set("pageSize", "100");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const resp = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!resp.ok) {
+      if (resp.status === 429) {
+        const retryAfter = parseInt(resp.headers.get("Retry-After") || "5", 10);
+        await sleep(retryAfter * 1000);
+        continue;
+      }
+      throw new Error(`Drive list files: ${resp.status} ${resp.statusText}`);
+    }
+
+    const data = await resp.json();
+    const files = data.files || [];
+    pageToken = data.nextPageToken;
+
+    for (const file of files) {
+      fileCount++;
+
+      // Skip spreadsheets (handled by syncSheets)
+      if (file.mimeType === "application/vnd.google-apps.spreadsheet") continue;
+
+      // Skip unsupported file types
+      if (!supportedMimeTypes.has(file.mimeType)) continue;
+
+      // Skip files larger than 5MB
+      if (file.size && parseInt(file.size, 10) > 5 * 1024 * 1024) continue;
+
+      processedCount++;
+
+      // No event yield — Drive files don't need materializer processing.
+      // Content and activity yields handle RAG indexing and signal tracking.
+
+      // Extract text content
+      let extractedText = "";
+      try {
+        if (
+          file.mimeType === "application/vnd.google-apps.document" ||
+          file.mimeType === "application/vnd.google-apps.presentation"
+        ) {
+          const exportResp = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${file.id}/export?mimeType=text/plain`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          if (exportResp.ok) extractedText = await exportResp.text();
+        } else if (
+          file.mimeType === "text/plain" ||
+          file.mimeType === "text/csv" ||
+          file.mimeType === "text/markdown"
+        ) {
+          const dlResp = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          if (dlResp.ok) extractedText = await dlResp.text();
+        }
+        // PDF: skip content extraction for now (would need pdf-parse)
+      } catch (err) {
+        console.warn(`[google-sync] Drive: failed to extract content from ${file.name}:`, err);
+      }
+
+      // Yield content if substantial
+      if (extractedText && extractedText.trim().length > 50) {
+        contentCount++;
+        yield {
+          kind: "content" as const,
+          data: {
+            sourceType: "drive_doc",
+            sourceId: file.id,
+            content: extractedText,
+            metadata: {
+              fileName: file.name,
+              mimeType: file.mimeType,
+              modifiedTime: file.modifiedTime,
+              owners: file.owners?.map((o: { emailAddress: string }) => o.emailAddress),
+              lastModifyingUser: file.lastModifyingUser?.emailAddress,
+            },
+            participantEmails: [
+              ...(file.owners?.map((o: { emailAddress: string }) => o.emailAddress) || []),
+              file.lastModifyingUser?.emailAddress,
+            ].filter(Boolean),
+          },
+        };
+      }
+
+      // Activity: doc_created (only if within sync window)
+      if (file.createdTime && new Date(file.createdTime) >= syncAfter) {
+        yield {
+          kind: "activity" as const,
+          data: {
+            signalType: "doc_created",
+            actorEmail: file.owners?.[0]?.emailAddress,
+            metadata: { fileName: file.name, mimeType: file.mimeType, fileId: file.id },
+            occurredAt: new Date(file.createdTime),
+          },
+        };
+      }
+
+      // Activity: doc_edited (always — file was modified in window)
+      yield {
+        kind: "activity" as const,
+        data: {
+          signalType: "doc_edited",
+          actorEmail: file.lastModifyingUser?.emailAddress,
+          metadata: { fileName: file.name, mimeType: file.mimeType, fileId: file.id },
+          occurredAt: new Date(file.modifiedTime),
+        },
+      };
+
+      // Activity: doc_shared
+      if (file.shared) {
+        yield {
+          kind: "activity" as const,
+          data: {
+            signalType: "doc_shared",
+            actorEmail: file.owners?.[0]?.emailAddress,
+            metadata: { fileName: file.name, fileId: file.id },
+            occurredAt: new Date(file.modifiedTime),
+          },
+        };
+      }
+    }
+  } while (pageToken);
+
+  console.log(
+    `[google-sync] Drive: found ${fileCount} files, processed ${processedCount}, ${contentCount} with content`
+  );
 }
 
 async function* syncCalendar(
-  _accessToken: string,
-  _since?: Date,
-  _config?: ConnectorConfig
+  accessToken: string,
+  since: Date | undefined,
+  _config: ConnectorConfig
 ): AsyncGenerator<SyncYield> {
-  console.log("[google-sync] Calendar sync: not yet implemented");
+  const syncAfter = since || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+  let eventCount = 0;
+  const meetingPairs = new Map<string, number>();
+  let pageToken: string | undefined;
+
+  do {
+    const url = new URL(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    );
+    url.searchParams.set("timeMin", syncAfter.toISOString());
+    url.searchParams.set("timeMax", new Date().toISOString());
+    url.searchParams.set("singleEvents", "true");
+    url.searchParams.set("orderBy", "startTime");
+    url.searchParams.set("maxResults", "250");
+    url.searchParams.set(
+      "fields",
+      "nextPageToken,items(id,summary,description,start,end,attendees,organizer,status,recurringEventId,htmlLink)"
+    );
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const resp = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!resp.ok) {
+      if (resp.status === 429) {
+        const retryAfter = parseInt(resp.headers.get("Retry-After") || "5", 10);
+        await sleep(retryAfter * 1000);
+        continue;
+      }
+      throw new Error(`Calendar list events: ${resp.status} ${resp.statusText}`);
+    }
+
+    const data = await resp.json();
+    const events = data.items || [];
+    pageToken = data.nextPageToken;
+
+    for (const event of events) {
+      // Skip cancelled events
+      if (event.status === "cancelled") continue;
+
+      eventCount++;
+
+      const startTime = event.start?.dateTime || event.start?.date;
+      const endTime = event.end?.dateTime || event.end?.date;
+
+      // Skip events with no parseable start time
+      if (!startTime || isNaN(new Date(startTime).getTime())) continue;
+
+      const attendeeEmails = (event.attendees || [])
+        .filter((a: { responseStatus?: string }) => a.responseStatus !== "declined")
+        .map((a: { email?: string }) => a.email)
+        .filter(Boolean) as string[];
+      const organizerEmail = event.organizer?.email as string | undefined;
+
+      const durationMs =
+        startTime && endTime
+          ? new Date(endTime).getTime() - new Date(startTime).getTime()
+          : null;
+
+      // Activity: meeting_held
+      yield {
+        kind: "activity" as const,
+        data: {
+          signalType: "meeting_held",
+          actorEmail: organizerEmail,
+          targetEmails: attendeeEmails.filter((e: string) => e !== organizerEmail),
+          metadata: {
+            summary: event.summary || "(no title)",
+            eventId: event.id,
+            durationMs,
+            durationMinutes: durationMs ? Math.round(durationMs / 60000) : null,
+            attendeeCount: attendeeEmails.length,
+            isRecurring: !!(event.recurringEventId),
+            htmlLink: event.htmlLink,
+          },
+          occurredAt: new Date(startTime),
+        },
+      };
+
+      // Content: event description (if substantial)
+      if (event.description && event.description.trim().length > 50) {
+        yield {
+          kind: "content" as const,
+          data: {
+            sourceType: "calendar_note",
+            sourceId: event.id,
+            content: `Meeting: ${event.summary || "(no title)"}\nDate: ${startTime}\nAttendees: ${attendeeEmails.join(", ")}\n\n${event.description}`,
+            metadata: {
+              summary: event.summary,
+              startTime,
+              attendees: attendeeEmails,
+              organizer: organizerEmail,
+            },
+            participantEmails: attendeeEmails,
+          },
+        };
+      }
+
+      // No event yield — calendar events don't need materializer processing.
+      // Activity signals (meeting_held, meeting_frequency) handle pattern tracking.
+
+      // Track meeting pairs for frequency analysis
+      const allParticipants = organizerEmail
+        ? [organizerEmail, ...attendeeEmails.filter((e: string) => e !== organizerEmail)]
+        : attendeeEmails;
+
+      for (let i = 0; i < allParticipants.length; i++) {
+        for (let j = i + 1; j < allParticipants.length; j++) {
+          const pair = [allParticipants[i], allParticipants[j]].sort();
+          const key = `${pair[0]}|${pair[1]}`;
+          meetingPairs.set(key, (meetingPairs.get(key) || 0) + 1);
+        }
+      }
+    }
+  } while (pageToken);
+
+  // Yield meeting frequency signals for pairs with > 1 meeting
+  for (const [pairKey, count] of meetingPairs) {
+    if (count <= 1) continue;
+    const [email1, email2] = pairKey.split("|");
+    yield {
+      kind: "activity" as const,
+      data: {
+        signalType: "meeting_frequency",
+        actorEmail: email1,
+        targetEmails: [email2],
+        metadata: {
+          meetingCount: count,
+          periodDays: Math.round(
+            (Date.now() - syncAfter.getTime()) / (1000 * 60 * 60 * 24)
+          ),
+        },
+        occurredAt: new Date(),
+      },
+    };
+  }
+
+  console.log(
+    `[google-sync] Calendar: ${eventCount} events, ${meetingPairs.size} attendee pairs`
+  );
 }
 
 async function* syncSheets(
-  _accessToken: string,
-  _since?: Date,
-  _config?: ConnectorConfig
+  accessToken: string,
+  since: Date | undefined,
+  config: ConnectorConfig
 ): AsyncGenerator<SyncYield> {
-  console.log("[google-sync] Sheets sync: not yet implemented");
+  const syncAfter = since || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+  // 1. Discover spreadsheets via Drive API (track metadata for activity signals)
+  const spreadsheetIds: string[] = [];
+  const spreadsheetMeta = new Map<string, { name: string; lastModifyingEmail?: string }>();
+
+  let pageToken: string | undefined;
+  do {
+    const url = new URL("https://www.googleapis.com/drive/v3/files");
+    url.searchParams.set(
+      "q",
+      `mimeType='application/vnd.google-apps.spreadsheet' and modifiedTime>'${syncAfter.toISOString()}' and trashed=false`
+    );
+    url.searchParams.set("fields", "nextPageToken,files(id,name,modifiedTime,lastModifyingUser)");
+    url.searchParams.set("pageSize", "100");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+    const resp = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!resp.ok) {
+      if (resp.status === 429) {
+        const retryAfter = parseInt(resp.headers.get("Retry-After") || "5", 10);
+        await sleep(retryAfter * 1000);
+        continue;
+      }
+      console.warn(`[google-sync] Sheets: Drive discovery failed: ${resp.status}`);
+      break;
+    }
+
+    const data = await resp.json();
+    const files = data.files || [];
+    for (const f of files) {
+      if (!spreadsheetIds.includes(f.id)) {
+        spreadsheetIds.push(f.id);
+      }
+      spreadsheetMeta.set(f.id, {
+        name: f.name,
+        lastModifyingEmail: f.lastModifyingUser?.emailAddress,
+      });
+    }
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  // 2. Also include manually configured spreadsheet IDs
+  if (config.spreadsheet_ids && Array.isArray(config.spreadsheet_ids)) {
+    for (const id of config.spreadsheet_ids as string[]) {
+      if (!spreadsheetIds.includes(id)) spreadsheetIds.push(id);
+    }
+  }
+  if (config.spreadsheet_id) {
+    const id = extractSpreadsheetId(config.spreadsheet_id as string);
+    if (id && !spreadsheetIds.includes(id)) spreadsheetIds.push(id);
+  }
+
+  let sheetCount = 0;
+  let rowCount = 0;
+
+  // 3. Process each spreadsheet
+  for (const spreadsheetId of spreadsheetIds) {
+    // Fetch spreadsheet metadata (title + sheets) with 429 retry
+    let metaResp: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      metaResp = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=properties.title,sheets.properties`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (metaResp.ok) break;
+      if (metaResp.status === 429) {
+        const retryAfter = parseInt(metaResp.headers.get("Retry-After") || "5", 10);
+        await sleep(retryAfter * 1000);
+        continue;
+      }
+      break; // non-429 error, don't retry
+    }
+
+    if (!metaResp || !metaResp.ok) {
+      console.warn(`[google-sync] Sheets: failed to read ${spreadsheetId}: ${metaResp?.status ?? "no response"}`);
+      continue;
+    }
+
+    const meta = await metaResp.json();
+    const spreadsheetTitle = meta.properties?.title || spreadsheetId;
+
+    for (const sheet of meta.sheets || []) {
+      const sheetName = sheet.properties.title;
+      sheetCount++;
+
+      // Quote sheet name for A1 notation
+      const quotedName = `'${sheetName.replace(/'/g, "''")}'`;
+      const dataResp = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(quotedName)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      if (!dataResp.ok) continue;
+      const { values } = await dataResp.json();
+      if (!values || values.length < 2) continue;
+
+      const headers = values[0] as string[];
+      const rows = values.slice(1) as string[][];
+      rowCount += rows.length;
+
+      // Content: text summary for RAG indexing (cap at 100 rows)
+      const textLines = [headers.join(" | ")];
+      const dataRows = rows.slice(0, 100);
+      for (const row of dataRows) {
+        textLines.push(
+          headers.map((h, idx) => `${h}: ${row[idx] || ""}`).join(" | ")
+        );
+      }
+      const sheetText = `Spreadsheet: ${spreadsheetTitle}\nSheet: ${sheetName}\n${textLines.join("\n")}`;
+
+      if (sheetText.length > 50) {
+        yield {
+          kind: "content" as const,
+          data: {
+            sourceType: "drive_doc",
+            sourceId: `${spreadsheetId}:${sheetName}`,
+            content: sheetText,
+            metadata: {
+              fileName: spreadsheetTitle,
+              sheetName,
+              mimeType: "application/vnd.google-apps.spreadsheet",
+              rowCount: rows.length,
+            },
+            participantEmails: [],
+          },
+        };
+      }
+    }
+
+    // Activity: doc_edited per spreadsheet (use Drive metadata for actor)
+    const fileMeta = spreadsheetMeta.get(spreadsheetId);
+    yield {
+      kind: "activity" as const,
+      data: {
+        signalType: "doc_edited",
+        actorEmail: fileMeta?.lastModifyingEmail,
+        metadata: {
+          fileName: spreadsheetTitle,
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          fileId: spreadsheetId,
+        },
+        occurredAt: new Date(),
+      },
+    };
+  }
+
+  console.log(
+    `[google-sync] Sheets: ${spreadsheetIds.length} spreadsheets, ${sheetCount} sheets, ${rowCount} rows`
+  );
+}
+
+function extractSpreadsheetId(input: string): string {
+  const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match) return match[1];
+  return input.trim();
 }
 
 // ── Gmail write-back helpers ─────────────────────────────────

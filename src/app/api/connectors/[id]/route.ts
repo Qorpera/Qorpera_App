@@ -146,7 +146,6 @@ export async function DELETE(
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   const { operatorId } = su;
   const { id } = await params;
 
@@ -156,6 +155,12 @@ export async function DELETE(
 
   if (!connector) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Users can disconnect their own personal connectors; otherwise admin required
+  const isOwnConnector = connector.userId === su.user.id;
+  if (!isOwnConnector && su.user.role === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
   // Delete sync logs first, then the connector

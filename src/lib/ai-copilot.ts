@@ -218,6 +218,29 @@ const COPILOT_TOOLS: AITool[] = [
       required: ["threadId"],
     },
   },
+  {
+    name: "search_documents",
+    description: "Search Google Drive documents, spreadsheets, and presentations. Returns relevant excerpts from synced Drive content.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        limit: { type: "number", description: "Max results (default 5)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_activity_summary",
+    description: "Get a summary of recent activity for an entity or department. Shows email volume, meeting frequency, document activity, and trends over time. Use when user asks 'how's activity', 'what's been happening', 'show me trends'.",
+    parameters: {
+      type: "object",
+      properties: {
+        entityName: { type: "string", description: "Entity name to get activity for (person, company, department). If omitted, shows operator-wide summary." },
+        days: { type: "number", description: "Number of days to look back (default 30)" },
+      },
+    },
+  },
 ];
 
 const ORIENTATION_TOOLS: AITool[] = [
@@ -328,6 +351,8 @@ CAPABILITIES:
 - Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
 - Search emails: use when user asks about emails, messages, or communication with specific people/topics
 - Get email thread: retrieve the full conversation for a specific thread ID
+- Search documents: use when user asks about documents, files, spreadsheets, or presentations from Google Drive
+- Get activity summary: use when user asks about activity levels, trends, communication volume, or what's been happening
 - Create new situation types scoped to specific departments
 
 USER CONTEXT:
@@ -1102,6 +1127,171 @@ async function executeTool(
       } catch {
         return "Email search is not available — embeddings may not be configured.";
       }
+    }
+
+    case "search_documents": {
+      const query = String(args.query ?? "");
+      if (!query) return "Please provide a search query.";
+      const limit = typeof args.limit === "number" ? args.limit : 5;
+
+      // Resolve visible department IDs for scoping
+      const docDepts = await prisma.entity.findMany({
+        where: {
+          operatorId, category: "foundational", entityType: { slug: "department" },
+          ...deptVisFilter,
+        },
+        select: { id: true },
+      });
+      const docDeptIds = docDepts.map(d => d.id);
+
+      if (docDeptIds.length === 0) return "No departments available to search.";
+
+      try {
+        const { retrieveRelevantChunks } = await import("@/lib/rag/retriever");
+        const { embedChunks } = await import("@/lib/rag/embedder");
+        const [queryEmbedding] = await embedChunks([query]);
+        if (!queryEmbedding) return "Document search is not available — embeddings may not be configured.";
+
+        const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
+          sourceTypes: ["drive_doc"],
+          limit,
+          departmentIds: docDeptIds.length > 0 ? docDeptIds : undefined,
+        });
+
+        if (results.length === 0) return "No documents found matching this query.";
+
+        return results
+          .map((r) => {
+            const m = r.metadata || {};
+            const fileName = (m.fileName as string) || "Unknown";
+            const mimeType = (m.mimeType as string) || "";
+            const modifiedTime = m.modifiedTime ? new Date(m.modifiedTime as string).toLocaleDateString() : "unknown";
+            const sheetName = m.sheetName ? ` (Sheet: ${m.sheetName})` : "";
+            return `File: ${fileName}${sheetName} | Type: ${mimeType} | Modified: ${modifiedTime} | Relevance: ${r.score.toFixed(2)}\n${r.content.slice(0, 500)}`;
+          })
+          .join("\n\n---\n\n");
+      } catch {
+        return "Document search is not available — embeddings may not be configured.";
+      }
+    }
+
+    case "get_activity_summary": {
+      const entityName = args.entityName ? String(args.entityName) : undefined;
+      const days = typeof args.days === "number" ? args.days : 30;
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const priorStart = new Date(since.getTime() - days * 24 * 60 * 60 * 1000);
+
+      // Resolve entity filter if entityName provided
+      let entityFilter: { actorEntityId?: string } = {};
+      let entityLabel = "operator-wide";
+      if (entityName) {
+        const { searchEntities: searchEnt } = await import("@/lib/entity-resolution");
+        const matches = await searchEnt(operatorId, entityName, undefined, 1);
+        if (matches.length > 0) {
+          entityFilter = { actorEntityId: matches[0].id };
+          entityLabel = matches[0].displayName;
+        } else {
+          return `No entity found matching "${entityName}".`;
+        }
+      }
+
+      // Resolve visible department IDs for scope filtering
+      let scopeDeptIds: Set<string> | null = null;
+      if (visibleDepts && visibleDepts !== "all") {
+        const actDepts = await prisma.entity.findMany({
+          where: {
+            operatorId, category: "foundational", entityType: { slug: "department" },
+            ...deptVisFilter,
+          },
+          select: { id: true },
+        });
+        scopeDeptIds = new Set(actDepts.map(d => d.id));
+        if (scopeDeptIds.size === 0) return "No departments available for activity summary.";
+      }
+
+      // Fetch raw signals (departmentIds is JSON, can't groupBy with scope filter)
+      const rawCurrent = await prisma.activitySignal.findMany({
+        where: { operatorId, occurredAt: { gte: since }, ...entityFilter },
+        select: { signalType: true, departmentIds: true, metadata: true },
+      });
+      const rawPrior = await prisma.activitySignal.findMany({
+        where: { operatorId, occurredAt: { gte: priorStart, lt: since }, ...entityFilter },
+        select: { signalType: true, departmentIds: true },
+      });
+
+      // Department scope filter helper
+      function inScope(deptIdsJson: string | null): boolean {
+        if (!scopeDeptIds) return true; // admin sees all
+        if (!deptIdsJson) return true; // signals without department routing are visible
+        try {
+          const dIds: string[] = JSON.parse(deptIdsJson);
+          return dIds.length === 0 || dIds.some(d => scopeDeptIds!.has(d));
+        } catch { return true; }
+      }
+
+      const scopedCurrent = rawCurrent.filter(s => inScope(s.departmentIds));
+      const scopedPrior = rawPrior.filter(s => inScope(s.departmentIds));
+
+      // Aggregate by signalType
+      const currentMap = new Map<string, number>();
+      for (const s of scopedCurrent) currentMap.set(s.signalType, (currentMap.get(s.signalType) || 0) + 1);
+      const priorMap = new Map<string, number>();
+      for (const s of scopedPrior) priorMap.set(s.signalType, (priorMap.get(s.signalType) || 0) + 1);
+
+      function trend(type: string): string {
+        const curr = currentMap.get(type) || 0;
+        const prev = priorMap.get(type) || 0;
+        if (prev === 0) return curr > 0 ? " (new)" : "";
+        const pct = Math.round(((curr - prev) / prev) * 100);
+        if (pct > 0) return ` (\u2191${pct}% vs prior ${days}d)`;
+        if (pct < 0) return ` (\u2193${Math.abs(pct)}% vs prior ${days}d)`;
+        return " (flat)";
+      }
+
+      const emailSent = currentMap.get("email_sent") || 0;
+      const emailReceived = currentMap.get("email_received") || 0;
+      const meetingsHeld = currentMap.get("meeting_held") || 0;
+      const docsEdited = currentMap.get("doc_edited") || 0;
+      const docsCreated = currentMap.get("doc_created") || 0;
+      const docsShared = currentMap.get("doc_shared") || 0;
+
+      // Average response time (from already-fetched scoped signals)
+      let avgResponseTime = "";
+      const rtSignals = scopedCurrent
+        .filter(s => s.signalType === "email_response_time")
+        .slice(0, 100);
+      if (rtSignals.length > 0) {
+        const hours = rtSignals
+          .map(s => {
+            try {
+              const m = s.metadata ? JSON.parse(s.metadata) : {};
+              return m.responseTimeHours as number;
+            } catch { return null; }
+          })
+          .filter((h): h is number => h !== null);
+        if (hours.length > 0) {
+          const avg = hours.reduce((a, b) => a + b, 0) / hours.length;
+          avgResponseTime = `\n- Response time: avg ${avg.toFixed(1)} hours`;
+        }
+      }
+
+      const lines = [
+        `Activity Summary for ${entityLabel} (last ${days} days):`,
+        `- Emails: ${emailSent} sent${trend("email_sent")}, ${emailReceived} received${trend("email_received")}`,
+        `- Meetings: ${meetingsHeld} held${trend("meeting_held")}`,
+        `- Documents: ${docsEdited} edited${trend("doc_edited")}, ${docsCreated} created${trend("doc_created")}, ${docsShared} shared`,
+        avgResponseTime,
+      ].filter(Boolean);
+
+      // Add all other signal types not covered above
+      const covered = new Set(["email_sent", "email_received", "meeting_held", "doc_edited", "doc_created", "doc_shared", "email_response_time", "meeting_frequency"]);
+      for (const [type, count] of currentMap) {
+        if (!covered.has(type)) {
+          lines.push(`- ${type.replace(/_/g, " ")}: ${count}`);
+        }
+      }
+
+      return lines.join("\n");
     }
 
     case "get_email_thread": {

@@ -44,6 +44,7 @@ function AccountPageInner() {
   const [exporting, setExporting] = useState(false);
   const [googleConnector, setGoogleConnector] = useState<GoogleConnector | null>(null);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const loadGoogleConnector = useCallback(async () => {
     try {
@@ -158,7 +159,7 @@ function AccountPageInner() {
               </p>
             </div>
             {googleConnector ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <div className="text-right">
                   <span className="text-xs text-white/50 block">{googleConnector.name}</span>
                   <span className="text-[10px] text-emerald-400">Connected</span>
@@ -166,6 +167,30 @@ function AccountPageInner() {
                 <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
+                <button
+                  disabled={disconnecting}
+                  className="text-[11px] text-white/30 hover:text-red-400 transition-colors ml-1 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!confirm("Disconnect your Google account? Synced data (emails, documents, activity) will remain, but no new data will sync.")) return;
+                    setDisconnecting(true);
+                    try {
+                      const res = await fetchApi(`/api/connectors/${googleConnector.id}`, { method: "DELETE" });
+                      if (res.ok) {
+                        setGoogleConnector(null);
+                        toast("Google account disconnected.", "success");
+                      } else {
+                        const data = await res.json().catch(() => ({}));
+                        toast(data.error || "Failed to disconnect.", "error");
+                      }
+                    } catch {
+                      toast("Failed to disconnect.", "error");
+                    } finally {
+                      setDisconnecting(false);
+                    }
+                  }}
+                >
+                  {disconnecting ? "..." : "Disconnect"}
+                </button>
               </div>
             ) : (
               <Button

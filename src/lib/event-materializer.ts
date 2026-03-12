@@ -476,28 +476,13 @@ export async function materializeEvent(
     }
 
     if (!rule) {
-      // Mode 3: Unrecognized event type
+      // Unrecognized event type — mark processed and log (no user notification)
       await prisma.event.update({
         where: { id: event.id },
         data: { processedAt: new Date() },
       });
 
-      const notificationTitle = `Unrecognized event type: ${eventType}`;
-      const existing = await prisma.notification.findFirst({
-        where: { operatorId, title: notificationTitle, read: false },
-      });
-
-      if (!existing) {
-        await prisma.notification.create({
-          data: {
-            operatorId,
-            title: notificationTitle,
-            body: `Received an event of type "${eventType}" from source "${event.source}" but no materializer rule exists for it. You may need to configure a mapping or this event type is not yet supported.`,
-            sourceType: "system",
-            sourceId: event.id,
-          },
-        });
-      }
+      console.warn(`[materializer] Unrecognized event type "${eventType}" from source "${event.source}" — no rule exists, skipping`);
 
       return { status: "unrecognized", eventType };
     }
@@ -513,8 +498,8 @@ export async function materializeEvent(
       // Do NOT set processedAt -- event will be retried
 
       // Only notify if the operator already has entity types defined.
-      // During initial onboarding, ontology/infer hasn't run yet so entity types
-      // don't exist — the system will create them automatically. Notifying the user
+      // During initial onboarding, entity types haven't been set up yet —
+      // the system will create them automatically. Notifying the user
       // to "create entity types" at this stage is misleading.
       const operatorHasAnyTypes = await prisma.entityType.count({ where: { operatorId } });
 
@@ -538,7 +523,7 @@ export async function materializeEvent(
             data: {
               operatorId,
               title: notificationTitle,
-              body: `There are ${pendingCount} event(s) of type "${eventType}" waiting to be materialized, but the entity type "${rule.entityTypeSlug}" does not exist yet. Define it in the ontology or re-run inference.`,
+              body: `There are ${pendingCount} event(s) of type "${eventType}" waiting to be processed, but the entity type "${rule.entityTypeSlug}" does not exist yet. Create it in entity type settings or re-sync the connector.`,
               sourceType: "system",
               sourceId: event.id,
             },
