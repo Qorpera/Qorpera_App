@@ -23,6 +23,7 @@ const DEFAULT_INTERVAL = 15 * 60 * 1000; // 15 min fallback
 const MAX_CONCURRENT_SYNCS = 3;
 const TICK_INTERVAL = 60 * 1000; // 1 minute
 const MAX_CONSECUTIVE_FAILURES = 3;
+const SYNC_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
 // Track running syncs per operator
 const runningSyncs = new Map<string, number>();
@@ -82,7 +83,17 @@ async function syncConnector(
 ): Promise<void> {
   const start = Date.now();
   try {
-    const result = await runConnectorSync(operatorId, connectorId);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(
+        () => reject(new Error(`Timeout: connector ${connectorId} exceeded 5 minutes`)),
+        SYNC_TIMEOUT,
+      );
+    });
+
+    const result = await Promise.race([
+      runConnectorSync(operatorId, connectorId),
+      timeoutPromise,
+    ]);
 
     console.log(
       `[sync-scheduler] ${provider} (${connectorId}) for operator ${operatorId}: ` +
@@ -101,8 +112,12 @@ async function syncConnector(
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[sync-scheduler] ${provider} (${connectorId}) error:`, errMsg);
-    await handleFailure(operatorId, connectorId, provider, errMsg);
+    if (errMsg.includes("exceeded 5 minutes")) {
+      console.warn(`[sync-scheduler] Timeout: connector ${connectorId} exceeded 5 minutes, releasing slot`);
+    } else {
+      console.error(`[sync-scheduler] ${provider} (${connectorId}) error:`, errMsg);
+      await handleFailure(operatorId, connectorId, provider, errMsg);
+    }
   }
 }
 

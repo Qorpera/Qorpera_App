@@ -274,7 +274,6 @@ export async function findMergeCandidates(
 // ── 3. Merge execution ──────────────────────────────────────────────────────
 
 async function determineSurvivor(
-  operatorId: string,
   entityAId: string,
   entityBId: string,
 ): Promise<{ survivorId: string; absorbedId: string }> {
@@ -706,7 +705,6 @@ export async function runIdentityResolution(
       if (candidate.classification === "auto_merge") {
         // Determine survivor/absorbed
         const { survivorId, absorbedId } = await determineSurvivor(
-          operatorId,
           entityId,
           candidate.entityId,
         );

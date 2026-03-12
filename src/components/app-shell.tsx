@@ -6,17 +6,7 @@ import { AppNav } from "./app-nav";
 import { ToastProvider } from "./ui/toast";
 import { NotificationBell } from "./notification-bell";
 import { useUser } from "./user-provider";
-
-function QorperaLogo({ className = "w-7 h-7" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 40 40" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Curved tail — swoops from circle edge to upper-left like a Q's tail */}
-      <path d="M22.5 23 C17 21, 9 12, 3 5" stroke="white" strokeWidth="1.1" strokeLinecap="round" />
-      {/* Thin outlined circle */}
-      <circle cx="27" cy="27" r="6.5" stroke="white" strokeWidth="1.1" />
-    </svg>
-  );
-}
+import { QorperaLogo } from "./qorpera-logo";
 
 function CollapseChevron({ collapsed }: { collapsed: boolean }) {
   return (
@@ -91,7 +81,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
           <div className={`flex items-center ${collapsed ? "flex-col gap-2 px-2" : "px-5"} py-5`}>
             {collapsed ? (
               <>
-                <QorperaLogo className="w-6 h-6" />
+                <QorperaLogo width={24} height={24} className="text-purple-400" simplified />
                 <button
                   onClick={() => setCollapsed(false)}
                   className="text-white/20 hover:text-white/50 transition-colors p-1 rounded-lg hover:bg-white/[0.04]"
@@ -102,7 +92,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
               </>
             ) : (
               <>
-                <QorperaLogo className="w-7 h-7 flex-shrink-0" />
+                <QorperaLogo width={28} height={28} className="text-purple-400 flex-shrink-0" />
                 <span className="font-heading text-xl font-semibold tracking-[-0.02em] text-white/90 ml-2.5 whitespace-nowrap">
                   Qorpera
                 </span>

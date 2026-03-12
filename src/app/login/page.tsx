@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { QorperaLogo } from "@/components/qorpera-logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -74,10 +75,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm px-6">
         {/* Logo */}
         <div className="flex justify-center mb-8">
-          <svg viewBox="0 0 40 40" className="w-14 h-14" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M22.5 23 C17 21, 9 12, 3 5" stroke="white" strokeWidth="1.1" strokeLinecap="round" />
-            <circle cx="27" cy="27" r="6.5" stroke="white" strokeWidth="1.1" />
-          </svg>
+          <QorperaLogo width={56} height={56} className="text-purple-400" />
         </div>
 
         <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-white/90 text-center mb-6">
