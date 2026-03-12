@@ -197,7 +197,7 @@ const COPILOT_TOOLS: AITool[] = [
   },
   {
     name: "search_emails",
-    description: "Search email content. Returns relevant email excerpts matching the query. Only searches emails synced from connected Gmail accounts.",
+    description: "Search email content from Gmail and Outlook. Returns relevant email excerpts matching the query from all connected email accounts.",
     parameters: {
       type: "object",
       properties: {
@@ -220,7 +220,7 @@ const COPILOT_TOOLS: AITool[] = [
   },
   {
     name: "search_documents",
-    description: "Search Google Drive documents, spreadsheets, and presentations. Returns relevant excerpts from synced Drive content.",
+    description: "Search documents from Google Drive and OneDrive. Returns relevant excerpts from synced documents including Docs, Sheets, Slides, Word, Excel, and PowerPoint files.",
     parameters: {
       type: "object",
       properties: {
@@ -228,6 +228,30 @@ const COPILOT_TOOLS: AITool[] = [
         limit: { type: "number", description: "Max results (default 5)" },
       },
       required: ["query"],
+    },
+  },
+  {
+    name: "search_messages",
+    description: "Search Slack and Microsoft Teams messages. Returns relevant message excerpts matching the query from connected workspaces and teams.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query — keywords, channel names, person names, topics" },
+        limit: { type: "number", description: "Max results (default 5)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_message_thread",
+    description: "Get a full message thread from Slack or Teams. Returns all messages in the thread in chronological order.",
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Thread identifier (Slack thread_ts or Teams message ID)" },
+        sourceType: { type: "string", description: "Source: 'slack_message' or 'teams_message'" },
+      },
+      required: ["threadId"],
     },
   },
   {
@@ -349,9 +373,11 @@ CAPABILITIES:
 - Get operational briefings: use when user asks "how are things", "what's happening", "give me an update"
 - Search department knowledge: use when user asks about policies, processes, or procedures
 - Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
-- Search emails: use when user asks about emails, messages, or communication with specific people/topics
+- Search emails: use when user asks about emails or correspondence (searches Gmail + Outlook)
 - Get email thread: retrieve the full conversation for a specific thread ID
-- Search documents: use when user asks about documents, files, spreadsheets, or presentations from Google Drive
+- Search documents: use when user asks about documents, files, spreadsheets, or presentations (searches Google Drive + OneDrive)
+- Search messages: use when user asks about Slack or Teams conversations, channel discussions, or internal chat
+- Get message thread: retrieve the full thread from Slack or Teams by thread ID
 - Get activity summary: use when user asks about activity levels, trends, communication volume, or what's been happening
 - Create new situation types scoped to specific departments
 
@@ -1172,6 +1198,129 @@ async function executeTool(
           .join("\n\n---\n\n");
       } catch {
         return "Document search is not available — embeddings may not be configured.";
+      }
+    }
+
+    case "search_messages": {
+      const query = String(args.query ?? "");
+      if (!query) return "Please provide a search query.";
+      const limit = typeof args.limit === "number" ? args.limit : 5;
+
+      // Resolve visible department IDs for scoping
+      const msgDepts = await prisma.entity.findMany({
+        where: {
+          operatorId, category: "foundational", entityType: { slug: "department" },
+          ...deptVisFilter,
+        },
+        select: { id: true },
+      });
+      const msgDeptIds = msgDepts.map(d => d.id);
+
+      if (msgDeptIds.length === 0) return "No departments available to search.";
+
+      try {
+        const { retrieveRelevantChunks } = await import("@/lib/rag/retriever");
+        const { embedChunks } = await import("@/lib/rag/embedder");
+        const [queryEmbedding] = await embedChunks([query]);
+        if (!queryEmbedding) return "Message search is not available — embeddings may not be configured.";
+
+        const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
+          sourceTypes: ["slack_message", "teams_message"],
+          limit,
+          departmentIds: msgDeptIds.length > 0 ? msgDeptIds : undefined,
+        });
+
+        if (results.length === 0) return "No messages found matching this query.";
+
+        return results
+          .map((r) => {
+            const m = r.metadata || {};
+            const channelName = (m.channelName as string) || (m.teamName ? `${m.teamName}/${m.channelName}` : "unknown");
+            const authorEmail = (m.authorEmail as string) || "unknown";
+            let timestamp = "unknown";
+            if (m.timestamp) {
+              const tsStr = m.timestamp as string;
+              // Slack timestamps are epoch floats (e.g. "1710000000.000100"), Teams are ISO strings
+              const parsed = tsStr.includes("T")
+                ? new Date(tsStr)
+                : new Date(parseFloat(tsStr) * 1000);
+              if (!isNaN(parsed.getTime())) timestamp = parsed.toLocaleDateString();
+            }
+            const isThread = m.isThread ? " (thread)" : "";
+            const source = r.sourceType === "teams_message" ? "Teams" : "Slack";
+            return `[${source}] #${channelName} | ${authorEmail} | ${timestamp}${isThread}\n${r.content.slice(0, 500)}`;
+          })
+          .join("\n\n---\n\n");
+      } catch {
+        return "Message search is not available — embeddings may not be configured.";
+      }
+    }
+
+    case "get_message_thread": {
+      const threadId = String(args.threadId ?? "");
+      if (!threadId) return "Please provide a thread ID.";
+      const sourceType = (args.sourceType as string) || "slack_message";
+
+      // Department scope: resolve visible departments for filtering
+      const msgThreadDepts = await prisma.entity.findMany({
+        where: {
+          operatorId, category: "foundational", entityType: { slug: "department" },
+          ...deptVisFilter,
+        },
+        select: { id: true },
+      });
+      const msgThreadDeptIds = new Set(msgThreadDepts.map(d => d.id));
+
+      try {
+        // Query ContentChunks that match the thread
+        const metadataFilter = sourceType === "slack_message"
+          ? { path: ["threadTs"], equals: threadId }
+          : { path: ["messageId"], equals: threadId };
+
+        let chunks = await prisma.contentChunk.findMany({
+          where: {
+            operatorId,
+            sourceType,
+            metadata: metadataFilter,
+          },
+          select: { content: true, metadata: true, sourceId: true, departmentIds: true },
+          orderBy: { createdAt: "asc" },
+          take: 20,
+        });
+
+        // Also check for standalone messages where sourceId matches
+        if (chunks.length === 0) {
+          chunks = await prisma.contentChunk.findMany({
+            where: {
+              operatorId,
+              sourceType,
+              sourceId: threadId,
+            },
+            select: { content: true, metadata: true, sourceId: true, departmentIds: true },
+            orderBy: { createdAt: "asc" },
+            take: 20,
+          });
+        }
+
+        if (chunks.length === 0) return "No messages found for this thread ID.";
+
+        // Department scope check on chunks
+        if (visibleDepts && visibleDepts !== "all" && msgThreadDeptIds.size > 0) {
+          const beforeCount = chunks.length;
+          chunks = chunks.filter((c) => {
+            const dIds: string[] = c.departmentIds ? JSON.parse(c.departmentIds) : [];
+            return dIds.length === 0 || dIds.some((d) => msgThreadDeptIds.has(d));
+          });
+          if (chunks.length === 0 && beforeCount > 0) {
+            return "I don't have visibility into that message thread's department.";
+          }
+        }
+
+        return chunks
+          .map((c) => c.content.slice(0, 1000))
+          .join("\n\n---\n\n");
+      } catch {
+        return "Failed to retrieve message thread.";
       }
     }
 

@@ -9,9 +9,9 @@ export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+  if (!process.env.MICROSOFT_CLIENT_ID || !process.env.MICROSOFT_CLIENT_SECRET) {
     return NextResponse.json(
-      { error: "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET." },
+      { error: "Microsoft OAuth is not configured. Set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET." },
       { status: 500 }
     );
   }
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const state = crypto.randomBytes(32).toString("hex");
 
   const cookieStore = await cookies();
-  cookieStore.set("google_oauth_state", state, {
+  cookieStore.set("microsoft_oauth_state", state, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
   const from = req.nextUrl.searchParams.get("from");
   if (from) {
-    cookieStore.set("google_oauth_return", from, {
+    cookieStore.set("microsoft_oauth_return", from, {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
@@ -39,23 +39,23 @@ export async function GET(req: NextRequest) {
   }
 
   const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    redirect_uri: `${APP_BASE}/api/connectors/google/callback`,
+    client_id: process.env.MICROSOFT_CLIENT_ID,
+    redirect_uri: `${APP_BASE}/api/connectors/microsoft/callback`,
     response_type: "code",
     scope: [
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/gmail.send",
-      "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/documents",
-      "https://www.googleapis.com/auth/calendar.readonly",
+      "Mail.Read",
+      "Mail.Send",
+      "Files.ReadWrite",
+      "Calendars.Read",
+      "ChannelMessage.Read.All",
+      "User.Read",
+      "offline_access",
     ].join(" "),
-    access_type: "offline",
-    prompt: "consent",
     state,
+    prompt: "consent",
   });
 
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  const url = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params.toString()}`;
 
   return NextResponse.json({ url });
 }

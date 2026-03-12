@@ -9,9 +9,17 @@ export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+  // Slack is a company connector — only admins can install
+  if (su.user.role !== "admin" && su.user.role !== "superadmin") {
     return NextResponse.json(
-      { error: "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET." },
+      { error: "Only admins can install Slack" },
+      { status: 403 }
+    );
+  }
+
+  if (!process.env.SLACK_CLIENT_ID || !process.env.SLACK_CLIENT_SECRET) {
+    return NextResponse.json(
+      { error: "Slack OAuth is not configured. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET." },
       { status: 500 }
     );
   }
@@ -19,7 +27,7 @@ export async function GET(req: NextRequest) {
   const state = crypto.randomBytes(32).toString("hex");
 
   const cookieStore = await cookies();
-  cookieStore.set("google_oauth_state", state, {
+  cookieStore.set("slack_oauth_state", state, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
@@ -29,7 +37,7 @@ export async function GET(req: NextRequest) {
 
   const from = req.nextUrl.searchParams.get("from");
   if (from) {
-    cookieStore.set("google_oauth_return", from, {
+    cookieStore.set("slack_oauth_return", from, {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
@@ -39,23 +47,20 @@ export async function GET(req: NextRequest) {
   }
 
   const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    redirect_uri: `${APP_BASE}/api/connectors/google/callback`,
-    response_type: "code",
+    client_id: process.env.SLACK_CLIENT_ID,
     scope: [
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/gmail.send",
-      "https://www.googleapis.com/auth/drive.file",
-      "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/documents",
-      "https://www.googleapis.com/auth/calendar.readonly",
-    ].join(" "),
-    access_type: "offline",
-    prompt: "consent",
+      "channels:history",
+      "channels:read",
+      "users:read",
+      "users:read.email",
+      "chat:write",
+      "reactions:write",
+    ].join(","),
+    redirect_uri: `${APP_BASE}/api/connectors/slack/callback`,
     state,
   });
 
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  const url = `https://slack.com/oauth/v2/authorize?${params.toString()}`;
 
   return NextResponse.json({ url });
 }

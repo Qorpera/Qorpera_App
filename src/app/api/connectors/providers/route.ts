@@ -18,7 +18,11 @@ export async function GET() {
           ? !!(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET)
           : p.id === "stripe"
             ? !!(process.env.STRIPE_CLIENT_ID && process.env.STRIPE_SECRET_KEY)
-            : true,
+            : p.id === "slack"
+              ? !!(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET)
+              : p.id === "microsoft"
+                ? !!(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET)
+                : true,
   }));
 
   return NextResponse.json({ providers: result });

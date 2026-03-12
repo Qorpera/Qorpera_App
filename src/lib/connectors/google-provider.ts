@@ -1162,6 +1162,192 @@ async function replyToThread(
   return { success: true, result: { messageId: result.id, threadId: result.threadId } };
 }
 
+// ── Document write-back helpers ──────────────────────────────
+
+async function createSpreadsheet(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const title = input.title as string;
+  const sheetName = (input.sheetName as string) || "Sheet1";
+  const initialData = input.initialData as string[][] | undefined;
+
+  const resp = await fetch(
+    "https://sheets.googleapis.com/v4/spreadsheets",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        properties: { title },
+        sheets: [{ properties: { title: sheetName } }],
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Create spreadsheet failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  const spreadsheetId = data.spreadsheetId;
+  const spreadsheetUrl = data.spreadsheetUrl;
+
+  // Write initial data if provided
+  if (initialData && initialData.length > 0) {
+    const writeResult = await updateSpreadsheetCells(accessToken, {
+      spreadsheetId,
+      range: `${sheetName}!A1`,
+      values: initialData,
+    });
+    if (!writeResult.success) {
+      return { success: true, result: { spreadsheetId, spreadsheetUrl, warning: `Created but failed to write initial data: ${writeResult.error}` } };
+    }
+  }
+
+  return { success: true, result: { spreadsheetId, spreadsheetUrl } };
+}
+
+async function updateSpreadsheetCells(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const spreadsheetId = input.spreadsheetId as string;
+  const range = input.range as string;
+  const values = input.values as string[][];
+
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
+
+  const resp = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ values }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Update cells failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return {
+    success: true,
+    result: {
+      updatedRange: data.updatedRange,
+      updatedRows: data.updatedRows,
+      updatedColumns: data.updatedColumns,
+    },
+  };
+}
+
+async function createDocument(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const title = input.title as string;
+  const content = input.content as string | undefined;
+
+  // Step 1: Create empty doc
+  const createResp = await fetch(
+    "https://docs.googleapis.com/v1/documents",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title }),
+    }
+  );
+
+  if (!createResp.ok) {
+    const errText = await createResp.text();
+    return { success: false, error: `Create document failed: ${createResp.status} ${errText}` };
+  }
+
+  const doc = await createResp.json();
+  const documentId = doc.documentId;
+  const documentUrl = `https://docs.google.com/document/d/${documentId}/edit`;
+
+  // Step 2: Insert content if provided
+  if (content) {
+    const updateResp = await fetch(
+      `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            { insertText: { location: { index: 1 }, text: content } },
+          ],
+        }),
+      }
+    );
+
+    if (!updateResp.ok) {
+      return { success: true, result: { documentId, documentUrl, warning: "Created but failed to insert content" } };
+    }
+  }
+
+  return { success: true, result: { documentId, documentUrl } };
+}
+
+async function appendToDocument(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const documentId = input.documentId as string;
+  const content = input.content as string;
+
+  // Get current document to find end index
+  const getResp = await fetch(
+    `https://docs.googleapis.com/v1/documents/${documentId}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!getResp.ok) {
+    const errText = await getResp.text();
+    return { success: false, error: `Get document failed: ${getResp.status} ${errText}` };
+  }
+
+  const doc = await getResp.json();
+  const endIndex = doc.body?.content?.[doc.body.content.length - 1]?.endIndex || 1;
+  // Insert before the final newline character
+  const insertIndex = Math.max(1, endIndex - 1);
+
+  const updateResp = await fetch(
+    `https://docs.googleapis.com/v1/documents/${documentId}:batchUpdate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requests: [
+          { insertText: { location: { index: insertIndex }, text: content } },
+        ],
+      }),
+    }
+  );
+
+  if (!updateResp.ok) {
+    const errText = await updateResp.text();
+    return { success: false, error: `Append to document failed: ${updateResp.status} ${errText}` };
+  }
+
+  return { success: true, result: { documentId } };
+}
+
 // ── Provider ────────────────────────────────────────────────
 
 export const googleProvider: ConnectorProvider = {
@@ -1221,6 +1407,14 @@ export const googleProvider: ConnectorProvider = {
         return await sendEmail(accessToken, params);
       case "reply_to_thread":
         return await replyToThread(accessToken, params);
+      case "create_spreadsheet":
+        return await createSpreadsheet(accessToken, params);
+      case "update_spreadsheet_cells":
+        return await updateSpreadsheetCells(accessToken, params);
+      case "create_document":
+        return await createDocument(accessToken, params);
+      case "append_to_document":
+        return await appendToDocument(accessToken, params);
       default:
         return { success: false, error: `Unknown action: ${actionId}` };
     }
@@ -1251,6 +1445,52 @@ export const googleProvider: ConnectorProvider = {
           cc: { type: "string", required: false, description: "CC recipients, comma-separated" },
         },
         sideEffects: ["Sends a reply email from the user's Gmail account"],
+      });
+    }
+
+    // Spreadsheet capabilities (write scope)
+    if (scopes.some((s) => s.includes("spreadsheets") && !s.includes("readonly"))) {
+      caps.push({
+        name: "create_spreadsheet",
+        description: "Create a new Google Spreadsheet, optionally with initial data",
+        inputSchema: {
+          title: { type: "string", required: true, description: "Spreadsheet title" },
+          sheetName: { type: "string", required: false, description: "First sheet name (default: Sheet1)" },
+          initialData: { type: "array", required: false, description: "2D array of initial cell values, e.g. [[\"Name\",\"Amount\"],[\"Acme\",\"5000\"]]" },
+        },
+        sideEffects: ["Creates a new Google Spreadsheet in the user's Drive"],
+      });
+      caps.push({
+        name: "update_spreadsheet_cells",
+        description: "Update cells in an existing Google Spreadsheet",
+        inputSchema: {
+          spreadsheetId: { type: "string", required: true, description: "Google Spreadsheet ID" },
+          range: { type: "string", required: true, description: "A1 notation range, e.g. 'Sheet1!A1:C10'" },
+          values: { type: "array", required: true, description: "2D array of cell values" },
+        },
+        sideEffects: ["Modifies cells in an existing Google Spreadsheet"],
+      });
+    }
+
+    // Document capabilities
+    if (scopes.some((s) => s.includes("documents"))) {
+      caps.push({
+        name: "create_document",
+        description: "Create a new Google Doc with optional initial content",
+        inputSchema: {
+          title: { type: "string", required: true, description: "Document title" },
+          content: { type: "string", required: false, description: "Initial text content" },
+        },
+        sideEffects: ["Creates a new Google Doc in the user's Drive"],
+      });
+      caps.push({
+        name: "append_to_document",
+        description: "Append text content to an existing Google Doc",
+        inputSchema: {
+          documentId: { type: "string", required: true, description: "Google Doc ID" },
+          content: { type: "string", required: true, description: "Text to append to the document" },
+        },
+        sideEffects: ["Appends content to an existing Google Doc"],
       });
     }
 

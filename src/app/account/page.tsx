@@ -13,7 +13,7 @@ interface UserProfile {
   isSuperadmin: boolean;
 }
 
-interface GoogleConnector {
+interface PersonalConnector {
   id: string;
   provider: string;
   name: string;
@@ -42,19 +42,26 @@ function AccountPageInner() {
   const [loading, setLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [googleConnector, setGoogleConnector] = useState<GoogleConnector | null>(null);
+  const [googleConnector, setGoogleConnector] = useState<PersonalConnector | null>(null);
+  const [microsoftConnector, setMicrosoftConnector] = useState<PersonalConnector | null>(null);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [connectingMicrosoft, setConnectingMicrosoft] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
 
-  const loadGoogleConnector = useCallback(async () => {
+  const loadPersonalConnectors = useCallback(async () => {
     try {
       const res = await fetchApi("/api/connectors");
       if (res.ok) {
         const data = await res.json();
-        const google = (data.connectors || []).find(
+        const connectors = data.connectors || [];
+        const google = connectors.find(
           (c: { provider: string; userId?: string | null }) => c.provider === "google" && c.userId
         );
+        const microsoft = connectors.find(
+          (c: { provider: string; userId?: string | null }) => c.provider === "microsoft" && c.userId
+        );
         setGoogleConnector(google || null);
+        setMicrosoftConnector(microsoft || null);
       }
     } catch {}
   }, []);
@@ -65,22 +72,33 @@ function AccountPageInner() {
         if (res.ok) setProfile(await res.json());
       })
       .finally(() => setLoading(false));
-    loadGoogleConnector();
-  }, [loadGoogleConnector]);
+    loadPersonalConnectors();
+  }, [loadPersonalConnectors]);
 
-  // Handle Google OAuth return
+  // Handle OAuth return
   useEffect(() => {
     const googleParam = searchParams.get("google");
     if (googleParam === "connected") {
       toast("Google account connected successfully.", "success");
-      loadGoogleConnector();
+      loadPersonalConnectors();
       window.history.replaceState({}, "", "/account");
     } else if (googleParam === "error") {
       const reason = searchParams.get("reason") || "unknown";
       toast(`Google connection failed: ${reason}`, "error");
       window.history.replaceState({}, "", "/account");
     }
-  }, [searchParams, toast, loadGoogleConnector]);
+
+    const microsoftParam = searchParams.get("microsoft");
+    if (microsoftParam === "connected") {
+      toast("Microsoft account connected successfully.", "success");
+      loadPersonalConnectors();
+      window.history.replaceState({}, "", "/account");
+    } else if (microsoftParam === "error") {
+      const reason = searchParams.get("reason") || "unknown";
+      toast(`Microsoft connection failed: ${reason}`, "error");
+      window.history.replaceState({}, "", "/account");
+    }
+  }, [searchParams, toast, loadPersonalConnectors]);
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -142,7 +160,7 @@ function AccountPageInner() {
         <div className="mt-8 pt-8 border-t border-white/[0.06]">
           <h2 className="text-sm font-medium text-white/60 mb-2">Connected Accounts</h2>
           <p className="text-xs text-white/35 mb-4">
-            Connect your personal accounts for Gmail, Drive, Calendar, and Sheets.
+            Connect your personal accounts for email, files, calendar, and messaging.
           </p>
 
           <div className="wf-soft px-5 py-4 flex items-center gap-3">
@@ -214,6 +232,80 @@ function AccountPageInner() {
                 }}
               >
                 {connectingGoogle ? "Connecting..." : "Connect Google"}
+              </Button>
+            )}
+          </div>
+
+          {/* Microsoft 365 */}
+          <div className="wf-soft px-5 py-4 flex items-center gap-3 mt-3">
+            <span
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+              style={{ backgroundColor: "#00a4ef" }}
+            >
+              M
+            </span>
+            <div className="flex-1 min-w-0">
+              <span className="text-sm text-white/80">Microsoft 365</span>
+              <p className="text-[11px] text-white/35 mt-0.5">
+                Outlook, OneDrive, Teams, Calendar
+              </p>
+            </div>
+            {microsoftConnector ? (
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-xs text-white/50 block">{microsoftConnector.name}</span>
+                  <span className="text-[10px] text-emerald-400">Connected</span>
+                </div>
+                <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <button
+                  disabled={disconnecting}
+                  className="text-[11px] text-white/30 hover:text-red-400 transition-colors ml-1 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!confirm("Disconnect your Microsoft account? Synced data will remain, but no new data will sync.")) return;
+                    setDisconnecting(true);
+                    try {
+                      const res = await fetchApi(`/api/connectors/${microsoftConnector.id}`, { method: "DELETE" });
+                      if (res.ok) {
+                        setMicrosoftConnector(null);
+                        toast("Microsoft account disconnected.", "success");
+                      } else {
+                        const data = await res.json().catch(() => ({}));
+                        toast(data.error || "Failed to disconnect.", "error");
+                      }
+                    } catch {
+                      toast("Failed to disconnect.", "error");
+                    } finally {
+                      setDisconnecting(false);
+                    }
+                  }}
+                >
+                  {disconnecting ? "..." : "Disconnect"}
+                </button>
+              </div>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                disabled={connectingMicrosoft}
+                onClick={async () => {
+                  setConnectingMicrosoft(true);
+                  try {
+                    const res = await fetchApi("/api/connectors/microsoft/auth");
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data.url) window.location.href = data.url;
+                    } else {
+                      toast("Microsoft OAuth not configured.", "error");
+                    }
+                  } catch {
+                    toast("Failed to start Microsoft connection.", "error");
+                  }
+                  setConnectingMicrosoft(false);
+                }}
+              >
+                {connectingMicrosoft ? "Connecting..." : "Connect Microsoft"}
               </Button>
             )}
           </div>

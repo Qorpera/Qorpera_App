@@ -7,12 +7,13 @@ import { encrypt } from "@/lib/encryption";
 const APP_BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 const REQUESTED_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/drive.file",
-  "https://www.googleapis.com/auth/spreadsheets",
-  "https://www.googleapis.com/auth/documents",
-  "https://www.googleapis.com/auth/calendar.readonly",
+  "Mail.Read",
+  "Mail.Send",
+  "Files.ReadWrite",
+  "Calendars.Read",
+  "ChannelMessage.Read.All",
+  "User.Read",
+  "offline_access",
 ];
 
 export async function GET(req: NextRequest) {
@@ -29,8 +30,8 @@ export async function GET(req: NextRequest) {
   const cookieStore = await cookies();
 
   // Determine return destination
-  const oauthReturn = cookieStore.get("google_oauth_return")?.value;
-  cookieStore.delete("google_oauth_return");
+  const oauthReturn = cookieStore.get("microsoft_oauth_return")?.value;
+  cookieStore.delete("microsoft_oauth_return");
   let returnBase = "/account";
   if (oauthReturn === "onboarding") {
     returnBase = "/onboarding";
@@ -39,53 +40,57 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=${encodeURIComponent(error)}`, APP_BASE)
+      new URL(`${returnBase}${sep}microsoft=error&reason=${encodeURIComponent(error)}`, APP_BASE)
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=missing_params`, APP_BASE)
+      new URL(`${returnBase}${sep}microsoft=error&reason=missing_params`, APP_BASE)
     );
   }
 
   // Verify CSRF state
-  const storedState = cookieStore.get("google_oauth_state")?.value;
+  const storedState = cookieStore.get("microsoft_oauth_state")?.value;
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=invalid_state`, APP_BASE)
+      new URL(`${returnBase}${sep}microsoft=error&reason=invalid_state`, APP_BASE)
     );
   }
-  cookieStore.delete("google_oauth_state");
+  cookieStore.delete("microsoft_oauth_state");
 
-  // Verify env vars before token exchange
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  // Verify env vars
+  const clientId = process.env.MICROSOFT_CLIENT_ID;
+  const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    console.error("[google-oauth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET");
+    console.error("[microsoft-oauth] Missing MICROSOFT_CLIENT_ID or MICROSOFT_CLIENT_SECRET");
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=server_config`, APP_BASE)
+      new URL(`${returnBase}${sep}microsoft=error&reason=server_config`, APP_BASE)
     );
   }
 
   // Exchange code for tokens
-  const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: `${APP_BASE}/api/connectors/google/callback`,
-      grant_type: "authorization_code",
-    }),
-  });
+  const tokenResp = await fetch(
+    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        redirect_uri: `${APP_BASE}/api/connectors/microsoft/callback`,
+        grant_type: "authorization_code",
+        scope: REQUESTED_SCOPES.join(" "),
+      }),
+    }
+  );
 
   if (!tokenResp.ok) {
     const errBody = await tokenResp.text();
-    console.error("[google-oauth] Token exchange failed:", errBody);
+    console.error("[microsoft-oauth] Token exchange failed:", errBody);
     return NextResponse.redirect(
-      new URL(`${returnBase}${sep}google=error&reason=token_exchange`, APP_BASE)
+      new URL(`${returnBase}${sep}microsoft=error&reason=token_exchange`, APP_BASE)
     );
   }
 
@@ -94,19 +99,20 @@ export async function GET(req: NextRequest) {
   // Determine which scopes were actually granted
   const grantedScopes = (tokens.scope as string || "").split(" ").filter(Boolean);
 
-  // Fetch Google profile for display name
+  // Fetch profile
   let emailAddress = "";
+  let displayName = "";
   try {
-    const profileResp = await fetch(
-      "https://gmail.googleapis.com/gmail/v1/users/me/profile",
-      { headers: { Authorization: `Bearer ${tokens.access_token}` } }
-    );
+    const profileResp = await fetch("https://graph.microsoft.com/v1.0/me", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
     if (profileResp.ok) {
       const profile = await profileResp.json();
-      emailAddress = profile.emailAddress || "";
+      emailAddress = profile.mail || profile.userPrincipalName || "";
+      displayName = profile.displayName || "";
     }
   } catch (err) {
-    console.warn("[google-oauth] Failed to fetch profile:", err);
+    console.warn("[microsoft-oauth] Failed to fetch profile:", err);
   }
 
   const config = {
@@ -114,12 +120,13 @@ export async function GET(req: NextRequest) {
     refresh_token: tokens.refresh_token,
     token_expiry: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
     email_address: emailAddress,
+    display_name: displayName,
     scopes: grantedScopes.length > 0 ? grantedScopes : REQUESTED_SCOPES,
   };
 
-  // Upsert: if user already has a Google connector, update it; otherwise create
+  // Upsert: personal connector (userId set)
   const existing = await prisma.sourceConnector.findFirst({
-    where: { operatorId, userId: user.id, provider: "google" },
+    where: { operatorId, userId: user.id, provider: "microsoft" },
   });
 
   if (existing) {
@@ -129,7 +136,7 @@ export async function GET(req: NextRequest) {
         config: encrypt(JSON.stringify(config)),
         status: "active",
         consecutiveFailures: 0,
-        name: emailAddress ? `Google (${emailAddress})` : "Google",
+        name: emailAddress ? `Microsoft (${emailAddress})` : "Microsoft 365",
       },
     });
   } else {
@@ -137,8 +144,8 @@ export async function GET(req: NextRequest) {
       data: {
         operatorId,
         userId: user.id,
-        provider: "google",
-        name: emailAddress ? `Google (${emailAddress})` : "Google",
+        provider: "microsoft",
+        name: emailAddress ? `Microsoft (${emailAddress})` : "Microsoft 365",
         status: "active",
         config: encrypt(JSON.stringify(config)),
       },
@@ -146,6 +153,6 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.redirect(
-    new URL(`${returnBase}${sep}google=connected`, APP_BASE)
+    new URL(`${returnBase}${sep}microsoft=connected`, APP_BASE)
   );
 }

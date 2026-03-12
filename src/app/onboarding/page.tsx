@@ -48,11 +48,13 @@ const SLOT_ICONS: Record<string, string> = {
 const PROVIDER_COLORS: Record<string, string> = {
   hubspot: "#ff7a59",
   stripe: "#635bff",
+  slack: "#4A154B",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
   hubspot: "HubSpot",
   stripe: "Stripe",
+  slack: "Slack",
 };
 
 /* ------------------------------------------------------------------ */
