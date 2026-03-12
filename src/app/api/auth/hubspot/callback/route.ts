@@ -95,22 +95,6 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  if (oauthReturn?.startsWith("department:")) {
-    const deptId = oauthReturn.replace("department:", "");
-    try {
-      await prisma.connectorDepartmentBinding.create({
-        data: {
-          operatorId,
-          connectorId: connector.id,
-          departmentId: deptId,
-          entityTypeFilter: null,
-        },
-      });
-    } catch (bindErr) {
-      console.error("[oauth-callback] Failed to auto-create binding:", bindErr);
-    }
-  }
-
   return NextResponse.redirect(
     new URL(`${returnBase}${sep}hubspot=connected`, APP_BASE)
   );

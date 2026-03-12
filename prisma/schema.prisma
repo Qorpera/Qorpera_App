@@ -27,8 +27,6 @@ model Operator {
   relationshipTypes RelationshipType[]
   connectors        SourceConnector[]
   policyRules       PolicyRule[]
-  connectorDepartmentBindings ConnectorDepartmentBinding[]
-
   // v2: Situation-driven architecture
   events              Event[]
   situationTypes      SituationType[]
@@ -60,6 +58,7 @@ model User {
   sessions       Session[]
   scopes         UserScope[]
   invitesCreated Invite[]  @relation("InviteCreator")
+  connectors     SourceConnector[]
 
   @@index([operatorId])
   @@index([entityId])
@@ -153,7 +152,6 @@ model Entity {
   mentions          EntityMention[]
   fromRelations     Relationship[] @relation("FromEntity")
   toRelations       Relationship[] @relation("ToEntity")
-  connectorBindings ConnectorDepartmentBinding[] @relation("ConnectorBindings")
   internalDocument  InternalDocument? @relation("DocumentEntity")
   user              User?   // A base entity can have at most one user account
 
@@ -226,7 +224,8 @@ model Relationship {
 model SourceConnector {
   id         String   @id @default(cuid())
   operatorId String
-  provider   String   // "google-sheets", "hubspot", "stripe", "gmail"
+  userId     String?
+  provider   String   // "google", "hubspot", "stripe"
   name       String   @default("")  // user-facing label
   status     String   @default("active")  // active, paused, error, disconnected, pending
   config     String?  // JSON - provider-specific config
@@ -237,10 +236,10 @@ model SourceConnector {
   materializerConfig String?  // JSON: dynamic materializer rules from ontology inference
 
   operator Operator  @relation(fields: [operatorId], references: [id])
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   events     Event[]
   syncLogs SyncLog[]
   actionCapabilities ActionCapability[]
-  departmentBindings ConnectorDepartmentBinding[]
 }
 
 model SyncLog {
@@ -272,26 +271,6 @@ model PolicyRule {
   createdAt     DateTime @default(now())
 
   operator Operator     @relation(fields: [operatorId], references: [id])
-}
-
-// ─── Connector-Department Bindings ──────────────────────
-
-model ConnectorDepartmentBinding {
-  id                String    @id @default(cuid())
-  operatorId        String
-  operator          Operator  @relation(fields: [operatorId], references: [id])
-  connectorId       String
-  connector         SourceConnector @relation(fields: [connectorId], references: [id])
-  departmentId      String
-  department        Entity    @relation("ConnectorBindings", fields: [departmentId], references: [id])
-  eventTypeFilter   String?   // JSON array of event types, null = all
-  entityTypeFilter  String?   // JSON array of entity type slugs, null = all
-  enabled           Boolean   @default(true)
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@unique([connectorId, departmentId])
-  @@index([departmentId])
 }
 
 // ─── Layer 1: Event Stream ───────────────────────────

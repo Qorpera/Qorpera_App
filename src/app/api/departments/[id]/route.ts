@@ -28,7 +28,7 @@ export async function GET(
     return NextResponse.json({ error: "Department not found" }, { status: 404 });
   }
 
-  const [members, documents, digitalEntities, connectorCount] = await Promise.all([
+  const [members, documents, digitalEntities] = await Promise.all([
     prisma.entity.findMany({
       where: { parentDepartmentId: id, category: "base", status: "active" },
       include: {
@@ -65,9 +65,6 @@ export async function GET(
         },
       },
     }),
-    prisma.connectorDepartmentBinding.count({
-      where: { departmentId: id },
-    }),
   ]);
 
   return NextResponse.json({
@@ -86,7 +83,6 @@ export async function GET(
     memberCount: members.length,
     documentCount: documents.length,
     digitalCount: digitalEntities.length,
-    connectorCount,
   });
 }
 
@@ -172,17 +168,6 @@ export async function DELETE(
     return NextResponse.json(
       { error: "Cannot delete the company headquarters" },
       { status: 403 },
-    );
-  }
-
-  // Guard: has connector bindings
-  const bindingCount = await prisma.connectorDepartmentBinding.count({
-    where: { departmentId: id },
-  });
-  if (bindingCount > 0) {
-    return NextResponse.json(
-      { error: "Remove connector bindings before deleting this department" },
-      { status: 409 },
     );
   }
 

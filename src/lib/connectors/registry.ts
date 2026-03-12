@@ -1,9 +1,10 @@
 import type { ConnectorProvider } from "./types";
+import { googleProvider } from "./google-provider";
 import { googleSheetsProvider } from "./google-sheets";
 import { hubspotProvider } from "./hubspot";
 import { stripeProvider } from "./stripe";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, googleSheetsProvider, stripeProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider];
 
 export function getProvider(id: string): ConnectorProvider | undefined {
   return PROVIDERS.find((p) => p.id === id);

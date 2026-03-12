@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Modal } from "@/components/ui/modal";
 import { DOCUMENT_SLOT_TYPES, type SlotType } from "@/lib/document-slots";
-import { CONNECTOR_ENTITY_TYPES } from "@/lib/connector-entity-types";
 import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
 import { OnboardingMapBuilder } from "@/components/onboarding/onboarding-map-builder";
 import { OnboardingDepartmentList } from "@/components/onboarding/onboarding-department-list";
@@ -18,7 +17,7 @@ import { OnboardingDepartmentList } from "@/components/onboarding/onboarding-dep
 
 import type {
   OnboardingStep, Department, Member, InternalDoc, DocsData,
-  PersonDiff, PropertyDiff, ExtractionDiff, ConnectorBinding, Provider,
+  PersonDiff, PropertyDiff, ExtractionDiff, Provider,
 } from "@/components/onboarding/types";
 
 /* ------------------------------------------------------------------ */
@@ -49,13 +48,11 @@ const SLOT_ICONS: Record<string, string> = {
 const PROVIDER_COLORS: Record<string, string> = {
   hubspot: "#ff7a59",
   stripe: "#635bff",
-  "google-sheets": "#34a853",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
   hubspot: "HubSpot",
   stripe: "Stripe",
-  "google-sheets": "Google Sheets",
 };
 
 /* ------------------------------------------------------------------ */
@@ -146,13 +143,8 @@ function OnboardingPage() {
   const contextFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Step 5 state (connectors)
-  const [expandedConnDept, setExpandedConnDept] = useState<string | null>(null);
-  const [bindingsPerDept, setBindingsPerDept] = useState<Record<string, ConnectorBinding[]>>({});
   const [providers, setProviders] = useState<Provider[]>([]);
-  type SheetEntry = { id: string; name: string; selected: boolean };
-  const [sheetsByConnector, setSheetsByConnector] = useState<Record<string, SheetEntry[]>>({});
-  const [savingSheets, setSavingSheets] = useState<string | null>(null);
-  const [manualSheetUrl, setManualSheetUrl] = useState("");
+  const [companyConnectors, setCompanyConnectors] = useState<Array<{ id: string; provider: string; name: string; status: string }>>([]);
 
   // Step 6 state (sync)
   const [syncStarted, setSyncStarted] = useState(false);
@@ -201,8 +193,7 @@ function OnboardingPage() {
 
       // If returning from OAuth, force step 5 so the callback effect can fire
       const isOAuthReturn = searchParams.get("hubspot") === "connected"
-        || searchParams.get("stripe") === "connected"
-        || searchParams.get("google") === "connected";
+        || searchParams.get("stripe") === "connected";
       if (isOAuthReturn) {
         setStep(5);
         return;
@@ -225,17 +216,7 @@ function OnboardingPage() {
 
       // Step 4: Documents (optional — check phase)
       if (phase === "mapping" || phase === "populating") {
-        const hasBindings = depts.some(d => d.connectorCount > 0);
-        if (!hasBindings) {
-          setStep(4);
-          return;
-        }
-      }
-
-      // Step 5: Need at least 1 connector binding
-      const hasBindings = depts.some(d => d.connectorCount > 0);
-      if (!hasBindings) {
-        setStep(5);
+        setStep(4);
         return;
       }
 
@@ -736,14 +717,6 @@ function OnboardingPage() {
   /*  Step 5: Connector management                                     */
   /* ---------------------------------------------------------------- */
 
-  const loadBindings = useCallback(async (deptId: string) => {
-    const res = await fetch(`/api/departments/${deptId}/connectors`);
-    if (res.ok) {
-      const data = await res.json();
-      setBindingsPerDept(prev => ({ ...prev, [deptId]: data.bindings || [] }));
-    }
-  }, []);
-
   const loadProviders = useCallback(async () => {
     const res = await fetch("/api/connectors/providers");
     if (res.ok) {
@@ -752,13 +725,22 @@ function OnboardingPage() {
     }
   }, []);
 
+  const loadCompanyConnectors = useCallback(async () => {
+    const res = await fetch("/api/connectors");
+    if (res.ok) {
+      const data = await res.json();
+      // Company connectors have no userId — filter to HubSpot/Stripe
+      const company = (data.connectors || []).filter((c: { provider: string; userId?: string | null }) =>
+        !c.userId && (c.provider === "hubspot" || c.provider === "stripe")
+      );
+      setCompanyConnectors(company);
+    }
+  }, []);
+
   useEffect(() => {
     if (step !== 5) return;
-    realDepts.forEach(d => loadBindings(d.id));
     loadProviders();
-    if (realDepts.length > 0 && !expandedConnDept) {
-      setExpandedConnDept(realDepts[0].id);
-    }
+    loadCompanyConnectors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
@@ -766,63 +748,19 @@ function OnboardingPage() {
   useEffect(() => {
     if (step !== 5) return;
     const connected = searchParams.get("hubspot") === "connected"
-      || searchParams.get("stripe") === "connected"
-      || searchParams.get("google") === "connected";
+      || searchParams.get("stripe") === "connected";
 
     if (!connected) return;
 
-    // A provider just connected — find the department from sessionStorage and create binding
-    const targetDeptId = typeof window !== "undefined" ? sessionStorage.getItem("onboarding_connect_dept") : null;
-    if (!targetDeptId) {
-      // Just refresh all bindings
-      (async () => {
-        await loadDepartments();
-        realDepts.forEach(d => loadBindings(d.id));
-        window.history.replaceState({}, "", "/onboarding");
-      })();
-      return;
-    }
-
-    // Find the newly created connector
+    // A company provider just connected — refresh connector list
     (async () => {
-      const connRes = await fetch("/api/connectors");
-      if (!connRes.ok) return;
-      const connData = await connRes.json();
-      const connectors = connData.connectors || [];
-
-      // Find connector not yet bound to this department
-      const existingBindingsRes = await fetch(`/api/departments/${targetDeptId}/connectors`);
-      const existingBindings: ConnectorBinding[] = existingBindingsRes.ok
-        ? (await existingBindingsRes.json()).bindings || []
-        : [];
-      const boundConnectorIds = new Set(existingBindings.map(b => b.connectorId));
-
-      const newConnector = connectors.find((c: { id: string; status: string }) =>
-        (c.status === "active" || c.status === "pending") && !boundConnectorIds.has(c.id)
-      );
-
-      if (newConnector) {
-        await fetch(`/api/departments/${targetDeptId}/connectors`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ connectorId: newConnector.id }),
-        });
-      }
-
-      sessionStorage.removeItem("onboarding_connect_dept");
-      await loadDepartments();
-      realDepts.forEach(d => loadBindings(d.id));
-
-      // Clean URL params
+      await loadCompanyConnectors();
       window.history.replaceState({}, "", "/onboarding");
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, searchParams]);
 
-  function handleConnectProvider(providerId: string, deptId: string) {
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem("onboarding_connect_dept", deptId);
-    }
+  function handleConnectProvider(providerId: string) {
     fetch(`/api/connectors/${providerId}/auth-url?from=onboarding`)
       .then(r => r.json())
       .then(data => {
@@ -830,10 +768,7 @@ function OnboardingPage() {
       });
   }
 
-  const totalBindings = Object.values(bindingsPerDept).reduce((sum, b) => sum + b.length, 0);
-  const activeBindings = Object.values(bindingsPerDept).reduce((sum, b) => sum + b.filter(x => x.connector.status === "active").length, 0);
-  const pendingBindings = totalBindings - activeBindings;
-  const canContinueStep5 = realDepts.some(d => (d.connectorCount > 0) || ((bindingsPerDept[d.id]?.length ?? 0) > 0));
+  const canContinueStep5 = true; // Tools are optional — always allow continuing
 
   async function handleStep5Continue() {
     // Advance: populating → connecting
@@ -1554,223 +1489,67 @@ function OnboardingPage() {
           <div className="space-y-6">
             <div className="text-center space-y-2">
               <p className="text-xs text-white/30 uppercase tracking-wider">Step 5 of 6</p>
-              <h1 className="text-2xl font-semibold text-white/90">Connect your tools</h1>
+              <h1 className="text-2xl font-semibold text-white/90">Link your company tools</h1>
               <p className="text-sm text-white/45">
-                Link your business tools to the departments that use them.
+                Connect your CRM and payment tools. Personal tools like Gmail can be connected from your account page after setup.
               </p>
             </div>
 
-            <div className="space-y-4">
-              {realDepts.map(dept => {
-                const bindings = bindingsPerDept[dept.id] ?? [];
-                const isExpanded = expandedConnDept === dept.id;
-                const configuredProviders = providers.filter(p => p.configured);
+            {/* Company connectors */}
+            <div className="space-y-3">
+              {providers.filter(p => p.configured && p.id !== "google" && p.id !== "google-sheets").map(p => {
+                const label = PROVIDER_LABELS[p.id] ?? p.name;
+                const color = PROVIDER_COLORS[p.id] ?? "#888";
+                const connected = companyConnectors.some(c => c.provider === p.id);
 
                 return (
-                  <div key={dept.id} className="wf-soft overflow-hidden">
-                    <button
-                      onClick={() => setExpandedConnDept(isExpanded ? null : dept.id)}
-                      className="w-full flex items-center justify-between px-5 py-4 text-left"
+                  <div key={p.id} className="wf-soft px-5 py-4 flex items-center gap-3">
+                    <span
+                      className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                      style={{ backgroundColor: color }}
                     >
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-white/90">{dept.displayName}</h3>
-                        {dept.description && (
-                          <p className="text-xs text-white/40 mt-0.5">{dept.description}</p>
-                        )}
+                      {label.slice(0, 2).toUpperCase()}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-white/80">{label}</span>
+                    </div>
+                    {connected ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-emerald-400">Connected</span>
+                        <svg className="w-3 h-3 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
                       </div>
-                      <div className="flex items-center gap-3 ml-3">
-                        <span className="text-xs text-white/30">
-                          {bindings.length || dept.connectorCount} {(bindings.length || dept.connectorCount) === 1 ? "tool" : "tools"}
-                        </span>
-                        <CheckCircle done={bindings.length > 0 || dept.connectorCount > 0} />
-                        <ChevronDown open={isExpanded} />
-                      </div>
-                    </button>
-
-                    {isExpanded && (
-                      <div className="px-5 pb-5 space-y-3 border-t border-white/[0.06] pt-3">
-                        {/* Existing bindings */}
-                        {bindings.length > 0 && (
-                          <div className="space-y-2">
-                            {bindings.map(b => {
-                              const providerLabel = PROVIDER_LABELS[b.connector.provider] ?? b.connector.provider;
-                              const providerColor = PROVIDER_COLORS[b.connector.provider] ?? "#888";
-                              const entityTypes = CONNECTOR_ENTITY_TYPES[b.connector.provider];
-                              const filterLabel = b.entityTypeFilter
-                                ? b.entityTypeFilter.map(slug => entityTypes?.find(t => t.slug === slug)?.label ?? slug).join(", ")
-                                : "All types";
-
-                              const isPending = b.connector.status === "pending";
-                              return (
-                                <div key={b.id} className="py-1.5">
-                                  <div className="flex items-center gap-2">
-                                    <span
-                                      className="w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                                      style={{ backgroundColor: providerColor }}
-                                    >
-                                      {providerLabel.slice(0, 2).toUpperCase()}
-                                    </span>
-                                    <span className="text-sm text-white/80">{providerLabel}</span>
-                                    {isPending ? (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/15">
-                                        Pending setup
-                                      </span>
-                                    ) : (
-                                      <svg className="w-3 h-3 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    )}
-                                    <span className="text-xs text-white/30 ml-auto">{filterLabel}</span>
-                                  </div>
-                                  {b.connector.provider === "google-sheets" && (() => {
-                                    const cid = b.connectorId;
-                                    const sheets = sheetsByConnector[cid];
-                                    // Auto-load sheets on first render
-                                    if (sheets === undefined) {
-                                      fetch(`/api/connectors/${cid}`)
-                                        .then(r => r.json())
-                                        .then(data => {
-                                          setSheetsByConnector(prev => ({
-                                            ...prev,
-                                            [cid]: (data.config?.spreadsheets || []) as SheetEntry[],
-                                          }));
-                                        })
-                                        .catch(() => setSheetsByConnector(prev => ({ ...prev, [cid]: [] })));
-                                    }
-                                    if (!sheets) return <p className="text-[10px] text-white/30 mt-1 ml-7">Loading spreadsheets...</p>;
-                                    if (sheets.length > 0) return (
-                                      <div className="mt-2 ml-7 space-y-2">
-                                        <p className="text-[10px] text-white/40">{sheets.length} spreadsheet{sheets.length !== 1 ? "s" : ""} found</p>
-                                        <div className="space-y-1 max-h-40 overflow-y-auto">
-                                          {sheets.map(s => (
-                                            <label key={s.id} className="flex items-center gap-2 cursor-pointer">
-                                              <input
-                                                type="checkbox"
-                                                checked={s.selected}
-                                                onChange={() => {
-                                                  setSheetsByConnector(prev => ({
-                                                    ...prev,
-                                                    [cid]: (prev[cid] || []).map(x => x.id === s.id ? { ...x, selected: !x.selected } : x),
-                                                  }));
-                                                }}
-                                                className="rounded border-white/20 bg-white/5 text-purple-500 focus:ring-purple-500/30"
-                                              />
-                                              <span className="text-[11px] text-white/60 truncate">{s.name}</span>
-                                            </label>
-                                          ))}
-                                        </div>
-                                        <button
-                                          className="text-[10px] text-purple-400 hover:text-purple-300 font-medium"
-                                          disabled={savingSheets === cid}
-                                          onClick={async (e) => {
-                                            e.stopPropagation();
-                                            setSavingSheets(cid);
-                                            await fetch(`/api/connectors/${cid}`, {
-                                              method: "PATCH",
-                                              headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({ spreadsheets: sheetsByConnector[cid] }),
-                                            });
-                                            setSavingSheets(null);
-                                            loadBindings(dept.id);
-                                          }}
-                                        >
-                                          {savingSheets === cid ? "Saving..." : `Save (${sheets.filter(x => x.selected).length} selected)`}
-                                        </button>
-                                      </div>
-                                    );
-                                    // Zero sheets — manual input
-                                    return (
-                                      <div className="mt-2 ml-7 space-y-2">
-                                        <p className="text-[10px] text-white/40">No recently modified spreadsheets found. Add manually:</p>
-                                        <div className="flex gap-2">
-                                          <input
-                                            type="text"
-                                            value={manualSheetUrl}
-                                            onChange={(e) => setManualSheetUrl(e.target.value)}
-                                            placeholder="Paste Google Sheets URL"
-                                            className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1 text-[11px] text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-purple-500/40"
-                                          />
-                                          <button
-                                            className="text-[10px] text-purple-400 hover:text-purple-300 font-medium px-2"
-                                            disabled={!manualSheetUrl.trim() || savingSheets === cid}
-                                            onClick={async (e) => {
-                                              e.stopPropagation();
-                                              setSavingSheets(cid);
-                                              const idMatch = manualSheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-                                              const sheetId = idMatch ? idMatch[1] : manualSheetUrl.trim();
-                                              await fetch(`/api/connectors/${cid}`, {
-                                                method: "PATCH",
-                                                headers: { "Content-Type": "application/json" },
-                                                body: JSON.stringify({
-                                                  spreadsheet_ids: [sheetId],
-                                                  spreadsheets: [{ id: sheetId, name: "Manual", selected: true }],
-                                                }),
-                                              });
-                                              setManualSheetUrl("");
-                                              setSavingSheets(null);
-                                              loadBindings(dept.id);
-                                            }}
-                                          >
-                                            Add
-                                          </button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {bindings.length === 0 && (
-                          <p className="text-xs text-white/25 italic">No tools connected yet</p>
-                        )}
-
-                        {/* Provider buttons */}
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          {configuredProviders.map(p => {
-                            const label = PROVIDER_LABELS[p.id] ?? p.name;
-                            const color = PROVIDER_COLORS[p.id] ?? "#888";
-                            return (
-                              <button
-                                key={p.id}
-                                onClick={() => handleConnectProvider(p.id, dept.id)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] text-xs text-white/60 hover:bg-white/[0.06] hover:text-white/80 transition"
-                              >
-                                <span
-                                  className="w-3 h-3 rounded-sm"
-                                  style={{ backgroundColor: color }}
-                                />
-                                + {label}
-                              </button>
-                            );
-                          })}
-                          {configuredProviders.length === 0 && (
-                            <p className="text-xs text-white/20">No providers configured. Set environment variables for HubSpot, Stripe, or Google.</p>
-                          )}
-                        </div>
-                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleConnectProvider(p.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] text-xs text-white/60 hover:bg-white/[0.06] hover:text-white/80 transition"
+                      >
+                        Connect {label}
+                      </button>
                     )}
                   </div>
                 );
               })}
+
+              {providers.filter(p => p.configured && p.id !== "google" && p.id !== "google-sheets").length === 0 && (
+                <div className="wf-soft px-5 py-4">
+                  <p className="text-xs text-white/25">No company connectors configured. Set environment variables for HubSpot or Stripe to enable them.</p>
+                </div>
+              )}
             </div>
 
             {/* Gate indicator */}
             <div className="flex items-center gap-2">
-              <svg className={`w-4 h-4 ${canContinueStep5 ? "text-emerald-400" : "text-white/20"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span className={`text-xs ${canContinueStep5 ? "text-white/50" : "text-white/30"}`}>
-                Connect at least 1 tool to continue
+              <span className="text-xs text-white/50">
+                Company tools are optional — you can always connect them later in Settings.
               </span>
-              {totalBindings > 0 && (
-                <span className="text-xs font-medium ml-auto">
-                  <span className="text-emerald-400">{activeBindings} active</span>
-                  {pendingBindings > 0 && (
-                    <span className="text-amber-400 ml-1.5">({pendingBindings} pending)</span>
-                  )}
+              {companyConnectors.length > 0 && (
+                <span className="text-xs font-medium ml-auto text-emerald-400">
+                  {companyConnectors.length} connected
                 </span>
               )}
             </div>

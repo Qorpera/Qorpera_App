@@ -141,8 +141,6 @@ function SettingsPageInner() {
     errors: Array<{ name: string; error: string }>;
   } | null>(null);
 
-  // Connector bindings (read-only overview)
-  const [connectorBindings, setConnectorBindings] = useState<Record<string, Array<{ id: string; departmentId: string; departmentName: string; enabled: boolean }>>>({});
   // Google Sheets spreadsheet picker
   type SheetEntry = { id: string; name: string; selected: boolean };
   const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
@@ -254,15 +252,6 @@ function SettingsPageInner() {
       .then((data) => {
         const items: ConnectorItem[] = data.connectors || [];
         setConnectors(items);
-        // Load bindings for each connector
-        for (const c of items) {
-          fetch(`/api/connectors/${c.id}/bindings`)
-            .then((r) => r.json())
-            .then((bindings) => {
-              setConnectorBindings((prev) => ({ ...prev, [c.id]: bindings }));
-            })
-            .catch(() => {});
-        }
       })
       .catch(() => {});
   }, []);
@@ -278,7 +267,7 @@ function SettingsPageInner() {
   // Handle google=connected flash
   useEffect(() => {
     if (googleParam === "connected") {
-      toast("Google account connected. Configure your spreadsheet below.", "success");
+      toast("Google account connected successfully.", "success");
       loadConnectors();
     } else if (googleParam === "error") {
       toast("Google authorization failed. Please try again.", "error");
@@ -715,7 +704,6 @@ function SettingsPageInner() {
               )}
 
               {connectors.map((c) => {
-                const bindings = connectorBindings[c.id] || [];
                 const isGoogle = c.provider === "google-sheets";
                 const sheetCount = c.spreadsheetCount || 0;
                 const isExpanded = expandedConnector === c.id;
@@ -874,26 +862,6 @@ function SettingsPageInner() {
                       </div>
                     )}
 
-                    {/* Department bindings */}
-                    {bindings.length > 0 ? (
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        {bindings.map((b) => (
-                          <a
-                            key={b.id}
-                            href={`/map/${b.departmentId}`}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] hover:bg-white/[0.08] transition text-xs"
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full ${b.enabled ? "bg-emerald-400" : "bg-white/20"}`} />
-                            <span className="text-white/60">{b.departmentName}</span>
-                            <svg className="w-3 h-3 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                            </svg>
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-white/25 pt-1">Not bound to any department</p>
-                    )}
                   </div>
                 );
               })}

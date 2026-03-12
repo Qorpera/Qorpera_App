@@ -3,6 +3,8 @@ import { getSessionUser } from "@/lib/auth";
 import { cookies } from "next/headers";
 import crypto from "crypto";
 
+const APP_BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -22,13 +24,12 @@ export async function GET(req: NextRequest) {
     sameSite: "lax",
     path: "/",
     secure: process.env.NODE_ENV === "production",
-    maxAge: 600, // 10 minutes
+    maxAge: 600,
   });
 
-  // Track return destination for OAuth callback
   const from = req.nextUrl.searchParams.get("from");
   if (from) {
-    cookieStore.set("oauth_return", from, {
+    cookieStore.set("google_oauth_return", from, {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
@@ -39,11 +40,14 @@ export async function GET(req: NextRequest) {
 
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
-    redirect_uri: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/auth/google/callback`,
+    redirect_uri: `${APP_BASE}/api/connectors/google/callback`,
     response_type: "code",
     scope: [
-      "https://www.googleapis.com/auth/spreadsheets.readonly",
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.send",
       "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/spreadsheets.readonly",
     ].join(" "),
     access_type: "offline",
     prompt: "consent",

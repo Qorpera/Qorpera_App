@@ -32,7 +32,7 @@ export async function GET() {
 
   const results = await Promise.all(
     departments.map(async (dept) => {
-      const [memberCount, documentCount, digitalCount, connectorCount, filledSlotDocs] = await Promise.all([
+      const [memberCount, documentCount, digitalCount, filledSlotDocs] = await Promise.all([
         prisma.entity.count({
           where: { parentDepartmentId: dept.id, category: "base", status: "active" },
         }),
@@ -44,9 +44,6 @@ export async function GET() {
             toEntityId: dept.id,
             relationshipType: { slug: "department-member" },
           },
-        }),
-        prisma.connectorDepartmentBinding.count({
-          where: { departmentId: dept.id },
         }),
         prisma.internalDocument.findMany({
           where: {
@@ -73,7 +70,6 @@ export async function GET() {
         memberCount,
         documentCount,
         digitalCount,
-        connectorCount,
         filledSlots,
       };
     }),
@@ -147,7 +143,6 @@ export async function POST(req: NextRequest) {
     memberCount: 0,
     documentCount: 0,
     digitalCount: 0,
-    connectorCount: 0,
     filledSlots: [],
   }, { status: 201 });
 }

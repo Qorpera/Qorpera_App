@@ -10,13 +10,11 @@ import { prisma } from "@/lib/db";
 import { runConnectorSync } from "@/lib/connector-sync";
 
 const SYNC_INTERVALS: Record<string, number> = {
-  "gmail": 5 * 60 * 1000,
-  "google-drive": 15 * 60 * 1000,
+  "google": 5 * 60 * 1000,       // unified Google (Gmail, Drive, Calendar, Sheets)
+  "google-sheets": 30 * 60 * 1000, // standalone Sheets connectors (legacy)
   "slack": 5 * 60 * 1000,
-  "google-calendar": 15 * 60 * 1000,
   "hubspot": 15 * 60 * 1000,
   "stripe": 15 * 60 * 1000,
-  "google-sheets": 30 * 60 * 1000,
 };
 
 const DEFAULT_INTERVAL = 15 * 60 * 1000; // 15 min fallback

@@ -1,5 +1,4 @@
 // Maps connector providers to the entity type slugs they produce
-// Used in binding UI to show entity type filter checkboxes
 export const CONNECTOR_ENTITY_TYPES: Record<string, { slug: string; label: string }[]> = {
   hubspot: [
     { slug: "contact", label: "Contacts" },

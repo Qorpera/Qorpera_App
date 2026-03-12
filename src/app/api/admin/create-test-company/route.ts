@@ -427,7 +427,6 @@ async function cleanupOperator(operatorId: string) {
   await prisma.actionCapability.deleteMany({ where: { operatorId } });
   await prisma.event.deleteMany({ where: { operatorId } });
   await prisma.syncLog.deleteMany({ where: { connector: { operatorId } } });
-  await prisma.connectorDepartmentBinding.deleteMany({ where: { operatorId } });
   await prisma.sourceConnector.deleteMany({ where: { operatorId } });
   await prisma.contentChunk.deleteMany({ where: { operatorId } });
   await prisma.internalDocument.deleteMany({ where: { operatorId } });
@@ -714,32 +713,6 @@ async function createTestCompany() {
     },
   });
   connectors["google-sheets"] = sheets.id;
-
-  // Bindings
-  await prisma.connectorDepartmentBinding.create({
-    data: {
-      operatorId: opId,
-      connectorId: connectors["hubspot"],
-      departmentId: deptIds["Sales & Partnerships"],
-      entityTypeFilter: JSON.stringify(["contact", "deal", "company"]),
-    },
-  });
-  await prisma.connectorDepartmentBinding.create({
-    data: {
-      operatorId: opId,
-      connectorId: connectors["stripe"],
-      departmentId: deptIds["Finance & Operations"],
-      entityTypeFilter: JSON.stringify(["invoice", "payment"]),
-    },
-  });
-  await prisma.connectorDepartmentBinding.create({
-    data: {
-      operatorId: opId,
-      connectorId: connectors["google-sheets"],
-      departmentId: deptIds["Delivery & Engineering"],
-      entityTypeFilter: JSON.stringify(["project"]),
-    },
-  });
 
   // ─── 10. External Entities: Companies ────────────────────────
   const companyIds: Record<string, string> = {};
@@ -1461,7 +1434,7 @@ async function createTestCompany() {
   for (const d of DEPARTMENTS) {
     const deptId = deptIds[d.name];
 
-    const [members, documents, deptMemberRels, bindings] = await Promise.all([
+    const [members, documents, deptMemberRels] = await Promise.all([
       // Base entities with parentDepartmentId (team members)
       prisma.entity.count({
         where: { operatorId: opId, parentDepartmentId: deptId, category: "base" },
@@ -1477,10 +1450,6 @@ async function createTestCompany() {
           toEntityId: deptId,
         },
       }),
-      // Connector bindings
-      prisma.connectorDepartmentBinding.count({
-        where: { operatorId: opId, departmentId: deptId },
-      }),
     ]);
 
     // Digital entities linked via department-member (subtract base members to get digital only)
@@ -1491,7 +1460,6 @@ async function createTestCompany() {
       documents,
       digitalEntities,
       totalDeptMemberRels: deptMemberRels,
-      connectorBindings: bindings,
     };
   }
 

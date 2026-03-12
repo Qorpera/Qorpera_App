@@ -1,14 +1,13 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, Suspense } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import Link from "next/link";
 import { DOCUMENT_SLOT_TYPES, type SlotType, isStructuralSlot } from "@/lib/document-slots";
 import { fetchApi } from "@/lib/fetch-api";
-import { CONNECTOR_ENTITY_TYPES } from "@/lib/connector-entity-types";
 import { EntityRow } from "@/components/entity-row";
 import { useUser } from "@/components/user-provider";
 
@@ -75,20 +74,6 @@ interface DeptDetail {
   entityType: { slug: string };
 }
 
-interface ConnectorBinding {
-  id: string;
-  connectorId: string;
-  connector: {
-    id: string;
-    provider: string;
-    name: string;
-    status: string;
-    lastSyncAt: string | null;
-  };
-  entityTypeFilter: string[] | null;
-  enabled: boolean;
-}
-
 interface ConnectedEntityGroup {
   typeSlug: string;
   typeName: string;
@@ -99,13 +84,6 @@ interface ConnectedEntityGroup {
     properties: Record<string, string>;
     sourceSystem: string | null;
   }>;
-}
-
-interface AvailableConnector {
-  id: string;
-  provider: string;
-  name: string;
-  status: string;
 }
 
 interface SlotDocument {
@@ -270,25 +248,6 @@ function StatusBadge({ status, embeddingStatus }: { status: string; embeddingSta
 }
 
 /* ------------------------------------------------------------------ */
-/*  Provider icon                                                      */
-/* ------------------------------------------------------------------ */
-
-function ProviderIcon({ provider }: { provider: string }) {
-  const config: Record<string, { bg: string; label: string }> = {
-    hubspot: { bg: "#ff7a59", label: "HS" },
-    stripe: { bg: "#635bff", label: "S" },
-    "google-sheets": { bg: "#34a853", label: "G" },
-  };
-  const c = config[provider] ?? { bg: "#666", label: "?" };
-  return (
-    <span className="inline-flex items-center justify-center w-6 h-6 rounded text-[10px] font-bold text-white flex-shrink-0"
-      style={{ backgroundColor: c.bg }}>
-      {c.label}
-    </span>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -312,28 +271,15 @@ function DepartmentDetailInner() {
   const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const searchParams = useSearchParams();
-
   /* ---- edit mode ---- */
   const [editMode, setEditMode] = useState(false);
 
   /* ---- connected data ---- */
-  const [bindings, setBindings] = useState<ConnectorBinding[]>([]);
   const [connectedEntities, setConnectedEntities] = useState<ConnectedEntityGroup[]>([]);
   const [connectedOffset, setConnectedOffset] = useState(0);
   const [connectedHasMore, setConnectedHasMore] = useState(false);
   const [connectedTotal, setConnectedTotal] = useState(0);
-  const [availableConnectors, setAvailableConnectors] = useState<AvailableConnector[]>([]);
-  const [showBindingModal, setShowBindingModal] = useState(false);
-  const [bindingModalStep, setBindingModalStep] = useState<1 | 2>(1);
-  const [selectedConnector, setSelectedConnector] = useState<string>("");
-  const [selectedTypeFilter, setSelectedTypeFilter] = useState<string[]>([]);
-  const [providers, setProviders] = useState<Array<{ id: string; name: string; configured: boolean }>>([]);
-  const [editingBindingId, setEditingBindingId] = useState<string | null>(null);
-  const [editingFilter, setEditingFilter] = useState<string[]>([]);
-  const [removingBindingId, setRemovingBindingId] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [syncing, setSyncing] = useState<string | null>(null);
 
   /* ---- add person ---- */
   const [showAdd, setShowAdd] = useState(false);
@@ -450,14 +396,6 @@ function DepartmentDetailInner() {
     }
   }, [deptId]);
 
-  const fetchBindings = useCallback(async () => {
-    const res = await fetchApi(`/api/departments/${deptId}/connectors`);
-    if (res.ok) {
-      const data = await res.json();
-      setBindings(data.bindings ?? []);
-    }
-  }, [deptId]);
-
   const fetchConnectedEntities = useCallback(async (append = false) => {
     const currentOffset = append ? connectedOffset : 0;
     const res = await fetchApi(`/api/departments/${deptId}/connected-entities?limit=50&offset=${currentOffset}`);
@@ -486,47 +424,9 @@ function DepartmentDetailInner() {
     }
   }, [deptId, connectedOffset]);
 
-  const fetchAvailableConnectors = useCallback(async () => {
-    const res = await fetchApi("/api/connectors");
-    if (res.ok) {
-      const data = await res.json();
-      const allConnectors: AvailableConnector[] = (data.connectors ?? []).map((c: any) => ({
-        id: c.id, provider: c.provider, name: c.name || c.providerName, status: c.status,
-      }));
-      // Filter out connectors already bound to this department
-      const boundIds = new Set(bindings.map((b) => b.connectorId));
-      setAvailableConnectors(allConnectors.filter((c) => !boundIds.has(c.id)));
-    }
-  }, [bindings]);
-
-  const fetchProviders = useCallback(async () => {
-    const res = await fetchApi("/api/connectors/providers");
-    if (res.ok) {
-      const data = await res.json();
-      setProviders(data.providers ?? []);
-    }
-  }, []);
-
   useEffect(() => {
-    load(); loadDocs(); fetchBindings(); fetchConnectedEntities(); fetchProviders(); loadAccountStatuses();
-  }, [load, loadDocs, fetchBindings, fetchConnectedEntities, fetchProviders, loadAccountStatuses]);
-
-  // Handle OAuth return
-  useEffect(() => {
-    const hubspot = searchParams?.get("hubspot");
-    const stripe = searchParams?.get("stripe");
-    const google = searchParams?.get("google");
-    if (hubspot === "connected" || stripe === "connected" || google === "connected") {
-      fetchBindings();
-      fetchAvailableConnectors();
-      setToast("Connector connected successfully!");
-      const url = new URL(window.location.href);
-      url.searchParams.delete("hubspot");
-      url.searchParams.delete("stripe");
-      url.searchParams.delete("google");
-      window.history.replaceState({}, "", url.toString());
-    }
-  }, [searchParams, fetchBindings, fetchAvailableConnectors]);
+    load(); loadDocs(); fetchConnectedEntities(); loadAccountStatuses();
+  }, [load, loadDocs, fetchConnectedEntities, loadAccountStatuses]);
 
   // Poll while any doc is processing
   useEffect(() => {
@@ -557,96 +457,6 @@ function DepartmentDetailInner() {
     const t = setTimeout(() => setToast(""), 4000);
     return () => clearTimeout(t);
   }, [toast]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Connected data actions                                           */
-  /* ---------------------------------------------------------------- */
-
-  async function handleCreateBinding() {
-    if (!selectedConnector) return;
-    const filter = selectedTypeFilter.length > 0 ? selectedTypeFilter : null;
-    const res = await fetchApi(`/api/departments/${deptId}/connectors`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connectorId: selectedConnector, entityTypeFilter: filter }),
-    });
-    if (res.ok) {
-      setShowBindingModal(false);
-      setSelectedConnector("");
-      setSelectedTypeFilter([]);
-      setBindingModalStep(1);
-      fetchBindings();
-      fetchConnectedEntities();
-      fetchAvailableConnectors();
-      setToast("Data source connected");
-    }
-  }
-
-  async function triggerSync(connectorId: string) {
-    setSyncing(connectorId);
-    try {
-      await fetchApi(`/api/connectors/${connectorId}/sync`, { method: "POST" });
-      setTimeout(() => {
-        fetchConnectedEntities();
-        setSyncing(null);
-      }, 3000);
-    } catch {
-      setSyncing(null);
-    }
-  }
-
-  async function handleToggleBinding(binding: ConnectorBinding) {
-    await fetchApi(`/api/departments/${deptId}/connectors/${binding.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: !binding.enabled }),
-    });
-    fetchBindings();
-  }
-
-  async function handleSaveBindingFilter(bindingId: string) {
-    await fetchApi(`/api/departments/${deptId}/connectors/${bindingId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entityTypeFilter: editingFilter.length > 0 ? editingFilter : null }),
-    });
-    setEditingBindingId(null);
-    fetchBindings();
-    fetchConnectedEntities();
-  }
-
-  async function handleRemoveBinding() {
-    if (!removingBindingId) return;
-    await fetchApi(`/api/departments/${deptId}/connectors/${removingBindingId}`, {
-      method: "DELETE",
-    });
-    setRemovingBindingId(null);
-    fetchBindings();
-    fetchConnectedEntities();
-    fetchAvailableConnectors();
-  }
-
-  function openBindingModal() {
-    setShowBindingModal(true);
-    setBindingModalStep(1);
-    setSelectedConnector("");
-    setSelectedTypeFilter([]);
-    fetchAvailableConnectors();
-    fetchProviders();
-  }
-
-  async function handleConnectNewProvider(providerId: string) {
-    const authEndpoint = providerId === "hubspot"
-      ? `/api/connectors/hubspot/auth-url?from=department:${deptId}`
-      : providerId === "stripe"
-        ? `/api/connectors/stripe/auth-url?from=department:${deptId}`
-        : `/api/connectors/google-sheets/auth-url?from=department:${deptId}`;
-    const res = await fetchApi(authEndpoint);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-    }
-  }
 
   /* ---------------------------------------------------------------- */
   /*  Inline edit department fields                                    */
@@ -1486,171 +1296,65 @@ function DepartmentDetailInner() {
         </Section>
 
         {/* ---- Section 3: Connected Data ---- */}
-        <Section
-          title="Connected Data"
-          action={bindings.length > 0 ? (
-            <button onClick={openBindingModal} className="text-[11px] text-purple-400 hover:text-purple-300 transition">
-              + Connect Source
-            </button>
-          ) : undefined}
-        >
-          {bindings.length === 0 ? (
-            <div className="py-8 text-center">
-              <svg className="mx-auto w-8 h-8 text-white/15 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-              </svg>
-              <p className="text-sm text-white/40">Connect a data source to see operational data here</p>
-              <button
-                onClick={openBindingModal}
-                className="mt-3 text-xs text-purple-400 hover:text-purple-300 transition"
-              >
-                Connect a Data Source
-              </button>
-            </div>
+        <Section title="Connected Data">
+          {connectedEntities.length === 0 ? (
+            <p className="text-sm text-white/40 py-4">
+              Connectors are now managed at the company level in Settings.
+            </p>
           ) : (
             <div className="space-y-4">
-              {/* Active bindings */}
-              <div className="space-y-2">
-                {bindings.map((b) => (
-                  <div key={b.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-                    <div className="flex items-center gap-3">
-                      <ProviderIcon provider={b.connector.provider} />
-                      <div className="min-w-0 flex-1">
-                        <span className="text-sm font-medium text-white/90">{b.connector.name}</span>
-                        <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full ${
-                          b.connector.status === "active" ? "bg-green-500/15 text-green-400" : "bg-amber-500/15 text-amber-400"
-                        }`}>
-                          {b.connector.status}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-white/30">
-                        {b.entityTypeFilter ? b.entityTypeFilter.join(", ") : "All types"}
-                      </span>
-                      <button
-                        onClick={() => handleToggleBinding(b)}
-                        className={`w-8 h-4 rounded-full transition relative ${b.enabled ? "bg-purple-500" : "bg-white/10"}`}
-                      >
-                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${b.enabled ? "left-4" : "left-0.5"}`} />
-                      </button>
-                      <button
-                        onClick={() => triggerSync(b.connectorId)}
-                        disabled={syncing === b.connectorId}
-                        className="w-6 h-6 rounded hover:bg-white/10 flex items-center justify-center transition disabled:opacity-50"
-                        title="Sync now"
-                      >
-                        <svg className={`w-3.5 h-3.5 text-white/40 ${syncing === b.connectorId ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.016 4.356v4.992" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditingBindingId(b.id);
-                          setEditingFilter(b.entityTypeFilter ?? []);
-                        }}
-                        className="text-white/30 hover:text-white/60 transition"
-                        title="Edit filter"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => setRemovingBindingId(b.id)}
-                        className="text-white/30 hover:text-red-400 transition"
-                        title="Remove binding"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
+              <p className="text-sm text-white/40">
+                Connectors are now managed at the company level in Settings.
+              </p>
+              {connectedEntities.map((group) => {
+                const isExpanded = expandedGroups.has(group.typeSlug);
+                const visibleEntities = isExpanded ? group.entities : group.entities.slice(0, 10);
+                return (
+                  <div key={group.typeSlug}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: group.typeColor }} />
+                      <span className="text-xs font-medium text-white/60">{group.typeName}</span>
+                      <span className="text-xs text-white/25">({group.entities.length})</span>
                     </div>
-                    {/* Inline edit filter panel */}
-                    {editingBindingId === b.id && (
-                      <div className="mt-3 pt-3 border-t border-white/[0.06]">
-                        <p className="text-[10px] uppercase tracking-wider text-white/40 mb-2">Entity type filter</p>
-                        <div className="flex flex-wrap gap-2 mb-3">
-                          {(CONNECTOR_ENTITY_TYPES[b.connector.provider] ?? []).map((et) => (
-                            <label key={et.slug} className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={editingFilter.length === 0 || editingFilter.includes(et.slug)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setEditingFilter((f) => [...f, et.slug]);
-                                  } else {
-                                    setEditingFilter((f) => f.filter((s) => s !== et.slug));
-                                  }
-                                }}
-                                className="accent-purple-500"
-                              />
-                              {et.label}
-                            </label>
-                          ))}
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={() => handleSaveBindingFilter(b.id)} className="text-[11px] text-purple-400 hover:text-purple-300">Save</button>
-                          <button onClick={() => setEditingBindingId(null)} className="text-[11px] text-white/40 hover:text-white/60">Cancel</button>
-                        </div>
-                      </div>
+                    <div className="space-y-0.5">
+                      {visibleEntities.map((e) => (
+                        <EntityRow
+                          key={e.id}
+                          entity={{ ...e, entityType: { name: group.typeName, color: group.typeColor, slug: group.typeSlug } }}
+                          editMode={editMode}
+                          departmentId={deptId}
+                          onRemoved={fetchConnectedEntities}
+                          onUpdated={fetchConnectedEntities}
+                        />
+                      ))}
+                    </div>
+                    {group.entities.length > 10 && (
+                      <button
+                        onClick={() => setExpandedGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(group.typeSlug)) next.delete(group.typeSlug);
+                          else next.add(group.typeSlug);
+                          return next;
+                        })}
+                        className="text-[11px] text-purple-400 hover:text-purple-300 mt-1 ml-3"
+                      >
+                        {isExpanded ? "Show less" : `Show all ${group.entities.length}`}
+                      </button>
                     )}
                   </div>
-                ))}
-              </div>
-
-              {/* Connected entities grouped by type */}
-              {connectedEntities.length > 0 && (
-                <div className="space-y-4 pt-2">
-                  {connectedEntities.map((group) => {
-                    const isExpanded = expandedGroups.has(group.typeSlug);
-                    const visibleEntities = isExpanded ? group.entities : group.entities.slice(0, 10);
-                    return (
-                      <div key={group.typeSlug}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: group.typeColor }} />
-                          <span className="text-xs font-medium text-white/60">{group.typeName}</span>
-                          <span className="text-xs text-white/25">({group.entities.length})</span>
-                        </div>
-                        <div className="space-y-0.5">
-                          {visibleEntities.map((e) => (
-                            <EntityRow
-                              key={e.id}
-                              entity={{ ...e, entityType: { name: group.typeName, color: group.typeColor, slug: group.typeSlug } }}
-                              editMode={editMode}
-                              departmentId={deptId}
-                              onRemoved={fetchConnectedEntities}
-                              onUpdated={fetchConnectedEntities}
-                            />
-                          ))}
-                        </div>
-                        {group.entities.length > 10 && (
-                          <button
-                            onClick={() => setExpandedGroups((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(group.typeSlug)) next.delete(group.typeSlug);
-                              else next.add(group.typeSlug);
-                              return next;
-                            })}
-                            className="text-[11px] text-purple-400 hover:text-purple-300 mt-1 ml-3"
-                          >
-                            {isExpanded ? "Show less" : `Show all ${group.entities.length}`}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {connectedHasMore && (
-                    <button
-                      onClick={() => {
-                        const newOffset = connectedOffset + 50;
-                        setConnectedOffset(newOffset);
-                        fetchConnectedEntities(true);
-                      }}
-                      className="w-full py-2 text-xs text-purple-400 hover:text-purple-300 transition"
-                    >
-                      Load more ({connectedTotal - connectedOffset - 50} remaining)
-                    </button>
-                  )}
-                </div>
+                );
+              })}
+              {connectedHasMore && (
+                <button
+                  onClick={() => {
+                    const newOffset = connectedOffset + 50;
+                    setConnectedOffset(newOffset);
+                    fetchConnectedEntities(true);
+                  }}
+                  className="w-full py-2 text-xs text-purple-400 hover:text-purple-300 transition"
+                >
+                  Load more ({connectedTotal - connectedOffset - 50} remaining)
+                </button>
               )}
             </div>
           )}
@@ -1863,143 +1567,6 @@ function DepartmentDetailInner() {
         )}
       </Modal>
 
-      {/* ---- Connect Data Source Modal ---- */}
-      <Modal
-        open={showBindingModal}
-        onClose={() => { setShowBindingModal(false); setBindingModalStep(1); setSelectedConnector(""); setSelectedTypeFilter([]); }}
-        title={bindingModalStep === 1 ? "Connect a Data Source" : "Configure Entity Types"}
-      >
-        {bindingModalStep === 1 ? (
-          <div className="space-y-4">
-            {availableConnectors.length > 0 && (
-              <div>
-                <p className="text-[10px] uppercase tracking-wider text-white/40 mb-2">Existing connectors</p>
-                <div className="space-y-1">
-                  {availableConnectors.map((c) => (
-                    <label key={c.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/[0.03] cursor-pointer transition">
-                      <input
-                        type="radio"
-                        name="connector"
-                        value={c.id}
-                        checked={selectedConnector === c.id}
-                        onChange={() => setSelectedConnector(c.id)}
-                        className="accent-purple-500"
-                      />
-                      <ProviderIcon provider={c.provider} />
-                      <span className="text-sm text-white/80">{c.name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                        c.status === "active" ? "bg-green-500/15 text-green-400" : "bg-amber-500/15 text-amber-400"
-                      }`}>
-                        {c.status}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-white/40 mb-2">Connect new</p>
-              <div className="flex gap-2">
-                {providers.filter((p) => p.configured).map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => handleConnectNewProvider(p.id)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/[0.08] hover:border-white/20 transition text-sm text-white/70 hover:text-white/90"
-                  >
-                    <ProviderIcon provider={p.id} />
-                    {p.name}
-                  </button>
-                ))}
-                {providers.filter((p) => p.configured).length === 0 && (
-                  <p className="text-xs text-white/30">No providers configured. Set environment variables for HubSpot, Stripe, or Google Sheets.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={!selectedConnector}
-                onClick={() => {
-                  const conn = availableConnectors.find((c) => c.id === selectedConnector);
-                  if (conn) {
-                    const types = CONNECTOR_ENTITY_TYPES[conn.provider];
-                    if (types && types.length > 0) {
-                      setSelectedTypeFilter(types.map((t) => t.slug));
-                      setBindingModalStep(2);
-                    } else {
-                      handleCreateBinding();
-                    }
-                  }
-                }}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {(() => {
-              const conn = availableConnectors.find((c) => c.id === selectedConnector);
-              const types = conn ? (CONNECTOR_ENTITY_TYPES[conn.provider] ?? []) : [];
-              const allSelected = types.every((t) => selectedTypeFilter.includes(t.slug));
-              return (
-                <>
-                  <label className="flex items-center gap-2 text-xs text-white/60 cursor-pointer mb-2">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={() => {
-                        if (allSelected) setSelectedTypeFilter([]);
-                        else setSelectedTypeFilter(types.map((t) => t.slug));
-                      }}
-                      className="accent-purple-500"
-                    />
-                    Select All
-                  </label>
-                  <div className="space-y-1">
-                    {types.map((et) => (
-                      <label key={et.slug} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/[0.03] cursor-pointer text-sm text-white/70">
-                        <input
-                          type="checkbox"
-                          checked={selectedTypeFilter.includes(et.slug)}
-                          onChange={(e) => {
-                            if (e.target.checked) setSelectedTypeFilter((f) => [...f, et.slug]);
-                            else setSelectedTypeFilter((f) => f.filter((s) => s !== et.slug));
-                          }}
-                          className="accent-purple-500"
-                        />
-                        {et.label}
-                      </label>
-                    ))}
-                  </div>
-                </>
-              );
-            })()}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="default" size="sm" onClick={() => setBindingModalStep(1)}>Back</Button>
-              <Button variant="primary" size="sm" onClick={handleCreateBinding}>Connect</Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* ---- Remove Binding Confirmation ---- */}
-      <Modal
-        open={!!removingBindingId}
-        onClose={() => setRemovingBindingId(null)}
-        title="Remove Data Source"
-      >
-        <p className="text-sm text-white/60 mb-4">
-          This will disconnect this data source from this department. Existing entities will remain but no new data will be routed here.
-        </p>
-        <div className="flex justify-end gap-2">
-          <Button variant="default" size="sm" onClick={() => setRemovingBindingId(null)}>Cancel</Button>
-          <Button variant="primary" size="sm" onClick={handleRemoveBinding}>Remove</Button>
-        </div>
-      </Modal>
     </AppShell>
   );
 }

@@ -66,20 +66,6 @@ export interface ExtractionDiff {
   summary: string;
 }
 
-export interface ConnectorBinding {
-  id: string;
-  connectorId: string;
-  departmentId: string;
-  entityTypeFilter: string[] | null;
-  enabled: boolean;
-  connector: {
-    id: string;
-    provider: string;
-    name: string;
-    status: string;
-  };
-}
-
 export interface Provider {
   id: string;
   name: string;

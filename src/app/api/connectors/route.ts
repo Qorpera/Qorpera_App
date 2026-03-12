@@ -37,6 +37,7 @@ export async function GET() {
       providerName: providerMap[c.provider] || c.provider,
       name: c.name,
       status: c.status,
+      userId: c.userId,
       lastSyncAt: c.lastSyncAt?.toISOString() ?? null,
       spreadsheetCount,
       lastSyncResult: c.syncLogs[0]

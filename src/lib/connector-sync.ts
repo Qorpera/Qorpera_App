@@ -56,6 +56,7 @@ export async function runConnectorSync(
   }
 
   const config = connector.config ? JSON.parse(decrypt(connector.config)) : {};
+  config._operatorId = operatorId; // Available to providers that need it (e.g. Gmail entity creation)
   let syncStatus: "success" | "partial" | "failed" = "success";
 
   try {

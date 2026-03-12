@@ -73,7 +73,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
       <div className="flex h-screen wf-shell">
         {/* Sidebar */}
         <aside
-          className={`flex-shrink-0 flex flex-col border-r border-white/[0.06] bg-[rgba(10,14,18,0.6)] transition-[width] duration-200 ${
+          className={`flex-shrink-0 flex flex-col border-r border-white/[0.06] bg-black transition-[width] duration-200 ${
             collapsed ? "w-14" : "w-60"
           }`}
         >
@@ -81,7 +81,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
           <div className={`flex items-center ${collapsed ? "flex-col gap-2 px-2" : "px-5"} py-5`}>
             {collapsed ? (
               <>
-                <QorperaLogo width={24} height={24} className="text-purple-400" simplified />
+                <QorperaLogo width={56} height={56} className="text-white" />
                 <button
                   onClick={() => setCollapsed(false)}
                   className="text-white/20 hover:text-white/50 transition-colors p-1 rounded-lg hover:bg-white/[0.04]"
@@ -92,7 +92,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
               </>
             ) : (
               <>
-                <QorperaLogo width={28} height={28} className="text-purple-400 flex-shrink-0" />
+                <QorperaLogo width={64} height={64} className="text-white flex-shrink-0" />
                 <span className="font-heading text-xl font-semibold tracking-[-0.02em] text-white/90 ml-2.5 whitespace-nowrap">
                   Qorpera
                 </span>

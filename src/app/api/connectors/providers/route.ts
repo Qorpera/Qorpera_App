@@ -12,7 +12,7 @@ export async function GET() {
   const result = providers.map((p) => ({
     ...p,
     configured:
-      p.id === "google-sheets"
+      p.id === "google-sheets" || p.id === "gmail" || p.id === "google"
         ? !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
         : p.id === "hubspot"
           ? !!(process.env.HUBSPOT_CLIENT_ID && process.env.HUBSPOT_CLIENT_SECRET)

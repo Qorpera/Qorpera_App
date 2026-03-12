@@ -6,12 +6,20 @@ import { encrypt } from "@/lib/encryption";
 
 const APP_BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
+const REQUESTED_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/spreadsheets.readonly",
+];
+
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) {
     return NextResponse.redirect(new URL("/login", APP_BASE));
   }
-  const { operatorId } = su;
+  const { operatorId, user } = su;
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -20,14 +28,11 @@ export async function GET(req: NextRequest) {
   const cookieStore = await cookies();
 
   // Determine return destination
-  const oauthReturn = cookieStore.get("oauth_return")?.value;
-  cookieStore.delete("oauth_return");
-  let returnBase = "/settings?tab=connections";
+  const oauthReturn = cookieStore.get("google_oauth_return")?.value;
+  cookieStore.delete("google_oauth_return");
+  let returnBase = "/account";
   if (oauthReturn === "onboarding") {
     returnBase = "/onboarding";
-  } else if (oauthReturn?.startsWith("department:")) {
-    const deptId = oauthReturn.replace("department:", "");
-    returnBase = `/map/${deptId}`;
   }
   const sep = returnBase.includes("?") ? "&" : "?";
 
@@ -45,14 +50,11 @@ export async function GET(req: NextRequest) {
 
   // Verify CSRF state
   const storedState = cookieStore.get("google_oauth_state")?.value;
-
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(
       new URL(`${returnBase}${sep}google=error&reason=invalid_state`, APP_BASE)
     );
   }
-
-  // Clear the state cookie
   cookieStore.delete("google_oauth_state");
 
   // Exchange code for tokens
@@ -63,14 +65,14 @@ export async function GET(req: NextRequest) {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: `${APP_BASE}/api/auth/google/callback`,
+      redirect_uri: `${APP_BASE}/api/connectors/google/callback`,
       grant_type: "authorization_code",
     }),
   });
 
   if (!tokenResp.ok) {
     const errBody = await tokenResp.text();
-    console.error("Google token exchange failed:", errBody);
+    console.error("[google-oauth] Token exchange failed:", errBody);
     return NextResponse.redirect(
       new URL(`${returnBase}${sep}google=error&reason=token_exchange`, APP_BASE)
     );
@@ -78,55 +80,59 @@ export async function GET(req: NextRequest) {
 
   const tokens = await tokenResp.json();
 
-  // Auto-discover recent spreadsheets (with names for UI)
-  type DiscoveredSheet = { id: string; name: string; selected: boolean };
-  let discoveredSheets: DiscoveredSheet[] = [];
+  // Determine which scopes were actually granted
+  const grantedScopes = (tokens.scope as string || "").split(" ").filter(Boolean);
+
+  // Fetch Google profile for display name
+  let emailAddress = "";
   try {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const driveResp = await fetch(
-      `https://www.googleapis.com/drive/v3/files?` + new URLSearchParams({
-        q: `mimeType='application/vnd.google-apps.spreadsheet' and modifiedTime>'${thirtyDaysAgo}' and trashed=false`,
-        fields: "files(id,name,modifiedTime,owners)",
-        pageSize: "100",
-        orderBy: "modifiedTime desc",
-      }),
-      {
-        headers: { Authorization: `Bearer ${tokens.access_token}` },
-      }
+    const profileResp = await fetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+      { headers: { Authorization: `Bearer ${tokens.access_token}` } }
     );
-    if (driveResp.ok) {
-      const driveData = await driveResp.json();
-      discoveredSheets = (driveData.files || []).map((f: { id: string; name: string }) => ({
-        id: f.id,
-        name: f.name,
-        selected: true,
-      }));
+    if (profileResp.ok) {
+      const profile = await profileResp.json();
+      emailAddress = profile.emailAddress || "";
     }
   } catch (err) {
-    console.warn("[Google] Failed to auto-discover spreadsheets:", err);
+    console.warn("[google-oauth] Failed to fetch profile:", err);
   }
 
-  const hasSheets = discoveredSheets.length > 0;
-  const spreadsheetIds = discoveredSheets.filter(s => s.selected).map(s => s.id);
   const config = {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
     token_expiry: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-    spreadsheet_ids: spreadsheetIds,
-    spreadsheets: discoveredSheets, // full metadata for UI
-    spreadsheet_id: hasSheets ? spreadsheetIds[0] : "", // backward compat
-    last_discovery: new Date().toISOString(),
+    email_address: emailAddress,
+    scopes: grantedScopes.length > 0 ? grantedScopes : REQUESTED_SCOPES,
   };
 
-  await prisma.sourceConnector.create({
-    data: {
-      operatorId,
-      provider: "google-sheets",
-      name: hasSheets ? `Google Sheets (${spreadsheetIds.length} spreadsheets)` : "",
-      status: hasSheets ? "active" : "pending",
-      config: encrypt(JSON.stringify(config)),
-    },
+  // Upsert: if user already has a Google connector, update it; otherwise create
+  const existing = await prisma.sourceConnector.findFirst({
+    where: { operatorId, userId: user.id, provider: "google" },
   });
+
+  if (existing) {
+    await prisma.sourceConnector.update({
+      where: { id: existing.id },
+      data: {
+        config: encrypt(JSON.stringify(config)),
+        status: "active",
+        consecutiveFailures: 0,
+        name: emailAddress ? `Google (${emailAddress})` : "Google",
+      },
+    });
+  } else {
+    await prisma.sourceConnector.create({
+      data: {
+        operatorId,
+        userId: user.id,
+        provider: "google",
+        name: emailAddress ? `Google (${emailAddress})` : "Google",
+        status: "active",
+        config: encrypt(JSON.stringify(config)),
+      },
+    });
+  }
 
   return NextResponse.redirect(
     new URL(`${returnBase}${sep}google=connected`, APP_BASE)

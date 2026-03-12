@@ -41,7 +41,6 @@ export async function DELETE(
   await prisma.actionCapability.deleteMany({ where: { operatorId: id } });
   await prisma.event.deleteMany({ where: { operatorId: id } });
   await prisma.syncLog.deleteMany({ where: { connector: { operatorId: id } } });
-  await prisma.connectorDepartmentBinding.deleteMany({ where: { operatorId: id } });
   await prisma.sourceConnector.deleteMany({ where: { operatorId: id } });
   await prisma.contentChunk.deleteMany({ where: { operatorId: id } });
   await prisma.internalDocument.deleteMany({ where: { operatorId: id } });

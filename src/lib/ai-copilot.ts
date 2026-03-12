@@ -772,16 +772,15 @@ async function executeTool(
 
       const results: string[] = [];
       for (const dept of departments) {
-        const [memberCount, digitalCount, docCount, connectorCount] = await Promise.all([
+        const [memberCount, digitalCount, docCount] = await Promise.all([
           prisma.entity.count({ where: { parentDepartmentId: dept.id, category: "base", status: "active" } }),
           prisma.entity.count({ where: { parentDepartmentId: dept.id, category: "digital", status: "active" } }),
           prisma.internalDocument.count({ where: { departmentId: dept.id, operatorId, status: { not: "replaced" } } }),
-          prisma.connectorDepartmentBinding.count({ where: { departmentId: dept.id } }),
         ]);
 
         let line = `- ${dept.displayName} (ID: ${dept.id})`;
         if (dept.description) line += ` — ${dept.description}`;
-        line += `\n    ${memberCount} people, ${digitalCount} synced entities, ${docCount} documents, ${connectorCount} connectors`;
+        line += `\n    ${memberCount} people, ${digitalCount} synced entities, ${docCount} documents`;
         results.push(line);
       }
 

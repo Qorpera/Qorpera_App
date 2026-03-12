@@ -38,19 +38,6 @@ export const updateMemberSchema = z.object({
   email: z.string().trim().email().max(320).optional(),
 }).refine(data => Object.keys(data).length > 0, { message: "At least one field required" });
 
-// Connector binding
-export const createBindingSchema = z.object({
-  connectorId: cuidId,
-  entityTypeFilter: z.array(z.string()).optional(),
-  eventTypeFilter: z.array(z.string()).optional(),
-});
-
-export const updateBindingSchema = z.object({
-  entityTypeFilter: z.array(z.string()).optional(),
-  eventTypeFilter: z.array(z.string()).optional(),
-  enabled: z.boolean().optional(),
-});
-
 // Entity
 export const updateEntitySchema = z.object({
   displayName: nonEmptyString.max(200).optional(),
