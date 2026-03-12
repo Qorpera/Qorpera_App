@@ -131,13 +131,79 @@ Two databases, two workflows:
 - Autonomy history shows current level only (no historical tracking)
 - Step 6 double-advance could partially fail (recovers on refresh)
 
-## Bug Fixing Protocol
+## Phase 2: Data Layer (Days 26–28)
 
-When a bug is reported, do NOT start by trying to fix it.
+### pgvector Pattern (CRITICAL)
+- Database: PostgreSQL on Neon with pgvector extension enabled
+- Prisma schema declares vector columns as `String?` — raw SQL handles the actual `vector(1536)` type
+- ALL vector operations use `prisma.$queryRaw` with the `<=>` cosine distance operator
+- HNSW indexes on `ContentChunk.embedding` and `Entity.entityEmbedding` (m=16, ef_construction=64)
+- Embedding model: `text-embedding-3-small` (1536 dimensions)
 
-Instead:
+### ContentChunk Create Pattern (CRITICAL)
+- Every `prisma.contentChunk.create()` call MUST use `select: { id: true }`
+- Prisma cannot deserialize native pgvector columns on return — omitting select causes runtime crash
+- This applies everywhere: content-pipeline.ts, create-test-company, migrate-document-chunks, any future code
+
+### Connector Interface (SyncYield)
+- All connectors return `AsyncGenerator<SyncYield>` from their `sync()` method
+- `SyncYield` is a discriminated union: `{ kind: "event" | "content" | "activity", data: ... }`
+- Connector orchestrator (`connector-sync.ts`) routes each kind automatically:
+  - `event` → event materializer (existing)
+  - `content` → `ingestContent()` from content-pipeline.ts
+  - `activity` → `ingestActivity()` from activity-pipeline.ts
+- New connectors just yield SyncYield items — no orchestrator changes needed
+
+### Identity Resolution
+- `identity-resolution.ts` — ML-based entity merge pipeline
+- Email exact match: +0.5, Domain: +0.15, Phone: +0.2, Embedding similarity >0.85: +0.15
+- Same-source merging: hard block (-1.0 penalty)
+- Thresholds: ≥0.8 auto-merge, 0.5–0.8 suggestion, <0.5 discard
+- Merge is transactional: snapshot → additive property copy → relationship redirect → ContentChunk/ActivitySignal repoint
+- Runs inline after sync (fire-and-forget, errors caught)
+- `EntityMergeLog.snapshot` stores full pre-merge state for reversal
+
+### Scheduled Sync
+- `sync-scheduler.ts` — 1-minute tick, registered in `instrumentation.ts` with globalThis HMR guard
+- Per-provider intervals: 5 min (Gmail, Slack), 15 min (Drive, Calendar, HubSpot, Stripe), 30 min (Sheets)
+- Max 3 concurrent syncs per operator
+- 3 consecutive failures → connector status "error" + admin Notification
+- `consecutiveFailures` field on SourceConnector schema
+
+### Phase 2 File Map
+- `src/lib/content-pipeline.ts` — universal content ingestion (chunks + embeds)
+- `src/lib/activity-pipeline.ts` — ActivitySignal ingestion with actor/target resolution
+- `src/lib/sync-scheduler.ts` — scheduled sync system
+- `src/lib/identity-resolution.ts` — ML entity merge pipeline
+- `src/lib/connectors/sync-types.ts` — SyncYield type definitions
+- `src/lib/rag/retriever.ts` — rewritten for pgvector (no more JS cosine similarity)
+
+### Retention
+- ActivitySignal: 90-day retention, daily cleanup tick in instrumentation.ts
+- EntityMergeLog snapshots: indefinite (no automated expiry yet)
+
+## Testing
+
+### Framework
+- Vitest with TypeScript, `@/*` path alias resolved via `vitest.config.ts`
+- Tests in `__tests__/` directory, mirroring `src/lib/` structure
+- Run: `npm test` (single run), `npm run test:watch` (watch mode), `npm run test:coverage`
+
+### Mocking Pattern
+- Modules that import `@/lib/db` but have testable pure functions: mock with `vi.mock("@/lib/db", () => ({ prisma: {} }))`
+- Place `vi.mock()` BEFORE the import of the module under test
+- Never mock the function under test — only its side-effect dependencies
+
+### Writing New Tests
+- Pure functions (no DB): write directly, no mocks needed
+- Functions that import prisma but have pure sub-functions: mock `@/lib/db`
+- Functions that ARE database operations: skip for now (integration tests later)
+- Identity resolution scoring changes: update `__tests__/lib/identity-scoring.test.ts` spec weights to match
+
+### Bug Fixing Protocol (updated)
+When a bug is reported:
 1. Write a test that reproduces the bug and confirms it fails
 2. Spawn subagents to attempt fixes
 3. The fix is only accepted when the test passes
-
-Commit the test and the fix together.
+4. Run `npm test` to confirm no regressions
+5. Commit the test and the fix together
