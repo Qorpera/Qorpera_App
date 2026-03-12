@@ -182,10 +182,8 @@ export async function PATCH(
       checkGraduation(situation.situationTypeId).catch((err) =>
         console.error(`[situation-patch] Graduation check failed:`, err),
       );
-      // Day 14: fire-and-forget execution
-      executeSituationAction(id).catch((err) =>
-        console.error(`[situation-patch] Execution failed for ${id}:`, err),
-      );
+      // Store approving user so executor can resolve their personal connector token
+      updates.assignedUserId = user.id;
     }
   }
   if (body.feedback !== undefined) updates.feedback = body.feedback;
@@ -199,6 +197,13 @@ export async function PATCH(
     where: { id },
     data: updates,
   });
+
+  // Fire-and-forget execution AFTER status + assignedUserId are persisted
+  if (body.status === "approved") {
+    executeSituationAction(id).catch((err) =>
+      console.error(`[situation-patch] Execution failed for ${id}:`, err),
+    );
+  }
 
   return NextResponse.json({ id: updated.id, status: updated.status });
 }

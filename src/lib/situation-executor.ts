@@ -36,12 +36,28 @@ export async function executeSituationAction(situationId: string) {
       throw new Error(`No capable connector found for action: ${proposed.action}`);
     }
 
-    const connector = await prisma.sourceConnector.findUnique({
+    // For personal-connector providers (e.g. Google), use the approving user's connector
+    let connector = await prisma.sourceConnector.findUnique({
       where: { id: capability.connectorId },
     });
 
     if (!connector) {
       throw new Error(`Connector not found: ${capability.connectorId}`);
+    }
+
+    if (connector.provider === "google" && situation.assignedUserId) {
+      const userConnector = await prisma.sourceConnector.findFirst({
+        where: {
+          operatorId: situation.operatorId,
+          provider: "google",
+          userId: situation.assignedUserId,
+          status: "active",
+        },
+      });
+      if (!userConnector) {
+        throw new Error("Approving user has not connected their Google account");
+      }
+      connector = userConnector;
     }
 
     const provider = getProvider(connector.provider);

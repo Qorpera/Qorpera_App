@@ -605,6 +605,126 @@ async function* syncSheets(
   console.log("[google-sync] Sheets sync: not yet implemented");
 }
 
+// ── Gmail write-back helpers ─────────────────────────────────
+
+async function sendEmail(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const to = input.to as string;
+  const subject = input.subject as string;
+  const body = input.body as string;
+  const cc = input.cc as string | undefined;
+
+  // Build RFC 2822 email message
+  const messageParts = [
+    `To: ${to}`,
+    cc ? `Cc: ${cc}` : null,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    '', // RFC 2822: blank line separates headers from body
+    body,
+  ].filter((p): p is string => p !== null).join('\r\n');
+
+  // Base64url encode for Gmail API
+  const encoded = Buffer.from(messageParts)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const resp = await fetch(
+    'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ raw: encoded }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Gmail send failed: ${resp.status} ${errText}` };
+  }
+
+  const result = await resp.json();
+  return { success: true, result: { messageId: result.id, threadId: result.threadId } };
+}
+
+async function replyToThread(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const threadId = input.threadId as string;
+  const body = input.body as string;
+  const cc = input.cc as string | undefined;
+
+  // Fetch the thread to get the last message's headers
+  const threadResp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Message-ID`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!threadResp.ok) {
+    return { success: false, error: `Failed to fetch thread: ${threadResp.status}` };
+  }
+
+  const thread = await threadResp.json();
+  const lastMessage = thread.messages?.[thread.messages.length - 1];
+  if (!lastMessage) {
+    return { success: false, error: 'Thread has no messages' };
+  }
+
+  const headers = lastMessage.payload?.headers || [];
+  const getHdr = (name: string) =>
+    headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === name.toLowerCase())?.value;
+
+  const originalSubject = getHdr('Subject') || '';
+  const replyTo = getHdr('From') || '';
+  const messageId = getHdr('Message-ID') || '';
+  const subject = originalSubject.startsWith('Re:') ? originalSubject : `Re: ${originalSubject}`;
+
+  const messageParts = [
+    `To: ${replyTo}`,
+    cc ? `Cc: ${cc}` : null,
+    `Subject: ${subject}`,
+    `In-Reply-To: ${messageId}`,
+    `References: ${messageId}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    '', // RFC 2822: blank line separates headers from body
+    body,
+  ].filter((p): p is string => p !== null).join('\r\n');
+
+  const encoded = Buffer.from(messageParts)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const resp = await fetch(
+    'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ raw: encoded, threadId }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Gmail reply failed: ${resp.status} ${errText}` };
+  }
+
+  const result = await resp.json();
+  return { success: true, result: { messageId: result.id, threadId: result.threadId } };
+}
+
 // ── Provider ────────────────────────────────────────────────
 
 export const googleProvider: ConnectorProvider = {
@@ -656,10 +776,48 @@ export const googleProvider: ConnectorProvider = {
     }
   },
 
-  executeAction: undefined,
+  async executeAction(config, actionId, params) {
+    const accessToken = await getGoogleAccessToken(config);
 
-  async getCapabilities(_config) {
-    return [];
+    switch (actionId) {
+      case "send_email":
+        return await sendEmail(accessToken, params);
+      case "reply_to_thread":
+        return await replyToThread(accessToken, params);
+      default:
+        return { success: false, error: `Unknown action: ${actionId}` };
+    }
+  },
+
+  async getCapabilities(config) {
+    const scopes = config.scopes as string[] || [];
+    const caps: { name: string; description: string; inputSchema: Record<string, unknown>; sideEffects: string[] }[] = [];
+
+    if (scopes.some((s) => s.includes("gmail.send"))) {
+      caps.push({
+        name: "send_email",
+        description: "Send an email via Gmail on behalf of the user",
+        inputSchema: {
+          to: { type: "string", required: true, description: "Recipient email address(es), comma-separated" },
+          subject: { type: "string", required: true, description: "Email subject line" },
+          body: { type: "string", required: true, description: "Email body text (plain text)" },
+          cc: { type: "string", required: false, description: "CC recipients, comma-separated" },
+        },
+        sideEffects: ["Sends an email from the user's Gmail account"],
+      });
+      caps.push({
+        name: "reply_to_thread",
+        description: "Reply to an existing email thread via Gmail",
+        inputSchema: {
+          threadId: { type: "string", required: true, description: "Gmail thread ID to reply to" },
+          body: { type: "string", required: true, description: "Reply body text (plain text)" },
+          cc: { type: "string", required: false, description: "CC recipients, comma-separated" },
+        },
+        sideEffects: ["Sends a reply email from the user's Gmail account"],
+      });
+    }
+
+    return caps;
   },
 
   async inferSchema(_config) {

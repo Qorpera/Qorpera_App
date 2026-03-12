@@ -195,6 +195,29 @@ const COPILOT_TOOLS: AITool[] = [
       required: ["departmentName"],
     },
   },
+  {
+    name: "search_emails",
+    description: "Search email content. Returns relevant email excerpts matching the query. Only searches emails synced from connected Gmail accounts.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query — keywords, person names, topics, etc." },
+        limit: { type: "number", description: "Max results (default 5)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_email_thread",
+    description: "Get the full email thread by thread ID. Returns all messages in the thread in chronological order.",
+    parameters: {
+      type: "object",
+      properties: {
+        threadId: { type: "string", description: "Gmail thread ID" },
+      },
+      required: ["threadId"],
+    },
+  },
 ];
 
 const ORIENTATION_TOOLS: AITool[] = [
@@ -303,6 +326,8 @@ CAPABILITIES:
 - Get operational briefings: use when user asks "how are things", "what's happening", "give me an update"
 - Search department knowledge: use when user asks about policies, processes, or procedures
 - Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
+- Search emails: use when user asks about emails, messages, or communication with specific people/topics
+- Get email thread: retrieve the full conversation for a specific thread ID
 - Create new situation types scoped to specific departments
 
 USER CONTEXT:
@@ -1027,6 +1052,157 @@ async function executeTool(
       } catch {
         return "Document search is not available — embeddings may not be configured.";
       }
+    }
+
+    case "search_emails": {
+      const query = String(args.query ?? "");
+      if (!query) return "Please provide a search query.";
+      const limit = typeof args.limit === "number" ? args.limit : 5;
+
+      // Resolve visible department IDs for scoping
+      let searchDeptIds: string[] = [];
+      const depts = await prisma.entity.findMany({
+        where: {
+          operatorId, category: "foundational", entityType: { slug: "department" },
+          ...deptVisFilter,
+        },
+        select: { id: true },
+      });
+      searchDeptIds = depts.map(d => d.id);
+
+      if (searchDeptIds.length === 0) return "No departments available to search.";
+
+      try {
+        const { retrieveRelevantChunks } = await import("@/lib/rag/retriever");
+        const { embedChunks } = await import("@/lib/rag/embedder");
+        const [queryEmbedding] = await embedChunks([query]);
+        if (!queryEmbedding) return "Email search is not available — embeddings may not be configured.";
+
+        const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
+          sourceTypes: ["email"],
+          limit,
+          departmentIds: searchDeptIds.length > 0 ? searchDeptIds : undefined,
+        });
+
+        if (results.length === 0) return "No emails found matching this query.";
+
+        // TODO: When multiple users connect Google, add per-user email privacy filtering
+        return results
+          .map((r) => {
+            const m = r.metadata || {};
+            const from = m.from || "unknown";
+            const to = Array.isArray(m.to) ? m.to.join(", ") : m.to || "unknown";
+            const date = m.date ? new Date(m.date as string).toLocaleDateString() : "unknown";
+            const subject = m.subject || "(no subject)";
+            const direction = m.direction || "unknown";
+            const threadId = m.threadId || "";
+            return `From: ${from} | To: ${to} | Date: ${date} | ${direction}\nSubject: ${subject}${threadId ? ` | Thread: ${threadId}` : ""}\n${r.content.slice(0, 500)}`;
+          })
+          .join("\n\n---\n\n");
+      } catch {
+        return "Email search is not available — embeddings may not be configured.";
+      }
+    }
+
+    case "get_email_thread": {
+      const threadId = String(args.threadId ?? "");
+      if (!threadId) return "Please provide a thread ID.";
+
+      // Department scope: resolve visible departments for filtering
+      const threadDepts = await prisma.entity.findMany({
+        where: {
+          operatorId, category: "foundational", entityType: { slug: "department" },
+          ...deptVisFilter,
+        },
+        select: { id: true },
+      });
+      const threadDeptIds = new Set(threadDepts.map(d => d.id));
+
+      // First, find ContentChunks for this thread (targeted query via sourceType + operator)
+      // Use chunks to identify which message IDs belong to this thread
+      const chunks = await prisma.contentChunk.findMany({
+        where: { operatorId, sourceType: "email" },
+        select: { sourceId: true, content: true, metadata: true, chunkIndex: true, departmentIds: true },
+      });
+
+      const threadChunks = chunks.filter((c) => {
+        try {
+          const meta = c.metadata ? JSON.parse(c.metadata) : {};
+          return meta.threadId === threadId;
+        } catch { return false; }
+      });
+
+      // Department scope check on chunks
+      if (visibleDepts && visibleDepts !== "all" && threadDeptIds.size > 0) {
+        const beforeCount = threadChunks.length;
+        const filtered = threadChunks.filter((c) => {
+          const dIds: string[] = c.departmentIds ? JSON.parse(c.departmentIds) : [];
+          return dIds.length === 0 || dIds.some((d) => threadDeptIds.has(d));
+        });
+        if (filtered.length === 0 && beforeCount > 0) {
+          return "I don't have visibility into that email thread's department.";
+        }
+      }
+
+      // Build body lookup from first chunks
+      const chunksBySourceId = new Map<string, string>();
+      for (const c of threadChunks) {
+        if (c.chunkIndex === 0) {
+          chunksBySourceId.set(c.sourceId, c.content);
+        }
+      }
+
+      // Fetch events only for the known message IDs in this thread
+      const messageIds = [...new Set(threadChunks.map((c) => c.sourceId))];
+      let threadEvents: Array<{ eventType: string; payload: string; createdAt: Date }> = [];
+
+      if (messageIds.length > 0) {
+        // Query events matching these specific message external IDs
+        const events = await prisma.event.findMany({
+          where: {
+            operatorId,
+            source: "gmail",
+            eventType: { in: ["email.sent", "email.received"] },
+          },
+          orderBy: { createdAt: "asc" },
+          take: 500,
+        });
+        threadEvents = events.filter((e) => {
+          try {
+            const payload = JSON.parse(e.payload);
+            return payload.threadId === threadId;
+          } catch { return false; }
+        });
+      }
+
+      if (threadEvents.length === 0 && threadChunks.length === 0) {
+        return `No messages found for thread ${threadId}.`;
+      }
+
+      // If we have events, format from event data (richer metadata)
+      if (threadEvents.length > 0) {
+        const formatted = threadEvents.map((e) => {
+          const p = JSON.parse(e.payload);
+          const from = Array.isArray(p.from) ? p.from.map((f: { email: string; name?: string }) => f.name ? `${f.name} <${f.email}>` : f.email).join(", ") : p.from;
+          const to = Array.isArray(p.to) ? p.to.map((t: { email: string; name?: string }) => t.name ? `${t.name} <${t.email}>` : t.email).join(", ") : p.to;
+          const cc = p.cc && Array.isArray(p.cc) && p.cc.length > 0
+            ? `\nCc: ${p.cc.map((c: { email: string; name?: string }) => c.name ? `${c.name} <${c.email}>` : c.email).join(", ")}`
+            : "";
+          const date = p.timestamp ? new Date(p.timestamp).toLocaleString() : "unknown";
+          const body = chunksBySourceId.get(p.externalId)?.slice(0, 500) || p.snippet || "";
+          return `[${p.direction?.toUpperCase() || e.eventType}] ${date}\nFrom: ${from}\nTo: ${to}${cc}\nSubject: ${p.subject}\n\n${body}`;
+        });
+        return `Thread ${threadId} (${threadEvents.length} messages):\n\n${formatted.join("\n\n---\n\n")}`;
+      }
+
+      // Fallback: format from chunks alone
+      const formatted = threadChunks
+        .filter((c) => c.chunkIndex === 0)
+        .map((c) => {
+          const m = c.metadata ? JSON.parse(c.metadata) : {};
+          return `[${(m.direction || "unknown").toUpperCase()}] ${m.date ? new Date(m.date).toLocaleString() : "unknown"}\nFrom: ${m.from || "unknown"} | To: ${Array.isArray(m.to) ? m.to.join(", ") : m.to || "unknown"}\nSubject: ${m.subject || "(no subject)"}\n\n${c.content.slice(0, 500)}`;
+        });
+      return `Thread ${threadId} (${formatted.length} messages):\n\n${formatted.join("\n\n---\n\n")}`;
     }
 
     default:
