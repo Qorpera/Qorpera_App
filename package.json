@@ -18,7 +18,8 @@
     "setup": "prisma db push && tsx src/lib/seed.ts",
     "postinstall": "prisma generate",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate-chunks": "npx tsx scripts/migrate-document-chunks.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
@@ -29,6 +30,7 @@
     "pdf-parse": "^2.4.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0",
     "recharts": "^3.8.0",
     "xlsx": "^0.18.5",
     "zod": "^3.24.3"

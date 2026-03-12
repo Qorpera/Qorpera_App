@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
-import { invalidateCache } from "@/lib/rag/chunk-cache";
 
 export async function DELETE(
   _req: NextRequest,
@@ -29,17 +28,15 @@ export async function DELETE(
     where: { id: docId },
   });
 
-  // Then delete chunks + entity
+  // Then delete content chunks + entity
+  await prisma.contentChunk.deleteMany({
+    where: { sourceType: "uploaded_doc", sourceId: docId },
+  });
   if (doc.entityId) {
-    await prisma.documentChunk.deleteMany({
-      where: { entityId: doc.entityId },
-    });
     await prisma.entity.delete({
       where: { id: doc.entityId },
     });
   }
-
-  invalidateCache(departmentId);
 
   return NextResponse.json({ deleted: true });
 }

@@ -259,14 +259,16 @@ async function main() {
           },
         });
         const chunkData = Array.from({ length: 10 }, (_, ci) => ({
-          entityId: entity!.id, operatorId, chunkIndex: ci,
+          operatorId, sourceType: "uploaded_doc", sourceId: entity!.id,
+          entityId: entity!.id, departmentIds: JSON.stringify([deptIds[di]]),
+          chunkIndex: ci,
           content: `${docName} chunk ${ci}: ${LOREM.slice(0, 200)}`,
-          embedding: null, tokenCount: rand(80, 150),
+          tokenCount: rand(80, 150),
         }));
-        await prisma.documentChunk.createMany({ data: chunkData });
+        await prisma.contentChunk.createMany({ data: chunkData });
         totalChunks += 10;
       } else {
-        const chunkCount = await prisma.documentChunk.count({ where: { entityId: entity.id } });
+        const chunkCount = await prisma.contentChunk.count({ where: { entityId: entity.id } });
         totalChunks += chunkCount;
       }
       totalDocs++;

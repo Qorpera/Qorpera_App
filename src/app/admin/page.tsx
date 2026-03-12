@@ -8,6 +8,7 @@ interface OperatorInfo {
   id: string;
   companyName: string;
   createdAt: string;
+  isTestOperator: boolean;
   userCount: number;
   departmentCount: number;
   entityCount: number;
@@ -24,6 +25,12 @@ interface SystemStatus {
   cronRunning: boolean;
 }
 
+interface TestCompanyResult {
+  success: boolean;
+  credentials: { email: string; password: string };
+  stats: Record<string, unknown>;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [operators, setOperators] = useState<OperatorInfo[]>([]);
@@ -31,6 +38,11 @@ export default function AdminPage() {
   const [userName, setUserName] = useState("");
   const [entering, setEntering] = useState<string | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [creatingTest, setCreatingTest] = useState(false);
+  const [testResult, setTestResult] = useState<TestCompanyResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<OperatorInfo | null>(null);
 
   useEffect(() => {
     // Verify superadmin access
@@ -71,6 +83,44 @@ export default function AdminPage() {
       }
     } finally {
       setEntering(null);
+    }
+  };
+
+  const refreshOperators = async () => {
+    const ops = await fetch("/api/admin/operators").then((r) => r.json());
+    setOperators(ops);
+  };
+
+  const createTestCompany = async () => {
+    setCreatingTest(true);
+    setTestError(null);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/admin/create-test-company", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setTestError(data.error || "Failed to create test company");
+        return;
+      }
+      setTestResult(data);
+      await refreshOperators();
+    } catch {
+      setTestError("Network error");
+    } finally {
+      setCreatingTest(false);
+    }
+  };
+
+  const deleteOperator = async (id: string) => {
+    setDeleting(id);
+    try {
+      const res = await fetch(`/api/admin/operators/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        await refreshOperators();
+      }
+    } finally {
+      setDeleting(null);
+      setConfirmDelete(null);
     }
   };
 
@@ -123,47 +173,137 @@ export default function AdminPage() {
 
       {/* Content */}
       <div className="max-w-5xl mx-auto px-8 py-8">
-        <h2 className="text-lg font-medium text-white/70 mb-4">
-          Operators ({operators.length})
-        </h2>
-
-        {operators.length === 0 ? (
-          <div className="wf-soft p-8 text-center">
-            <p className="text-white/40 text-sm">No operators registered yet.</p>
+        {/* Demo Tools */}
+        <div className="mb-8 wf-soft p-5 flex items-center justify-between">
+          <div>
+            <h3 className="text-white/80 font-medium text-sm">Demo Tools</h3>
+            <p className="text-xs text-white/40 mt-0.5">
+              Create a fully-populated test operator with realistic data
+            </p>
           </div>
-        ) : (
-          <div className="grid gap-3">
-            {operators.map((op) => (
-              <div
-                key={op.id}
-                className="wf-soft p-5 flex items-center gap-6 hover:border-white/[0.12] transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-white/80 font-medium truncate">{op.companyName}</h3>
-                  <div className="flex items-center gap-4 mt-1.5 text-xs text-white/40">
-                    <span>{op.userCount} user{op.userCount !== 1 ? "s" : ""}</span>
-                    <span>{op.departmentCount} dept{op.departmentCount !== 1 ? "s" : ""}</span>
-                    <span>{op.entityCount} entities</span>
-                    <span className={phaseColors[op.onboardingPhase] || "text-white/40"}>
-                      {op.onboardingPhase}
-                    </span>
-                    <span>
-                      {new Date(op.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                    </span>
-                  </div>
-                </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={entering === op.id}
-                  onClick={() => enterOperator(op.id)}
-                >
-                  {entering === op.id ? "Entering..." : "Enter"}
-                </Button>
-              </div>
-            ))}
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={creatingTest}
+            onClick={createTestCompany}
+          >
+            {creatingTest ? "Creating..." : "Create Test Company"}
+          </Button>
+        </div>
+        {testError && (
+          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            {testError}
           </div>
         )}
+
+        {/* Real Operators */}
+        {(() => {
+          const realOps = operators.filter((o) => !o.isTestOperator);
+          return (
+            <>
+              <h2 className="text-lg font-medium text-white/70 mb-4">
+                Operators ({realOps.length})
+              </h2>
+              {realOps.length === 0 ? (
+                <div className="wf-soft p-8 text-center">
+                  <p className="text-white/40 text-sm">No operators registered yet.</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {realOps.map((op) => (
+                    <div
+                      key={op.id}
+                      className="wf-soft p-5 flex items-center gap-6 hover:border-white/[0.12] transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-white/80 font-medium truncate">{op.companyName}</h3>
+                        <div className="flex items-center gap-4 mt-1.5 text-xs text-white/40">
+                          <span>{op.userCount} user{op.userCount !== 1 ? "s" : ""}</span>
+                          <span>{op.departmentCount} dept{op.departmentCount !== 1 ? "s" : ""}</span>
+                          <span>{op.entityCount} entities</span>
+                          <span className={phaseColors[op.onboardingPhase] || "text-white/40"}>
+                            {op.onboardingPhase}
+                          </span>
+                          <span>
+                            {new Date(op.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          </span>
+                        </div>
+                      </div>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={entering === op.id}
+                        onClick={() => enterOperator(op.id)}
+                      >
+                        {entering === op.id ? "Entering..." : "Enter"}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
+        {/* Test Operators */}
+        {(() => {
+          const testOps = operators.filter((o) => o.isTestOperator);
+          if (testOps.length === 0) return null;
+          return (
+            <div className="mt-10">
+              <h2 className="text-lg font-medium text-white/70 mb-4">
+                Test Operators ({testOps.length})
+              </h2>
+              <div className="grid gap-3">
+                {testOps.map((op) => (
+                  <div
+                    key={op.id}
+                    className="wf-soft p-5 flex items-center gap-6 hover:border-white/[0.12] transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-white/80 font-medium truncate">
+                        {op.companyName}
+                        <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 align-middle">
+                          test
+                        </span>
+                      </h3>
+                      <div className="flex items-center gap-4 mt-1.5 text-xs text-white/40">
+                        <span>{op.userCount} user{op.userCount !== 1 ? "s" : ""}</span>
+                        <span>{op.departmentCount} dept{op.departmentCount !== 1 ? "s" : ""}</span>
+                        <span>{op.entityCount} entities</span>
+                        <span className={phaseColors[op.onboardingPhase] || "text-white/40"}>
+                          {op.onboardingPhase}
+                        </span>
+                        <span>
+                          {new Date(op.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={deleting === op.id}
+                        onClick={() => setConfirmDelete(op)}
+                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      >
+                        {deleting === op.id ? "Deleting..." : "Delete"}
+                      </Button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={entering === op.id}
+                        onClick={() => enterOperator(op.id)}
+                      >
+                        {entering === op.id ? "Entering..." : "Enter"}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         {/* System Status — superadmin only */}
         {systemStatus && (
           <div className="mt-10">
@@ -234,6 +374,76 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="wf-soft max-w-sm w-full mx-4 p-6 space-y-4">
+            <h3 className="text-lg font-medium text-white/90">Delete Test Operator</h3>
+            <p className="text-sm text-white/50">
+              Delete <span className="text-white/80">{confirmDelete.companyName}</span> and all its data?
+            </p>
+            <p className="text-xs text-white/30">
+              This will permanently remove all users, entities, documents, situations, and configuration for this operator.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={deleting === confirmDelete.id}
+                onClick={() => deleteOperator(confirmDelete.id)}
+                className="bg-red-500/20 text-red-400 hover:bg-red-500/30 border-red-500/20"
+              >
+                {deleting === confirmDelete.id ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {testResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="wf-soft max-w-md w-full mx-4 p-6 space-y-4">
+            <h3 className="text-lg font-medium text-white/90">Test Company Created</h3>
+            <p className="text-sm text-white/50">
+              Nordic Digital Solutions is ready. Log in with these credentials:
+            </p>
+            <div className="bg-white/[0.04] rounded-lg p-4 space-y-2 font-mono text-sm">
+              <div className="flex justify-between">
+                <span className="text-white/40">Email</span>
+                <span className="text-white/80">{testResult.credentials.email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40">Password</span>
+                <span className="text-white/80">{testResult.credentials.password}</span>
+              </div>
+            </div>
+            <p className="text-xs text-white/30">
+              3 departments, 15 team members, 11 documents, 3 connectors,
+              46 entities, 8 situation types, 15 situations, 3 policies
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="ghost" size="sm" onClick={() => setTestResult(null)}>
+                Close
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  const op = operators.find((o) => o.companyName === "Nordic Digital Solutions");
+                  if (op) enterOperator(op.id);
+                }}
+              >
+                Enter Operator
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

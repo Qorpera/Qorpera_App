@@ -1,15 +1,13 @@
 /**
- * Document processing pipeline: text extraction → chunking → embedding → storage.
+ * Document processing pipeline: text extraction → universal content ingestion.
  *
  * Called fire-and-forget after document upload.
- * Idempotent: deletes existing chunks before re-processing.
+ * Delegates chunking/embedding/storage to the universal content pipeline.
  * Updates embeddingStatus on InternalDocument throughout.
  */
 
 import { prisma } from "@/lib/db";
-import { chunkDocument } from "./chunker";
-import { embedChunks } from "./embedder";
-import { invalidateCache } from "./chunk-cache";
+import { ingestContent } from "@/lib/content-pipeline";
 import { readFile } from "fs/promises";
 import path from "path";
 
@@ -84,8 +82,8 @@ export async function extractText(filePath: string, mimeType: string): Promise<s
 /**
  * Main pipeline: process a document from raw file to embedded chunks.
  *
+ * Extracts text from the file, then delegates to the universal content pipeline.
  * If the document already has rawText, skips text extraction.
- * Deletes existing chunks before creating new ones (idempotent).
  */
 export async function processDocument(
   documentId: string,
@@ -118,57 +116,28 @@ export async function processDocument(
       });
     }
 
-    // Step 2: Chunk
-    const chunks = chunkDocument(text);
-    if (chunks.length === 0) {
-      await prisma.internalDocument.update({
-        where: { id: documentId },
-        data: { embeddingStatus: "error" },
-      });
-      return { chunks: 0, error: "No chunks produced from text" };
-    }
-
-    // Step 3: Embed (gracefully handles missing API key)
-    const embeddings = await embedChunks(chunks.map((c) => c.content));
-
-    // Step 4: Store — delete old chunks first (idempotent)
-    const entityId = doc.entityId;
-    if (!entityId) {
-      await prisma.internalDocument.update({
-        where: { id: documentId },
-        data: { embeddingStatus: "error" },
-      });
-      return { chunks: 0, error: "Document has no linked entity" };
-    }
-
-    await prisma.documentChunk.deleteMany({
-      where: { entityId },
+    // Step 2: Delegate to universal content pipeline
+    const result = await ingestContent({
+      operatorId: doc.operatorId,
+      sourceType: "uploaded_doc",
+      sourceId: documentId,
+      content: text,
+      entityId: doc.entityId ?? undefined,
+      departmentIds: doc.departmentId ? [doc.departmentId] : [],
+      metadata: {
+        fileName: doc.fileName,
+        documentType: doc.documentType,
+        mimeType: doc.mimeType,
+      },
     });
 
-    // Batch create chunks
-    for (let i = 0; i < chunks.length; i++) {
-      await prisma.documentChunk.create({
-        data: {
-          entityId,
-          operatorId: doc.operatorId,
-          chunkIndex: chunks[i].chunkIndex,
-          content: chunks[i].content,
-          embedding: embeddings[i] ? JSON.stringify(embeddings[i]) : null,
-          tokenCount: chunks[i].tokenCount,
-        },
-      });
-    }
-
-    // Update status — "complete" even if embeddings are null (text search still works)
+    // Step 3: Update status
     await prisma.internalDocument.update({
       where: { id: documentId },
-      data: { embeddingStatus: "complete" },
+      data: { embeddingStatus: result.chunksCreated > 0 ? "complete" : "error" },
     });
 
-    // Invalidate chunk cache for this department
-    if (doc.departmentId) invalidateCache(doc.departmentId);
-
-    return { chunks: chunks.length };
+    return { chunks: result.chunksCreated };
   } catch (err) {
     console.error(`[rag/pipeline] Processing failed for "${doc.fileName}":`, err);
     await prisma.internalDocument.update({

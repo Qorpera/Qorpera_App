@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app-shell";
 
 // ── Types ────────────────────────────────────────────────
@@ -22,46 +23,108 @@ interface SessionEntry {
   createdAt: string;
 }
 
-// ── Markdown-lite renderer ──────────────────────────────
+// ── Thinking indicator ──────────────────────────────────
 
-function renderMessageContent(content: string) {
-  // Split on fenced code blocks (```...```)
-  const parts = content.split(/(```[\s\S]*?```)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith("```") && part.endsWith("```")) {
-      // Extract language hint and code body
-      const inner = part.slice(3, -3);
-      const newlineIdx = inner.indexOf("\n");
-      const code = newlineIdx === -1 ? inner : inner.slice(newlineIdx + 1);
-      return (
-        <pre
-          key={i}
-          className="my-3 rounded-lg bg-white/[0.04] border border-white/[0.06] px-4 py-3 overflow-x-auto text-[13px] leading-relaxed"
-        >
-          <code className="font-mono text-white/80">{code}</code>
-        </pre>
-      );
+function ThinkingIndicator() {
+  return (
+    <div className="mb-6">
+      <div className="text-xs font-medium mb-1.5 text-purple-300/70">Qorpera</div>
+      <div className="flex items-center gap-1 h-5">
+        <span className="w-1.5 h-1.5 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_infinite]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+      </div>
+    </div>
+  );
+}
+
+// ── Typewriter assistant content ────────────────────────
+
+function AssistantContent({
+  content,
+  isStreaming,
+  onRevealStep,
+}: {
+  content: string;
+  isStreaming: boolean;
+  onRevealStep?: () => void;
+}) {
+  const [revealedLen, setRevealedLen] = useState(isStreaming ? 0 : Infinity);
+  const revealedRef = useRef(isStreaming ? 0 : Infinity);
+  const contentRef = useRef(content);
+  const rafRef = useRef(0);
+  const onRevealRef = useRef(onRevealStep);
+
+  contentRef.current = content;
+  onRevealRef.current = onRevealStep;
+
+  useEffect(() => {
+    if (!isStreaming) {
+      cancelAnimationFrame(rafRef.current);
+      revealedRef.current = Infinity;
+      setRevealedLen(Infinity);
+      return;
     }
-    // Render inline code spans within regular text
-    const inlineParts = part.split(/(`[^`]+`)/g);
-    return (
-      <span key={i}>
-        {inlineParts.map((seg, j) => {
-          if (seg.startsWith("`") && seg.endsWith("`")) {
-            return (
-              <code
-                key={j}
-                className="font-mono text-[13px] bg-white/[0.06] px-1.5 py-0.5 rounded text-purple-200/90"
-              >
-                {seg.slice(1, -1)}
-              </code>
-            );
-          }
-          return <span key={j}>{seg}</span>;
-        })}
-      </span>
-    );
-  });
+
+    revealedRef.current = 0;
+    setRevealedLen(0);
+
+    const tick = () => {
+      const target = contentRef.current.length;
+      const current = revealedRef.current;
+      if (current < target) {
+        const step = Math.min(40, target - current);
+        revealedRef.current += step;
+        setRevealedLen(revealedRef.current);
+        onRevealRef.current?.();
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [isStreaming]);
+
+  const visibleText = content.slice(0, revealedLen);
+
+  return (
+    <>
+      <ReactMarkdown
+        components={{
+          h1: ({ children }) => <h1 className="text-lg font-semibold text-white/90 mt-4 mb-2">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-base font-semibold text-white/90 mt-3 mb-1.5">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-sm font-semibold text-white/90 mt-2 mb-1">{children}</h3>,
+          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+          strong: ({ children }) => <strong className="font-medium text-white/90">{children}</strong>,
+          em: ({ children }) => <em className="text-white/70">{children}</em>,
+          a: ({ href, children }) => <a href={href} className="text-purple-300 hover:text-purple-200 underline underline-offset-2">{children}</a>,
+          ul: ({ children }) => <ul className="list-disc marker:text-white/40 ml-5 mt-2 mb-3 space-y-1.5">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal marker:text-white/40 ml-5 mt-2 mb-3 space-y-1.5">{children}</ol>,
+          li: ({ children }) => <li className="text-white/70 pl-1">{children}</li>,
+          code: ({ className, children }) => {
+            if (className?.includes("language-")) {
+              return <code className="font-mono text-[13px] text-white/80">{children}</code>;
+            }
+            return <code className="font-mono text-[13px] bg-white/[0.06] px-1.5 py-0.5 rounded text-purple-200/90">{children}</code>;
+          },
+          pre: ({ children }) => (
+            <pre className="my-3 rounded-lg bg-white/[0.04] border border-white/[0.06] px-4 py-3 overflow-x-auto text-[13px] leading-relaxed">
+              {children}
+            </pre>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="border-l-2 border-purple-500/30 pl-3 my-2 text-white/60">{children}</blockquote>
+          ),
+          hr: () => <hr className="border-white/[0.08] my-4" />,
+        }}
+      >
+        {visibleText}
+      </ReactMarkdown>
+      {isStreaming && (
+        <span className="inline-block w-1.5 h-4 bg-purple-400/50 ml-0.5 animate-pulse align-middle" />
+      )}
+    </>
+  );
 }
 
 // ── Main component ──────────────────────────────────────
@@ -91,11 +154,32 @@ export default function CopilotPage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasAutoTriggered = useRef(false);
+  const isNearBottomRef = useRef(true);
 
-  // ── Auto-scroll to bottom ──────────────────────────────
+  // ── Scroll tracking ─────────────────────────────────────
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // ── Auto-scroll on new messages ──────────────────────────
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
+
+  // ── Scroll callback for typewriter reveal ────────────────
+  const handleRevealStep = useCallback(() => {
+    if (isNearBottomRef.current && messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, []);
 
   // ── Auto-focus input ───────────────────────────────────
   useEffect(() => {
@@ -615,7 +699,7 @@ export default function CopilotPage() {
                     key={i}
                     className={`mb-6 ${
                       msg.role === "user"
-                        ? "border-l-2 border-white/[0.06] pl-4"
+                        ? "border-l-2 border-purple-500/20 pl-4"
                         : ""
                     }`}
                   >
@@ -631,25 +715,30 @@ export default function CopilotPage() {
                     </div>
 
                     {/* Content */}
-                    <div
-                      className={`text-sm leading-[1.7] ${
-                        msg.role === "user"
-                          ? "text-white/70"
-                          : "text-white/80"
-                      }`}
-                      style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-                    >
-                      {msg.role === "assistant"
-                        ? renderMessageContent(msg.content)
-                        : msg.content}
-                      {streaming &&
-                        i === messages.length - 1 &&
-                        msg.role === "assistant" && (
-                          <span className="inline-block w-1.5 h-4 bg-purple-400/50 ml-0.5 animate-pulse align-middle" />
-                        )}
-                    </div>
+                    {msg.role === "assistant" ? (
+                      <div className="text-sm leading-[1.7] text-white/80" style={{ wordBreak: "break-word" }}>
+                        <AssistantContent
+                          content={msg.content}
+                          isStreaming={streaming && i === messages.length - 1}
+                          onRevealStep={handleRevealStep}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="text-sm leading-[1.7] text-white/60"
+                        style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                      >
+                        {msg.content}
+                      </div>
+                    )}
                   </div>
                 ))}
+
+                {/* Thinking indicator — shown after user message while waiting for response */}
+                {streaming && (messages.length === 0 || messages[messages.length - 1].role === "user") && (
+                  <ThinkingIndicator />
+                )}
+
                 <div ref={messagesEndRef} />
               </div>
             )}

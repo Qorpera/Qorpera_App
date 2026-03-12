@@ -4,7 +4,6 @@ import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { processDocument } from "@/lib/rag/pipeline";
 import { checkRateLimit } from "@/lib/rate-limiter";
-import { invalidateCache } from "@/lib/rag/chunk-cache";
 
 export async function POST(
   _req: NextRequest,
@@ -35,7 +34,6 @@ export async function POST(
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
   }
 
-  invalidateCache(departmentId);
   const result = await processDocument(docId);
 
   return NextResponse.json({ chunks: result.chunks, error: result.error });

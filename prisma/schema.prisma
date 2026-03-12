@@ -12,13 +12,14 @@ datasource db {
 // ─── Core ────────────────────────────────────────────────
 
 model Operator {
-  id           String   @id @default(cuid())
-  displayName  String
-  email        String?
-  passwordHash String?
-  companyName  String?
-  industry     String?
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  displayName    String
+  email          String?
+  passwordHash   String?
+  companyName    String?
+  industry       String?
+  isTestOperator Boolean  @default(false)
+  createdAt      DateTime @default(now())
 
   invites           Invite[]
   entityTypes       EntityType[]
@@ -38,6 +39,9 @@ model Operator {
   notifications       Notification[]
   users               User[]
   internalDocuments   InternalDocument[]
+  contentChunks       ContentChunk[]
+  activitySignals     ActivitySignal[]
+  entityMergeLogs     EntityMergeLog[]
 }
 
 model User {
@@ -150,7 +154,6 @@ model Entity {
   fromRelations     Relationship[] @relation("FromEntity")
   toRelations       Relationship[] @relation("ToEntity")
   connectorBindings ConnectorDepartmentBinding[] @relation("ConnectorBindings")
-  documentChunks    DocumentChunk[]
   internalDocument  InternalDocument? @relation("DocumentEntity")
   user              User?   // A base entity can have at most one user account
 
@@ -288,22 +291,6 @@ model ConnectorDepartmentBinding {
 
   @@unique([connectorId, departmentId])
   @@index([departmentId])
-}
-
-// ─── Document Chunks (RAG) ──────────────────────────────
-
-model DocumentChunk {
-  id              String    @id @default(cuid())
-  entityId        String
-  entity          Entity    @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  operatorId      String
-  chunkIndex      Int
-  content         String
-  embedding       String?   // JSON float array
-  tokenCount      Int?
-  createdAt       DateTime  @default(now())
-
-  @@index([operatorId, entityId])
 }
 
 // ─── Layer 1: Event Stream ───────────────────────────
@@ -538,4 +525,68 @@ model UserScope {
   @@unique([userId, departmentEntityId])
   @@index([userId])
   @@index([departmentEntityId])
+}
+
+// ─── Content Chunks (universal RAG store) ───────────────
+
+model ContentChunk {
+  id              String    @id @default(cuid())
+  operatorId      String
+  sourceType      String    // "email" | "slack_message" | "drive_doc" | "uploaded_doc" | "calendar_note"
+  sourceId        String    // reference to origin (Event.id, InternalDocument.id, etc.)
+  entityId        String?   // entity this content is about (if resolvable)
+  departmentIds   String?   // JSON array of department IDs (derived from participant routing)
+  chunkIndex      Int
+  content         String
+  embedding       String?   // actually vector(1536) — see raw SQL migration
+  tokenCount      Int?
+  metadata        String?   // JSON: { subject, sender, timestamp, channel, fileName, etc. }
+  createdAt       DateTime  @default(now())
+
+  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId, sourceType])
+  @@index([entityId])
+  @@index([operatorId, sourceId])
+}
+
+// ─── Activity Signals ───────────────────────────────────
+
+model ActivitySignal {
+  id              String    @id @default(cuid())
+  operatorId      String
+  connectorId     String?
+  signalType      String    // "email_sent" | "email_received" | "slack_message" | "doc_edit" | "meeting_held" | "doc_created" | "doc_shared"
+  actorEntityId   String?   // who did it (resolved to entity if possible)
+  targetEntityIds String?   // JSON array — who/what was it about
+  departmentIds   String?   // JSON array — derived from participant routing
+  metadata        String?   // JSON: { response_time_ms, thread_id, channel, file_name, attendees, etc. }
+  occurredAt      DateTime  // when the activity happened (not when we ingested it)
+  createdAt       DateTime  @default(now())
+
+  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId, signalType, occurredAt(sort: Desc)])
+  @@index([operatorId, actorEntityId, occurredAt(sort: Desc)])
+  @@index([operatorId, occurredAt(sort: Desc)])
+}
+
+// ─── Entity Merge Log ───────────────────────────────────
+
+model EntityMergeLog {
+  id              String    @id @default(cuid())
+  operatorId      String
+  survivorId      String    // entity that absorbed the other
+  absorbedId      String    // entity that was merged into survivor
+  mergeType       String    // "auto_identity" | "ml_high_confidence" | "admin_manual"
+  confidence      Float?    // ML confidence score (null for deterministic merges)
+  signals         String?   // JSON: what triggered the merge
+  reversible      Boolean   @default(true)
+  reversedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId, createdAt(sort: Desc)])
+  @@index([operatorId, mergeType])
 }

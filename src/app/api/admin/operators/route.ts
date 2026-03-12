@@ -33,6 +33,7 @@ export async function GET() {
         id: op.id,
         companyName: op.companyName || op.displayName,
         createdAt: op.createdAt,
+        isTestOperator: op.isTestOperator,
         userCount,
         departmentCount,
         entityCount,

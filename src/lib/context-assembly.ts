@@ -20,7 +20,7 @@ export interface RAGReference {
   content: string;
   preview: string;
   score: number;
-  entityId: string;
+  entityId: string | null;
   chunkIndex: number;
 }
 

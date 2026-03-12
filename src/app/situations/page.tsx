@@ -16,6 +16,7 @@ interface SituationItem {
   source: string;
   triggerEntityId: string | null;
   triggerEntityName: string | null;
+  departmentName: string | null;
   reasoning: ReasoningData | null;
   proposedAction: ProposedAction | null;
   editInstruction: string | null;
@@ -26,23 +27,25 @@ interface SituationItem {
 interface ReasoningData {
   analysis: string;
   evidenceSummary?: string;
-  consideredActions: Array<{
-    action: string;
-    evidenceFor?: string[];
-    evidenceAgainst?: string[];
-    pros?: string[];
-    cons?: string[];
-    expectedOutcome: string;
-  }>;
+  consideredActions: Array<string | ConsideredAction>;
   chosenAction: ProposedAction | null;
   confidence: number;
   missingContext: string[] | null;
 }
 
+interface ConsideredAction {
+  action: string;
+  evidenceFor?: string[];
+  evidenceAgainst?: string[];
+  pros?: string[];
+  cons?: string[];
+  expectedOutcome: string;
+}
+
 interface ProposedAction {
   action: string;
-  connector: string;
-  params: Record<string, unknown>;
+  connector?: string;
+  params?: Record<string, unknown>;
   justification: string;
 }
 
@@ -80,17 +83,88 @@ interface SituationDetail {
 
 type ActiveMode = { id: string; mode: "reject" | "teach" | "edit" | "outcome" } | null;
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function safeParseReasoning(raw: unknown): ReasoningData | null {
+  if (!raw) return null;
+  const obj = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
+  if (!obj || typeof obj !== "object") return null;
+  const r = obj as Record<string, unknown>;
+  return {
+    analysis: typeof r.analysis === "string" ? r.analysis : "",
+    evidenceSummary: typeof r.evidenceSummary === "string" ? r.evidenceSummary : undefined,
+    consideredActions: Array.isArray(r.consideredActions) ? r.consideredActions : [],
+    chosenAction: r.chosenAction as ProposedAction | null ?? null,
+    confidence: typeof r.confidence === "number" ? r.confidence : 0,
+    missingContext: Array.isArray(r.missingContext) ? r.missingContext : null,
+  };
+}
+
+function SeverityBar({ value }: { value: number }) {
+  const bars = 5;
+  const filled = Math.round(value * bars);
+  const color = value >= 0.7 ? "bg-red-400" : value >= 0.4 ? "bg-amber-400" : "bg-emerald-400";
+  return (
+    <div className="flex gap-0.5">
+      {Array.from({ length: bars }).map((_, i) => (
+        <div key={i} className={`w-2 h-3 rounded-sm ${i < filled ? color : "bg-white/10"}`} />
+      ))}
+    </div>
+  );
+}
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function confidenceColor(c: number): string {
+  if (c >= 0.7) return "text-emerald-400";
+  if (c >= 0.4) return "text-amber-400";
+  return "text-red-400";
+}
+
+function statusBadge(status: string) {
+  const variant = status === "detected" ? "amber" as const
+    : status === "proposed" ? "purple" as const
+    : status === "resolved" ? "green" as const
+    : status === "rejected" ? "red" as const
+    : status === "executing" || status === "auto_executing" ? "blue" as const
+    : "default" as const;
+  const label = status === "auto_executing" ? "auto-executing" : status;
+  return <Badge variant={variant}>{label}</Badge>;
+}
+
+const CATEGORY_OPTIONS = [
+  { value: "", label: "Select category (optional)" },
+  { value: "detection_wrong", label: "Detection was wrong" },
+  { value: "action_wrong", label: "Action was wrong" },
+  { value: "timing_wrong", label: "Timing was wrong" },
+  { value: "missing_context", label: "Missing context" },
+];
+
+const CATEGORY_LABELS: Record<string, string> = {
+  detection_wrong: "Detection wrong",
+  action_wrong: "Action wrong",
+  timing_wrong: "Timing wrong",
+  missing_context: "Missing context",
+};
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SituationsPage() {
   const [situations, setSituations] = useState<SituationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [detecting, setDetecting] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SituationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  // System status for header indicator
   const [sysStatus, setSysStatus] = useState<{
     situationTypeCount: number;
     lastDetectionRun: string | null;
@@ -99,14 +173,13 @@ export default function SituationsPage() {
     aiReachable: boolean;
   } | null>(null);
 
-  // Interaction state
   const [activeMode, setActiveMode] = useState<ActiveMode>(null);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackCategory, setFeedbackCategory] = useState("");
   const [editText, setEditText] = useState("");
   const [outcomeValue, setOutcomeValue] = useState("");
   const [outcomeNote, setOutcomeNote] = useState("");
-  const [showReasoning, setShowReasoning] = useState<string | null>(null);
+  const [showReasoning, setShowReasoning] = useState(false);
 
   const resetInteraction = () => {
     setActiveMode(null);
@@ -115,6 +188,13 @@ export default function SituationsPage() {
     setEditText("");
     setOutcomeValue("");
     setOutcomeNote("");
+  };
+
+  const closeModal = () => {
+    setSelectedId(null);
+    setDetail(null);
+    setShowReasoning(false);
+    resetInteraction();
   };
 
   const fetchSituations = useCallback(async () => {
@@ -130,7 +210,6 @@ export default function SituationsPage() {
 
   useEffect(() => { fetchSituations(); }, [fetchSituations]);
 
-  // Fetch system status on mount
   useEffect(() => {
     fetch("/api/situations/status")
       .then((r) => r.ok ? r.json() : null)
@@ -138,7 +217,6 @@ export default function SituationsPage() {
       .catch(() => {});
   }, []);
 
-  // 15-second polling
   useEffect(() => {
     const interval = setInterval(fetchSituations, 15000);
     return () => clearInterval(interval);
@@ -156,14 +234,9 @@ export default function SituationsPage() {
     setDetecting(false);
   };
 
-  const handleExpand = async (id: string) => {
-    if (expandedId === id) {
-      setExpandedId(null);
-      setDetail(null);
-      resetInteraction();
-      return;
-    }
-    setExpandedId(id);
+  const handleSelect = async (id: string) => {
+    setSelectedId(id);
+    setShowReasoning(false);
     resetInteraction();
     setDetailLoading(true);
     try {
@@ -180,17 +253,16 @@ export default function SituationsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      resetInteraction();
-      setExpandedId(null);
-      setDetail(null);
+      closeModal();
       await fetchSituations();
     } catch {}
   };
 
-  // Group situations
   const needsAttention = situations.filter((s) => ["detected", "proposed"].includes(s.status));
   const aiHandled = situations.filter((s) => s.status === "resolved" && s.source === "detected");
   const monitoring = situations.filter((s) => s.confidence < 0.5 || s.status === "reasoning" || s.status === "auto_executing" || s.status === "executing");
+
+  const selectedSituation = selectedId ? situations.find((s) => s.id === selectedId) ?? null : null;
 
   return (
     <AppShell>
@@ -252,21 +324,7 @@ export default function SituationsPage() {
         {!loading && needsAttention.length > 0 && (
           <Section title="Needs Your Attention" count={needsAttention.length} color="amber">
             {needsAttention.map((s) => (
-              <SituationCard
-                key={s.id} situation={s}
-                expanded={expandedId === s.id} detail={expandedId === s.id ? detail : null}
-                detailLoading={expandedId === s.id && detailLoading}
-                onToggle={() => handleExpand(s.id)}
-                activeMode={activeMode} setActiveMode={setActiveMode}
-                feedbackText={feedbackText} setFeedbackText={setFeedbackText}
-                feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory}
-                editText={editText} setEditText={setEditText}
-                outcomeValue={outcomeValue} setOutcomeValue={setOutcomeValue}
-                outcomeNote={outcomeNote} setOutcomeNote={setOutcomeNote}
-                resetInteraction={resetInteraction}
-                patchSituation={patchSituation}
-                showReasoning={showReasoning} setShowReasoning={setShowReasoning}
-              />
+              <GridCard key={s.id} situation={s} onClick={() => handleSelect(s.id)} />
             ))}
           </Section>
         )}
@@ -274,21 +332,7 @@ export default function SituationsPage() {
         {!loading && aiHandled.length > 0 && (
           <Section title="AI Handled" count={aiHandled.length} color="green">
             {aiHandled.map((s) => (
-              <SituationCard
-                key={s.id} situation={s}
-                expanded={expandedId === s.id} detail={expandedId === s.id ? detail : null}
-                detailLoading={expandedId === s.id && detailLoading}
-                onToggle={() => handleExpand(s.id)}
-                activeMode={activeMode} setActiveMode={setActiveMode}
-                feedbackText={feedbackText} setFeedbackText={setFeedbackText}
-                feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory}
-                editText={editText} setEditText={setEditText}
-                outcomeValue={outcomeValue} setOutcomeValue={setOutcomeValue}
-                outcomeNote={outcomeNote} setOutcomeNote={setOutcomeNote}
-                resetInteraction={resetInteraction}
-                patchSituation={patchSituation}
-                showReasoning={showReasoning} setShowReasoning={setShowReasoning}
-              />
+              <GridCard key={s.id} situation={s} onClick={() => handleSelect(s.id)} />
             ))}
           </Section>
         )}
@@ -296,25 +340,37 @@ export default function SituationsPage() {
         {!loading && monitoring.length > 0 && (
           <Section title="Monitoring" count={monitoring.length} color="default">
             {monitoring.map((s) => (
-              <SituationCard
-                key={s.id} situation={s}
-                expanded={expandedId === s.id} detail={expandedId === s.id ? detail : null}
-                detailLoading={expandedId === s.id && detailLoading}
-                onToggle={() => handleExpand(s.id)}
-                activeMode={activeMode} setActiveMode={setActiveMode}
-                feedbackText={feedbackText} setFeedbackText={setFeedbackText}
-                feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory}
-                editText={editText} setEditText={setEditText}
-                outcomeValue={outcomeValue} setOutcomeValue={setOutcomeValue}
-                outcomeNote={outcomeNote} setOutcomeNote={setOutcomeNote}
-                resetInteraction={resetInteraction}
-                patchSituation={patchSituation}
-                showReasoning={showReasoning} setShowReasoning={setShowReasoning}
-              />
+              <GridCard key={s.id} situation={s} onClick={() => handleSelect(s.id)} />
             ))}
           </Section>
         )}
       </div>
+
+      {/* Detail Modal */}
+      {selectedId && (
+        <DetailModal
+          situation={selectedSituation}
+          detail={detail}
+          detailLoading={detailLoading}
+          onClose={closeModal}
+          showReasoning={showReasoning}
+          setShowReasoning={setShowReasoning}
+          activeMode={activeMode}
+          setActiveMode={setActiveMode}
+          feedbackText={feedbackText}
+          setFeedbackText={setFeedbackText}
+          feedbackCategory={feedbackCategory}
+          setFeedbackCategory={setFeedbackCategory}
+          editText={editText}
+          setEditText={setEditText}
+          outcomeValue={outcomeValue}
+          setOutcomeValue={setOutcomeValue}
+          outcomeNote={outcomeNote}
+          setOutcomeNote={setOutcomeNote}
+          resetInteraction={resetInteraction}
+          patchSituation={patchSituation}
+        />
+      )}
     </AppShell>
   );
 }
@@ -335,65 +391,89 @@ function Section({ title, count, color, children }: { title: string; count: numb
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-      {open && <div className="space-y-2">{children}</div>}
+      {open && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {children}
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Grid Card ────────────────────────────────────────────────────────────────
 
-function SeverityBar({ value }: { value: number }) {
-  const bars = 5;
-  const filled = Math.round(value * bars);
-  const color = value >= 0.7 ? "bg-red-400" : value >= 0.4 ? "bg-amber-400" : "bg-emerald-400";
+function GridCard({ situation: s, onClick }: { situation: SituationItem; onClick: () => void }) {
+  const reasoning = safeParseReasoning(s.reasoning);
+  const snippet = reasoning?.evidenceSummary || reasoning?.analysis || null;
+
   return (
-    <div className="flex gap-0.5">
-      {Array.from({ length: bars }).map((_, i) => (
-        <div key={i} className={`w-2 h-3 rounded-sm ${i < filled ? color : "bg-white/10"}`} />
-      ))}
-    </div>
+    <button
+      onClick={onClick}
+      className="wf-soft p-4 text-left hover:border-white/[0.12] transition-colors w-full"
+    >
+      {/* Row 1: Type + status + time */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Badge variant={s.situationType.autonomyLevel === "autonomous" ? "blue" : s.situationType.autonomyLevel === "notify" ? "purple" : "default"}>
+            {s.situationType.name}
+          </Badge>
+          {s.editInstruction && <Badge variant="blue">Revised</Badge>}
+        </div>
+        <span className="text-[11px] text-white/30 flex-shrink-0">{timeAgo(s.createdAt)}</span>
+      </div>
+
+      {/* Row 2: Entity + department */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="text-sm text-white/80 truncate">
+          {s.triggerEntityName ?? s.triggerEntityId ?? "Unknown entity"}
+        </span>
+        {s.departmentName && (
+          <span className="text-[11px] text-white/30 flex-shrink-0 truncate max-w-[140px]">
+            {s.departmentName}
+          </span>
+        )}
+      </div>
+
+      {/* Row 3: Severity + status + confidence */}
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2">
+          <SeverityBar value={s.severity} />
+          {statusBadge(s.status)}
+        </div>
+        <span className={`text-[11px] font-medium ${confidenceColor(s.confidence)}`}>
+          {(s.confidence * 100).toFixed(0)}%
+        </span>
+      </div>
+
+      {/* Row 4: Evidence snippet (2 lines) */}
+      {snippet && (
+        <p className="text-[11px] text-white/40 line-clamp-2 leading-relaxed">
+          {snippet}
+        </p>
+      )}
+    </button>
   );
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+// ── Detail Modal ─────────────────────────────────────────────────────────────
 
-function confidenceColor(c: number): string {
-  if (c >= 0.7) return "text-emerald-400";
-  if (c >= 0.4) return "text-amber-400";
-  return "text-red-400";
-}
-
-const CATEGORY_OPTIONS = [
-  { value: "", label: "Select category (optional)" },
-  { value: "detection_wrong", label: "Detection was wrong" },
-  { value: "action_wrong", label: "Action was wrong" },
-  { value: "timing_wrong", label: "Timing was wrong" },
-  { value: "missing_context", label: "Missing context" },
-];
-
-const CATEGORY_LABELS: Record<string, string> = {
-  detection_wrong: "Detection wrong",
-  action_wrong: "Action wrong",
-  timing_wrong: "Timing wrong",
-  missing_context: "Missing context",
-};
-
-// ── Situation Card ───────────────────────────────────────────────────────────
-
-interface CardProps {
-  situation: SituationItem;
-  expanded: boolean;
+function DetailModal({
+  situation: s, detail, detailLoading, onClose,
+  showReasoning, setShowReasoning,
+  activeMode, setActiveMode,
+  feedbackText, setFeedbackText,
+  feedbackCategory, setFeedbackCategory,
+  editText, setEditText,
+  outcomeValue, setOutcomeValue,
+  outcomeNote, setOutcomeNote,
+  resetInteraction, patchSituation,
+}: {
+  situation: SituationItem | null;
   detail: SituationDetail | null;
   detailLoading: boolean;
-  onToggle: () => void;
+  onClose: () => void;
+  showReasoning: boolean;
+  setShowReasoning: (v: boolean) => void;
   activeMode: ActiveMode;
   setActiveMode: (m: ActiveMode) => void;
   feedbackText: string;
@@ -408,67 +488,62 @@ interface CardProps {
   setOutcomeNote: (n: string) => void;
   resetInteraction: () => void;
   patchSituation: (id: string, body: Record<string, unknown>) => Promise<void>;
-  showReasoning: string | null;
-  setShowReasoning: (id: string | null) => void;
-}
+}) {
+  if (!s) return null;
 
-function SituationCard({
-  situation: s, expanded, detail, detailLoading, onToggle,
-  activeMode, setActiveMode,
-  feedbackText, setFeedbackText,
-  feedbackCategory, setFeedbackCategory,
-  editText, setEditText,
-  outcomeValue, setOutcomeValue,
-  outcomeNote, setOutcomeNote,
-  resetInteraction, patchSituation,
-  showReasoning, setShowReasoning,
-}: CardProps) {
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
   const canAct = s.status === "detected" || s.status === "proposed";
-
-  const statusBadgeVariant = s.status === "detected" ? "amber" as const
-    : s.status === "proposed" ? "purple" as const
-    : s.status === "resolved" ? "green" as const
-    : s.status === "executing" ? "blue" as const
-    : "default" as const;
+  const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
+  const proposedAction = detail?.proposedAction;
 
   return (
-    <div className="wf-soft overflow-hidden">
-      {/* Collapsed view */}
-      <button onClick={onToggle} className="w-full px-5 py-4 text-left hover:bg-white/[0.02] transition-colors">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Badge variant={statusBadgeVariant}>{s.situationType.name}</Badge>
-            <span className="text-[11px] text-white/25" title={s.situationType.autonomyLevel}>
-              {s.situationType.autonomyLevel === "autonomous" ? "⚡" : s.situationType.autonomyLevel === "notify" ? "🔔" : "👁"}
-            </span>
-            {s.editInstruction && <Badge variant="blue">Revised</Badge>}
-            <span className="text-xs text-white/40">{timeAgo(s.createdAt)}</span>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8">
+      <div
+        className="wf-soft max-w-2xl w-full mx-4 relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3 min-w-0">
+            <Badge variant={s.situationType.autonomyLevel === "autonomous" ? "blue" : s.situationType.autonomyLevel === "notify" ? "purple" : "default"}>
+              {s.situationType.name}
+            </Badge>
+            {statusBadge(s.status)}
+            <span className="text-xs text-white/30">{timeAgo(s.createdAt)}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-white/40">Severity</span>
-            <SeverityBar value={s.severity} />
-          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors p-1">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-sm text-white/80">{s.triggerEntityName ?? s.triggerEntityId ?? "Unknown entity"}</span>
-          <span className="text-xs text-white/40">Confidence: {(s.confidence * 100).toFixed(0)}%</span>
-        </div>
-      </button>
 
-      {/* Expanded view */}
-      {expanded && (
-        <div className="border-t border-white/[0.06] px-5 py-4 space-y-5">
+        {/* Modal body */}
+        <div className="px-6 py-5 space-y-5">
+          {/* Entity + severity */}
+          <div className="flex items-center justify-between">
+            <span className="text-base text-white/90 font-medium">
+              {s.triggerEntityName ?? "Unknown entity"}
+            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-white/40">Severity</span>
+              <SeverityBar value={s.severity} />
+              <span className={`text-xs font-medium ${confidenceColor(s.confidence)}`}>
+                {(s.confidence * 100).toFixed(0)}% confidence
+              </span>
+            </div>
+          </div>
+
           {detailLoading && (
-            <div className="flex justify-center py-4">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-purple-400" />
+            <div className="flex justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-purple-400" />
             </div>
           )}
 
           {detail && !detailLoading && (
             <>
-              {/* 1. Revised badge */}
+              {/* Revised badge */}
               {detail.editInstruction && (
                 <div className="flex items-start gap-2">
                   <Badge variant="blue">Revised</Badge>
@@ -476,19 +551,21 @@ function SituationCard({
                 </div>
               )}
 
-              {/* 2. Proposed Action */}
-              {detail.reasoning && detail.proposedAction ? (
+              {/* Proposed Action */}
+              {reasoning && proposedAction ? (
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-purple-300">{detail.proposedAction.action}</span>
-                    <span className="text-xs text-white/30">{detail.proposedAction.connector}</span>
+                    <span className="text-sm font-medium text-purple-300">{proposedAction.action}</span>
+                    {proposedAction.connector && (
+                      <span className="text-xs text-white/30">{proposedAction.connector}</span>
+                    )}
                   </div>
-                  <p className="text-xs text-white/60">{detail.proposedAction.justification}</p>
-                  <p className={`text-xs font-medium ${confidenceColor(detail.reasoning.confidence)}`}>
-                    AI confidence: {(detail.reasoning.confidence * 100).toFixed(0)}%
+                  <p className="text-xs text-white/60">{proposedAction.justification}</p>
+                  <p className={`text-xs font-medium ${confidenceColor(reasoning.confidence)}`}>
+                    AI confidence: {(reasoning.confidence * 100).toFixed(0)}%
                   </p>
                 </div>
-              ) : detail.reasoning && !detail.proposedAction ? (
+              ) : reasoning && !proposedAction ? (
                 <p className="text-xs text-white/50 italic">No action recommended — please review.</p>
               ) : s.status === "reasoning" ? (
                 <div className="flex items-center gap-2">
@@ -510,41 +587,50 @@ function SituationCard({
                 </div>
               )}
 
-              {/* 3. Full reasoning toggle */}
-              {detail.reasoning && (
+              {/* Full reasoning toggle */}
+              {reasoning && (
                 <div>
                   <button
-                    onClick={() => setShowReasoning(showReasoning === s.id ? null : s.id)}
+                    onClick={() => setShowReasoning(!showReasoning)}
                     className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/60 transition-colors"
                   >
-                    <svg className={`w-3 h-3 transition-transform ${showReasoning === s.id ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg className={`w-3 h-3 transition-transform ${showReasoning ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
-                    {showReasoning === s.id ? "Hide full reasoning" : "Show full reasoning"}
+                    {showReasoning ? "Hide full reasoning" : "Show full reasoning"}
                   </button>
 
-                  {showReasoning === s.id && (
+                  {showReasoning && (
                     <div className="mt-3 space-y-4 pl-4 border-l border-white/[0.06]">
                       {/* Analysis */}
                       <div>
                         <h5 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-1">Analysis</h5>
-                        <p className="text-xs text-white/60">{detail.reasoning.analysis}</p>
+                        <p className="text-xs text-white/60">{reasoning.analysis}</p>
                       </div>
 
                       {/* Evidence Summary */}
-                      {detail.reasoning.evidenceSummary && (
+                      {reasoning.evidenceSummary && (
                         <div className="bg-purple-500/5 border border-purple-500/15 rounded-lg p-3">
                           <h5 className="text-xs font-semibold text-purple-300 mb-1">Evidence</h5>
-                          <p className="text-xs text-purple-200/60">{detail.reasoning.evidenceSummary}</p>
+                          <p className="text-xs text-purple-200/60">{reasoning.evidenceSummary}</p>
                         </div>
                       )}
 
-                      {/* Considered actions */}
-                      {detail.reasoning.consideredActions.length > 0 && (
+                      {/* Considered actions — handle both string[] and object[] */}
+                      {reasoning.consideredActions.length > 0 && (
                         <div>
                           <h5 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Considered Actions</h5>
                           <div className="space-y-2">
-                            {detail.reasoning.consideredActions.map((ca, i) => {
+                            {reasoning.consideredActions.map((ca, i) => {
+                              // If it's a plain string, render as simple text
+                              if (typeof ca === "string") {
+                                return (
+                                  <div key={i} className="bg-white/[0.03] rounded-lg p-3">
+                                    <span className="text-xs text-white/70">{ca}</span>
+                                  </div>
+                                );
+                              }
+                              // Object format with evidence
                               const hasEvidence = "evidenceFor" in ca;
                               const supportItems = hasEvidence ? (ca.evidenceFor ?? []) : (ca.pros ?? []);
                               const againstItems = hasEvidence ? (ca.evidenceAgainst ?? []) : (ca.cons ?? []);
@@ -565,7 +651,9 @@ function SituationCard({
                                       ))}
                                     </div>
                                   )}
-                                  <p className="text-[10px] text-white/40">{ca.expectedOutcome}</p>
+                                  {ca.expectedOutcome && (
+                                    <p className="text-[10px] text-white/40">{ca.expectedOutcome}</p>
+                                  )}
                                 </div>
                               );
                             })}
@@ -574,12 +662,12 @@ function SituationCard({
                       )}
 
                       {/* Missing context */}
-                      {detail.reasoning.missingContext && detail.reasoning.missingContext.length > 0 && (
+                      {reasoning.missingContext && reasoning.missingContext.length > 0 && (
                         <div className="bg-amber-500/5 border border-amber-500/15 rounded-lg p-3">
                           <h5 className="text-xs font-semibold text-amber-300 mb-1">Missing Context</h5>
                           <ul className="space-y-0.5">
-                            {detail.reasoning.missingContext.map((mc, i) => (
-                              <li key={i} className="text-xs text-amber-200/60">• {mc}</li>
+                            {reasoning.missingContext.map((mc, i) => (
+                              <li key={i} className="text-xs text-amber-200/60">&bull; {mc}</li>
                             ))}
                           </ul>
                         </div>
@@ -589,7 +677,7 @@ function SituationCard({
                 </div>
               )}
 
-              {/* 4. Entity Details */}
+              {/* Entity Details */}
               {detail.contextSnapshot?.triggerEntity && (
                 <div>
                   <h4 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Entity Details</h4>
@@ -666,7 +754,7 @@ function SituationCard({
                 </div>
               )}
 
-              {/* 5. Action buttons */}
+              {/* Action buttons */}
               {canAct && !currentMode && (
                 <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
                   <Button variant="success" size="sm" onClick={() => patchSituation(s.id, { status: "approved" })}>
@@ -684,7 +772,7 @@ function SituationCard({
                 </div>
               )}
 
-              {/* 6. Outcome button for resolved without outcome */}
+              {/* Outcome button for resolved without outcome */}
               {detail.status === "resolved" && !detail.outcome && !currentMode && (
                 <div className="pt-2 border-t border-white/[0.06]">
                   <Button variant="muted" size="sm" onClick={() => setActiveMode({ id: s.id, mode: "outcome" })}>
@@ -693,7 +781,7 @@ function SituationCard({
                 </div>
               )}
 
-              {/* 7. Existing outcome display */}
+              {/* Existing outcome display */}
               {detail.outcome && (
                 <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
                   <Badge variant={detail.outcome === "positive" ? "green" : detail.outcome === "negative" ? "red" : "default"}>
@@ -845,7 +933,7 @@ function SituationCard({
             </>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

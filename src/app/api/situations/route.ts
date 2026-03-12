@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     prisma.situation.findMany({
       where,
       include: {
-        situationType: { select: { name: true, slug: true, autonomyLevel: true } },
+        situationType: { select: { name: true, slug: true, autonomyLevel: true, scopeEntityId: true } },
       },
       orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
       skip: offset,
@@ -49,11 +49,13 @@ export async function GET(req: NextRequest) {
     prisma.situation.count({ where }),
   ]);
 
-  // Resolve trigger entity display names
-  const entityIds = situations.map((s) => s.triggerEntityId).filter(Boolean) as string[];
-  const entities = entityIds.length > 0
+  // Resolve trigger entity + department display names
+  const triggerIds = situations.map((s) => s.triggerEntityId).filter(Boolean) as string[];
+  const scopeIds = situations.map((s) => s.situationType.scopeEntityId).filter(Boolean) as string[];
+  const allIds = [...new Set([...triggerIds, ...scopeIds])];
+  const entities = allIds.length > 0
     ? await prisma.entity.findMany({
-        where: { id: { in: entityIds } },
+        where: { id: { in: allIds } },
         select: { id: true, displayName: true },
       })
     : [];
@@ -74,6 +76,9 @@ export async function GET(req: NextRequest) {
       source: s.source,
       triggerEntityId: s.triggerEntityId,
       triggerEntityName: s.triggerEntityId ? entityMap.get(s.triggerEntityId) ?? null : null,
+      departmentName: s.situationType.scopeEntityId
+        ? entityMap.get(s.situationType.scopeEntityId) ?? null
+        : null,
       reasoning,
       proposedAction,
       editInstruction: s.editInstruction,

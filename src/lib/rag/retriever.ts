@@ -1,44 +1,125 @@
 /**
- * RAG retriever: finds relevant document chunks via cosine similarity.
+ * RAG retriever: finds relevant content chunks via pgvector native similarity search.
  *
- * Brute-force in-memory similarity search.
- * Sufficient for pilot scale: ~200 chunks × 1536 dims = ~1.2MB, <10ms search.
- * Scoped to department IDs for context assembly.
+ * Uses HNSW index on ContentChunk.embedding for fast cosine similarity.
+ * Department scoping and minimum score filtering applied in application layer.
  */
 
 import { prisma } from "@/lib/db";
 import { embedChunks } from "./embedder";
-import { getCachedChunks, setCachedChunks, type CachedChunk } from "./chunk-cache";
 
-export interface RAGResult {
+export interface ContentChunkResult {
+  id: string;
   content: string;
-  score: number;
-  documentName: string;
-  departmentName: string;
-  entityId: string;
+  sourceType: string;
+  sourceId: string;
+  entityId: string | null;
+  departmentIds: string[];
+  metadata: Record<string, unknown> | null;
   chunkIndex: number;
+  score: number;
 }
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0,
-    magA = 0,
-    magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
+// Legacy type alias for callers that still reference RAGResult
+export type RAGResult = ContentChunkResult & {
+  documentName: string;
+  departmentName: string;
+};
+
+/**
+ * Retrieve relevant content chunks for a query embedding using pgvector.
+ */
+export async function retrieveRelevantChunks(
+  operatorId: string,
+  queryEmbedding: number[],
+  options?: {
+    limit?: number;
+    sourceTypes?: string[];
+    entityId?: string;
+    departmentIds?: string[];
+    minScore?: number;
+  },
+): Promise<ContentChunkResult[]> {
+  const limit = options?.limit ?? 5;
+  const minScore = options?.minScore ?? 0.3;
+  const vectorLiteral = `[${queryEmbedding.join(",")}]`;
+
+  // Build the source type filter clause
+  const sourceTypeFilter = options?.sourceTypes?.length
+    ? `AND "sourceType" = ANY(ARRAY[${options.sourceTypes.map((_, i) => `$${i + 3}`).join(",")}]::text[])`
+    : "";
+
+  const entityFilter = options?.entityId
+    ? `AND "entityId" = $${(options?.sourceTypes?.length ?? 0) + 3}`
+    : "";
+
+  // Construct parameter array
+  const params: unknown[] = [vectorLiteral, operatorId];
+  if (options?.sourceTypes?.length) {
+    params.push(...options.sourceTypes);
   }
-  const denom = Math.sqrt(magA) * Math.sqrt(magB);
-  return denom === 0 ? 0 : dot / denom;
+  if (options?.entityId) {
+    params.push(options.entityId);
+  }
+  const limitParamIdx = params.length + 1;
+  params.push(limit);
+
+  const query = `
+    SELECT id, content, "sourceType", "sourceId", "entityId", "departmentIds",
+           metadata, "chunkIndex", "tokenCount",
+           1 - (embedding <=> $1::vector) as score
+    FROM "ContentChunk"
+    WHERE "operatorId" = $2
+      AND embedding IS NOT NULL
+      ${sourceTypeFilter}
+      ${entityFilter}
+    ORDER BY embedding <=> $1::vector
+    LIMIT $${limitParamIdx}
+  `;
+
+  const rows = await prisma.$queryRawUnsafe<Array<{
+    id: string;
+    content: string;
+    sourceType: string;
+    sourceId: string;
+    entityId: string | null;
+    departmentIds: string | null;
+    metadata: string | null;
+    chunkIndex: number;
+    tokenCount: number | null;
+    score: number;
+  }>>(query, ...params);
+
+  // Parse and filter in application layer
+  let results: ContentChunkResult[] = rows.map((row) => ({
+    id: row.id,
+    content: row.content,
+    sourceType: row.sourceType,
+    sourceId: row.sourceId,
+    entityId: row.entityId,
+    departmentIds: row.departmentIds ? JSON.parse(row.departmentIds) : [],
+    metadata: row.metadata ? JSON.parse(row.metadata) : null,
+    chunkIndex: row.chunkIndex,
+    score: Number(row.score),
+  }));
+
+  // Apply minimum score filter
+  results = results.filter((r) => r.score >= minScore);
+
+  // Apply department scoping (overlap check)
+  if (options?.departmentIds?.length) {
+    const allowedDepts = new Set(options.departmentIds);
+    results = results.filter((r) =>
+      r.departmentIds.length === 0 || r.departmentIds.some((d) => allowedDepts.has(d)),
+    );
+  }
+
+  return results;
 }
 
 /**
- * Retrieve relevant document chunks for a query, scoped to specific departments.
- *
- * @param query - Natural language query to search for
- * @param operatorId - The operator's ID
- * @param departmentIds - Department IDs to scope the search to (empty = all departments)
- * @param topK - Number of results to return (default 8)
+ * Legacy wrapper: takes a query string, embeds it, then retrieves.
+ * Maintains backward compatibility with existing callers.
  */
 export async function retrieveRelevantContext(
   query: string,
@@ -46,109 +127,19 @@ export async function retrieveRelevantContext(
   departmentIds: string[],
   topK: number = 8,
 ): Promise<RAGResult[]> {
-  // Embed the query
   const [queryEmbedding] = await embedChunks([query]);
   if (!queryEmbedding) return [];
 
-  let allChunks: CachedChunk[] = [];
+  const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
+    limit: topK,
+    departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
+    minScore: 0.3,
+  });
 
-  if (departmentIds.length > 0) {
-    // Per-department cached loading
-    for (const deptId of departmentIds) {
-      const cached = getCachedChunks(deptId);
-      if (cached) {
-        allChunks.push(...cached);
-        continue;
-      }
-
-      // Quick count check — skip departments with no embedded chunks
-      const countResult = await prisma.documentChunk.count({
-        where: {
-          operatorId,
-          embedding: { not: null },
-          entity: { category: "internal", parentDepartmentId: deptId },
-        },
-      });
-      if (countResult === 0) {
-        setCachedChunks(deptId, []);
-        continue;
-      }
-
-      // Cache miss — load from DB
-      const dbChunks = await prisma.documentChunk.findMany({
-        where: {
-          operatorId,
-          embedding: { not: null },
-          entity: { category: "internal", parentDepartmentId: deptId },
-        },
-        include: {
-          entity: {
-            select: {
-              id: true,
-              displayName: true,
-              parentDepartment: { select: { displayName: true } },
-            },
-          },
-        },
-      });
-
-      const parsed = dbChunks.map((chunk) => ({
-        entityId: chunk.entity.id,
-        chunkIndex: chunk.chunkIndex,
-        content: chunk.content,
-        embedding: JSON.parse(chunk.embedding!) as number[],
-        documentName: chunk.entity.displayName,
-        departmentName: chunk.entity.parentDepartment?.displayName ?? "Unknown",
-      }));
-
-      setCachedChunks(deptId, parsed);
-      allChunks.push(...parsed);
-    }
-  } else {
-    // No department filter — load all chunks (no caching for global queries)
-    const chunks = await prisma.documentChunk.findMany({
-      where: {
-        operatorId,
-        embedding: { not: null },
-      },
-      include: {
-        entity: {
-          select: {
-            id: true,
-            displayName: true,
-            parentDepartment: { select: { displayName: true } },
-          },
-        },
-      },
-    });
-
-    allChunks = chunks.map((chunk) => ({
-      entityId: chunk.entity.id,
-      chunkIndex: chunk.chunkIndex,
-      content: chunk.content,
-      embedding: JSON.parse(chunk.embedding!) as number[],
-      documentName: chunk.entity.displayName,
-      departmentName: chunk.entity.parentDepartment?.displayName ?? "Unknown",
-    }));
-  }
-
-  if (allChunks.length === 0) return [];
-
-  // Score all chunks
-  const scored = allChunks
-    .map((chunk) => {
-      const score = cosineSimilarity(queryEmbedding, chunk.embedding);
-      return {
-        content: chunk.content,
-        score,
-        documentName: chunk.documentName,
-        departmentName: chunk.departmentName,
-        entityId: chunk.entityId,
-        chunkIndex: chunk.chunkIndex,
-      };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK);
-
-  return scored;
+  // Map to legacy RAGResult format
+  return results.map((r) => ({
+    ...r,
+    documentName: r.metadata?.fileName as string ?? "Unknown",
+    departmentName: "—",
+  }));
 }
