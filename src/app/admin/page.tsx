@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { QorperaLogo } from "@/components/qorpera-logo";
 
 interface OperatorInfo {
   id: string;
@@ -147,10 +148,7 @@ export default function AdminPage() {
       <div className="border-b border-white/[0.06] px-8 py-5">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <svg viewBox="0 0 40 40" className="w-8 h-8" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M22.5 23 C17 21, 9 12, 3 5" stroke="white" strokeWidth="1.1" strokeLinecap="round" />
-              <circle cx="27" cy="27" r="6.5" stroke="white" strokeWidth="1.1" />
-            </svg>
+            <QorperaLogo width={32} height={32} className="text-white" simplified />
             <div>
               <h1 className="font-heading text-xl font-semibold tracking-[-0.02em] text-white/90">
                 Qorpera Admin
