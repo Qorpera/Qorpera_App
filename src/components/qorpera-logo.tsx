@@ -3,7 +3,7 @@ interface QorperaLogoProps {
   height?: number;
   className?: string;
   color?: string;
-  /** Use simplified version for small sizes (favicon-like) */
+  /** Use simplified version for small sizes */
   simplified?: boolean;
 }
 
@@ -24,24 +24,32 @@ export function QorperaLogo({
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
-        {/* Core filled square */}
-        <rect x="96" y="96" width="28" height="28" rx="6" fill={color} />
+        {/* Core */}
+        <rect x="96" y="96" width="28" height="28" rx="3" fill={color} />
 
-        {/* Top-left path */}
-        <path d="M97 96 L97 58 L52 58" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
-        <circle cx="52" cy="58" r="5" fill={color} opacity="0.7" />
+        {/* Top T-fork */}
+        <path d="M110 96 L110 55 L75 35" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
+        <path d="M110 96 L110 55 L145 35" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
+        <circle cx="75" cy="35" r="5" fill={color} opacity="0.7" />
+        <circle cx="145" cy="35" r="5" fill={color} opacity="0.7" />
 
-        {/* Top-right path */}
-        <path d="M123 96 L123 44 L165 44" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
-        <circle cx="165" cy="44" r="5" fill={color} opacity="0.7" />
+        {/* Right T-fork */}
+        <path d="M124 110 L165 110 L185 80" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
+        <path d="M124 110 L165 110 L185 140" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
+        <circle cx="185" cy="80" r="5" fill={color} opacity="0.7" />
+        <circle cx="185" cy="140" r="5" fill={color} opacity="0.7" />
 
-        {/* Bottom-right path */}
-        <path d="M118 124 L118 170 L152 170" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
-        <circle cx="152" cy="170" r="5" fill={color} opacity="0.7" />
+        {/* Bottom T-fork */}
+        <path d="M110 124 L110 165 L75 185" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
+        <path d="M110 124 L110 165 L145 185" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
+        <circle cx="75" cy="185" r="5" fill={color} opacity="0.7" />
+        <circle cx="145" cy="185" r="5" fill={color} opacity="0.7" />
 
-        {/* Left path */}
-        <path d="M96 105 L58 105 L58 78" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
-        <circle cx="58" cy="78" r="5" fill={color} opacity="0.7" />
+        {/* Left T-fork */}
+        <path d="M96 110 L55 110 L35 80" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
+        <path d="M96 110 L55 110 L35 140" stroke={color} strokeWidth="3" opacity="0.7" strokeLinecap="round" fill="none" />
+        <circle cx="35" cy="80" r="5" fill={color} opacity="0.7" />
+        <circle cx="35" cy="140" r="5" fill={color} opacity="0.7" />
       </svg>
     );
   }
@@ -56,41 +64,36 @@ export function QorperaLogo({
       xmlns="http://www.w3.org/2000/svg"
     >
       {/* Core: outer stroke ring + inner filled square */}
-      <rect x="93" y="93" width="34" height="34" rx="7" stroke={color} strokeWidth="2" fill="none" />
-      <rect x="101" y="101" width="18" height="18" rx="4" fill={color} />
+      <rect x="93" y="93" width="34" height="34" rx="3" stroke={color} strokeWidth="2" fill="none" />
+      <rect x="101" y="101" width="18" height="18" rx="2" fill={color} />
 
-      {/* Circuit paths — angular bends */}
-      {/* Top-left: up then left */}
-      <path d="M97 93 L97 58 L52 58" stroke={color} strokeWidth="2.2" opacity="0.7" strokeLinecap="round" fill="none" />
-      <rect x="34" y="50" width="18" height="16" rx="4" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
+      {/* Top T-fork */}
+      <path d="M110 93 L110 55 L75 35" stroke={color} strokeWidth="2.2" opacity="0.7" strokeLinecap="round" fill="none" />
+      <path d="M110 93 L110 55 L145 35" stroke={color} strokeWidth="1.8" opacity="0.65" strokeLinecap="round" fill="none" />
+      <rect x="65" y="27" width="20" height="16" rx="5" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
+      <rect x="135" y="27" width="20" height="16" rx="5" fill="none" stroke={color} strokeWidth="1.8" opacity="0.65" />
+      <circle cx="110" cy="55" r="2" fill={color} opacity="0.65" />
 
-      {/* Top-right: up then right */}
-      <path d="M123 93 L123 44 L165 44" stroke={color} strokeWidth="2.2" opacity="0.7" strokeLinecap="round" fill="none" />
-      <rect x="165" y="36" width="20" height="16" rx="4" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
+      {/* Right T-fork */}
+      <path d="M127 110 L165 110 L185 80" stroke={color} strokeWidth="2.2" opacity="0.7" strokeLinecap="round" fill="none" />
+      <path d="M127 110 L165 110 L185 140" stroke={color} strokeWidth="1.8" opacity="0.65" strokeLinecap="round" fill="none" />
+      <rect x="177" y="72" width="16" height="16" rx="5" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
+      <rect x="177" y="132" width="16" height="16" rx="5" fill="none" stroke={color} strokeWidth="1.8" opacity="0.65" />
+      <circle cx="165" cy="110" r="2" fill={color} opacity="0.65" />
 
-      {/* Right: right then up */}
-      <path d="M132 115 L168 115 L168 98" stroke={color} strokeWidth="2.2" opacity="0.65" strokeLinecap="round" fill="none" />
-      <rect x="160" y="80" width="16" height="18" rx="4" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
+      {/* Bottom T-fork */}
+      <path d="M110 127 L110 165 L75 185" stroke={color} strokeWidth="2.2" opacity="0.7" strokeLinecap="round" fill="none" />
+      <path d="M110 127 L110 165 L145 185" stroke={color} strokeWidth="1.8" opacity="0.65" strokeLinecap="round" fill="none" />
+      <rect x="65" y="177" width="20" height="16" rx="5" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
+      <rect x="135" y="177" width="20" height="16" rx="5" fill="none" stroke={color} strokeWidth="1.8" opacity="0.65" />
+      <circle cx="110" cy="165" r="2" fill={color} opacity="0.65" />
 
-      {/* Bottom-right: down then right */}
-      <path d="M118 132 L118 170 L152 170" stroke={color} strokeWidth="2.2" opacity="0.7" strokeLinecap="round" fill="none" />
-      <rect x="152" y="162" width="22" height="16" rx="4" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
-
-      {/* Bottom-left: down then left */}
-      <path d="M97 132 L97 156 L56 156" stroke={color} strokeWidth="2.2" opacity="0.65" strokeLinecap="round" fill="none" />
-      <rect x="36" y="148" width="20" height="16" rx="4" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
-
-      {/* Left: left then up */}
-      <path d="M88 105 L58 105 L58 78" stroke={color} strokeWidth="2.2" opacity="0.65" strokeLinecap="round" fill="none" />
-      <rect x="50" y="60" width="16" height="18" rx="4" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
-
-      {/* Junction dots at bends */}
-      <circle cx="97" cy="58" r="2" fill={color} opacity="0.65" />
-      <circle cx="123" cy="44" r="2" fill={color} opacity="0.65" />
-      <circle cx="168" cy="115" r="2" fill={color} opacity="0.65" />
-      <circle cx="118" cy="170" r="2" fill={color} opacity="0.65" />
-      <circle cx="97" cy="156" r="2" fill={color} opacity="0.65" />
-      <circle cx="58" cy="105" r="2" fill={color} opacity="0.65" />
+      {/* Left T-fork */}
+      <path d="M93 110 L55 110 L35 80" stroke={color} strokeWidth="2.2" opacity="0.7" strokeLinecap="round" fill="none" />
+      <path d="M93 110 L55 110 L35 140" stroke={color} strokeWidth="1.8" opacity="0.65" strokeLinecap="round" fill="none" />
+      <rect x="27" y="72" width="16" height="16" rx="5" fill="none" stroke={color} strokeWidth="1.8" opacity="0.7" />
+      <rect x="27" y="132" width="16" height="16" rx="5" fill="none" stroke={color} strokeWidth="1.8" opacity="0.65" />
+      <circle cx="55" cy="110" r="2" fill={color} opacity="0.65" />
     </svg>
   );
 }
