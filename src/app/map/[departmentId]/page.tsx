@@ -1298,14 +1298,9 @@ function DepartmentDetailInner() {
         {/* ---- Section 3: Connected Data ---- */}
         <Section title="Connected Data">
           {connectedEntities.length === 0 ? (
-            <p className="text-sm text-white/40 py-4">
-              Connectors are now managed at the company level in Settings.
-            </p>
+            <p className="text-xs text-white/25 text-center py-2">No connected data yet</p>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm text-white/40">
-                Connectors are now managed at the company level in Settings.
-              </p>
               {connectedEntities.map((group) => {
                 const isExpanded = expandedGroups.has(group.typeSlug);
                 const visibleEntities = isExpanded ? group.entities : group.entities.slice(0, 10);
