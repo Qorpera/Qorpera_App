@@ -80,5 +80,6 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  return NextResponse.json(connector, { status: 201 });
+  const { config: _config, ...connectorResponse } = connector;
+  return NextResponse.json(connectorResponse, { status: 201 });
 }

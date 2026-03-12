@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { deleteSession, clearSessionCookie, SESSION_COOKIE_NAME } from "@/lib/auth";
 import { cookies } from "next/headers";
 
+// Intentionally reads cookie directly instead of getSessionUser() —
+// logout must work even if session is expired or corrupted
 export async function POST() {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;

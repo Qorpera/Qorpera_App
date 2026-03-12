@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   const source = url.searchParams.get("source") ?? undefined;
   const eventType = url.searchParams.get("eventType") ?? undefined;
   const processed = url.searchParams.get("processed");
-  const limit = parseInt(url.searchParams.get("limit") ?? "50");
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 1), 200);
   const cursor = url.searchParams.get("cursor") ?? undefined;
 
   const where: Record<string, unknown> = { operatorId };

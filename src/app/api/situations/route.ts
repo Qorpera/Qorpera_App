@@ -14,8 +14,8 @@ export async function GET(req: NextRequest) {
   const typeId = params.get("typeId");
   const severityMin = params.get("severity_min");
   const severityMax = params.get("severity_max");
-  const limit = Math.min(parseInt(params.get("limit") ?? "50"), 200);
-  const offset = parseInt(params.get("offset") ?? "0");
+  const limit = Math.min(Math.max(parseInt(params.get("limit") ?? "50", 10) || 50, 1), 200);
+  const offset = Math.max(parseInt(params.get("offset") ?? "0", 10) || 0, 0);
 
   // Build where clause
   const where: Record<string, unknown> = { operatorId, ...situationScopeFilter(visibleDepts) };
@@ -31,8 +31,8 @@ export async function GET(req: NextRequest) {
   if (typeId) where.situationTypeId = typeId;
   if (severityMin || severityMax) {
     const severity: Record<string, number> = {};
-    if (severityMin) severity.gte = parseFloat(severityMin);
-    if (severityMax) severity.lte = parseFloat(severityMax);
+    if (severityMin) { const v = parseFloat(severityMin); if (isFinite(v)) severity.gte = v; }
+    if (severityMax) { const v = parseFloat(severityMax); if (isFinite(v)) severity.lte = v; }
     where.severity = severity;
   }
 
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
   const allIds = [...new Set([...triggerIds, ...scopeIds])];
   const entities = allIds.length > 0
     ? await prisma.entity.findMany({
-        where: { id: { in: allIds } },
+        where: { id: { in: allIds }, operatorId },
         select: { id: true, displayName: true },
       })
     : [];

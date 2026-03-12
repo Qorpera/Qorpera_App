@@ -4,6 +4,12 @@ import { getValidStripeToken } from "@/lib/connectors/stripe-auth";
 import { materializeEvent } from "@/lib/event-materializer";
 import { checkForSituationResolution } from "@/lib/situation-resolver";
 import { decrypt, encrypt } from "@/lib/encryption";
+import { checkRateLimit } from "@/lib/rate-limiter";
+
+// Webhooks are intentionally unauthenticated by session — they come from external
+// services (Stripe, etc.) without user sessions. Authenticity is verified by
+// fetching the event back from the provider's API using the connector's stored
+// credentials. Connector must exist and be active to accept webhooks.
 
 const STRIPE_EVENT_MAP: Record<string, string> = {
   "invoice.payment_succeeded": "invoice.paid",
@@ -22,13 +28,23 @@ export async function POST(
 ) {
   const { connectorId } = await params;
 
-  // Look up the connector
+  // Rate limit per connector to prevent abuse
+  const { allowed } = checkRateLimit(`webhook:${connectorId}`, 100, 60 * 1000);
+  if (!allowed) {
+    return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
+  // Look up the connector — must exist and be active
   const connector = await prisma.sourceConnector.findUnique({
     where: { id: connectorId },
   });
 
   if (!connector || connector.provider !== "stripe") {
     return NextResponse.json({ error: "Unknown connector" }, { status: 404 });
+  }
+
+  if (connector.status !== "active" && connector.status !== "syncing") {
+    return NextResponse.json({ error: "Connector is not active" }, { status: 403 });
   }
 
   let body: any;

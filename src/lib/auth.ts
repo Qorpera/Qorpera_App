@@ -107,6 +107,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   return { user, operatorId, isSuperadmin, actingAsOperator };
 }
 
+// Counts ALL users including superadmin. This means isFirstRun() returns false
+// after superadmin setup via create-superadmin.ts. This is correct for our flow:
+// superadmin is created first, then the first operator registers via /register.
 export async function isFirstRun(): Promise<boolean> {
   const count = await prisma.user.count();
   return count === 0;

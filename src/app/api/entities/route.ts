@@ -12,8 +12,8 @@ export async function GET(req: NextRequest) {
   const typeSlug = url.searchParams.get("type") ?? undefined;
   const search = url.searchParams.get("q") ?? undefined;
   const status = url.searchParams.get("status") ?? undefined;
-  const limit = parseInt(url.searchParams.get("limit") ?? "50");
-  const offset = parseInt(url.searchParams.get("offset") ?? "0");
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 1), 200);
+  const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10) || 0, 0);
 
   const result = await listEntities(operatorId, { typeSlug, search, status, limit, offset, scopeFilter: departmentScopeFilter(visibleDepts) });
   return NextResponse.json(result);

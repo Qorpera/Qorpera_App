@@ -27,7 +27,7 @@ export async function GET(
 
   // Find all entities belonging to this department
   const deptEntities = await prisma.entity.findMany({
-    where: { parentDepartmentId: id, status: "active" },
+    where: { operatorId, parentDepartmentId: id, status: "active" },
     select: { id: true, displayName: true },
   });
 

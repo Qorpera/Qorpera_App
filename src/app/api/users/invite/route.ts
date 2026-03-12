@@ -108,7 +108,7 @@ export async function GET() {
   const entityIds = invites.map((i) => i.entityId);
   const entities = entityIds.length > 0
     ? await prisma.entity.findMany({
-        where: { id: { in: entityIds } },
+        where: { id: { in: entityIds }, operatorId: su.operatorId },
         select: { id: true, displayName: true, parentDepartmentId: true },
       })
     : [];

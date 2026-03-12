@@ -36,7 +36,7 @@ export async function GET(
 
   // Home members (parentDepartmentId = this department)
   const homeMembers = await prisma.entity.findMany({
-    where: { parentDepartmentId: id, category: "base", status: "active" },
+    where: { operatorId, parentDepartmentId: id, category: "base", status: "active" },
     include: MEMBER_INCLUDE,
     orderBy: { displayName: "asc" },
   });
@@ -59,7 +59,7 @@ export async function GET(
   let crossMembers: Array<Record<string, unknown>> = [];
   if (uniqueCrossIds.length > 0) {
     const crossEntities = await prisma.entity.findMany({
-      where: { id: { in: uniqueCrossIds }, status: "active" },
+      where: { id: { in: uniqueCrossIds }, operatorId, status: "active" },
       include: {
         ...MEMBER_INCLUDE,
         parentDepartment: { select: { id: true, displayName: true } },

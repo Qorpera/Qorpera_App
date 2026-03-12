@@ -27,22 +27,27 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Allow public paths
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return addSecurityHeaders(NextResponse.next());
-  }
-
-  // CSRF protection for mutation requests
-  if (!SAFE_METHODS.includes(req.method)) {
+  // CSRF protection for mutation requests — checked BEFORE public path bypass.
+  // Webhooks are exempt (external services don't send Origin headers).
+  if (!SAFE_METHODS.includes(req.method) && !pathname.startsWith("/api/webhooks")) {
     const origin = req.headers.get("origin");
     const host = req.headers.get("host");
 
-    if (origin && host) {
+    if (!origin) {
+      return new NextResponse("CSRF validation failed: missing origin", { status: 403 });
+    }
+
+    if (host) {
       const originUrl = new URL(origin);
       if (originUrl.host !== host) {
         return new NextResponse("CSRF validation failed", { status: 403 });
       }
     }
+  }
+
+  // Allow public paths
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+    return addSecurityHeaders(NextResponse.next());
   }
 
   // Check for session cookie (just existence — full validation in getSessionUser)

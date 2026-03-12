@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
 
   const unreadOnly = url.searchParams.get("unreadOnly") === "true";
-  const limit = parseInt(url.searchParams.get("limit") ?? "50");
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 1), 200);
   const sourceType = url.searchParams.get("sourceType");
 
   const baseWhere = {
