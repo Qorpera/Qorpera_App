@@ -1,7 +1,7 @@
 import { callLLM } from "@/lib/ai-provider";
 import type { ReasoningInput } from "@/lib/reasoning-prompts";
 import type { ContextSectionMeta, EntitySummary } from "@/lib/context-assembly";
-import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-engine";
+import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -415,6 +415,8 @@ async function coordinatorSynthesize(
   input: ReasoningInput,
   findings: SpecialistFinding[],
   companyName?: string,
+  editInstruction?: string | null,
+  priorFeedbackLines?: string[] | null,
 ): Promise<ReasoningOutput> {
   const systemPrompt = `You are the coordinating AI operations agent for ${companyName || "this company"}.
 
@@ -488,7 +490,15 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
     formatGovernance(input),
   ].filter(Boolean);
 
-  const userPrompt = userSections.join("\n\n");
+  let userPrompt = userSections.join("\n\n");
+
+  if (editInstruction) {
+    userPrompt += `\n\nEDIT REQUEST:\n${editInstruction}\n\nRevise your chosenAction to incorporate this feedback while considering the specialist findings.`;
+  }
+
+  if (priorFeedbackLines && priorFeedbackLines.length > 0) {
+    userPrompt += `\n\nHUMAN FEEDBACK ON SIMILAR SITUATIONS:\n${priorFeedbackLines.join("\n")}\nIncorporate this feedback into your reasoning.`;
+  }
 
   // 2-attempt retry with validation (same pattern as single-pass)
   let rawResponse = "";
@@ -547,9 +557,11 @@ export async function runMultiAgentReasoning(
   input: ReasoningInput,
   contextSections: ContextSectionMeta[],
   companyName?: string,
+  editInstruction?: string | null,
+  priorFeedbackLines?: string[] | null,
 ): Promise<MultiAgentResult> {
   const findings = await runSpecialists(input, companyName);
-  const coordinatorReasoning = await coordinatorSynthesize(input, findings, companyName);
+  const coordinatorReasoning = await coordinatorSynthesize(input, findings, companyName, editInstruction, priorFeedbackLines);
   return {
     findings,
     coordinatorReasoning,

@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { callLLM } from "@/lib/ai-provider";
 import { assembleSituationContext } from "@/lib/context-assembly";
@@ -6,31 +5,7 @@ import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evalu
 import { buildReasoningSystemPrompt, buildReasoningUserPrompt, type ReasoningInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { executeSituationAction } from "@/lib/situation-executor";
-
-// ── Zod Schema ───────────────────────────────────────────────────────────────
-
-const ReasoningOutputSchema = z.object({
-  analysis: z.string().min(10),
-  evidenceSummary: z.string().min(10),
-  consideredActions: z.array(z.object({
-    action: z.string(),
-    evidenceFor: z.array(z.string()),
-    evidenceAgainst: z.array(z.string()),
-    expectedOutcome: z.string(),
-  })),
-  chosenAction: z.object({
-    action: z.string(),
-    connector: z.string(),
-    params: z.record(z.any()),
-    justification: z.string().min(10),
-  }).nullable(),
-  confidence: z.number().min(0).max(1),
-  missingContext: z.array(z.string()).nullable(),
-});
-
-type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;
-export { ReasoningOutputSchema };
-export type { ReasoningOutput };
+import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -149,7 +124,31 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       crossDepartmentSignals: context.crossDepartmentSignals,
     };
 
-    // 6a. Route: single-pass vs multi-agent based on context complexity
+    // 6a. Compute edit instruction and prior feedback (needed by both paths)
+    let editInstructionText: string | null = null;
+    if (situation.editInstruction) {
+      let originalProposal = "null";
+      if (situation.proposedAction) {
+        try { originalProposal = JSON.stringify(JSON.parse(situation.proposedAction), null, 2); } catch { originalProposal = situation.proposedAction; }
+      }
+      editInstructionText = `The human reviewed the original proposal and requested changes.\n\nORIGINAL PROPOSAL:\n${originalProposal}\n\nHUMAN'S EDIT INSTRUCTION:\n"${situation.editInstruction}"`;
+    }
+
+    const priorFeedback = await prisma.situation.findMany({
+      where: {
+        situationTypeId: situation.situationTypeId,
+        feedback: { not: null },
+        id: { not: situationId },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { feedback: true, feedbackCategory: true },
+    });
+    const priorFeedbackLines = priorFeedback.length > 0
+      ? priorFeedback.map((f) => `  - ${f.feedback}${f.feedbackCategory ? ` [${f.feedbackCategory}]` : ""}`)
+      : null;
+
+    // 6b. Route: single-pass vs multi-agent based on context complexity
     const { shouldUseMultiAgent, runMultiAgentReasoning } = await import("@/lib/multi-agent-reasoning");
 
     if (shouldUseMultiAgent(context.contextSections)) {
@@ -159,6 +158,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         reasoningInput,
         context.contextSections,
         operator?.companyName ?? undefined,
+        editInstructionText,
+        priorFeedbackLines,
       );
 
       let reasoning = multiAgentResult.coordinatorReasoning;
@@ -240,34 +241,16 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       return; // multi-agent path complete
     }
 
+    // 6c. Single-pass: build prompt with edit instruction and prior feedback
     const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
     let userPrompt = buildReasoningUserPrompt(reasoningInput);
 
-    // 6b. Edit instruction injection
-    if (situation.editInstruction) {
-      let originalProposal = "null";
-      if (situation.proposedAction) {
-        try { originalProposal = JSON.stringify(JSON.parse(situation.proposedAction), null, 2); } catch { originalProposal = situation.proposedAction; }
-      }
-      userPrompt += `\n\nEDIT REQUEST:\nThe human reviewed the original proposal and requested changes. Incorporate their instruction into your revised action.\n\nORIGINAL PROPOSAL:\n${originalProposal}\n\nHUMAN'S EDIT INSTRUCTION:\n"${situation.editInstruction}"\n\nRevise your chosenAction to incorporate this feedback. Keep the same situation analysis but adjust the action parameters and justification accordingly.`;
+    if (editInstructionText) {
+      userPrompt += `\n\nEDIT REQUEST:\n${editInstructionText}\n\nRevise your chosenAction to incorporate this feedback. Keep the same situation analysis but adjust the action parameters and justification accordingly.`;
     }
 
-    // 6c. Prior feedback injection
-    const priorFeedback = await prisma.situation.findMany({
-      where: {
-        situationTypeId: situation.situationTypeId,
-        feedback: { not: null },
-        id: { not: situationId },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { feedback: true, feedbackCategory: true },
-    });
-    if (priorFeedback.length > 0) {
-      const feedbackLines = priorFeedback
-        .map((f) => `  - ${f.feedback}${f.feedbackCategory ? ` [${f.feedbackCategory}]` : ""}`)
-        .join("\n");
-      userPrompt += `\n\nHUMAN FEEDBACK ON SIMILAR SITUATIONS:\n${feedbackLines}\nIncorporate this feedback into your reasoning.`;
+    if (priorFeedbackLines) {
+      userPrompt += `\n\nHUMAN FEEDBACK ON SIMILAR SITUATIONS:\n${priorFeedbackLines.join("\n")}\nIncorporate this feedback into your reasoning.`;
     }
 
     // 7. Call LLM
