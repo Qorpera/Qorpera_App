@@ -29,6 +29,8 @@ const ReasoningOutputSchema = z.object({
 });
 
 type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;
+export { ReasoningOutputSchema };
+export type { ReasoningOutput };
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -146,6 +148,97 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       communicationContext: context.communicationContext,
       crossDepartmentSignals: context.crossDepartmentSignals,
     };
+
+    // 6a. Route: single-pass vs multi-agent based on context complexity
+    const { shouldUseMultiAgent, runMultiAgentReasoning } = await import("@/lib/multi-agent-reasoning");
+
+    if (shouldUseMultiAgent(context.contextSections)) {
+      console.log(`[reasoning-engine] Multi-agent path activated for situation ${situationId} (${context.contextSections.reduce((s, c) => s + c.tokenEstimate, 0)} estimated tokens)`);
+
+      const multiAgentResult = await runMultiAgentReasoning(
+        reasoningInput,
+        context.contextSections,
+        operator?.companyName ?? undefined,
+      );
+
+      let reasoning = multiAgentResult.coordinatorReasoning;
+
+      // Post-reasoning policy verification (same as single-pass)
+      if (reasoning.chosenAction) {
+        const chosenName = reasoning.chosenAction.action;
+        const isPermitted = policyResult.permitted.some((p) => p.name === chosenName);
+        const isBlocked = policyResult.blocked.some((b) => b.name === chosenName);
+
+        if (!isPermitted || isBlocked) {
+          console.warn(
+            `[reasoning-engine] Multi-agent proposed blocked/unpermitted action "${reasoning.chosenAction.action}" for situation ${situationId}. Overriding to null.`,
+          );
+          reasoning = {
+            ...reasoning,
+            chosenAction: null,
+            analysis: reasoning.analysis + "\n\n[SYSTEM: Proposed action was overridden — it violates governance policy.]",
+          };
+        }
+      }
+
+      // Store reasoning with multi-agent metadata
+      const updates: Record<string, unknown> = {
+        reasoning: JSON.stringify({
+          ...reasoning,
+          _multiAgent: {
+            routingReason: multiAgentResult.routingReason,
+            specialistFindings: multiAgentResult.findings,
+          },
+        }),
+      };
+
+      if (reasoning.chosenAction) {
+        updates.proposedAction = JSON.stringify(reasoning.chosenAction);
+      }
+
+      // Advance status (same logic as single-pass)
+      const revised = situation.editInstruction ? " (Revised)" : "";
+      if (reasoning.chosenAction === null) {
+        updates.status = "proposed";
+        await createNotification(
+          situation.operatorId,
+          situationId,
+          `Review needed${revised}: ${situation.situationType.name}`,
+          `AI analyzed the situation (multi-agent) but recommends no action. Please review the reasoning.`,
+        );
+      } else if (effectiveAutonomy === "supervised") {
+        updates.status = "proposed";
+        await createNotification(
+          situation.operatorId,
+          situationId,
+          `Action proposed${revised}: ${situation.situationType.name}`,
+          `AI proposes: ${reasoning.chosenAction.action} — ${reasoning.chosenAction.justification.slice(0, 100)}`,
+        );
+      } else if (effectiveAutonomy === "notify") {
+        updates.status = "auto_executing";
+        await createNotification(
+          situation.operatorId,
+          situationId,
+          `Auto-executing${revised}: ${situation.situationType.name}`,
+          `AI is executing: ${reasoning.chosenAction.action}. Review and reverse if needed.`,
+        );
+      } else {
+        updates.status = "auto_executing";
+      }
+
+      await prisma.situation.update({
+        where: { id: situationId },
+        data: updates,
+      });
+
+      if (updates.status === "auto_executing") {
+        executeSituationAction(situationId).catch((err) =>
+          console.error(`[reasoning-engine] Execution failed for ${situationId}:`, err),
+        );
+      }
+
+      return; // multi-agent path complete
+    }
 
     const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
     let userPrompt = buildReasoningUserPrompt(reasoningInput);
