@@ -32,10 +32,3 @@ export async function getValidAccessToken(
   return data.access_token;
 }
 
-export function extractFolderId(input: string): string {
-  // Match /folders/FOLDER_ID from various Drive URL formats
-  const match = input.match(/\/folders\/([a-zA-Z0-9_-]+)/);
-  if (match) return match[1];
-  // Assume raw folder ID
-  return input.trim();
-}

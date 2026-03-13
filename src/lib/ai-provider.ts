@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type ContentBlock =
+type ContentBlock =
   | { type: "text"; text: string }
   | { type: "image_base64"; mediaType: string; data: string };
 
@@ -25,7 +25,7 @@ export type AITool = {
   parameters: Record<string, unknown>;
 };
 
-export type AIResponse = {
+type AIResponse = {
   content: string;
   toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[];
 };

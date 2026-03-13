@@ -23,7 +23,7 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
-export interface FocusedSubgraph {
+interface FocusedSubgraph {
   center: GraphNode;
   nodes: GraphNode[];
   edges: GraphEdge[];

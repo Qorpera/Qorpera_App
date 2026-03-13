@@ -17,7 +17,7 @@ type ThreadEntry = {
 
 // ── Token helper (exported for use by other modules) ────────
 
-export async function getMicrosoftAccessToken(
+async function getMicrosoftAccessToken(
   config: ConnectorConfig
 ): Promise<string> {
   return getValidAccessToken(config);

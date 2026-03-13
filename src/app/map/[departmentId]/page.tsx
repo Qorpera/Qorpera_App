@@ -466,7 +466,7 @@ function DepartmentDetailInner() {
     const res = await fetchApi(`/api/departments/${deptId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: value }),
+      body: JSON.stringify({ [field === "name" ? "displayName" : field]: value }),
     });
     if (res.ok) {
       const updated = await res.json();
@@ -526,7 +526,7 @@ function DepartmentDetailInner() {
     const res = await fetchApi(`/api/departments/${deptId}/members/${editId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: editName.trim(), role: editRole.trim(), email: editEmail.trim() }),
+      body: JSON.stringify({ displayName: editName.trim(), role: editRole.trim(), email: editEmail.trim() }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);

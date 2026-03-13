@@ -29,19 +29,6 @@ export async function getVisibleDepartmentIds(
 }
 
 /**
- * Get a scoped user context for use in API routes.
- */
-export async function getScopedContext(operatorId: string, userId: string) {
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
-  return {
-    operatorId,
-    userId,
-    visibleDepts,
-    isAdmin: visibleDepts === "all",
-  };
-}
-
-/**
  * Build a Prisma where clause that filters entities by visible departments.
  */
 export function departmentScopeFilter(visibleDepts: string[] | "all"): Record<string, unknown> {

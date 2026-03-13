@@ -38,7 +38,7 @@ export interface EntitySummary {
 
 // ── Activity Intelligence Types (v3) ────────────────────────────────────────
 
-export interface ActivityTimelineBucket {
+interface ActivityTimelineBucket {
   period: string;
   emailSent: number;
   emailReceived: number;
@@ -56,7 +56,7 @@ export interface ActivityTimeline {
   totalSignals: number;
 }
 
-export interface CommunicationExcerpt {
+interface CommunicationExcerpt {
   sourceType: string;
   content: string;
   metadata: {
@@ -74,7 +74,7 @@ export interface CommunicationContext {
   sourceBreakdown: Record<string, number>;
 }
 
-export interface CrossDepartmentSignal {
+interface CrossDepartmentSignal {
   departmentName: string;
   departmentId: string;
   emailCount: number;

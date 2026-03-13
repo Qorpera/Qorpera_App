@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/components/user-provider";
 
-type Tab = "ai" | "connections" | "team";
+type Tab = "ai" | "connections" | "team" | "merges";
 
 type ConnectorItem = {
   id: string;
@@ -103,7 +103,7 @@ function SettingsPageInner() {
   const stripeParam = searchParams.get("stripe");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : "ai"
   );
 
   // AI state
@@ -164,6 +164,46 @@ function SettingsPageInner() {
   const [bulkTarget, setBulkTarget] = useState("");
   const [bulkRunning, setBulkRunning] = useState(false);
 
+  // Merge state
+  type MergeLogEntry = {
+    id: string;
+    mergeType: string;
+    confidence: number | null;
+    signals: Record<string, number>[] | null;
+    reversible: boolean;
+    reversedAt: string | null;
+    createdAt: string;
+    survivor: { id: string; displayName: string; status: string };
+    absorbed: { id: string; displayName: string; status: string };
+  };
+  type MergeSuggestionEntity = {
+    id: string;
+    displayName: string;
+    status?: string;
+    category?: string;
+    sourceSystem?: string | null;
+    entityType?: { name: string; slug: string } | null;
+    properties?: Record<string, string>;
+    identityValues?: Record<string, string>;
+  };
+  type MergeSuggestion = {
+    id: string;
+    confidence: number | null;
+    signals: Record<string, number>[] | null;
+    createdAt: string;
+    entityA: MergeSuggestionEntity;
+    entityB: MergeSuggestionEntity;
+  };
+  const [mergeLog, setMergeLog] = useState<MergeLogEntry[]>([]);
+  const [mergeLogTotal, setMergeLogTotal] = useState(0);
+  const [mergeLogPage, setMergeLogPage] = useState(1);
+  const [mergeSuggestions, setMergeSuggestions] = useState<MergeSuggestion[]>([]);
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const [reversingId, setReversingId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [dismissingId, setDismissingId] = useState<string | null>(null);
+  const [confirmReverseId, setConfirmReverseId] = useState<string | null>(null);
+
   // Load team data
   const loadTeamData = useCallback(async () => {
     setTeamLoading(true);
@@ -183,6 +223,26 @@ function SettingsPageInner() {
   useEffect(() => {
     if (activeTab === "team") loadTeamData();
   }, [activeTab, loadTeamData]);
+
+  // Load merge data
+  const loadMergeData = useCallback(async (page = 1) => {
+    setMergeLoading(true);
+    try {
+      const [logRes, sugRes] = await Promise.all([
+        fetch(`/api/admin/merge-log?page=${page}&limit=20`).then((r) => r.json()),
+        fetch("/api/admin/merge-suggestions").then((r) => r.json()),
+      ]);
+      setMergeLog(logRes.entries || []);
+      setMergeLogTotal(logRes.total || 0);
+      setMergeLogPage(page);
+      setMergeSuggestions(sugRes.suggestions || []);
+    } catch {}
+    setMergeLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "merges") loadMergeData();
+  }, [activeTab, loadMergeData]);
 
   // Fetch Ollama models when any function uses ollama
   const anyOllama = Object.values(fnConfigs).some(c => c.provider === "ollama");
@@ -375,6 +435,7 @@ function SettingsPageInner() {
     { key: "ai", label: "AI Configuration" },
     { key: "connections", label: "Connections", adminOnly: true },
     { key: "team", label: "Team", adminOnly: true },
+    { key: "merges", label: "Entity Merges", adminOnly: true },
   ];
   const tabs = allTabs.filter((t) => !t.adminOnly || isAdmin);
 
@@ -1147,7 +1208,299 @@ function SettingsPageInner() {
           </div>
         )}
 
+        {/* Entity Merges Tab */}
+        {activeTab === "merges" && (
+          <div className="space-y-6">
+            {/* Section 1: Auto-Merge Log */}
+            <div className="wf-soft p-6 space-y-4">
+              <h2 className="text-lg font-medium text-white/80">Auto-Merge Log</h2>
+              {mergeLoading ? (
+                <p className="text-sm text-white/30">Loading...</p>
+              ) : mergeLog.length === 0 ? (
+                <p className="text-sm text-white/30">No merges recorded yet.</p>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-white/40 border-b border-white/[0.06]">
+                          <th className="pb-2 font-medium">Date</th>
+                          <th className="pb-2 font-medium">Survivor</th>
+                          <th className="pb-2 font-medium">Absorbed</th>
+                          <th className="pb-2 font-medium">Type</th>
+                          <th className="pb-2 font-medium">Confidence</th>
+                          <th className="pb-2 font-medium">Undo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mergeLog.map((entry) => {
+                          const typeBadge: Record<string, { label: string; cls: string }> = {
+                            auto_identity: { label: "Email Match", cls: "bg-blue-500/15 text-blue-400" },
+                            ml_high_confidence: { label: "ML Auto", cls: "bg-amber-500/15 text-amber-400" },
+                            admin_manual: { label: "Manual", cls: "bg-emerald-500/15 text-emerald-400" },
+                          };
+                          const badge = typeBadge[entry.mergeType] || { label: entry.mergeType, cls: "bg-white/10 text-white/50" };
+
+                          return (
+                            <tr key={entry.id} className="border-b border-white/[0.04] align-top">
+                              <td className="py-2.5 text-white/50 text-xs">
+                                {formatMergeDate(entry.createdAt)}
+                              </td>
+                              <td className="py-2.5 text-white/70">{entry.survivor.displayName}</td>
+                              <td className="py-2.5 text-white/50">
+                                {entry.absorbed.displayName}
+                                {entry.absorbed.status === "merged" && (
+                                  <span className="ml-1 text-[10px] text-white/25">(merged)</span>
+                                )}
+                              </td>
+                              <td className="py-2.5">
+                                <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${badge.cls}`}>
+                                  {badge.label}
+                                </span>
+                              </td>
+                              <td className="py-2.5 text-white/60 text-xs">
+                                {entry.confidence != null ? `${Math.round(entry.confidence * 100)}%` : "—"}
+                              </td>
+                              <td className="py-2.5">
+                                {entry.reversedAt ? (
+                                  <span className="text-xs text-white/25">Reversed</span>
+                                ) : (
+                                  <button
+                                    className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+                                    disabled={reversingId === entry.id}
+                                    onClick={() => setConfirmReverseId(entry.id)}
+                                  >
+                                    {reversingId === entry.id ? "..." : "Undo"}
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {mergeLogTotal > mergeLog.length && (
+                    <button
+                      className="text-xs text-purple-400 hover:text-purple-300"
+                      onClick={() => loadMergeData(mergeLogPage + 1)}
+                    >
+                      Load more ({mergeLogTotal - mergeLog.length} remaining)
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Section 2: Pending Suggestions */}
+            <div className="wf-soft p-6 space-y-4">
+              <h2 className="text-lg font-medium text-white/80">Pending Suggestions</h2>
+              {mergeLoading ? (
+                <p className="text-sm text-white/30">Loading...</p>
+              ) : mergeSuggestions.length === 0 ? (
+                <div className="flex items-center gap-3 py-4">
+                  <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <p className="text-sm text-white/40">No pending merge suggestions — all entities are resolved.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {mergeSuggestions.map((s) => {
+                    const aProps = s.entityA.properties || {};
+                    const bProps = s.entityB.properties || {};
+                    const allKeys = Array.from(new Set([...Object.keys(aProps), ...Object.keys(bProps)]));
+                    const signals = Array.isArray(s.signals) ? s.signals : [];
+                    const confPct = s.confidence != null ? Math.round(s.confidence * 100) : null;
+                    const confColor = confPct != null && confPct > 70 ? "text-emerald-400" : "text-amber-400";
+
+                    return (
+                      <div key={s.id} className="bg-white/[0.03] rounded-lg p-5 border border-white/[0.06] space-y-4">
+                        <div className="grid grid-cols-2 gap-6">
+                          {/* Entity A */}
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-medium text-white/80">{s.entityA.displayName}</h4>
+                              {s.entityA.entityType && (
+                                <span className="text-[10px] text-white/30">{s.entityA.entityType.name}</span>
+                              )}
+                            </div>
+                            {s.entityA.sourceSystem && (
+                              <p className="text-[11px] text-white/30">Source: {s.entityA.sourceSystem}</p>
+                            )}
+                            <div className="space-y-1">
+                              {allKeys.map((key) => {
+                                const aVal = aProps[key];
+                                const bVal = bProps[key];
+                                const isMatch = aVal && bVal && aVal === bVal;
+                                return (
+                                  <div key={key} className="flex items-center gap-2 text-xs">
+                                    <span className="text-white/30 w-16 shrink-0 capitalize">{key}:</span>
+                                    <span className={aVal ? (isMatch ? "text-white/80 font-medium" : "text-white/60") : "text-white/20"}>
+                                      {aVal || "—"}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          {/* Entity B */}
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-sm font-medium text-white/80">{s.entityB.displayName}</h4>
+                              {s.entityB.entityType && (
+                                <span className="text-[10px] text-white/30">{s.entityB.entityType.name}</span>
+                              )}
+                            </div>
+                            {s.entityB.sourceSystem && (
+                              <p className="text-[11px] text-white/30">Source: {s.entityB.sourceSystem}</p>
+                            )}
+                            <div className="space-y-1">
+                              {allKeys.map((key) => {
+                                const aVal = aProps[key];
+                                const bVal = bProps[key];
+                                const isMatch = aVal && bVal && aVal === bVal;
+                                return (
+                                  <div key={key} className="flex items-center gap-2 text-xs">
+                                    <span className="text-white/30 w-16 shrink-0 capitalize">{key}:</span>
+                                    <span className={bVal ? (isMatch ? "text-white/80 font-medium" : "text-white/60") : "text-white/20"}>
+                                      {bVal || "—"}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Match signals + confidence */}
+                        <div className="flex items-center justify-between border-t border-white/[0.06] pt-3">
+                          <div className="flex items-center gap-3 text-xs">
+                            {signals.map((sig, i) => {
+                              const key = Object.keys(sig)[0];
+                              const val = sig[key];
+                              if (!key) return null;
+                              return (
+                                <span key={i} className="text-white/40">
+                                  <span className="text-emerald-400 mr-1">&#10003;</span>
+                                  {key.replace(/_/g, " ")} {val != null && typeof val === "number" && val < 1 ? `(${val.toFixed(2)})` : ""}
+                                </span>
+                              );
+                            })}
+                            {confPct != null && (
+                              <span className={`font-medium ${confColor}`}>{confPct}%</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="px-3 py-1 rounded-md text-xs font-medium bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 disabled:opacity-50"
+                              disabled={approvingId === s.id}
+                              onClick={async () => {
+                                setApprovingId(s.id);
+                                try {
+                                  const res = await fetch(`/api/admin/merge-suggestions/${s.id}/approve`, { method: "POST" });
+                                  if (res.ok) {
+                                    setMergeSuggestions((prev) => prev.filter((x) => x.id !== s.id));
+                                    toast("Entities merged", "success");
+                                    loadMergeData(mergeLogPage);
+                                  } else {
+                                    const d = await res.json();
+                                    toast(d.error || "Merge failed", "error");
+                                  }
+                                } catch { toast("Failed", "error"); }
+                                setApprovingId(null);
+                              }}
+                            >
+                              {approvingId === s.id ? "..." : "Merge"}
+                            </button>
+                            <button
+                              className="px-3 py-1 rounded-md text-xs font-medium text-white/40 hover:text-white/60 hover:bg-white/[0.05] disabled:opacity-50"
+                              disabled={dismissingId === s.id}
+                              onClick={async () => {
+                                setDismissingId(s.id);
+                                try {
+                                  const res = await fetch(`/api/admin/merge-suggestions/${s.id}/dismiss`, { method: "POST" });
+                                  if (res.ok) {
+                                    setMergeSuggestions((prev) => prev.filter((x) => x.id !== s.id));
+                                    toast("Suggestion dismissed", "success");
+                                  } else {
+                                    const d = await res.json();
+                                    toast(d.error || "Failed", "error");
+                                  }
+                                } catch { toast("Failed", "error"); }
+                                setDismissingId(null);
+                              }}
+                            >
+                              {dismissingId === s.id ? "..." : "Dismiss"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Undo Merge Confirmation Modal */}
+        {confirmReverseId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="wf-soft max-w-sm w-full mx-4 p-6 space-y-4">
+              <h3 className="text-lg font-medium text-white/90">Reverse Merge</h3>
+              <p className="text-sm text-white/50">
+                This will restore the absorbed entity and revert relationship changes. Continue?
+              </p>
+              <div className="flex justify-end gap-3 pt-2">
+                <Button variant="ghost" size="sm" onClick={() => setConfirmReverseId(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={reversingId === confirmReverseId}
+                  onClick={async () => {
+                    const id = confirmReverseId;
+                    setReversingId(id);
+                    try {
+                      const res = await fetch(`/api/admin/merge-log/${id}/reverse`, { method: "POST" });
+                      if (res.ok) {
+                        toast("Merge reversed", "success");
+                        loadMergeData(mergeLogPage);
+                      } else {
+                        const d = await res.json();
+                        toast(d.error || "Failed", "error");
+                      }
+                    } catch { toast("Failed", "error"); }
+                    setReversingId(null);
+                    setConfirmReverseId(null);
+                  }}
+                  className="bg-red-500/20 text-red-400 hover:bg-red-500/30 border-red-500/20"
+                >
+                  {reversingId === confirmReverseId ? "Reversing..." : "Reverse"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </AppShell>
   );
+}
+
+function formatMergeDate(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays}d ago`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

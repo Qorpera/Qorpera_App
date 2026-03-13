@@ -13,11 +13,12 @@ import { prisma } from "@/lib/db";
 import { chunkDocument } from "@/lib/rag/chunker";
 import { embedChunks } from "@/lib/rag/embedder";
 
-export type ContentInput = {
+type ContentInput = {
   operatorId: string;
   sourceType: string;
   sourceId: string;
   content: string;
+  connectorId?: string;
   entityId?: string;
   departmentIds?: string[];
   metadata?: Record<string, unknown>;
@@ -26,7 +27,7 @@ export type ContentInput = {
 export async function ingestContent(
   input: ContentInput,
 ): Promise<{ chunksCreated: number }> {
-  const { operatorId, sourceType, sourceId, content, entityId, departmentIds, metadata } = input;
+  const { operatorId, sourceType, sourceId, content, connectorId, entityId, departmentIds, metadata } = input;
 
   // 1. Chunk the content
   const chunks = chunkDocument(content);
@@ -54,6 +55,7 @@ export async function ingestContent(
     const created = await prisma.contentChunk.create({
       data: {
         operatorId,
+        connectorId: connectorId ?? null,
         sourceType,
         sourceId,
         entityId: entityId ?? null,

@@ -9,13 +9,15 @@ import { describe, it, expect, vi } from "vitest";
 import type {
   SituationContext,
   ActivityTimeline,
-  ActivityTimelineBucket,
   CommunicationContext,
-  CommunicationExcerpt,
   CrossDepartmentContext,
-  CrossDepartmentSignal,
   ContextSectionMeta,
 } from "@/lib/context-assembly";
+
+// These sub-types are not exported — extract from parent types
+type ActivityTimelineBucket = ActivityTimeline["buckets"][number];
+type CommunicationExcerpt = CommunicationContext["excerpts"][number];
+type CrossDepartmentSignal = CrossDepartmentContext["signals"][number];
 
 describe("SituationContext type contract", () => {
   it("compiles with all v3 fields present", () => {

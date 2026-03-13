@@ -11,7 +11,7 @@ const BCRYPT_SALT_ROUNDS = 12;
 
 // ── Types ────────────────────────────────────────────────
 
-export type SessionUser = {
+type SessionUser = {
   user: User & { operator: Operator };
   operatorId: string;
   isSuperadmin: boolean;

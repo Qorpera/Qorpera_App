@@ -3,7 +3,7 @@ import type { GraphNode, GraphEdge } from "./entity-data";
 
 // ── BFS Graph Traversal ──────────────────────────────────────────────────────
 
-export interface TraversalResult {
+interface TraversalResult {
   nodes: GraphNode[];
   edges: GraphEdge[];
   hops: number;

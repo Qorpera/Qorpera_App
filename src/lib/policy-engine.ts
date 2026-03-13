@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { PolicyEffect, PolicyScope } from "./types";
 
-export type PolicyEvaluation = {
+type PolicyEvaluation = {
   effect: PolicyEffect;
   matchedRule: { id: string; name: string } | null;
 };

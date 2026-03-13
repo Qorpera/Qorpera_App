@@ -48,11 +48,6 @@ export function startSituationCrons() {
   console.log("[situation-cron] Started: detection every 15min, audit every 24h");
 }
 
-export function stopSituationCrons() {
-  if (g._situationDetectionInterval) { clearInterval(g._situationDetectionInterval); g._situationDetectionInterval = undefined; }
-  if (g._situationAuditInterval) { clearInterval(g._situationAuditInterval); g._situationAuditInterval = undefined; }
-}
-
 export function isCronRunning(): boolean {
   return g._situationDetectionInterval !== undefined;
 }

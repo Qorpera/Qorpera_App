@@ -40,6 +40,7 @@ COPY --from=builder /app/node_modules/pdf-parse ./node_modules/pdf-parse
 COPY --from=builder /app/node_modules/mammoth ./node_modules/mammoth
 COPY --from=builder /app/node_modules/xlsx ./node_modules/xlsx
 COPY --from=builder /app/node_modules/papaparse ./node_modules/papaparse
+COPY --from=builder /app/node_modules/docx ./node_modules/docx
 # Entrypoint tools: prisma CLI, tsx, bcryptjs (merges into node_modules)
 COPY --from=tools /tools/node_modules ./node_modules
 # Scripts and entrypoint

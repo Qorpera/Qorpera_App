@@ -118,15 +118,6 @@ export async function ingestActivity(
   return { id: signal.id };
 }
 
-export async function ingestActivities(inputs: ActivityInput[]): Promise<number> {
-  let count = 0;
-  for (const input of inputs) {
-    const result = await ingestActivity(input);
-    if (result) count++;
-  }
-  return count;
-}
-
 /**
  * Resolve participant emails to department IDs.
  * Used by the sync orchestrator for content department routing.

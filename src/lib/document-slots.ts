@@ -16,7 +16,7 @@ export const DOCUMENT_SLOT_TYPES = {
 } as const;
 
 export type SlotType = keyof typeof DOCUMENT_SLOT_TYPES;
-export type DocumentType = SlotType | "context";
+type DocumentType = SlotType | "context";
 
 // Check if a document type is a structural slot
 export function isStructuralSlot(type: string): type is SlotType {

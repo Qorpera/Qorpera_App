@@ -18,7 +18,7 @@ export async function GET() {
 
   const stats = await Promise.all(
     operators.map(async (op) => {
-      const [userCount, departmentCount, entityCount, orientation] = await Promise.all([
+      const [userCount, departmentCount, entityCount, orientation, mergeStats] = await Promise.all([
         prisma.user.count({ where: { operatorId: op.id, role: { not: "superadmin" } } }),
         prisma.entity.count({ where: { operatorId: op.id, category: "foundational" } }),
         prisma.entity.count({ where: { operatorId: op.id } }),
@@ -26,6 +26,22 @@ export async function GET() {
           where: { operatorId: op.id },
           orderBy: { createdAt: "desc" },
           select: { phase: true },
+        }),
+        prisma.entityMergeLog.groupBy({
+          by: ["mergeType"],
+          where: { operatorId: op.id },
+          _count: true,
+        }).then(async (groups) => {
+          const byType: Record<string, number> = {};
+          let total = 0;
+          for (const g of groups) {
+            byType[g.mergeType] = g._count;
+            if (g.mergeType !== "ml_suggestion") total += g._count;
+          }
+          const pending = await prisma.entityMergeLog.count({
+            where: { operatorId: op.id, mergeType: "ml_suggestion", reversedAt: null },
+          });
+          return { total, byType, pending };
         }),
       ]);
 
@@ -38,6 +54,7 @@ export async function GET() {
         departmentCount,
         entityCount,
         onboardingPhase: orientation?.phase ?? "unknown",
+        mergeStats,
       };
     })
   );

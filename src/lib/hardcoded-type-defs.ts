@@ -1,4 +1,4 @@
-export type HardcodedTypeDef = {
+type HardcodedTypeDef = {
   slug: string;
   name: string;
   description: string;

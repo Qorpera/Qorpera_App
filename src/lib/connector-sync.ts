@@ -5,7 +5,7 @@ import { decrypt, encrypt } from "@/lib/encryption";
 import { ingestContent } from "@/lib/content-pipeline";
 import { ingestActivity, resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 
-export type SyncResult = {
+type SyncResult = {
   status: "success" | "partial" | "failed";
   eventsCreated: number;
   eventsSkipped: number;
@@ -91,6 +91,7 @@ export async function runConnectorSync(
             );
             await ingestContent({
               operatorId,
+              connectorId: connector.id,
               sourceType: item.data.sourceType,
               sourceId: item.data.sourceId,
               content: item.data.content,
@@ -213,8 +214,18 @@ export async function runConnectorSync(
       })
       .then(async (entities) => {
         if (entities.length === 0) return;
-        const { runIdentityResolution } = await import("@/lib/identity-resolution");
+        const { runDeterministicMerges, runIdentityResolution } = await import("@/lib/identity-resolution");
         const ids = entities.map((e) => e.id);
+
+        // Phase 1: deterministic email merges (fast, no embeddings)
+        const deterministicResult = await runDeterministicMerges(operatorId, ids);
+        if (deterministicResult.mergesExecuted > 0) {
+          console.log(
+            `[identity-resolution] operator=${operatorId}: ${deterministicResult.mergesExecuted} deterministic email merge(s)`,
+          );
+        }
+
+        // Phase 2: ML fuzzy matching for remaining entities
         return runIdentityResolution(operatorId, ids);
       })
       .then((result) => {

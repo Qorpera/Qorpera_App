@@ -484,7 +484,13 @@ export async function mergeEntities(
       }
     }
 
-    // 5. Mark absorbed entity
+    // 5. Redirect Situation.triggerEntityId
+    await tx.situation.updateMany({
+      where: { triggerEntityId: absorbedId },
+      data: { triggerEntityId: survivorId },
+    });
+
+    // 6. Mark absorbed entity
     await tx.entity.update({
       where: { id: absorbedId },
       data: {
@@ -493,7 +499,7 @@ export async function mergeEntities(
       },
     });
 
-    // 6. Create EntityMergeLog
+    // 7. Create EntityMergeLog
     await tx.entityMergeLog.create({
       data: {
         operatorId,
@@ -508,7 +514,7 @@ export async function mergeEntities(
     });
   });
 
-  // 7. Update survivor embedding (outside transaction — non-critical)
+  // 8. Update survivor embedding (outside transaction — non-critical)
   try {
     await updateEntityEmbedding(survivorId);
   } catch (err) {
@@ -655,7 +661,171 @@ export async function reverseMerge(mergeLogId: string): Promise<void> {
   }
 }
 
-// ── 4. Resolution runner ────────────────────────────────────────────────────
+// ── 4. Deterministic email merge ─────────────────────────────────────────────
+
+export async function runDeterministicMerges(
+  operatorId: string,
+  entityIds?: string[],
+): Promise<{ mergesExecuted: number; mergeLogIds: string[] }> {
+  // 1. Query active entities with an email identity property
+  const entitySelect = {
+    id: true,
+    displayName: true,
+    category: true,
+    sourceSystem: true,
+    createdAt: true,
+    propertyValues: {
+      where: { property: { identityRole: "email" } },
+      select: { value: true },
+    },
+    _count: { select: { propertyValues: true } },
+  } as const;
+
+  let entities;
+
+  if (entityIds?.length) {
+    // Scoped: find emails from the given entities, then find ALL entities with those emails
+    const scopedEmails = await prisma.propertyValue.findMany({
+      where: {
+        entityId: { in: entityIds },
+        property: { identityRole: "email" },
+        value: { not: "" },
+      },
+      select: { value: true },
+    });
+    const emailValues = [...new Set(scopedEmails.map(pv => pv.value.toLowerCase().trim()))];
+    if (emailValues.length === 0) return { mergesExecuted: 0, mergeLogIds: [] };
+
+    entities = await prisma.entity.findMany({
+      where: {
+        operatorId,
+        status: "active",
+        propertyValues: {
+          some: {
+            property: { identityRole: "email" },
+            value: { in: emailValues },
+          },
+        },
+      },
+      select: entitySelect,
+    });
+  } else {
+    entities = await prisma.entity.findMany({
+      where: {
+        operatorId,
+        status: "active",
+        propertyValues: {
+          some: {
+            property: { identityRole: "email" },
+            value: { not: "" },
+          },
+        },
+      },
+      select: entitySelect,
+    });
+  }
+
+  // 2. Group by normalized email
+  const emailGroups = new Map<string, typeof entities>();
+  for (const entity of entities) {
+    for (const pv of entity.propertyValues) {
+      const email = pv.value.toLowerCase().trim();
+      if (!email) continue;
+      const group = emailGroups.get(email) ?? [];
+      group.push(entity);
+      emailGroups.set(email, group);
+    }
+  }
+
+  let mergesExecuted = 0;
+  const mergeLogIds: string[] = [];
+  const alreadyMerged = new Set<string>();
+
+  // 3. Process each email group
+  for (const [emailValue, group] of emailGroups) {
+    // Filter out already-merged entities from this run
+    const remaining = group.filter((e) => !alreadyMerged.has(e.id));
+    if (remaining.length < 2) continue;
+
+    // Same-source block: skip if all entities share the same sourceSystem
+    const sources = remaining.map((e) => e.sourceSystem);
+    const nonNull = sources.filter(Boolean);
+    const allSameSource = nonNull.length === sources.length && new Set(nonNull).size === 1;
+    if (allSameSource) continue;
+
+    // Sort by category priority (desc), then property count (desc), then createdAt (asc)
+    remaining.sort((a, b) => {
+      const aPri = CATEGORY_PRIORITY[a.category] ?? 0;
+      const bPri = CATEGORY_PRIORITY[b.category] ?? 0;
+      if (aPri !== bPri) return bPri - aPri;
+      if (a._count.propertyValues !== b._count.propertyValues)
+        return b._count.propertyValues - a._count.propertyValues;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+
+    const survivor = remaining[0];
+    const toAbsorb = remaining.slice(1);
+
+    for (const absorbed of toAbsorb) {
+      if (alreadyMerged.has(absorbed.id)) continue;
+
+      const signals = {
+        email_exact_match: true,
+        matched_email: emailValue,
+        source_systems: [...new Set(remaining.map((e) => e.sourceSystem).filter(Boolean))],
+      };
+
+      try {
+        await mergeEntities(
+          operatorId,
+          survivor.id,
+          absorbed.id,
+          "auto_identity",
+          1.0,
+          signals,
+        );
+        alreadyMerged.add(absorbed.id);
+        mergesExecuted++;
+
+        // Get the merge log ID (most recent for this pair)
+        const log = await prisma.entityMergeLog.findFirst({
+          where: { operatorId, survivorId: survivor.id, absorbedId: absorbed.id },
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        });
+        if (log) mergeLogIds.push(log.id);
+
+        // Notification: only if absorbed entity had active situations
+        const activeSituationCount = await prisma.situation.count({
+          where: { triggerEntityId: absorbed.id, status: { notIn: ["resolved", "closed"] } },
+        });
+        if (activeSituationCount > 0) {
+          await prisma.notification.create({
+            data: {
+              operatorId,
+              title: "Entity merged — active situations transferred",
+              body: `Entity ${absorbed.displayName} was merged into ${survivor.displayName}. ${activeSituationCount} active situation(s) were transferred — review in Entity Merges.`,
+              sourceType: "system",
+            },
+          });
+        }
+
+        console.log(
+          `[identity-resolution] Deterministic merge: "${absorbed.displayName}" → "${survivor.displayName}" (email=${emailValue})`,
+        );
+      } catch (err) {
+        console.error(
+          `[identity-resolution] Deterministic merge failed for ${absorbed.id} → ${survivor.id}:`,
+          err,
+        );
+      }
+    }
+  }
+
+  return { mergesExecuted, mergeLogIds };
+}
+
+// ── 5. ML Resolution runner ─────────────────────────────────────────────────
 
 export async function runIdentityResolution(
   operatorId: string,

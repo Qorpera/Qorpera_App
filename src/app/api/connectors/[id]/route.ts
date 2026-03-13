@@ -163,10 +163,20 @@ export async function DELETE(
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  // Delete sync logs first, then the connector
-  await prisma.syncLog.deleteMany({ where: { connectorId: id } });
-  await prisma.actionCapability.deleteMany({ where: { connectorId: id } });
-  await prisma.sourceConnector.delete({ where: { id } });
+  // Delete related data, then the connector — atomic transaction
+  await prisma.$transaction(async (tx) => {
+    await tx.contentChunk.deleteMany({ where: { connectorId: id } });
+    await tx.activitySignal.deleteMany({ where: { connectorId: id } });
+    // SituationEvent references Event — clear junction rows before deleting events
+    const eventIds = (await tx.event.findMany({ where: { connectorId: id }, select: { id: true } })).map(e => e.id);
+    if (eventIds.length > 0) {
+      await tx.situationEvent.deleteMany({ where: { eventId: { in: eventIds } } });
+    }
+    await tx.event.deleteMany({ where: { connectorId: id } });
+    await tx.syncLog.deleteMany({ where: { connectorId: id } });
+    await tx.actionCapability.deleteMany({ where: { connectorId: id } });
+    await tx.sourceConnector.delete({ where: { id } });
+  });
 
   return NextResponse.json({ deleted: true });
 }

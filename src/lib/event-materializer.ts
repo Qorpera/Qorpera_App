@@ -7,7 +7,7 @@ import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type MaterializeResult = {
+type MaterializeResult = {
   status: "materialized" | "unrecognized" | "awaiting_type" | "skipped" | "error";
   entityIds?: string[];
   eventType: string;
@@ -206,10 +206,6 @@ async function getDynamicRules(connectorId: string): Promise<MaterializerMapping
 
   dynRuleCache.set(connectorId, { rules, expiresAt: now + DYN_CACHE_TTL });
   return rules;
-}
-
-export function invalidateMaterializerCache(connectorId: string): void {
-  dynRuleCache.delete(connectorId);
 }
 
 // ── Entity Type Auto-Seeding ─────────────────────────────────────────────────
@@ -619,30 +615,3 @@ export async function materializeUnprocessed(
   return results;
 }
 
-export async function retryFailedEvents(
-  operatorId: string,
-  limit: number = 50
-): Promise<MaterializeResult[]> {
-  const events = await prisma.event.findMany({
-    where: {
-      operatorId,
-      materializationError: { not: null },
-    },
-    orderBy: { createdAt: "asc" },
-    take: limit,
-  });
-
-  const results: MaterializeResult[] = [];
-  for (const event of events) {
-    // Clear the error before retrying
-    await prisma.event.update({
-      where: { id: event.id },
-      data: { materializationError: null },
-    });
-
-    const result = await materializeEvent(operatorId, event, { force: true });
-    results.push(result);
-  }
-
-  return results;
-}

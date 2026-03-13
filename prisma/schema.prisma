@@ -240,6 +240,7 @@ model SourceConnector {
   events     Event[]
   syncLogs SyncLog[]
   actionCapabilities ActionCapability[]
+  contentChunks ContentChunk[]
 }
 
 model SyncLog {
@@ -512,6 +513,7 @@ model UserScope {
 model ContentChunk {
   id              String    @id @default(cuid())
   operatorId      String
+  connectorId     String?
   sourceType      String    // "email" | "slack_message" | "drive_doc" | "uploaded_doc" | "calendar_note"
   sourceId        String    // reference to origin (Event.id, InternalDocument.id, etc.)
   entityId        String?   // entity this content is about (if resolvable)
@@ -523,11 +525,13 @@ model ContentChunk {
   metadata        String?   // JSON: { subject, sender, timestamp, channel, fileName, etc. }
   createdAt       DateTime  @default(now())
 
-  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operator        Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  connector       SourceConnector? @relation(fields: [connectorId], references: [id])
 
   @@index([operatorId, sourceType])
   @@index([entityId])
   @@index([operatorId, sourceId])
+  @@index([connectorId])
 }
 
 // ─── Activity Signals ───────────────────────────────────

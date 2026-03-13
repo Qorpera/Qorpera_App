@@ -14,6 +14,11 @@ interface OperatorInfo {
   departmentCount: number;
   entityCount: number;
   onboardingPhase: string;
+  mergeStats?: {
+    total: number;
+    byType: Record<string, number>;
+    pending: number;
+  };
 }
 
 interface SystemStatus {
@@ -226,6 +231,33 @@ export default function AdminPage() {
                             {new Date(op.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                           </span>
                         </div>
+                        {op.mergeStats && op.mergeStats.total > 0 && (
+                          <div className="flex items-center gap-3 mt-1 text-xs text-white/30">
+                            <span>Merges: {op.mergeStats.total}</span>
+                            {op.mergeStats.byType.auto_identity ? <span>{op.mergeStats.byType.auto_identity} email</span> : null}
+                            {op.mergeStats.byType.ml_high_confidence ? <span>{op.mergeStats.byType.ml_high_confidence} ML</span> : null}
+                            {op.mergeStats.byType.admin_manual ? <span>{op.mergeStats.byType.admin_manual} manual</span> : null}
+                            {op.mergeStats.pending > 0 && (
+                              <span className="px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-medium">
+                                {op.mergeStats.pending} pending
+                              </span>
+                            )}
+                            <button
+                              className="text-purple-400 hover:text-purple-300"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const res = await fetch("/api/admin/enter-operator", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ operatorId: op.id }),
+                                });
+                                if (res.ok) router.push("/settings?tab=merges");
+                              }}
+                            >
+                              View
+                            </button>
+                          </div>
+                        )}
                       </div>
                       <Button
                         variant="primary"

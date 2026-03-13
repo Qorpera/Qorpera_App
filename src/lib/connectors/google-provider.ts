@@ -37,7 +37,7 @@ type ThreadEntry = {
 
 // ── Token helper (exported for use by other modules) ────────
 
-export async function getGoogleAccessToken(
+async function getGoogleAccessToken(
   config: ConnectorConfig
 ): Promise<string> {
   return getValidAccessToken(config);

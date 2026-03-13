@@ -3,12 +3,7 @@ import { CATEGORY_PRIORITY } from "@/lib/hardcoded-type-defs";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type ActorInfo = {
-  type: "operator" | "system" | "ai";
-  id: string;
-};
-
-export type EntityHints = {
+type EntityHints = {
   displayName?: string;
   sourceSystem?: string;
   externalId?: string;
@@ -28,7 +23,7 @@ export type ExternalRef = {
   externalId: string;
 };
 
-export type EntityContext = {
+type EntityContext = {
   id: string;
   displayName: string;
   typeName: string;
@@ -51,7 +46,7 @@ export type EntityContext = {
   }[];
 };
 
-export type EntitySearchResult = {
+type EntitySearchResult = {
   id: string;
   displayName: string;
   typeName: string;
@@ -491,44 +486,9 @@ export async function relateEntities(
   });
 }
 
-// ── Mention ──────────────────────────────────────────────────────────────────
-
-export async function recordEntityMention(
-  operatorId: string,
-  entityId: string,
-  sourceType: string,
-  sourceId: string,
-  snippet?: string,
-): Promise<void> {
-  const entity = await prisma.entity.findFirst({
-    where: { id: entityId, operatorId },
-    select: { id: true },
-  });
-  if (!entity) return;
-  await prisma.entityMention.create({
-    data: { entityId, sourceType, sourceId, snippet: snippet?.slice(0, 240) ?? null },
-  });
-}
-
 // ── EAV Helpers ──────────────────────────────────────────────────────────────
 
-export function castPropertyValue(value: string, dataType: string): string | number | boolean | Date {
-  switch (dataType) {
-    case "NUMBER":
-    case "CURRENCY":
-      return parseFloat(value) || 0;
-    case "DATE": {
-      const d = new Date(value);
-      return isNaN(d.getTime()) ? value : d;
-    }
-    case "BOOLEAN":
-      return value === "true";
-    default:
-      return value;
-  }
-}
-
-export function validatePropertyValue(
+function validatePropertyValue(
   value: string,
   dataType: string,
   enumValues?: string[],

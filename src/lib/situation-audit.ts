@@ -11,7 +11,7 @@ type DetectionLogic = {
   naturalLanguage?: string;
 };
 
-export type AuditResult = {
+type AuditResult = {
   situationTypeId: string;
   situationTypeSlug: string;
   entitiesSampled: number;

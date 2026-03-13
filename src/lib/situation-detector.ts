@@ -98,7 +98,7 @@ export async function detectSituations(operatorId: string): Promise<DetectionRes
 
 // ── Detect for a single entity ───────────────────────────────────────────────
 
-export async function detectSituationsForEntity(
+async function detectSituationsForEntity(
   operatorId: string,
   entityId: string,
   entityTypeSlug: string,

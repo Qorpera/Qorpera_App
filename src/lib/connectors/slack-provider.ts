@@ -29,7 +29,7 @@ type SlackMessage = {
 
 // ── Token helper ────────────────────────────────────────────
 
-export function getSlackBotToken(config: ConnectorConfig): string {
+function getSlackBotToken(config: ConnectorConfig): string {
   return config.bot_token as string;
 }
 

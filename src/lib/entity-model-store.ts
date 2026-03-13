@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type EntityTypeInput = {
+type EntityTypeInput = {
   name: string;
   slug: string;
   description?: string;
