@@ -110,9 +110,13 @@ Two databases, two workflows:
 - Multi-provider: OpenAI, Anthropic, Ollama (configured via AI_PROVIDER env var)
 - Closed-world reasoning: AI acts ONLY on provided evidence, never general knowledge
 - RAG: documents chunked with embeddings, retrieved per-department (8 chunks per situation)
+- Context assembly v3 with activity timeline, communication context, cross-department signals
+- Multi-agent reasoning for high-context situations (>12K tokens)
 - Situation detection: cron-triggered, creates situations with reasoning + proposed actions
 - Policy enforcement: double-check (before AND after reasoning)
 - Trust gradient: Observe → Propose → Act (autonomy levels: supervised, notify, autonomous)
+- Personal AI entities with per-user autonomy tracking (PersonalAutonomy model)
+- Effective autonomy: personal level overrides global, highest among scoped users wins
 
 ## File Structure
 - `src/app/` — Next.js App Router pages and API routes
@@ -126,10 +130,11 @@ Two databases, two workflows:
 - `scripts/` — CLI tools (superadmin creation, stress seed)
 
 ## Known Issues (check these during review)
-- Onboarding page is 1888 lines in a single file (should be split but works)
 - Settings connections tab still interactive (users could create rootless connectors)
-- Autonomy history shows current level only (no historical tracking)
-- Step 6 double-advance could partially fail (recovers on refresh)
+- AI entity not created for pre-existing users (need migration script or lazy creation)
+- Graduation notification not actionable (no inline promote button in UI)
+- Non-atomic AI department mirroring (human membership and AI mirror not in transaction)
+- Google scope upgrade: existing Google users need re-auth for write scopes
 
 ## Phase 2: Data Layer (Days 26–28)
 
@@ -176,11 +181,78 @@ Two databases, two workflows:
 - `src/lib/sync-scheduler.ts` — scheduled sync system
 - `src/lib/identity-resolution.ts` — ML entity merge pipeline
 - `src/lib/connectors/sync-types.ts` — SyncYield type definitions
+- `src/lib/connectors/google-provider.ts` — unified Google connector (Gmail, Drive, Calendar, Sheets)
+- `src/lib/connectors/microsoft-provider.ts` — unified Microsoft connector (Outlook, OneDrive, Teams, Calendar)
+- `src/lib/connectors/microsoft-auth.ts` — Azure AD OAuth token management
+- `src/lib/connectors/slack-provider.ts` — Slack bot connector
+- `src/lib/context-assembly.ts` — v3 with three new data loaders
+- `src/lib/multi-agent-reasoning.ts` — specialist agents + coordinator synthesis
+- `src/lib/reasoning-types.ts` — shared Zod schema (extracted from reasoning-engine)
+- `src/lib/autonomy-graduation.ts` — personal autonomy graduation/demotion logic
 - `src/lib/rag/retriever.ts` — rewritten for pgvector (no more JS cosine similarity)
 
 ### Retention
 - ActivitySignal: 90-day retention, daily cleanup tick in instrumentation.ts
 - EntityMergeLog snapshots: indefinite (no automated expiry yet)
+
+## Phase 2: Connectors (Days 29–36)
+
+### Google (personal connector, per-user OAuth)
+- Gmail: email sync + write-back (`send_email`, `reply_to_thread`)
+- Drive: document content indexing (Docs, Slides, text, CSV, markdown — skip PDFs)
+- Calendar: meeting activity signals + `calendar_note` content
+- Sheets: spreadsheet content indexing as single ContentChunk per sheet
+
+### Microsoft 365 (personal connector, per-user Azure AD OAuth)
+- Outlook: mirrors Gmail pattern
+- OneDrive: local file parsing (mammoth for .docx, SheetJS for .xlsx, XML for .pptx)
+- Teams: mirrors Slack pattern (graceful skip if scope denied)
+- Calendar: mirrors Google Calendar
+
+### Slack (company connector, bot token OAuth)
+- Channel sync with thread grouping
+- User identity mapping via `users:read.email`
+- Write-back: `send_slack_message`, `react_to_message`
+
+### Document Write-Back (both providers)
+- Google: `create_spreadsheet`, `update_spreadsheet_cells`, `create_document`, `append_to_document`
+- Microsoft: same four capabilities via Graph API + docx/xlsx packages
+
+## Phase 2: Context Assembly v3
+
+- `loadActivityTimeline()` — 30-day activity buckets with trends
+- `loadCommunicationContext()` — pgvector retrieval, two-pass (entity-scoped → broader)
+- `loadCrossDepartmentSignals()` — external entities only, cross-department interaction patterns
+- `ContextSectionMeta` telemetry for future evaluation scoring
+
+## Phase 2: Multi-Agent Reasoning
+
+- Token-based routing: `shouldUseMultiAgent()` at 12,000 token threshold
+- Three specialists: Financial, Communication, Process/Compliance
+- Parallel execution via `Promise.allSettled`
+- Coordinator sees specialist findings only (not raw context)
+- `_multiAgent` metadata stored in situation reasoning JSON
+- Same `ReasoningOutput` schema for both paths
+
+## Phase 2: Personal AI Entity
+
+- `ai-agent` entity type, auto-created in invite acceptance transaction
+- `ownerUserId @unique` on Entity
+- Department mirroring: AI follows owner's department membership changes
+- `mirrorDepartmentRemovalToAi()` helper
+- PersonalAutonomy model: per (situationType, aiEntity), tracks consecutiveApprovals, totalProposed, totalApproved, approvalRate
+- `getEffectiveAutonomy()` resolves personal level, highest-autonomy-wins across scoped users
+- Graduation creates notification only (no auto-promote)
+- Endpoints: GET `/api/personal-autonomy`, POST `/api/personal-autonomy/[id]/promote`, GET `/api/me/ai-entity`, GET `/api/admin/ai-learning-overview`
+
+## Copilot Tools
+
+- `search_emails` — Gmail + Outlook content via pgvector
+- `get_email_thread` — chronological thread view, department scoped
+- `search_documents` — Drive + OneDrive content via pgvector
+- `get_activity_summary` — aggregated ActivitySignals with trend comparison
+- `search_messages` — Slack + Teams content via pgvector
+- `get_message_thread` — unified thread view across Slack and Teams
 
 ## Testing
 
