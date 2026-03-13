@@ -81,7 +81,7 @@ async function main() {
     );
     const signalPlanText = signalPlan.map((r) => r["QUERY PLAN"]).join("\n");
     console.log(signalPlanText);
-    const rowMatch = signalPlanText.match(/rows=(\d+)/);
+    const rowMatch = signalPlanText.match(/actual[\s\S]*?rows=(\d+)/);
     const timeMatch = signalPlanText.match(/Execution Time:\s*([\d.]+)\s*ms/);
     if (rowMatch) console.log(`\nRows returned: ${rowMatch[1]}`);
     if (timeMatch) console.log(`Execution time: ${timeMatch[1]}ms`);
@@ -186,8 +186,8 @@ async function main() {
   await prisma.$disconnect();
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error("Fatal:", e);
-  prisma.$disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });
