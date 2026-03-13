@@ -18,7 +18,7 @@ export async function GET() {
 
   const stats = await Promise.all(
     operators.map(async (op) => {
-      const [userCount, departmentCount, entityCount, orientation, mergeStats] = await Promise.all([
+      const [userCount, departmentCount, entityCount, orientation, mergeStats, aiStats] = await Promise.all([
         prisma.user.count({ where: { operatorId: op.id, role: { not: "superadmin" } } }),
         prisma.entity.count({ where: { operatorId: op.id, category: "foundational" } }),
         prisma.entity.count({ where: { operatorId: op.id } }),
@@ -43,6 +43,22 @@ export async function GET() {
           });
           return { total, byType, pending };
         }),
+        (async () => {
+          const aiCount = await prisma.entity.count({
+            where: { operatorId: op.id, entityType: { slug: "ai-agent" }, status: "active" },
+          });
+          if (aiCount === 0) return null;
+          const paGroups = await prisma.personalAutonomy.groupBy({
+            by: ["autonomyLevel"],
+            where: { aiEntity: { operatorId: op.id } },
+            _count: true,
+          });
+          const counts: Record<string, number> = { supervised: 0, notify: 0, autonomous: 0 };
+          for (const g of paGroups) {
+            if (counts[g.autonomyLevel] !== undefined) counts[g.autonomyLevel] = g._count;
+          }
+          return { totalAiEntities: aiCount, counts };
+        })(),
       ]);
 
       return {
@@ -55,6 +71,7 @@ export async function GET() {
         entityCount,
         onboardingPhase: orientation?.phase ?? "unknown",
         mergeStats,
+        aiStats,
       };
     })
   );

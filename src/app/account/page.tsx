@@ -21,6 +21,21 @@ interface PersonalConnector {
   email?: string;
 }
 
+interface AiEntity {
+  id: string;
+  displayName: string;
+  departments: Array<{ id: string; displayName: string }>;
+}
+
+interface PersonalAutonomyRow {
+  id: string;
+  autonomyLevel: string;
+  totalProposed: number;
+  totalApproved: number;
+  consecutiveApprovals: number;
+  situationType: { name: string; slug: string };
+}
+
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-purple-500/20 text-purple-300 border-purple-500/30",
   member: "bg-white/[0.06] text-white/60 border-white/10",
@@ -47,6 +62,8 @@ function AccountPageInner() {
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [connectingMicrosoft, setConnectingMicrosoft] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [aiEntity, setAiEntity] = useState<AiEntity | null | undefined>(undefined);
+  const [paRows, setPaRows] = useState<PersonalAutonomyRow[]>([]);
 
   const loadPersonalConnectors = useCallback(async () => {
     try {
@@ -73,6 +90,19 @@ function AccountPageInner() {
       })
       .finally(() => setLoading(false));
     loadPersonalConnectors();
+    // Load AI entity + autonomy
+    fetchApi("/api/me/ai-entity").then(async (res) => {
+      if (res.ok) {
+        const data = await res.json();
+        setAiEntity(data);
+        if (data) {
+          const paRes = await fetchApi("/api/personal-autonomy");
+          if (paRes.ok) setPaRows(await paRes.json());
+        }
+      } else {
+        setAiEntity(null);
+      }
+    }).catch(() => setAiEntity(null));
   }, [loadPersonalConnectors]);
 
   // Handle OAuth return
@@ -152,6 +182,84 @@ function AccountPageInner() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-white/40">Organization</span>
               <span className="text-sm text-white/70">{operator.companyName}</span>
+            </div>
+          )}
+        </div>
+
+        {/* My AI Assistant */}
+        <div className="mt-8 pt-8 border-t border-white/[0.06]">
+          <h2 className="text-sm font-medium text-white/60 mb-2 flex items-center gap-2">
+            <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+            </svg>
+            My AI Assistant
+          </h2>
+
+          {aiEntity === undefined ? (
+            <p className="text-xs text-white/30">Loading...</p>
+          ) : aiEntity === null ? (
+            <div className="wf-soft p-5">
+              <p className="text-sm text-white/40">
+                No AI assistant yet. Your assistant will be created when your account is set up by an admin.
+              </p>
+            </div>
+          ) : (
+            <div className="wf-soft p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-white/40">Name</span>
+                <span className="text-sm text-white/70">{aiEntity.displayName}</span>
+              </div>
+              {aiEntity.departments.length > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-white/40">Departments</span>
+                  <span className="text-sm text-white/70">
+                    {aiEntity.departments.map(d => d.displayName).join(", ")}
+                  </span>
+                </div>
+              )}
+              {paRows.length > 0 ? (
+                <div className="pt-3 border-t border-white/[0.06]">
+                  <p className="text-xs text-white/35 mb-3">Learning Progress</p>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[11px] text-white/30 uppercase tracking-wider">
+                        <th className="text-left pb-2 font-medium">Situation Type</th>
+                        <th className="text-left pb-2 font-medium">Level</th>
+                        <th className="text-right pb-2 font-medium">Approvals</th>
+                        <th className="text-right pb-2 font-medium">Rate</th>
+                        <th className="text-right pb-2 font-medium">Consecutive</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paRows.map((pa) => {
+                        const total = pa.totalProposed;
+                        const rate = total > 0 ? Math.round((pa.totalApproved / total) * 100) : 0;
+                        const levelColors: Record<string, string> = {
+                          supervised: "bg-white/[0.06] text-white/60 border-white/10",
+                          notify: "bg-amber-500/15 text-amber-300 border-amber-500/20",
+                          autonomous: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
+                        };
+                        const lc = levelColors[pa.autonomyLevel] ?? levelColors.supervised;
+                        return (
+                          <tr key={pa.id} className="border-t border-white/[0.04]">
+                            <td className="py-2 text-white/70">{pa.situationType.name}</td>
+                            <td className="py-2">
+                              <span className={`text-[11px] px-2 py-0.5 rounded-full border ${lc}`}>
+                                {pa.autonomyLevel}
+                              </span>
+                            </td>
+                            <td className="py-2 text-right text-white/50">{pa.totalApproved}/{total}</td>
+                            <td className="py-2 text-right text-white/50">{rate}%</td>
+                            <td className="py-2 text-right text-white/50">{pa.consecutiveApprovals}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-white/25 pt-2">No learning data yet. Approve or reject situations to start training.</p>
+              )}
             </div>
           )}
         </div>

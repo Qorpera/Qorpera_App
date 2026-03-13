@@ -159,6 +159,15 @@ export const HARDCODED_TYPE_DEFS: Record<string, HardcodedTypeDef> = {
       { slug: "page-count", name: "Page Count", dataType: "NUMBER" },
     ],
   },
+  "ai-agent": {
+    slug: "ai-agent",
+    name: "AI Assistant",
+    description: "A personal AI assistant paired with a team member",
+    icon: "bot",
+    color: "#6366f1",
+    defaultCategory: "base",
+    properties: [],
+  },
 };
 
 // Category priority for merge hierarchy

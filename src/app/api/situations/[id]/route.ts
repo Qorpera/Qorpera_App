@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
-import { checkGraduation, checkDemotion } from "@/lib/autonomy-graduation";
+import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
 import { executeSituationAction } from "@/lib/situation-executor";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
@@ -160,6 +160,35 @@ export async function PATCH(
       checkDemotion(situation.situationTypeId).catch((err) =>
         console.error(`[situation-patch] Demotion check failed:`, err),
       );
+      // Personal autonomy tracking
+      const aiEntityRejection = await prisma.entity.findFirst({
+        where: { ownerUserId: user.id, operatorId, status: "active" },
+        select: { id: true },
+      });
+      if (aiEntityRejection) {
+        const pa = await prisma.personalAutonomy.findUnique({
+          where: {
+            situationTypeId_aiEntityId: {
+              situationTypeId: situation.situationTypeId,
+              aiEntityId: aiEntityRejection.id,
+            },
+          },
+        });
+        if (pa) {
+          const newProposed = pa.totalProposed + 1;
+          await prisma.personalAutonomy.update({
+            where: { id: pa.id },
+            data: {
+              totalProposed: newProposed,
+              consecutiveApprovals: 0,
+              approvalRate: newProposed > 0 ? pa.totalApproved / newProposed : 0,
+            },
+          });
+          checkPersonalDemotion(pa.id).catch((err) =>
+            console.error(`[situation-patch] Personal demotion check failed:`, err),
+          );
+        }
+      }
     }
     if (body.status === "approved") {
       const st = await prisma.situationType.findUnique({
@@ -182,6 +211,49 @@ export async function PATCH(
       checkGraduation(situation.situationTypeId).catch((err) =>
         console.error(`[situation-patch] Graduation check failed:`, err),
       );
+      // Personal autonomy tracking
+      const aiEntityApproval = await prisma.entity.findFirst({
+        where: { ownerUserId: user.id, operatorId, status: "active" },
+        select: { id: true },
+      });
+      if (aiEntityApproval) {
+        let pa = await prisma.personalAutonomy.findUnique({
+          where: {
+            situationTypeId_aiEntityId: {
+              situationTypeId: situation.situationTypeId,
+              aiEntityId: aiEntityApproval.id,
+            },
+          },
+        });
+        if (!pa) {
+          pa = await prisma.personalAutonomy.create({
+            data: {
+              operatorId,
+              situationTypeId: situation.situationTypeId,
+              aiEntityId: aiEntityApproval.id,
+              totalProposed: 1,
+              totalApproved: 1,
+              consecutiveApprovals: 1,
+              approvalRate: 1.0,
+            },
+          });
+        } else {
+          const newProposed = pa.totalProposed + 1;
+          const newApproved = pa.totalApproved + 1;
+          pa = await prisma.personalAutonomy.update({
+            where: { id: pa.id },
+            data: {
+              totalProposed: newProposed,
+              totalApproved: newApproved,
+              consecutiveApprovals: pa.consecutiveApprovals + 1,
+              approvalRate: newProposed > 0 ? newApproved / newProposed : 0,
+            },
+          });
+        }
+        checkPersonalGraduation(pa.id).catch((err) =>
+          console.error(`[situation-patch] Personal graduation check failed:`, err),
+        );
+      }
       // Store approving user so executor can resolve their personal connector token
       updates.assignedUserId = user.id;
     }

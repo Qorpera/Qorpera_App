@@ -118,8 +118,10 @@ export async function evaluateActionPolicies(
 export function getEffectiveAutonomy(
   situationType: { autonomyLevel: string },
   policyResult: PolicyEvaluationResult,
+  personalAutonomyLevel?: string,
 ): "supervised" | "notify" | "autonomous" {
-  const base = situationType.autonomyLevel as "supervised" | "notify" | "autonomous";
+  const base = (personalAutonomyLevel ?? situationType.autonomyLevel) as
+    "supervised" | "notify" | "autonomous";
 
   if (base === "supervised") return "supervised";
 

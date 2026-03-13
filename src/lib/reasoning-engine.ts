@@ -80,7 +80,65 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       situation.triggerEntityId ?? "",
     );
 
-    const effectiveAutonomy = getEffectiveAutonomy(situation.situationType, policyResult);
+    // Look up personal autonomy for users in scope
+    let personalAutonomyLevel: string | undefined;
+
+    if (situation.triggerEntityId) {
+      const triggerEntity = await prisma.entity.findUnique({
+        where: { id: situation.triggerEntityId },
+        select: { parentDepartmentId: true },
+      });
+
+      if (triggerEntity?.parentDepartmentId) {
+        const scopedUsers = await prisma.userScope.findMany({
+          where: { departmentEntityId: triggerEntity.parentDepartmentId },
+          select: { userId: true },
+        });
+        const adminUsers = await prisma.user.findMany({
+          where: { operatorId: situation.operatorId, role: "admin" },
+          select: { id: true },
+        });
+        const allUserIds = [
+          ...new Set([
+            ...scopedUsers.map(s => s.userId),
+            ...adminUsers.map(u => u.id),
+          ]),
+        ];
+
+        if (allUserIds.length > 0) {
+          const aiEntities = await prisma.entity.findMany({
+            where: { ownerUserId: { in: allUserIds }, operatorId: situation.operatorId, status: "active" },
+            select: { id: true },
+          });
+
+          if (aiEntities.length > 0) {
+            const pas = await prisma.personalAutonomy.findMany({
+              where: {
+                situationTypeId: situation.situationTypeId,
+                aiEntityId: { in: aiEntities.map(e => e.id) },
+              },
+              select: { autonomyLevel: true },
+            });
+
+            const AUTONOMY_RANK: Record<string, number> = {
+              supervised: 0, notify: 1, autonomous: 2,
+            };
+            if (pas.length > 0) {
+              const highest = pas.reduce((best, pa) =>
+                (AUTONOMY_RANK[pa.autonomyLevel] ?? 0) > (AUTONOMY_RANK[best.autonomyLevel] ?? 0) ? pa : best
+              );
+              personalAutonomyLevel = highest.autonomyLevel;
+            }
+          }
+        }
+      }
+    }
+
+    const effectiveAutonomy = getEffectiveAutonomy(
+      situation.situationType,
+      policyResult,
+      personalAutonomyLevel,
+    );
 
     // 6. Build prompt
     const [businessCtx, operator] = await Promise.all([

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useUser } from "@/components/user-provider";
 import { AppShell } from "@/components/app-shell";
 import {
   LineChart,
@@ -123,7 +124,17 @@ const CHART_TOOLTIP_STYLE = {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+interface AiLearningEntry {
+  id: string;
+  name: string;
+  ownerName: string;
+  department: string;
+  counts: { supervised: number; notify: number; autonomous: number };
+  topTask: { name: string; level: string } | null;
+}
+
 export default function LearningPage() {
+  const { isAdmin } = useUser();
   const [period, setPeriod] = useState(30);
   const [departmentFilter, setDepartmentFilter] = useState<string | null>(null);
   const [overview, setOverview] = useState<OverviewData | null>(null);
@@ -132,6 +143,7 @@ export default function LearningPage() {
   const [loading, setLoading] = useState(true);
   const [expandedType, setExpandedType] = useState<string | null>(null);
   const [typeDetail, setTypeDetail] = useState<TypeDetail | null>(null);
+  const [aiLearning, setAiLearning] = useState<AiLearningEntry[]>([]);
 
   useEffect(() => {
     setLoading(true);
@@ -147,6 +159,15 @@ export default function LearningPage() {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [period]);
+
+  // Fetch AI learning overview for admins
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch("/api/admin/ai-learning-overview")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setAiLearning(data))
+      .catch(() => {});
+  }, [isAdmin]);
 
   const expandType = useCallback(
     async (typeId: string) => {
@@ -261,6 +282,11 @@ export default function LearningPage() {
 
             {/* Panel 4: Feedback Impact */}
             <FeedbackPanel feedback={filteredFeedback} />
+
+            {/* Panel 5: AI Learning by Team Member (admin only) */}
+            {isAdmin && (
+              <AiLearningPanel entries={aiLearning} />
+            )}
           </>
         )}
       </div>
@@ -791,6 +817,68 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
         <div className="wf-soft p-4">
           <h3 className="text-xs text-white/30 mb-2">Feedback Themes</h3>
           <p className="text-sm text-white/50">{feedback.feedbackThemeSummary}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── Panel 5: AI Learning by Team Member ─────────────────────────────────────
+
+function AiLearningPanel({ entries }: { entries: AiLearningEntry[] }) {
+  const LEVEL_COLORS: Record<string, string> = {
+    supervised: "bg-white/[0.06] text-white/60 border-white/10",
+    notify: "bg-amber-500/15 text-amber-300 border-amber-500/20",
+    autonomous: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
+  };
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
+        AI Learning by Team Member
+      </h2>
+
+      {entries.length === 0 ? (
+        <div className="wf-soft p-6 text-center">
+          <p className="text-sm text-white/30">No AI assistants have been created yet.</p>
+        </div>
+      ) : (
+        <div className="wf-soft overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[11px] text-white/30 uppercase tracking-wider border-b border-white/[0.06]">
+                <th className="text-left px-4 py-3 font-medium">AI Assistant</th>
+                <th className="text-left px-4 py-3 font-medium">Owner</th>
+                <th className="text-left px-4 py-3 font-medium">Department</th>
+                <th className="text-center px-4 py-3 font-medium">Tasks (S / N / A)</th>
+                <th className="text-left px-4 py-3 font-medium">Top Task</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id} className="border-t border-white/[0.04]">
+                  <td className="px-4 py-3 text-white/70">{e.name}</td>
+                  <td className="px-4 py-3 text-white/50">{e.ownerName}</td>
+                  <td className="px-4 py-3 text-white/50">{e.department}</td>
+                  <td className="px-4 py-3 text-center text-white/50">
+                    {e.counts.supervised} / {e.counts.notify} / {e.counts.autonomous}
+                  </td>
+                  <td className="px-4 py-3">
+                    {e.topTask ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="text-white/60">{e.topTask.name}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${LEVEL_COLORS[e.topTask.level] ?? LEVEL_COLORS.supervised}`}>
+                          {e.topTask.level}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-white/25">No tasks yet</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </section>

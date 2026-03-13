@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSession, setSessionCookie } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 class TxError extends Error {
   constructor(message: string, public status: number) {
@@ -53,6 +54,36 @@ export async function POST(
           },
         });
       }
+
+      // Create personal AI assistant entity
+      let aiAgentType = await tx.entityType.findFirst({
+        where: { operatorId: invite.operatorId, slug: "ai-agent" },
+      });
+      if (!aiAgentType) {
+        const def = HARDCODED_TYPE_DEFS["ai-agent"];
+        aiAgentType = await tx.entityType.create({
+          data: {
+            operatorId: invite.operatorId,
+            slug: def.slug,
+            name: def.name,
+            description: def.description,
+            icon: def.icon,
+            color: def.color,
+            defaultCategory: def.defaultCategory,
+          },
+        });
+      }
+
+      await tx.entity.create({
+        data: {
+          operatorId: invite.operatorId,
+          entityTypeId: aiAgentType.id,
+          displayName: `${entity.displayName}'s Assistant`,
+          category: "base",
+          parentDepartmentId: entity.parentDepartmentId,
+          ownerUserId: newUser.id,
+        },
+      });
 
       // Mark invite claimed
       await tx.invite.update({

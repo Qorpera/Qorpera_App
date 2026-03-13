@@ -4,6 +4,49 @@ import { prisma } from "@/lib/db";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { updateMemberSchema, parseBody } from "@/lib/api-validation";
 
+async function mirrorDepartmentRemovalToAi(
+  entityId: string,
+  departmentId: string,
+  operatorId: string,
+) {
+  const humanUser = await prisma.user.findFirst({
+    where: { entityId },
+    select: { id: true },
+  });
+  if (!humanUser) return;
+
+  const aiEntity = await prisma.entity.findFirst({
+    where: { ownerUserId: humanUser.id, operatorId, status: "active" },
+    select: { id: true },
+  });
+  if (!aiEntity) return;
+
+  // Clear home department if it matches
+  const aiHome = await prisma.entity.findFirst({
+    where: { id: aiEntity.id, parentDepartmentId: departmentId },
+  });
+  if (aiHome) {
+    await prisma.entity.update({
+      where: { id: aiEntity.id },
+      data: { parentDepartmentId: null },
+    });
+  }
+
+  // Remove cross-dept relationship if exists
+  const aiCrossRel = await prisma.relationship.findFirst({
+    where: {
+      relationshipType: { slug: "department-member", operatorId },
+      OR: [
+        { fromEntityId: aiEntity.id, toEntityId: departmentId },
+        { fromEntityId: departmentId, toEntityId: aiEntity.id },
+      ],
+    },
+  });
+  if (aiCrossRel) {
+    await prisma.relationship.delete({ where: { id: aiCrossRel.id } });
+  }
+}
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; entityId: string }> },
@@ -112,6 +155,8 @@ export async function DELETE(
       where: { id: entityId },
       data: { parentDepartmentId: null },
     });
+    await mirrorDepartmentRemovalToAi(entityId, id, operatorId);
+
     return NextResponse.json({ ok: true });
   }
 
@@ -128,6 +173,8 @@ export async function DELETE(
 
   if (crossRel) {
     await prisma.relationship.delete({ where: { id: crossRel.id } });
+    await mirrorDepartmentRemovalToAi(entityId, id, operatorId);
+
     return NextResponse.json({ ok: true });
   }
 

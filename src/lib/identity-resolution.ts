@@ -776,6 +776,11 @@ export async function runDeterministicMerges(
       };
 
       try {
+        // Count active situations BEFORE merge (merge redirects triggerEntityId)
+        const activeSituationCount = await prisma.situation.count({
+          where: { operatorId, triggerEntityId: absorbed.id, status: { notIn: ["resolved", "closed"] } },
+        });
+
         await mergeEntities(
           operatorId,
           survivor.id,
@@ -795,10 +800,6 @@ export async function runDeterministicMerges(
         });
         if (log) mergeLogIds.push(log.id);
 
-        // Notification: only if absorbed entity had active situations
-        const activeSituationCount = await prisma.situation.count({
-          where: { triggerEntityId: absorbed.id, status: { notIn: ["resolved", "closed"] } },
-        });
         if (activeSituationCount > 0) {
           await prisma.notification.create({
             data: {

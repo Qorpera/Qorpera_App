@@ -11,6 +11,7 @@ const MEMBER_INCLUDE = {
   propertyValues: {
     include: { property: { select: { slug: true, name: true, dataType: true } } },
   },
+  ownerUser: { select: { name: true } },
 } as const;
 
 export async function GET(
@@ -83,7 +84,37 @@ export async function GET(
     });
   }
 
-  return NextResponse.json([...homeMembers, ...crossMembers]);
+  // For ai-agent members, load PersonalAutonomy summary
+  const allMembers = [...homeMembers, ...crossMembers];
+  const aiMemberIds = allMembers
+    .filter((m) => (m as { entityType?: { slug: string } }).entityType?.slug === "ai-agent")
+    .map((m) => (m as { id: string }).id);
+
+  const aiSummaries = new Map<string, Record<string, number>>();
+
+  if (aiMemberIds.length > 0) {
+    const paRows = await prisma.personalAutonomy.findMany({
+      where: { aiEntityId: { in: aiMemberIds } },
+      select: { aiEntityId: true, autonomyLevel: true },
+    });
+    for (const pa of paRows) {
+      if (!aiSummaries.has(pa.aiEntityId)) {
+        aiSummaries.set(pa.aiEntityId, { supervised: 0, notify: 0, autonomous: 0 });
+      }
+      const s = aiSummaries.get(pa.aiEntityId)!;
+      if (s[pa.autonomyLevel] !== undefined) s[pa.autonomyLevel]++;
+    }
+  }
+
+  const enriched = allMembers.map((m) => {
+    const member = m as { id: string; entityType?: { slug: string } };
+    if (member.entityType?.slug === "ai-agent") {
+      return { ...m, autonomySummary: aiSummaries.get(member.id) ?? null };
+    }
+    return m;
+  });
+
+  return NextResponse.json(enriched);
 }
 
 export async function POST(
@@ -218,6 +249,39 @@ export async function POST(
             metadata: JSON.stringify({ role: role.trim() }),
           },
         });
+
+        // Mirror cross-department membership to the human's AI entity
+        const humanUser = await prisma.user.findFirst({
+          where: { entityId: existing.id },
+          select: { id: true },
+        });
+        if (humanUser) {
+          const aiEntity = await prisma.entity.findFirst({
+            where: { ownerUserId: humanUser.id, operatorId, status: "active" },
+            select: { id: true },
+          });
+          if (aiEntity) {
+            const existingAiRel = await prisma.relationship.findFirst({
+              where: {
+                relationshipType: { slug: "department-member", operatorId },
+                OR: [
+                  { fromEntityId: aiEntity.id, toEntityId: id },
+                  { fromEntityId: id, toEntityId: aiEntity.id },
+                ],
+              },
+            });
+            if (!existingAiRel) {
+              await prisma.relationship.create({
+                data: {
+                  relationshipTypeId: relType.id,
+                  fromEntityId: aiEntity.id,
+                  toEntityId: id,
+                  metadata: JSON.stringify({ role: "AI Assistant" }),
+                },
+              });
+            }
+          }
+        }
 
         // Return existing entity with cross-department info
         const result = await prisma.entity.findUnique({

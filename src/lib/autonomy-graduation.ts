@@ -98,3 +98,73 @@ export async function checkDemotion(situationTypeId: string): Promise<void> {
     },
   }).catch(() => {});
 }
+
+// ── Personal Autonomy Graduation ────────────────────────────────────────────
+
+export async function checkPersonalGraduation(personalAutonomyId: string): Promise<void> {
+  const pa = await prisma.personalAutonomy.findUnique({
+    where: { id: personalAutonomyId },
+    include: {
+      situationType: { select: { name: true } },
+      aiEntity: { select: { displayName: true } },
+    },
+  });
+  if (!pa) return;
+
+  const thresholds = await getThresholds();
+  let nextLevel: string | null = null;
+
+  if (
+    pa.autonomyLevel === "supervised" &&
+    pa.consecutiveApprovals >= thresholds.supervisedToNotifyConsecutive &&
+    pa.approvalRate >= thresholds.supervisedToNotifyRate
+  ) {
+    nextLevel = "notify";
+  } else if (
+    pa.autonomyLevel === "notify" &&
+    pa.consecutiveApprovals >= thresholds.notifyToAutonomousConsecutive &&
+    pa.approvalRate >= thresholds.notifyToAutonomousRate
+  ) {
+    nextLevel = "autonomous";
+  }
+
+  if (!nextLevel) return;
+
+  const ratePercent = (pa.approvalRate * 100).toFixed(0);
+
+  await prisma.notification.create({
+    data: {
+      operatorId: pa.operatorId,
+      title: `Promote ${pa.aiEntity.displayName} to ${nextLevel}: ${pa.situationType.name}`,
+      body: `${pa.consecutiveApprovals} consecutive approvals with ${ratePercent}% accuracy. Promote to ${nextLevel} mode?`,
+      sourceType: "graduation",
+      sourceId: personalAutonomyId,
+    },
+  }).catch(() => {});
+}
+
+export async function checkPersonalDemotion(personalAutonomyId: string): Promise<void> {
+  const pa = await prisma.personalAutonomy.findUnique({
+    where: { id: personalAutonomyId },
+    include: {
+      situationType: { select: { name: true } },
+      aiEntity: { select: { displayName: true } },
+    },
+  });
+  if (!pa || pa.autonomyLevel === "supervised") return;
+
+  await prisma.personalAutonomy.update({
+    where: { id: pa.id },
+    data: { autonomyLevel: "supervised" },
+  });
+
+  await prisma.notification.create({
+    data: {
+      operatorId: pa.operatorId,
+      title: `Demoted ${pa.aiEntity.displayName} to supervised: ${pa.situationType.name}`,
+      body: `A rejection was received — reverting to human review.`,
+      sourceType: "graduation",
+      sourceId: personalAutonomyId,
+    },
+  }).catch(() => {});
+}
