@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { searchAround } from "@/lib/graph-traversal";
-import { retrieveRelevantContext } from "@/lib/rag/retriever";
+import { retrieveRelevantContext, retrieveRelevantChunks } from "@/lib/rag/retriever";
+import { embedChunks } from "@/lib/rag/embedder";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -33,6 +34,63 @@ export interface EntitySummary {
   relationship: string;
   direction: string;
   properties: Record<string, string>;
+}
+
+// ── Activity Intelligence Types (v3) ────────────────────────────────────────
+
+export interface ActivityTimelineBucket {
+  period: string;
+  emailSent: number;
+  emailReceived: number;
+  meetingsHeld: number;
+  meetingMinutes: number;
+  slackMessages: number;
+  docsEdited: number;
+  docsCreated: number;
+  avgResponseTimeHours: number | null;
+}
+
+export interface ActivityTimeline {
+  buckets: ActivityTimelineBucket[];
+  trend: string;
+  totalSignals: number;
+}
+
+export interface CommunicationExcerpt {
+  sourceType: string;
+  content: string;
+  metadata: {
+    subject?: string;
+    sender?: string;
+    channel?: string;
+    timestamp?: string;
+    direction?: string;
+  };
+  score: number;
+}
+
+export interface CommunicationContext {
+  excerpts: CommunicationExcerpt[];
+  sourceBreakdown: Record<string, number>;
+}
+
+export interface CrossDepartmentSignal {
+  departmentName: string;
+  departmentId: string;
+  emailCount: number;
+  meetingCount: number;
+  slackMentions: number;
+  lastActivityDate: string | null;
+}
+
+export interface CrossDepartmentContext {
+  signals: CrossDepartmentSignal[];
+}
+
+export interface ContextSectionMeta {
+  section: string;
+  itemCount: number;
+  tokenEstimate: number;
 }
 
 export interface SituationContext {
@@ -81,6 +139,12 @@ export interface SituationContext {
     conditions: unknown;
   }>;
   businessContext: string;
+
+  // v3 additions
+  activityTimeline: ActivityTimeline;
+  communicationContext: CommunicationContext;
+  crossDepartmentSignals: CrossDepartmentContext;
+  contextSections: ContextSectionMeta[];
 }
 
 // ── Department Discovery ─────────────────────────────────────────────────────
@@ -236,6 +300,294 @@ async function loadDepartmentContext(
   };
 }
 
+// ── Activity Intelligence Loaders (v3) ───────────────────────────────────────
+
+async function loadActivityTimeline(
+  operatorId: string,
+  entityId: string,
+  relatedEntityIds: string[],
+  days: number,
+): Promise<ActivityTimeline> {
+  try {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const priorCutoff = new Date(cutoff.getTime() - days * 24 * 60 * 60 * 1000);
+
+    // Fetch current period + prior period in one query (broad fetch, filter in app)
+    const allSignals = await prisma.activitySignal.findMany({
+      where: {
+        operatorId,
+        occurredAt: { gte: priorCutoff },
+      },
+      select: {
+        signalType: true,
+        actorEntityId: true,
+        targetEntityIds: true,
+        metadata: true,
+        occurredAt: true,
+      },
+    });
+
+    // Filter to signals relevant to this entity
+    const relevantSignals = allSignals.filter((s) => {
+      if (s.actorEntityId === entityId) return true;
+      if (s.targetEntityIds) {
+        try {
+          const targets: string[] = JSON.parse(s.targetEntityIds);
+          if (targets.includes(entityId)) return true;
+        } catch {}
+      }
+      // Related entity is actor AND this entity is target
+      if (s.actorEntityId && relatedEntityIds.includes(s.actorEntityId) && s.targetEntityIds) {
+        try {
+          const targets: string[] = JSON.parse(s.targetEntityIds);
+          if (targets.includes(entityId)) return true;
+        } catch {}
+      }
+      return false;
+    });
+
+    const currentSignals = relevantSignals.filter((s) => s.occurredAt >= cutoff);
+    const priorSignals = relevantSignals.filter((s) => s.occurredAt < cutoff);
+
+    // Bucket current signals
+    const bucketDefs = [
+      { period: "Last 7 days", minDays: 0, maxDays: 7 },
+      { period: "Days 8-14", minDays: 7, maxDays: 14 },
+      { period: "Days 15-30", minDays: 14, maxDays: 30 },
+    ];
+
+    const buckets: ActivityTimelineBucket[] = bucketDefs.map(({ period, minDays, maxDays }) => {
+      const bucketStart = new Date(now.getTime() - maxDays * 24 * 60 * 60 * 1000);
+      const bucketEnd = new Date(now.getTime() - minDays * 24 * 60 * 60 * 1000);
+      const inBucket = currentSignals.filter(
+        (s) => s.occurredAt >= bucketStart && s.occurredAt < bucketEnd,
+      );
+
+      let meetingMinutes = 0;
+      const responseTimes: number[] = [];
+
+      for (const s of inBucket) {
+        if (s.signalType === "meeting_held" && s.metadata) {
+          try {
+            const meta = JSON.parse(s.metadata);
+            if (meta.durationMinutes) meetingMinutes += Number(meta.durationMinutes);
+          } catch {}
+        }
+        if (s.signalType === "email_response_time" && s.metadata) {
+          try {
+            const meta = JSON.parse(s.metadata);
+            if (meta.responseTimeHours != null) responseTimes.push(Number(meta.responseTimeHours));
+          } catch {}
+        }
+      }
+
+      return {
+        period,
+        emailSent: inBucket.filter((s) => s.signalType === "email_sent").length,
+        emailReceived: inBucket.filter((s) => s.signalType === "email_received").length,
+        meetingsHeld: inBucket.filter((s) => s.signalType === "meeting_held").length,
+        meetingMinutes,
+        slackMessages: inBucket.filter(
+          (s) => s.signalType === "slack_message" || s.signalType === "teams_message",
+        ).length,
+        docsEdited: inBucket.filter((s) => s.signalType === "doc_edited").length,
+        docsCreated: inBucket.filter((s) => s.signalType === "doc_created").length,
+        avgResponseTimeHours:
+          responseTimes.length > 0
+            ? Math.round((responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length) * 10) / 10
+            : null,
+      };
+    });
+
+    // Trend: compare current vs prior email + meeting counts
+    const currentEmail = currentSignals.filter(
+      (s) => s.signalType === "email_sent" || s.signalType === "email_received",
+    ).length;
+    const priorEmail = priorSignals.filter(
+      (s) => s.signalType === "email_sent" || s.signalType === "email_received",
+    ).length;
+    const currentMeetings = currentSignals.filter((s) => s.signalType === "meeting_held").length;
+    const priorMeetings = priorSignals.filter((s) => s.signalType === "meeting_held").length;
+
+    const trendParts: string[] = [];
+    if (priorEmail > 0) {
+      const pct = Math.round(((currentEmail - priorEmail) / priorEmail) * 100);
+      trendParts.push(`Email volume ${pct >= 0 ? "↑" : "↓"}${Math.abs(pct)}%`);
+    } else if (currentEmail > 0) {
+      trendParts.push(`Email volume: ${currentEmail} (no prior data)`);
+    }
+    if (priorMeetings > 0) {
+      const pct = Math.round(((currentMeetings - priorMeetings) / priorMeetings) * 100);
+      trendParts.push(`meetings ${pct >= 0 ? "↑" : "↓"}${Math.abs(pct)}%`);
+    } else if (currentMeetings > 0) {
+      trendParts.push(`meetings: ${currentMeetings} (no prior data)`);
+    }
+
+    return {
+      buckets,
+      trend: trendParts.length > 0 ? trendParts.join(", ") + " vs prior 30d" : "No trend data available",
+      totalSignals: currentSignals.length,
+    };
+  } catch (err) {
+    console.warn("[context-assembly] loadActivityTimeline failed:", err);
+    return { buckets: [], trend: "No trend data available", totalSignals: 0 };
+  }
+}
+
+async function loadCommunicationContext(
+  operatorId: string,
+  entityId: string,
+  situationDescription: string,
+  departmentIds: string[],
+  limit: number,
+): Promise<CommunicationContext> {
+  try {
+    const [queryEmbedding] = await embedChunks([situationDescription]);
+    if (!queryEmbedding) return { excerpts: [], sourceBreakdown: {} };
+
+    const sourceTypes = ["email", "slack_message", "teams_message"];
+
+    // Primary: entity-scoped results
+    const entityResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
+      limit,
+      sourceTypes,
+      entityId,
+      departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
+      minScore: 0.3,
+    });
+
+    // Secondary: broader results without entity filter if entity results are sparse
+    let allResults = entityResults;
+    if (entityResults.length < limit) {
+      const broaderResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
+        limit,
+        sourceTypes,
+        departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
+        minScore: 0.3,
+      });
+      // Merge, preferring entity-matched, dedup by id
+      const seenIds = new Set(entityResults.map((r) => r.id));
+      const additional = broaderResults.filter((r) => !seenIds.has(r.id));
+      allResults = [...entityResults, ...additional].slice(0, limit);
+    }
+
+    const excerpts: CommunicationExcerpt[] = allResults.map((r) => {
+      const meta = r.metadata ?? {};
+      return {
+        sourceType: r.sourceType,
+        content: r.content,
+        metadata: {
+          subject: meta.subject as string | undefined,
+          sender: meta.sender as string | undefined,
+          channel: meta.channel as string | undefined,
+          timestamp: meta.timestamp as string | undefined,
+          direction: meta.direction as string | undefined,
+        },
+        score: r.score,
+      };
+    });
+
+    const sourceBreakdown: Record<string, number> = {};
+    for (const e of excerpts) {
+      sourceBreakdown[e.sourceType] = (sourceBreakdown[e.sourceType] ?? 0) + 1;
+    }
+
+    return { excerpts, sourceBreakdown };
+  } catch (err) {
+    console.warn("[context-assembly] loadCommunicationContext failed:", err);
+    return { excerpts: [], sourceBreakdown: {} };
+  }
+}
+
+async function loadCrossDepartmentSignals(
+  operatorId: string,
+  entityId: string,
+  entityCategory: string | null,
+  situationDepartmentIds: string[],
+  days: number,
+): Promise<CrossDepartmentContext> {
+  try {
+    // Only meaningful for external entities
+    if (entityCategory !== "external") return { signals: [] };
+
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const allSignals = await prisma.activitySignal.findMany({
+      where: {
+        operatorId,
+        occurredAt: { gte: cutoff },
+      },
+      select: {
+        signalType: true,
+        targetEntityIds: true,
+        departmentIds: true,
+        occurredAt: true,
+      },
+    });
+
+    // Filter to signals targeting this entity
+    const targetSignals = allSignals.filter((s) => {
+      if (!s.targetEntityIds) return false;
+      try {
+        const targets: string[] = JSON.parse(s.targetEntityIds);
+        return targets.includes(entityId);
+      } catch {
+        return false;
+      }
+    });
+
+    // Group by department, excluding the situation's own departments
+    const sitDeptSet = new Set(situationDepartmentIds);
+    const deptMap = new Map<string, { emails: number; meetings: number; messages: number; lastDate: Date | null }>();
+
+    for (const s of targetSignals) {
+      let deptIds: string[] = [];
+      if (s.departmentIds) {
+        try { deptIds = JSON.parse(s.departmentIds); } catch {}
+      }
+      for (const deptId of deptIds) {
+        if (sitDeptSet.has(deptId)) continue;
+        const entry = deptMap.get(deptId) ?? { emails: 0, meetings: 0, messages: 0, lastDate: null };
+        if (s.signalType === "email_sent" || s.signalType === "email_received") entry.emails++;
+        if (s.signalType === "meeting_held") entry.meetings++;
+        if (s.signalType === "slack_message" || s.signalType === "teams_message") entry.messages++;
+        if (!entry.lastDate || s.occurredAt > entry.lastDate) entry.lastDate = s.occurredAt;
+        deptMap.set(deptId, entry);
+      }
+    }
+
+    if (deptMap.size === 0) return { signals: [] };
+
+    // Resolve department names
+    const deptIds = [...deptMap.keys()];
+    const deptEntities = await prisma.entity.findMany({
+      where: { id: { in: deptIds } },
+      select: { id: true, displayName: true },
+    });
+    const nameMap = new Map(deptEntities.map((e) => [e.id, e.displayName]));
+
+    const signals: CrossDepartmentSignal[] = deptIds
+      .map((deptId) => {
+        const d = deptMap.get(deptId)!;
+        return {
+          departmentId: deptId,
+          departmentName: nameMap.get(deptId) ?? "Unknown Department",
+          emailCount: d.emails,
+          meetingCount: d.meetings,
+          slackMentions: d.messages,
+          lastActivityDate: d.lastDate?.toISOString() ?? null,
+        };
+      })
+      .sort((a, b) => (b.emailCount + b.meetingCount + b.slackMentions) - (a.emailCount + a.meetingCount + a.slackMentions));
+
+    return { signals };
+  } catch (err) {
+    console.warn("[context-assembly] loadCrossDepartmentSignals failed:", err);
+    return { signals: [] };
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export async function assembleSituationContext(
@@ -389,6 +741,13 @@ export async function assembleSituationContext(
     external: allNeighbors.filter((n) => n.category === "external"),
   };
 
+  // Step 5b: Load activity intelligence (v3) — needs neighborIds from graph traversal
+  const [activityTimeline, communicationContext, crossDepartmentSignals] = await Promise.all([
+    loadActivityTimeline(operatorId, triggerEntityId, neighborIds, 30),
+    loadCommunicationContext(operatorId, triggerEntityId, ragQuery, departmentIds, 8),
+    loadCrossDepartmentSignals(operatorId, triggerEntityId, rawEntity?.category ?? null, departmentIds, 30),
+  ]);
+
   // Step 6: Events, priors, capabilities, policies, business context
   const recentEvents = events.map((e) => ({
     id: e.id,
@@ -440,7 +799,19 @@ export async function assembleSituationContext(
 
   const bizCtxStr = businessCtx ? formatBusinessContext(businessCtx) : "";
 
-  // Step 8: Return full context
+  // Step 8: Build telemetry and return full context
+  const contextSections: ContextSectionMeta[] = [
+    { section: "triggerEntity", itemCount: 1, tokenEstimate: Math.ceil(JSON.stringify(triggerEntity).length / 4) },
+    { section: "departments", itemCount: departments.length, tokenEstimate: Math.ceil(JSON.stringify(departments).length / 4) },
+    { section: "departmentKnowledge", itemCount: departmentKnowledge.length, tokenEstimate: Math.ceil(departmentKnowledge.reduce((sum, r) => sum + r.content.length, 0) / 4) },
+    { section: "activityTimeline", itemCount: activityTimeline.totalSignals, tokenEstimate: Math.ceil(JSON.stringify(activityTimeline).length / 4) },
+    { section: "communicationContext", itemCount: communicationContext.excerpts.length, tokenEstimate: Math.ceil(communicationContext.excerpts.reduce((sum, e) => sum + e.content.length, 0) / 4) },
+    { section: "crossDepartmentSignals", itemCount: crossDepartmentSignals.signals.length, tokenEstimate: Math.ceil(JSON.stringify(crossDepartmentSignals).length / 4) },
+    { section: "relatedEntities", itemCount: allNeighbors.length, tokenEstimate: Math.ceil(JSON.stringify(relatedEntities).length / 4) },
+    { section: "recentEvents", itemCount: recentEvents.length, tokenEstimate: Math.ceil(JSON.stringify(recentEvents).length / 4) },
+    { section: "priorSituations", itemCount: priorSits.length, tokenEstimate: Math.ceil(JSON.stringify(priorSits).length / 4) },
+  ];
+
   return {
     triggerEntity,
     departments,
@@ -451,6 +822,10 @@ export async function assembleSituationContext(
     availableActions,
     policies,
     businessContext: bizCtxStr,
+    activityTimeline,
+    communicationContext,
+    crossDepartmentSignals,
+    contextSections,
   };
 }
 

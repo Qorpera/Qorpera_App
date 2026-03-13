@@ -142,6 +142,9 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       permittedActions: policyResult.permitted,
       blockedActions: policyResult.blocked,
       businessContext: businessContextStr,
+      activityTimeline: context.activityTimeline,
+      communicationContext: context.communicationContext,
+      crossDepartmentSignals: context.crossDepartmentSignals,
     };
 
     const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);

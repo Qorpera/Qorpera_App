@@ -1,4 +1,11 @@
-import type { DepartmentContext, RAGReference, EntitySummary } from "@/lib/context-assembly";
+import type {
+  DepartmentContext,
+  RAGReference,
+  EntitySummary,
+  ActivityTimeline,
+  CommunicationContext,
+  CrossDepartmentContext,
+} from "@/lib/context-assembly";
 import type { PermittedAction, BlockedAction } from "@/lib/policy-evaluator";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -38,6 +45,11 @@ export interface ReasoningInput {
   blockedActions: BlockedAction[];
 
   businessContext: string | null;
+
+  // v3 additions
+  activityTimeline: ActivityTimeline;
+  communicationContext: CommunicationContext;
+  crossDepartmentSignals: CrossDepartmentContext;
 }
 
 // ── System Prompt ────────────────────────────────────────────────────────────
@@ -52,7 +64,10 @@ ${bizSection}
 CORE OPERATING PRINCIPLE:
 You reason and act ONLY from the evidence provided below. You do not guess, assume, or rely on general knowledge. Every action you propose MUST be justified by specific evidence from:
 - Entity properties and relationships
-- Department knowledge (documents)
+- Activity patterns (email frequency, meeting cadence, response times, communication trends)
+- Communication excerpts (relevant emails, messages involving this entity)
+- Cross-department signals (how other teams interact with this entity)
+- Department knowledge (documents, playbooks, policies)
 - Business context from the company
 - Outcomes of prior similar situations
 - Human feedback on previous decisions
@@ -120,6 +135,58 @@ Detection confidence: ${input.confidence.toFixed(2)}`);
     .join("\n");
   sections.push(`ENTITY: ${input.triggerEntity.displayName} [${input.triggerEntity.type}, ${input.triggerEntity.category}]
 ${propsStr || "  (no properties)"}`);
+
+  // BEHAVIORAL EVIDENCE (v3)
+  {
+    const behaviorParts: string[] = [];
+
+    // Activity Timeline
+    const nonEmptyBuckets = input.activityTimeline.buckets.filter(
+      (b) =>
+        b.emailSent + b.emailReceived + b.meetingsHeld + b.slackMessages + b.docsEdited + b.docsCreated > 0,
+    );
+    if (nonEmptyBuckets.length > 0) {
+      const bucketLines = nonEmptyBuckets.map((b) => {
+        const parts = [];
+        if (b.emailSent + b.emailReceived > 0) parts.push(`Email: ${b.emailSent} sent, ${b.emailReceived} received`);
+        if (b.meetingsHeld > 0) parts.push(`Meetings: ${b.meetingsHeld} (${b.meetingMinutes} min total)`);
+        if (b.slackMessages > 0) parts.push(`Messages: ${b.slackMessages}`);
+        if (b.docsEdited + b.docsCreated > 0) parts.push(`Docs: ${b.docsEdited} edited, ${b.docsCreated} created`);
+        return `  ${b.period}: ${parts.join(". ")}.`;
+      });
+      behaviorParts.push(`Activity Timeline (${input.triggerEntity.displayName}):\n${bucketLines.join("\n")}`);
+
+      // Response time from any bucket
+      const rtBucket = input.activityTimeline.buckets.find((b) => b.avgResponseTimeHours != null);
+      if (rtBucket) {
+        behaviorParts.push(`  Avg email response time: ${rtBucket.avgResponseTimeHours}h`);
+      }
+      behaviorParts.push(`  Trend: ${input.activityTimeline.trend}`);
+    } else {
+      behaviorParts.push(`Activity Timeline (${input.triggerEntity.displayName}):\n  No activity signals found for this entity in the last 30 days.`);
+    }
+
+    // Communication excerpts
+    if (input.communicationContext.excerpts.length > 0) {
+      const excerptLines = input.communicationContext.excerpts.slice(0, 8).map((e) => {
+        const sender = e.metadata.sender ?? "unknown";
+        const subject = e.metadata.subject ?? "no subject";
+        const ts = e.metadata.timestamp ?? "";
+        const channel = e.metadata.channel ? ` #${e.metadata.channel}` : "";
+        const header = e.sourceType === "email"
+          ? `[email] ${sender} — "${subject}" (${ts})`
+          : `[${e.sourceType}] ${sender}${channel} (${ts})`;
+        return `  ${header}\n    "${e.content.slice(0, 300)}"`;
+      });
+      const breakdown = Object.entries(input.communicationContext.sourceBreakdown)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+      excerptLines.push(`  (${breakdown})`);
+      behaviorParts.push(`\nRecent Communications:\n${excerptLines.join("\n")}`);
+    }
+
+    sections.push(`BEHAVIORAL EVIDENCE:\n\n${behaviorParts.join("\n")}`);
+  }
 
   // DEPARTMENT CONTEXT
   if (input.departments.length > 0) {
@@ -200,6 +267,19 @@ ${propsStr || "  (no properties)"}`);
     sections.push(`PRIOR SIMILAR SITUATIONS:\n${priorsStr}`);
   } else {
     sections.push("PRIOR SIMILAR SITUATIONS:\nNo prior examples available. This is the first time this situation type has been encountered.");
+  }
+
+  // CROSS-DEPARTMENT SIGNALS (v3)
+  if (input.crossDepartmentSignals.signals.length > 0) {
+    const sigLines = input.crossDepartmentSignals.signals.map((s) => {
+      const parts = [];
+      if (s.emailCount > 0) parts.push(`${s.emailCount} emails`);
+      if (s.meetingCount > 0) parts.push(`${s.meetingCount} meetings`);
+      if (s.slackMentions > 0) parts.push(`${s.slackMentions} messages`);
+      const lastAct = s.lastActivityDate ? ` Last activity: ${s.lastActivityDate}.` : "";
+      return `  ${s.departmentName}: ${parts.join(", ")}.${lastAct}`;
+    });
+    sections.push(`CROSS-DEPARTMENT SIGNALS (other departments' interaction with ${input.triggerEntity.displayName}):\n${sigLines.join("\n")}`);
   }
 
   // PERMITTED ACTIONS
