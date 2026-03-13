@@ -4,6 +4,11 @@ import { materializeUnprocessed } from "@/lib/event-materializer";
 import { decrypt, encrypt } from "@/lib/encryption";
 import { ingestContent } from "@/lib/content-pipeline";
 import { ingestActivity, resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
+import {
+  evaluateContentForSituations,
+  isEligibleCommunication,
+  type CommunicationItem,
+} from "@/lib/content-situation-detector";
 
 type SyncResult = {
   status: "success" | "partial" | "failed";
@@ -59,6 +64,8 @@ export async function runConnectorSync(
   config._operatorId = operatorId; // Available to providers that need it (e.g. Gmail entity creation)
   let syncStatus: "success" | "partial" | "failed" = "success";
 
+  const communicationBatch: CommunicationItem[] = [];
+
   try {
     const since = connector.lastSyncAt ?? undefined;
 
@@ -100,6 +107,17 @@ export async function runConnectorSync(
               metadata: item.data.metadata,
             });
             contentIngested++;
+
+            // Collect eligible communication items for situation detection
+            if (isEligibleCommunication(item.data)) {
+              communicationBatch.push({
+                sourceType: item.data.sourceType,
+                sourceId: item.data.sourceId,
+                content: item.data.content,
+                metadata: item.data.metadata,
+                participantEmails: item.data.participantEmails,
+              });
+            }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             errors.push(`Content ingestion error: ${msg}`);
@@ -126,6 +144,12 @@ export async function runConnectorSync(
           break;
         }
       }
+    }
+
+    // Fire-and-forget content situation detection
+    if (communicationBatch.length > 0) {
+      evaluateContentForSituations(operatorId, communicationBatch)
+        .catch((err) => console.error("[content-detection] Error:", err));
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);

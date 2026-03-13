@@ -959,42 +959,92 @@ async function createTestCompany() {
     {
       slug: "overdue-invoice-followup", name: "Overdue Invoice Follow-up",
       desc: "Detects invoices that are overdue by more than 14 days and proposes follow-up actions",
-      detection: { signal: "invoice.status = overdue", threshold: "daysOverdue > 14" },
+      detection: {
+        mode: "hybrid",
+        structured: {
+          entityType: "invoice",
+          signals: [
+            { field: "status", condition: "equals", value: "overdue" },
+            { field: "due-date", condition: "days_past", threshold: 14 },
+          ],
+        },
+        naturalLanguage: "Invoice that is overdue by more than 14 days and needs a follow-up reminder sent to the customer",
+      },
       response: { action: "send_payment_reminder", channel: "email" },
       autonomy: "supervised", dept: "Finance & Operations",
     },
     {
       slug: "stale-deal-alert", name: "Stale Deal Alert",
       desc: "Flags deals in negotiation stage with no update for more than 21 days",
-      detection: { signal: "deal.stage = negotiation", threshold: "daysSinceUpdate > 21" },
+      detection: {
+        mode: "hybrid",
+        structured: {
+          entityType: "deal",
+          signals: [
+            { field: "stage", condition: "equals", value: "negotiation" },
+          ],
+        },
+        naturalLanguage: "Deal stuck in negotiation stage with no recent activity or updates for over 21 days",
+      },
       response: { action: "notify_account_executive", channel: "internal" },
       autonomy: "supervised", dept: "Sales & Partnerships",
     },
     {
       slug: "client-relationship-cooling", name: "Client Relationship Cooling",
       desc: "Alerts when a client contact has had no meaningful interaction for over 30 days",
-      detection: { signal: "contact.lastInteraction > 30d", threshold: "daysSilent > 30" },
+      detection: {
+        mode: "natural",
+        preFilter: {
+          entityType: "contact",
+          signals: [],
+        },
+        naturalLanguage: "Client contact with no meaningful interaction for over 30 days, indicating the relationship may be cooling and needs a touchpoint",
+      },
       response: { action: "schedule_touchpoint", channel: "internal" },
       autonomy: "supervised", dept: "Sales & Partnerships",
     },
     {
       slug: "project-delivery-risk", name: "Project Delivery Risk",
       desc: "Flags projects that are at-risk or over budget, requiring delivery leadership attention",
-      detection: { signal: "project.status = at-risk OR project.daysOverBudget > 0", threshold: "any" },
+      detection: {
+        mode: "natural",
+        preFilter: {
+          entityType: "deal",
+          signals: [],
+        },
+        naturalLanguage: "Project that is at-risk, over budget, or showing signs of delivery problems requiring leadership attention",
+      },
       response: { action: "escalate_to_delivery_lead", channel: "internal" },
       autonomy: "supervised", dept: "Delivery & Engineering",
     },
     {
       slug: "large-invoice-approval", name: "Large Invoice Approval Required",
       desc: "Requires manual CFO approval for invoices exceeding €25,000 before sending",
-      detection: { signal: "invoice.amount > 25000", threshold: "amount > 25000" },
+      detection: {
+        mode: "structured",
+        structured: {
+          entityType: "invoice",
+          signals: [
+            { field: "amount", condition: "greater_than", threshold: 25000 },
+          ],
+        },
+      },
       response: { action: "route_to_cfo", channel: "internal" },
       autonomy: "supervised", dept: "Finance & Operations",
     },
     {
       slug: "new-deal-created", name: "New Deal Created",
       desc: "Notifies team when a new deal enters the discovery stage within the last 24 hours",
-      detection: { signal: "deal.stage = discovery AND deal.createdWithin = 24h", threshold: "new" },
+      detection: {
+        mode: "hybrid",
+        structured: {
+          entityType: "deal",
+          signals: [
+            { field: "stage", condition: "equals", value: "discovery" },
+          ],
+        },
+        naturalLanguage: "New deal that has entered the discovery stage within the last 24 hours",
+      },
       response: { action: "notify_sales_team", channel: "internal" },
       autonomy: "notify", dept: "Sales & Partnerships",
       totalProposed: 12, totalApproved: 12, consecutiveApprovals: 12, approvalRate: 0.95,
@@ -1002,7 +1052,15 @@ async function createTestCompany() {
     {
       slug: "payment-received", name: "Payment Received",
       desc: "Automatically acknowledges completed payments and updates related records",
-      detection: { signal: "payment.status = completed", threshold: "any" },
+      detection: {
+        mode: "structured",
+        structured: {
+          entityType: "payment",
+          signals: [
+            { field: "status", condition: "equals", value: "completed" },
+          ],
+        },
+      },
       response: { action: "acknowledge_payment", channel: "system" },
       autonomy: "autonomous", dept: "Finance & Operations",
       totalProposed: 22, totalApproved: 22, consecutiveApprovals: 22, approvalRate: 0.98,
@@ -1010,7 +1068,14 @@ async function createTestCompany() {
     {
       slug: "project-milestone-reached", name: "Project Milestone Reached",
       desc: "Notifies stakeholders when a project milestone is completed",
-      detection: { signal: "project.milestoneCompleted = true", threshold: "any" },
+      detection: {
+        mode: "natural",
+        preFilter: {
+          entityType: "deal",
+          signals: [],
+        },
+        naturalLanguage: "Project where a significant milestone has been completed and stakeholders should be notified",
+      },
       response: { action: "notify_stakeholders", channel: "internal" },
       autonomy: "notify", dept: "Delivery & Engineering",
     },

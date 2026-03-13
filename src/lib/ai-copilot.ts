@@ -159,7 +159,7 @@ const COPILOT_TOOLS: AITool[] = [
         description: { type: "string", description: "Natural language description of the situation" },
         detectionLogic: {
           type: "object",
-          description: "Detection configuration with mode (structured/natural/hybrid), structured rules, and/or naturalLanguage description",
+          description: "Detection configuration. Must include mode (structured/natural/hybrid). For structured/hybrid: include structured.entityType (the entity type slug to scan, e.g. 'invoice', 'deal', 'contact') and structured.signals array. For natural: include naturalLanguage description of what to detect.",
           properties: {
             mode: { type: "string", description: "Detection mode: structured, natural, or hybrid" },
             structured: { type: "object", description: "Structured detection rules (signals, thresholds)" },
