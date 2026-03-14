@@ -56,10 +56,10 @@ async function main() {
     console.log(planText);
     const indexUsed = planText.includes("Index Scan using");
     console.log(`\nIndex used: ${indexUsed ? "YES" : "NO"}`);
+    const rowMatch = planText.match(/actual[\s\S]*?rows=(\d+)/);
     const timeMatch = planText.match(/Execution Time:\s*([\d.]+)\s*ms/);
-    if (timeMatch) {
-      console.log(`Execution time: ${timeMatch[1]}ms`);
-    }
+    if (rowMatch) console.log(`Rows returned: ${rowMatch[1]}`);
+    if (timeMatch) console.log(`Execution time: ${timeMatch[1]}ms`);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     console.log(`Query failed: ${msg}`);
