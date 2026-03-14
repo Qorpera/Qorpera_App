@@ -157,7 +157,7 @@ export default function AdminPage() {
       <div className="border-b border-white/[0.06] px-8 py-5">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <QorperaLogo width={32} height={32} className="text-white" simplified />
+            <QorperaLogo width={32} />
             <div>
               <h1 className="font-heading text-xl font-semibold tracking-[-0.02em] text-white/90">
                 Qorpera Admin

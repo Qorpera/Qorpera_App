@@ -75,7 +75,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm px-6">
         {/* Logo */}
         <div className="flex justify-center mb-8">
-          <QorperaLogo width={64} height={64} className="text-white" simplified />
+          <QorperaLogo width={64} />
         </div>
 
         <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-white/90 text-center mb-6">

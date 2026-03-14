@@ -81,7 +81,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
           <div className={`flex items-center ${collapsed ? "flex-col gap-2 px-2" : "px-5"} py-5`}>
             {collapsed ? (
               <>
-                <QorperaLogo width={56} height={56} className="text-white" />
+                <QorperaLogo width={44} />
                 <button
                   onClick={() => setCollapsed(false)}
                   className="text-white/20 hover:text-white/50 transition-colors p-1 rounded-lg hover:bg-white/[0.04]"
@@ -92,10 +92,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
               </>
             ) : (
               <>
-                <QorperaLogo width={64} height={64} className="text-white flex-shrink-0" />
-                <span className="font-heading text-xl font-semibold tracking-[-0.02em] text-white/90 ml-2.5 whitespace-nowrap">
-                  Qorpera
-                </span>
+                <QorperaLogo width={80} className="flex-shrink-0" />
                 <button
                   onClick={() => setCollapsed(true)}
                   className="ml-auto text-white/20 hover:text-white/50 transition-colors p-1 -mr-1 rounded-lg hover:bg-white/[0.04]"
