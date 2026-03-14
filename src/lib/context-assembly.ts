@@ -448,7 +448,7 @@ async function loadCommunicationContext(
 
     const sourceTypes = ["email", "slack_message", "teams_message"];
 
-    // Primary: entity-scoped results
+    // Primary: entity-scoped results (strict match on entityId)
     const entityResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
       limit,
       sourceTypes,
@@ -457,14 +457,15 @@ async function loadCommunicationContext(
       minScore: 0.3,
     });
 
-    // Secondary: broader results without entity filter if entity results are sparse
+    // Secondary: broader departmental results without entity filter
+    // Uses lower threshold since we've already lost the entity anchor
     let allResults = entityResults;
     if (entityResults.length < limit) {
       const broaderResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
         limit,
         sourceTypes,
         departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
-        minScore: 0.3,
+        minScore: 0.15,
       });
       // Merge, preferring entity-matched, dedup by id
       const seenIds = new Set(entityResults.map((r) => r.id));

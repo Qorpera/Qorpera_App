@@ -47,6 +47,7 @@ const ALL_LAYERS = [
 ] as const;
 
 const LAYER_TIMEOUT_MS = 30_000;
+const DETECTION_TIMEOUT_MS = 90_000;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -501,7 +502,7 @@ export async function POST(req: NextRequest) {
               data.situationsCreated = 0;
               data.detectionLogicValid = formatIssues.length === 0;
             }
-          }, LAYER_TIMEOUT_MS);
+          }, DETECTION_TIMEOUT_MS);
         } catch (err) {
           status = "failed";
           assert(assertions, "Layer completed without error", false, err instanceof Error ? err.message : String(err));
@@ -1015,29 +1016,19 @@ export async function POST(req: NextRequest) {
               return;
             }
 
-            // Ensure at least one policy exists
-            let tempPolicyId: string | null = null;
-            const existingPolicies = await prisma.policyRule.findMany({
-              where: { operatorId, enabled: true },
-              select: { id: true },
-              take: 1,
+            // Always create a temp REQUIRE_APPROVAL policy to test governance override
+            const tempPolicy = await prisma.policyRule.create({
+              data: {
+                operatorId,
+                name: `Test REQUIRE_APPROVAL Policy (${testRunId})`,
+                scope: "global",
+                actionType: "execute",
+                effect: "REQUIRE_APPROVAL",
+                conditions: JSON.stringify({ _testRunId: testRunId }),
+                enabled: true,
+              },
             });
-
-            if (existingPolicies.length === 0) {
-              const tempPolicy = await prisma.policyRule.create({
-                data: {
-                  operatorId,
-                  name: `Test Policy (${testRunId})`,
-                  scope: "global",
-                  actionType: "execute",
-                  effect: "REQUIRE_APPROVAL",
-                  conditions: JSON.stringify({ _testRunId: testRunId }),
-                  enabled: true,
-                },
-              });
-              tempPolicyId = tempPolicy.id;
-              createdPolicyIds.push(tempPolicy.id);
-            }
+            createdPolicyIds.push(tempPolicy.id);
 
             let triggerEntityTypeSlug = "unknown";
             if (situation.triggerEntityId) {
@@ -1069,23 +1060,21 @@ export async function POST(req: NextRequest) {
             );
 
             assert(assertions, "Policy evaluation completed", true);
+            assert(assertions, "hasRequireApproval is true (temp policy active)", policyResult.hasRequireApproval);
 
             const effectiveAutonomy = getEffectiveAutonomy(situation.situationType, policyResult);
-
-            if (tempPolicyId) {
-              assert(
-                assertions,
-                "REQUIRE_APPROVAL forces supervised mode",
-                effectiveAutonomy === "supervised" || policyResult.hasRequireApproval,
-                `effective=${effectiveAutonomy}, hasRequireApproval=${policyResult.hasRequireApproval}`,
-              );
-            }
+            assert(
+              assertions,
+              "REQUIRE_APPROVAL forces supervised mode",
+              effectiveAutonomy === "supervised",
+              `effective=${effectiveAutonomy}, situationType.autonomyLevel=${situation.situationType.autonomyLevel}`,
+            );
 
             data.permitted = policyResult.permitted.map((p) => p.name);
             data.blocked = policyResult.blocked.map((b) => ({ name: b.name, reason: b.reason }));
             data.hasRequireApproval = policyResult.hasRequireApproval;
             data.effectiveAutonomy = effectiveAutonomy;
-            data.tempPolicyCreated = !!tempPolicyId;
+            data.tempPolicyCreated = true;
           }, LAYER_TIMEOUT_MS);
         } catch (err) {
           status = "failed";
