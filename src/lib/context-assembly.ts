@@ -448,24 +448,42 @@ async function loadCommunicationContext(
 
     const sourceTypes = ["email", "slack_message", "teams_message"];
 
-    // Primary: entity-scoped results (strict match on entityId)
+    // Resolve related entities so we find content tagged with communication
+    // counterparts (e.g. trigger entity is the recipient, content is tagged
+    // with the sender's entityId)
+    const relatedEntityIds = await prisma.relationship.findMany({
+      where: {
+        OR: [{ fromEntityId: entityId }, { toEntityId: entityId }],
+      },
+      select: { fromEntityId: true, toEntityId: true },
+      take: 20,
+    });
+    const participantIds = [
+      entityId,
+      ...new Set(
+        relatedEntityIds.flatMap((r) =>
+          [r.fromEntityId, r.toEntityId].filter((id) => id !== entityId),
+        ),
+      ),
+    ];
+
+    // Primary: entity-scoped results (trigger entity + related entities)
     const entityResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
       limit,
       sourceTypes,
-      entityId,
+      entityIds: participantIds,
       departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
       minScore: 0.3,
     });
 
     // Secondary: broader departmental results without entity filter
-    // Uses lower threshold since we've already lost the entity anchor
     let allResults = entityResults;
     if (entityResults.length < limit) {
       const broaderResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
         limit,
         sourceTypes,
         departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
-        minScore: 0.15,
+        minScore: 0.3,
       });
       // Merge, preferring entity-matched, dedup by id
       const seenIds = new Set(entityResults.map((r) => r.id));

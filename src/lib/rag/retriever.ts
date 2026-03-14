@@ -28,6 +28,9 @@ export type RAGResult = ContentChunkResult & {
 
 /**
  * Retrieve relevant content chunks for a query embedding using pgvector.
+ *
+ * Entity filtering: pass `entityId` for a single entity, or `entityIds` for
+ * multiple (e.g. trigger entity + related entities). Both use SQL ANY().
  */
 export async function retrieveRelevantChunks(
   operatorId: string,
@@ -36,6 +39,7 @@ export async function retrieveRelevantChunks(
     limit?: number;
     sourceTypes?: string[];
     entityId?: string;
+    entityIds?: string[];
     departmentIds?: string[];
     minScore?: number;
   },
@@ -44,24 +48,37 @@ export async function retrieveRelevantChunks(
   const minScore = options?.minScore ?? 0.3;
   const vectorLiteral = `[${queryEmbedding.join(",")}]`;
 
-  // Build the source type filter clause
-  const sourceTypeFilter = options?.sourceTypes?.length
-    ? `AND "sourceType" = ANY(ARRAY[${options.sourceTypes.map((_, i) => `$${i + 3}`).join(",")}]::text[])`
-    : "";
+  // Resolve entity IDs: entityIds takes precedence, entityId is shorthand for [entityId]
+  const resolvedEntityIds = options?.entityIds?.length
+    ? options.entityIds
+    : options?.entityId
+      ? [options.entityId]
+      : null;
 
-  const entityFilter = options?.entityId
-    ? `AND "entityId" = $${(options?.sourceTypes?.length ?? 0) + 3}`
-    : "";
-
-  // Construct parameter array
+  // Build dynamic WHERE clauses and parameter array
+  // Fixed params: $1 = vector, $2 = operatorId
   const params: unknown[] = [vectorLiteral, operatorId];
+  let nextIdx = 3;
+
+  // Source type filter
+  let sourceTypeFilter = "";
   if (options?.sourceTypes?.length) {
+    const placeholders = options.sourceTypes.map((_, i) => `$${nextIdx + i}`).join(",");
+    sourceTypeFilter = `AND "sourceType" = ANY(ARRAY[${placeholders}]::text[])`;
     params.push(...options.sourceTypes);
+    nextIdx += options.sourceTypes.length;
   }
-  if (options?.entityId) {
-    params.push(options.entityId);
+
+  // Entity filter (single or multiple via ANY)
+  let entityFilter = "";
+  if (resolvedEntityIds) {
+    const placeholders = resolvedEntityIds.map((_, i) => `$${nextIdx + i}`).join(",");
+    entityFilter = `AND "entityId" = ANY(ARRAY[${placeholders}]::text[])`;
+    params.push(...resolvedEntityIds);
+    nextIdx += resolvedEntityIds.length;
   }
-  const limitParamIdx = params.length + 1;
+
+  const limitParamIdx = nextIdx;
   params.push(limit);
 
   const query = `

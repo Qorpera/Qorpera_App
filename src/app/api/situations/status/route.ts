@@ -4,6 +4,8 @@ import { getAIConfig } from "@/lib/ai-provider";
 import { prisma } from "@/lib/db";
 import { isCronRunning } from "@/lib/situation-cron";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const su = await getSessionUser();
