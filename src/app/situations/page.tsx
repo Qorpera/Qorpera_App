@@ -48,6 +48,21 @@ interface ProposedAction {
   justification: string;
 }
 
+interface DraftPayload {
+  actionType: string;
+  provider: string;
+  payload: {
+    to?: string;
+    cc?: string;
+    subject?: string;
+    body?: string;
+    channel?: string;
+    message?: string;
+    [key: string]: unknown;
+  };
+  attachments?: unknown[];
+}
+
 interface SituationDetail {
   id: string;
   situationType: { id: string; name: string; slug: string; description: string; autonomyLevel: string };
@@ -80,7 +95,7 @@ interface SituationDetail {
   createdAt: string;
 }
 
-type ActiveMode = { id: string; mode: "reject" | "teach" | "edit" | "outcome" } | null;
+type ActiveMode = { id: string; mode: "reject" | "teach" | "outcome" } | null;
 
 type FilterValue = "all" | "pending" | "resolved";
 
@@ -101,31 +116,51 @@ function safeParseReasoning(raw: unknown): ReasoningData | null {
   };
 }
 
-function urgencyDot(s: SituationItem): string {
-  if (s.status === "rejected") return "bg-white/[0.20]";
-  if (s.status === "approved" || s.status === "resolved") return "bg-[#3da676]";
-  if (s.severity >= 0.7) return "bg-[#d94f4f]";
-  if (s.severity >= 0.4) return "bg-[#c49b16]";
-  return "bg-[#3da676]";
+function extractDraftPayloads(raw: unknown): DraftPayload[] {
+  if (!raw) return [];
+  const obj = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
+  if (!obj || typeof obj !== "object") return [];
+  const r = obj as Record<string, unknown>;
+  return Array.isArray(r.draftPayloads) ? r.draftPayloads : [];
 }
 
-function urgencyPill(s: SituationItem): { label: string; className: string } {
-  if (s.status === "approved") return { label: "Approved", className: "bg-[rgba(61,166,118,0.10)] border-[rgba(61,166,118,0.22)] text-[rgba(61,166,118,0.9)]" };
-  if (s.status === "rejected") return { label: "Rejected", className: "bg-white/[0.05] border-white/[0.10] text-white/40" };
-  if (s.status === "resolved") return { label: "Resolved", className: "bg-[rgba(61,166,118,0.08)] border-[rgba(61,166,118,0.18)] text-[rgba(61,166,118,0.7)]" };
-  if (s.severity >= 0.7) return { label: "Critical", className: "bg-[rgba(217,79,79,0.10)] border-[rgba(217,79,79,0.22)] text-[rgba(217,79,79,0.85)]" };
-  if (s.severity >= 0.4) return { label: "Review", className: "bg-[rgba(196,155,22,0.10)] border-[rgba(196,155,22,0.22)] text-[rgba(196,155,22,0.90)]" };
-  return { label: "Monitoring", className: "bg-[rgba(61,166,118,0.08)] border-[rgba(61,166,118,0.18)] text-[rgba(61,166,118,0.8)]" };
+function severityDotColor(s: SituationItem): string {
+  if (s.status === "rejected") return "#6b7280";
+  if (s.status === "approved" || s.status === "resolved") return "#22c55e";
+  if (s.severity >= 0.7) return "#ef4444";
+  if (s.severity >= 0.4) return "#f59e0b";
+  return "#6b7280";
+}
+
+function severityBadge(s: SituationItem): { label: string; variant: "red" | "amber" | "default" } {
+  if (s.severity >= 0.7) return { label: "Critical", variant: "red" };
+  if (s.severity >= 0.4) return { label: "High", variant: "amber" };
+  return { label: "Medium", variant: "default" };
 }
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function providerLabel(draft: DraftPayload): string {
+  const p = draft.provider?.toLowerCase();
+  if (p === "google" || p === "gmail") return "Gmail";
+  if (p === "slack") return "Slack";
+  if (p === "microsoft" || p === "outlook") return "Outlook";
+  return draft.provider ?? "Tool";
+}
+
+function providerDotColor(draft: DraftPayload): string {
+  const p = draft.provider?.toLowerCase();
+  if (p === "google" || p === "gmail") return "#ef4444";
+  if (p === "slack") return "#a855f7";
+  if (p === "microsoft" || p === "outlook") return "#3b82f6";
+  return "#6b7280";
 }
 
 const CATEGORY_OPTIONS = [
@@ -156,7 +191,6 @@ export default function SituationsPage() {
   const [activeMode, setActiveMode] = useState<ActiveMode>(null);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackCategory, setFeedbackCategory] = useState("");
-  const [editText, setEditText] = useState("");
   const [outcomeValue, setOutcomeValue] = useState("");
   const [outcomeNote, setOutcomeNote] = useState("");
 
@@ -192,10 +226,7 @@ export default function SituationsPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedId) {
-      setDetail(null);
-      return;
-    }
+    if (!selectedId) { setDetail(null); return; }
     let cancelled = false;
     setDetail(null);
     setDetailLoading(true);
@@ -213,7 +244,6 @@ export default function SituationsPage() {
     setActiveMode(null);
     setFeedbackText("");
     setFeedbackCategory("");
-    setEditText("");
     setOutcomeValue("");
     setOutcomeNote("");
   }, [selectedId]);
@@ -251,7 +281,6 @@ export default function SituationsPage() {
       setActiveMode(null);
       setFeedbackText("");
       setFeedbackCategory("");
-      setEditText("");
       setOutcomeValue("");
       setOutcomeNote("");
       await fetchSituations();
@@ -263,76 +292,77 @@ export default function SituationsPage() {
 
   return (
     <AppShell pendingApprovals={pendingCount}>
-      <div className="flex h-full overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* Left: situation list */}
-        <div className="w-[252px] flex-shrink-0 border-r border-white/[0.055] flex flex-col overflow-hidden">
+        {/* ── Left: situation list ── */}
+        <div className="w-[320px] flex-shrink-0 flex flex-col overflow-hidden" style={{ borderRight: "1px solid #1e1e1e" }}>
           {/* Header */}
-          <div className="px-3 py-3 border-b border-white/[0.04] flex-shrink-0">
-            <div className="font-heading italic font-semibold text-[16px] tracking-[-0.01em] text-white/90">
-              Situations
-            </div>
-            <div className="text-[12px] font-mono text-white/[0.28] mt-0.5">
-              {situations.length} total · {pendingCount} pending
+          <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "#e8e8e8" }}>Situations</div>
+            <div style={{ fontSize: 11, color: "#707070" }} className="mt-0.5">
+              {situations.length} total &middot; {pendingCount} pending
             </div>
           </div>
 
-          {/* Filter chips */}
-          <div className="px-3 py-2 border-b border-white/[0.04] flex gap-1.5 flex-wrap flex-shrink-0">
+          {/* Filter tabs */}
+          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
             {(["all", "pending", "resolved"] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`text-[12px] font-mono px-2 py-0.5 rounded-[2px] border transition
-                  ${filter === f
-                    ? "bg-white/[0.08] border-white/[0.16] text-white/80"
-                    : "bg-transparent border-white/[0.07] text-white/[0.32] hover:text-white/60"}`}
+                className="text-[11px] font-medium px-2.5 py-1 rounded-full border transition"
+                style={{
+                  background: filter === f ? "#222" : "transparent",
+                  borderColor: filter === f ? "#333" : "transparent",
+                  color: filter === f ? "#e8e8e8" : "#484848",
+                }}
               >
                 {f}
               </button>
             ))}
           </div>
 
-          {/* Situation list */}
+          {/* List */}
           <div className="flex-1 overflow-y-auto">
             {loading && (
               <div className="flex justify-center py-10">
-                <div className="h-4 w-4 animate-spin rounded-full border border-white/20 border-t-white/60" />
+                <div className="h-4 w-4 animate-spin rounded-full border border-[#2a2a2a] border-t-[#707070]" />
               </div>
             )}
             {filteredSituations.map(s => (
               <button
                 key={s.id}
                 onClick={() => setSelectedId(s.id)}
-                className={`w-full text-left px-3 py-2.5 border-b border-white/[0.04] border-l-2 transition
-                  ${selectedId === s.id
-                    ? "bg-white/[0.05] border-l-white/[0.40]"
-                    : "border-l-transparent hover:bg-white/[0.025]"}`}
+                className="w-full text-left px-4 py-2.5 transition"
+                style={{
+                  borderBottom: "1px solid #1e1e1e",
+                  borderLeft: selectedId === s.id ? "2px solid #c084fc" : "2px solid transparent",
+                  background: selectedId === s.id ? "#181818" : "transparent",
+                }}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`w-[5px] h-[5px] rounded-full flex-shrink-0 ${urgencyDot(s)}`} />
-                  <span className="text-[14px] font-medium text-white/80 truncate flex-1">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: severityDotColor(s) }} />
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "#e8e8e8" }} className="truncate flex-1">
                     {s.triggerEntityName ?? "Unknown"}
                   </span>
-                  <span className="text-[12px] font-mono text-white/[0.22] flex-shrink-0">
+                  <span style={{ fontSize: 11, color: "#484848" }} className="flex-shrink-0">
                     {timeAgo(s.createdAt)}
                   </span>
                 </div>
-                <div className="text-[13px] text-white/[0.38] pl-[13px] truncate">
-                  {s.situationType.name}
-                  {s.departmentName ? ` · ${s.departmentName}` : ""}
+                <div style={{ fontSize: 11, color: "#484848" }} className="pl-[15px] truncate">
+                  {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
                 </div>
               </button>
             ))}
             {!loading && filteredSituations.length === 0 && (
-              <div className="px-4 py-8 text-center text-[14px] text-white/[0.25]">
+              <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "#484848" }}>
                 No situations
               </div>
             )}
           </div>
         </div>
 
-        {/* Right: detail pane */}
+        {/* ── Right: detail pane ── */}
         <div className="flex-1 overflow-y-auto">
           {selectedSituation ? (
             <DetailPane
@@ -351,11 +381,9 @@ export default function SituationsPage() {
               setOutcomeValue={setOutcomeValue}
               outcomeNote={outcomeNote}
               setOutcomeNote={setOutcomeNote}
-              editText={editText}
-              setEditText={setEditText}
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-[14px] text-white/[0.22] font-mono">
+            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "#484848" }}>
               Select a situation
             </div>
           )}
@@ -379,7 +407,6 @@ function DetailPane({
   feedbackCategory, setFeedbackCategory,
   outcomeValue, setOutcomeValue,
   outcomeNote, setOutcomeNote,
-  editText, setEditText,
 }: {
   situation: SituationItem;
   detail: SituationDetail | null;
@@ -395,56 +422,87 @@ function DetailPane({
   setOutcomeValue: (v: string) => void;
   outcomeNote: string;
   setOutcomeNote: (n: string) => void;
-  editText: string;
-  setEditText: (t: string) => void;
 }) {
-  const [showReasoning, setShowReasoning] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [editingDraft, setEditingDraft] = useState(false);
+  const [editedDraftBody, setEditedDraftBody] = useState("");
+  const [savedEditedDraft, setSavedEditedDraft] = useState<DraftPayload | null>(null);
 
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
   const canAct = s.status === "detected" || s.status === "proposed";
   const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
   const proposedAction = detail?.proposedAction;
-  const pill = urgencyPill(s);
+  const sev = severityBadge(s);
+
+  // Draft payloads from raw reasoning
+  const draftPayloads = detail?.reasoning ? extractDraftPayloads(detail.reasoning) : [];
+  const primaryDraft = savedEditedDraft ?? draftPayloads[0] ?? null;
+  const originalDraft = draftPayloads[0] ?? null;
+
+  // Policy note (if present in raw reasoning)
+  const rawReasoning = detail?.reasoning as Record<string, unknown> | null;
+  const policyNote = typeof rawReasoning?.policyNote === "string" ? rawReasoning.policyNote : null;
 
   const resetInteraction = () => {
     setActiveMode(null);
     setFeedbackText("");
     setFeedbackCategory("");
-    setEditText("");
     setOutcomeValue("");
     setOutcomeNote("");
   };
 
+  const startDraftEdit = () => {
+    if (!originalDraft) return;
+    const body = originalDraft.payload.body ?? originalDraft.payload.message ?? "";
+    setEditedDraftBody(body);
+    setEditingDraft(true);
+  };
+
+  const saveDraftEdit = () => {
+    if (!originalDraft) return;
+    const isEmail = originalDraft.payload.body !== undefined;
+    const modified: DraftPayload = {
+      ...originalDraft,
+      payload: {
+        ...originalDraft.payload,
+        ...(isEmail ? { body: editedDraftBody } : { message: editedDraftBody }),
+      },
+    };
+    setSavedEditedDraft(modified);
+    setEditingDraft(false);
+  };
+
+  const cancelDraftEdit = () => {
+    setEditingDraft(false);
+    setEditedDraftBody("");
+  };
+
+  const handleApprove = () => {
+    patchSituation(s.id, {
+      status: "approved",
+      ...(savedEditedDraft ? { editedDraftPayload: savedEditedDraft } : {}),
+    });
+  };
+
   return (
     <div className="px-6 py-5 space-y-5">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Badge variant={s.situationType.autonomyLevel === "autonomous" ? "blue" : "default"} className="!rounded-[2px]">
-          {s.situationType.name}
-        </Badge>
-        <span className={`inline-flex items-center px-2 py-0.5 text-[12px] font-medium rounded-[2px] border ${pill.className}`}>
-          {pill.label}
-        </span>
-        <span className="text-[12px] font-mono text-white/[0.22]">{timeAgo(s.createdAt)}</span>
-      </div>
-
-      {/* Entity + urgency dot */}
-      <div className="flex items-center justify-between">
-        <span className="text-[18px] text-white/90 font-medium">
-          {s.triggerEntityName ?? "Unknown entity"}
-        </span>
-        <div className="flex items-center gap-3">
-          <div className={`w-2 h-2 rounded-full ${urgencyDot(s)}`} />
-          <span className="text-[13px] text-white/[0.38]">
-            {(s.confidence * 100).toFixed(0)}% confidence
-          </span>
+      {/* ── Header ── */}
+      <div>
+        <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "#e8e8e8" }}>
+          {s.triggerEntityName ?? "Unknown"} &mdash; {s.situationType.name}
+        </h1>
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
+          <Badge variant={sev.variant}>{sev.label}</Badge>
+          {s.departmentName && <Badge>{s.departmentName}</Badge>}
+          <span style={{ fontSize: 12, color: "#707070" }}>{(s.confidence * 100).toFixed(0)}%</span>
+          <span style={{ fontSize: 12, color: "#484848" }}>{timeAgo(s.createdAt)}</span>
         </div>
       </div>
 
       {detailLoading && (
         <div className="flex justify-center py-8">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
         </div>
       )}
 
@@ -453,88 +511,266 @@ function DetailPane({
           {/* Revised badge */}
           {detail.editInstruction && (
             <div className="flex items-start gap-2">
-              <Badge variant="blue" className="!rounded-[2px]">Revised</Badge>
-              <p className="text-[14px] text-white/50 italic">&quot;{detail.editInstruction}&quot;</p>
+              <Badge variant="blue">Revised</Badge>
+              <p style={{ fontSize: 13, color: "#707070" }} className="italic">&quot;{detail.editInstruction}&quot;</p>
             </div>
           )}
 
-          {/* Proposed Action */}
-          {reasoning && proposedAction ? (
-            <div className="bg-white/[0.025] border border-white/[0.09] border-l-2 border-l-white/[0.28] rounded-none rounded-r-[4px] px-3 py-2.5 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="text-[14px] font-medium text-white/[0.65] leading-relaxed">{proposedAction.action}</span>
-                {proposedAction.connector && (
-                  <span className="text-[13px] text-white/[0.38]">{proposedAction.connector}</span>
-                )}
+          {/* ── SITUATION section ── */}
+          {reasoning ? (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
+                Situation
               </div>
-              <p className="text-[13px] text-white/[0.38] mt-1.5">{proposedAction.justification}</p>
-              <p className="text-[13px] text-white/[0.38]">
-                AI confidence: {(reasoning.confidence * 100).toFixed(0)}%
+              <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
+                <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0" }}>{reasoning.analysis}</p>
+              </div>
+            </div>
+          ) : (s.status === "detected") ? (
+            <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
+              <p style={{ fontSize: 13, color: "#707070" }}>
+                Situation detected — awaiting AI analysis.
               </p>
-            </div>
-          ) : reasoning && !proposedAction ? (
-            <p className="text-[14px] text-white/50 italic">No action recommended — please review.</p>
-          ) : s.status === "reasoning" ? (
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
-              <p className="text-[14px] text-white/40">AI is analyzing this situation...</p>
-            </div>
-          ) : s.status === "executing" ? (
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/20 border-t-emerald-400" />
-              <p className="text-[14px] text-white/40">Executing action...</p>
+              {detail.contextSnapshot?.triggerEntity && (
+                <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1">
+                  {Object.entries(detail.contextSnapshot.triggerEntity.properties).slice(0, 8).map(([k, v]) => (
+                    <div key={k} className="flex justify-between text-[13px] py-1" style={{ borderBottom: "1px solid #1e1e1e" }}>
+                      <span style={{ color: "#707070" }}>{k}</span>
+                      <span style={{ color: "#b0b0b0" }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : null}
 
-          {/* Execution error */}
-          {detail.actionTaken?.error && (
-            <div className="bg-[rgba(217,79,79,0.10)] border border-[rgba(217,79,79,0.22)] rounded-[4px] px-4 py-3">
-              <p className="text-[14px] font-medium text-red-400">Execution failed</p>
-              <p className="text-[14px] text-red-300/70 mt-0.5">{detail.actionTaken.error}</p>
+          {/* ── PROPOSED ACTION section ── */}
+          {reasoning && proposedAction ? (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
+                Proposed Action
+              </div>
+              <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
+                <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0" }}>{proposedAction.action}</p>
+                <p style={{ fontSize: 12, color: "#707070" }} className="mt-1">{proposedAction.justification}</p>
+                {policyNote && (
+                  <p style={{ fontSize: 11, color: "#484848" }} className="mt-1">{policyNote}</p>
+                )}
+              </div>
+            </div>
+          ) : reasoning && !proposedAction ? (
+            <p style={{ fontSize: 13, color: "#707070" }} className="italic">No action recommended — please review.</p>
+          ) : s.status === "reasoning" ? (
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+              <p style={{ fontSize: 13, color: "#707070" }}>AI is analyzing this situation...</p>
+            </div>
+          ) : s.status === "executing" ? (
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-emerald-400" />
+              <p style={{ fontSize: 13, color: "#707070" }}>Executing action...</p>
+            </div>
+          ) : null}
+
+          {/* ── Draft Preview (HERO) ── */}
+          {primaryDraft && (
+            <div style={{
+              border: "1px solid rgba(168,85,247,0.35)",
+              borderRadius: 6,
+              boxShadow: "0 0 20px rgba(168,85,247,0.08)",
+              overflow: "hidden",
+            }}>
+              {/* Header bar */}
+              <div className="flex items-center justify-between px-4 py-2" style={{
+                background: "rgba(168,85,247,0.06)",
+                borderBottom: "1px solid rgba(168,85,247,0.2)",
+              }}>
+                <div className="flex items-center gap-2">
+                  <span style={{ width: 8, height: 8, borderRadius: 4, background: providerDotColor(primaryDraft) }} />
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>{providerLabel(primaryDraft)}</span>
+                </div>
+                {!editingDraft ? (
+                  <button
+                    onClick={startDraftEdit}
+                    style={{ background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#b0b0b0" }}
+                    className="flex items-center gap-1.5 hover:bg-[#2a2a2a] transition"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                    </svg>
+                    Edit
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={saveDraftEdit}
+                      className="transition"
+                      style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.3)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#c084fc" }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={cancelDraftEdit}
+                      style={{ background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#b0b0b0" }}
+                      className="hover:bg-[#2a2a2a] transition"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Body */}
+              <div style={{ padding: "14px 16px" }}>
+                {/* Email fields */}
+                {primaryDraft.payload.to && (
+                  <div style={{ fontSize: 12, color: "#707070" }} className="mb-1">
+                    <span style={{ color: "#484848" }}>To:</span> {primaryDraft.payload.to}
+                    {primaryDraft.payload.cc && <span className="ml-3"><span style={{ color: "#484848" }}>Cc:</span> {primaryDraft.payload.cc}</span>}
+                  </div>
+                )}
+                {primaryDraft.payload.subject && (
+                  <div style={{ fontSize: 12, color: "#707070" }} className="mb-2">
+                    <span style={{ color: "#484848" }}>Subject:</span> {primaryDraft.payload.subject}
+                  </div>
+                )}
+                {/* Slack channel */}
+                {primaryDraft.payload.channel && !primaryDraft.payload.to && (
+                  <div style={{ fontSize: 12, color: "#707070" }} className="mb-2">
+                    <span style={{ color: "#484848" }}>Channel:</span> #{primaryDraft.payload.channel}
+                  </div>
+                )}
+
+                {/* Divider for email */}
+                {primaryDraft.payload.subject && (
+                  <div style={{ borderTop: "1px solid #222" }} className="mb-3" />
+                )}
+
+                {/* Body / message */}
+                {editingDraft ? (
+                  <textarea
+                    value={editedDraftBody}
+                    onChange={e => setEditedDraftBody(e.target.value)}
+                    style={{
+                      width: "100%",
+                      minHeight: 120,
+                      background: "#111",
+                      border: "1px solid rgba(168,85,247,0.25)",
+                      borderRadius: 4,
+                      padding: "10px 12px",
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                      color: "#e8e8e8",
+                      outline: "none",
+                      resize: "vertical",
+                      fontFamily: "inherit",
+                    }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 13, lineHeight: 1.7, color: "#b0b0b0", whiteSpace: "pre-wrap" }}>
+                    {primaryDraft.payload.body ?? primaryDraft.payload.message ?? ""}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {/* Full reasoning toggle */}
+          {/* Execution error */}
+          {detail.actionTaken?.error && (
+            <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 4 }} className="px-4 py-3">
+              <p style={{ fontSize: 13, fontWeight: 500, color: "#ef4444" }}>Execution failed</p>
+              <p style={{ fontSize: 12, color: "rgba(239,68,68,0.7)" }} className="mt-0.5">{detail.actionTaken.error}</p>
+            </div>
+          )}
+
+          {/* ── Action buttons ── */}
+          {canAct && !currentMode && (
+            <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+              <button
+                className="rounded-full text-[13px] font-medium px-4 py-1.5 transition hover:opacity-90"
+                style={{ background: "#16a34a", color: "#fff" }}
+                onClick={handleApprove}
+              >
+                Approve
+              </button>
+              <button
+                className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"
+                onClick={() => setActiveMode({ id: s.id, mode: "reject" })}
+              >
+                Reject
+              </button>
+              <button
+                className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
+                onClick={() => setActiveMode({ id: s.id, mode: "teach" })}
+              >
+                Teach AI
+              </button>
+            </div>
+          )}
+
+          {/* Outcome button for resolved without outcome */}
+          {detail.status === "resolved" && !detail.outcome && !currentMode && (
+            <div className="pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+              <button
+                className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
+                onClick={() => setActiveMode({ id: s.id, mode: "outcome" })}
+              >
+                Mark Outcome
+              </button>
+            </div>
+          )}
+
+          {/* Existing outcome display */}
+          {detail.outcome && (
+            <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+              <Badge variant={detail.outcome === "positive" ? "green" : detail.outcome === "negative" ? "red" : "default"}>
+                {detail.outcome}
+              </Badge>
+              {detail.outcomeDetails && (() => {
+                try {
+                  const parsed = JSON.parse(detail.outcomeDetails);
+                  return parsed.note ? <span style={{ fontSize: 13, color: "#707070" }}>{parsed.note}</span> : null;
+                } catch { return null; }
+              })()}
+            </div>
+          )}
+
+          {/* ── Evidence & reasoning toggle ── */}
           {reasoning && (
             <div>
               <button
-                onClick={() => setShowReasoning(!showReasoning)}
-                className="flex items-center gap-1.5 text-[14px] text-white/40 hover:text-white/60 transition-colors"
+                onClick={() => setShowEvidence(!showEvidence)}
+                className="flex items-center gap-1.5 transition-colors hover:text-[#707070]"
+                style={{ fontSize: 12, color: "#484848" }}
               >
-                <svg className={`w-3 h-3 transition-transform ${showReasoning ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className={`w-3 h-3 transition-transform ${showEvidence ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
-                {showReasoning ? "Hide full reasoning" : "Show full reasoning"}
+                Evidence &amp; reasoning
               </button>
 
-              {showReasoning && (
-                <div className="mt-3 space-y-4 pl-4 border-l border-white/[0.06]">
-                  {/* Analysis */}
-                  <div>
-                    <h5 className="text-[11px] font-mono uppercase tracking-[0.1em] text-white/[0.22] mb-1.5">Analysis</h5>
-                    <div className="bg-white/[0.025] border border-white/[0.07] rounded-[4px] px-3 py-2.5">
-                      <p className="text-[14px] text-white/60 leading-relaxed">{reasoning.analysis}</p>
-                    </div>
-                  </div>
-
-                  {/* Evidence Summary */}
+              {showEvidence && (
+                <div className="mt-3 space-y-4">
+                  {/* Evidence summary */}
                   {reasoning.evidenceSummary && (
-                    <div className="bg-white/[0.03] border border-white/[0.07] rounded-[4px] p-3">
-                      <h5 className="text-[11px] font-mono uppercase tracking-[0.1em] text-white/[0.22] mb-1.5">Evidence</h5>
-                      <p className="text-[14px] text-white/60 leading-relaxed">{reasoning.evidenceSummary}</p>
+                    <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-1.5">Evidence</div>
+                      <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0" }}>{reasoning.evidenceSummary}</p>
                     </div>
                   )}
 
                   {/* Considered actions */}
                   {reasoning.consideredActions.length > 0 && (
                     <div>
-                      <h5 className="text-[11px] font-mono uppercase tracking-[0.1em] text-white/[0.22] mb-2">Considered Actions</h5>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Considered Actions</div>
                       <div className="space-y-2">
                         {reasoning.consideredActions.map((ca, i) => {
                           if (typeof ca === "string") {
                             return (
-                              <div key={i} className="bg-white/[0.03] rounded-[4px] p-3">
-                                <span className="text-[14px] text-white/70">{ca}</span>
+                              <div key={i} style={{ padding: "10px 14px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
+                                <span style={{ fontSize: 13, color: "#b0b0b0" }}>{ca}</span>
                               </div>
                             );
                           }
@@ -542,24 +778,24 @@ function DetailPane({
                           const supportItems = hasEvidence ? (ca.evidenceFor ?? []) : (ca.pros ?? []);
                           const againstItems = hasEvidence ? (ca.evidenceAgainst ?? []) : (ca.cons ?? []);
                           return (
-                            <div key={i} className="bg-white/[0.03] rounded-[4px] p-3 space-y-1.5">
-                              <span className="text-[14px] font-medium text-white/70">{ca.action}</span>
+                            <div key={i} style={{ padding: "10px 14px", background: "#161616", border: "1px solid #222", borderRadius: 4 }} className="space-y-1.5">
+                              <span style={{ fontSize: 13, fontWeight: 500, color: "#b0b0b0" }}>{ca.action}</span>
                               {supportItems.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
                                   {supportItems.map((p, j) => (
-                                    <span key={j} className="text-[12px] px-1.5 py-0.5 rounded-[2px] bg-[rgba(61,166,118,0.10)] text-[rgba(61,166,118,0.85)]">{p}</span>
+                                    <span key={j} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 2, background: "rgba(34,197,94,0.1)", color: "rgba(34,197,94,0.85)" }}>{p}</span>
                                   ))}
                                 </div>
                               )}
                               {againstItems.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
                                   {againstItems.map((c, j) => (
-                                    <span key={j} className="text-[12px] px-1.5 py-0.5 rounded-[2px] bg-[rgba(217,79,79,0.10)] text-[rgba(217,79,79,0.80)]">{c}</span>
+                                    <span key={j} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 2, background: "rgba(239,68,68,0.1)", color: "rgba(239,68,68,0.8)" }}>{c}</span>
                                   ))}
                                 </div>
                               )}
                               {ca.expectedOutcome && (
-                                <p className="text-[12px] text-white/40">{ca.expectedOutcome}</p>
+                                <p style={{ fontSize: 11, color: "#707070" }}>{ca.expectedOutcome}</p>
                               )}
                             </div>
                           );
@@ -570,13 +806,88 @@ function DetailPane({
 
                   {/* Missing context */}
                   {reasoning.missingContext && reasoning.missingContext.length > 0 && (
-                    <div className="bg-[rgba(196,155,22,0.07)] border border-[rgba(196,155,22,0.18)] rounded-[4px] p-3">
-                      <h5 className="text-[11px] font-mono uppercase tracking-[0.1em] text-[rgba(196,155,22,0.85)] mb-1.5">Missing Context</h5>
+                    <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 4 }} className="p-3">
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "rgba(245,158,11,0.85)", textTransform: "uppercase" as const }} className="mb-1.5">Missing Context</div>
                       <ul className="space-y-0.5">
                         {reasoning.missingContext.map((mc, i) => (
-                          <li key={i} className="text-[14px] text-[rgba(196,155,22,0.85)]">&bull; {mc}</li>
+                          <li key={i} style={{ fontSize: 13, color: "rgba(245,158,11,0.85)" }}>&bull; {mc}</li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {/* Entity Details */}
+                  {detail.contextSnapshot?.triggerEntity && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Entity Details</div>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                        {Object.entries(detail.contextSnapshot.triggerEntity.properties).map(([k, v]) => (
+                          <div key={k} className="flex justify-between text-[13px] py-1" style={{ borderBottom: "1px solid #1e1e1e" }}>
+                            <span style={{ color: "#707070" }}>{k}</span>
+                            <span style={{ color: "#b0b0b0" }}>{v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Related Entities */}
+                  {detail.contextSnapshot?.relatedEntities && (() => {
+                    const re = detail.contextSnapshot!.relatedEntities!;
+                    const all = [...(re.base ?? []), ...(re.digital ?? []), ...(re.external ?? [])];
+                    if (all.length === 0) return null;
+                    return (
+                      <div>
+                        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Related Entities</div>
+                        <div className="space-y-1">
+                          {all.slice(0, 5).map((e: { id: string; type: string; displayName: string; direction: string; relationship: string }) => (
+                            <div key={e.id} className="flex items-center gap-2" style={{ fontSize: 13 }}>
+                              <span style={{ color: "#484848" }}>{e.direction === "outgoing" ? "\u2192" : "\u2190"}</span>
+                              <Badge>{e.type}</Badge>
+                              <span style={{ color: "#b0b0b0" }}>{e.displayName}</span>
+                              <span style={{ color: "#484848" }}>({e.relationship})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Event Timeline */}
+                  {detail.contextSnapshot?.recentEvents && detail.contextSnapshot.recentEvents.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Event Timeline</div>
+                      <div className="space-y-1.5">
+                        {detail.contextSnapshot.recentEvents.slice(0, 8).map(ev => (
+                          <div key={ev.id} className="flex items-center gap-3" style={{ fontSize: 13 }}>
+                            <span style={{ fontSize: 11, color: "#484848", width: 48, textAlign: "right", flexShrink: 0 }}>{timeAgo(ev.createdAt)}</span>
+                            <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#333", flexShrink: 0 }} />
+                            <span style={{ color: "#b0b0b0" }}>{ev.eventType}</span>
+                            <span style={{ color: "#484848" }}>{ev.source}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Prior Situations */}
+                  {detail.contextSnapshot?.priorSituations && detail.contextSnapshot.priorSituations.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Prior Situations</div>
+                      <div className="space-y-2">
+                        {detail.contextSnapshot.priorSituations.map(ps => (
+                          <div key={ps.id} className="flex items-start gap-2" style={{ fontSize: 13 }}>
+                            <span className="flex-shrink-0" style={{ color: "#484848" }}>
+                              {ps.outcome === "positive" ? "\u2713" : ps.outcome === "negative" ? "\u2717" : "?"}
+                            </span>
+                            <div>
+                              <span style={{ color: "#b0b0b0" }}>{ps.triggerEntityName}</span>
+                              <span style={{ color: "#484848" }} className="ml-2">{ps.status}</span>
+                              {ps.feedback && <p style={{ color: "#707070" }} className="mt-0.5">{ps.feedback}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -584,254 +895,93 @@ function DetailPane({
             </div>
           )}
 
-          {/* Entity Details */}
-          {detail.contextSnapshot?.triggerEntity && (
-            <div>
-              <h4 className="text-[11px] font-mono uppercase tracking-[0.1em] text-white/[0.22] mb-2">Entity Details</h4>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-                {Object.entries(detail.contextSnapshot.triggerEntity.properties).map(([k, v]) => (
-                  <div key={k} className="flex justify-between text-[14px] py-1 border-b border-white/[0.04]">
-                    <span className="text-white/40">{k}</span>
-                    <span className="text-white/70">{v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Related Entities */}
-          {detail.contextSnapshot?.relatedEntities && (
-            (() => {
-              const re = detail.contextSnapshot.relatedEntities;
-              const all = [...(re.base ?? []), ...(re.digital ?? []), ...(re.external ?? [])];
-              if (all.length === 0) return null;
-              return (
-                <div>
-                  <h4 className="text-[11px] font-mono uppercase tracking-[0.1em] text-white/[0.22] mb-2">Related Entities</h4>
-                  <div className="space-y-1">
-                    {all.slice(0, 5).map((e: { id: string; type: string; displayName: string; direction: string; relationship: string }) => (
-                      <div key={e.id} className="flex items-center gap-2 text-[14px]">
-                        <span className="text-white/30">{e.direction === "outgoing" ? "\u2192" : "\u2190"}</span>
-                        <Badge variant="default" className="!rounded-[2px]">{e.type}</Badge>
-                        <span className="text-white/70">{e.displayName}</span>
-                        <span className="text-white/30">({e.relationship})</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()
-          )}
-
-          {/* Event Timeline */}
-          {detail.contextSnapshot?.recentEvents && detail.contextSnapshot.recentEvents.length > 0 && (
-            <div>
-              <h4 className="text-[11px] font-mono uppercase tracking-[0.1em] text-white/[0.22] mb-2">Event Timeline</h4>
-              <div className="space-y-1.5">
-                {detail.contextSnapshot.recentEvents.slice(0, 8).map((ev) => (
-                  <div key={ev.id} className="flex items-center gap-3 text-[14px]">
-                    <span className="text-[12px] font-mono text-white/[0.22] w-16 text-right flex-shrink-0">{timeAgo(ev.createdAt)}</span>
-                    <div className="w-1.5 h-1.5 rounded-full bg-white/[0.20] flex-shrink-0" />
-                    <span className="text-white/60">{ev.eventType}</span>
-                    <span className="text-white/30">{ev.source}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Prior Situations */}
-          {detail.contextSnapshot?.priorSituations && detail.contextSnapshot.priorSituations.length > 0 && (
-            <div>
-              <h4 className="text-[11px] font-mono uppercase tracking-[0.1em] text-white/[0.22] mb-2">Prior Situations</h4>
-              <div className="space-y-2">
-                {detail.contextSnapshot.priorSituations.map((ps) => (
-                  <div key={ps.id} className="flex items-start gap-2 text-[14px]">
-                    <span className="flex-shrink-0">
-                      {ps.outcome === "positive" ? "\u2713" : ps.outcome === "negative" ? "\u2717" : "?"}
-                    </span>
-                    <div>
-                      <span className="text-white/70">{ps.triggerEntityName}</span>
-                      <span className="text-white/30 ml-2">{ps.status}</span>
-                      {ps.feedback && <p className="text-white/40 mt-0.5">{ps.feedback}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Action buttons */}
-          {canAct && !currentMode && (
-            <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
-              <button
-                className="px-3 py-1.5 rounded-[3px] border border-[rgba(61,166,118,0.22)] bg-[rgba(61,166,118,0.10)] text-[rgba(61,166,118,0.9)] text-[13px] font-medium hover:bg-[rgba(61,166,118,0.18)] transition"
-                onClick={() => patchSituation(s.id, { status: "approved" })}
-              >
-                Approve
-              </button>
-              <button
-                className="px-3 py-1.5 rounded-[3px] border border-white/[0.10] bg-white/[0.04] text-white/50 text-[13px] font-medium hover:bg-white/[0.08] hover:text-white/70 transition"
-                onClick={() => setActiveMode({ id: s.id, mode: "edit" })}
-              >
-                Edit &amp; Approve
-              </button>
-              <button
-                className="px-3 py-1.5 rounded-[3px] border border-[rgba(217,79,79,0.22)] bg-[rgba(217,79,79,0.10)] text-[rgba(217,79,79,0.85)] text-[13px] font-medium hover:bg-[rgba(217,79,79,0.18)] transition"
-                onClick={() => setActiveMode({ id: s.id, mode: "reject" })}
-              >
-                Reject
-              </button>
-              <button
-                className="px-3 py-1.5 rounded-[3px] border border-white/[0.10] bg-white/[0.04] text-white/50 text-[13px] font-medium hover:bg-white/[0.08] hover:text-white/70 transition"
-                onClick={() => setActiveMode({ id: s.id, mode: "teach" })}
-              >
-                Teach
-              </button>
-            </div>
-          )}
-
-          {/* Outcome button for resolved without outcome */}
-          {detail.status === "resolved" && !detail.outcome && !currentMode && (
-            <div className="pt-2 border-t border-white/[0.06]">
-              <button
-                className="px-3 py-1.5 rounded-[3px] border border-white/[0.10] bg-white/[0.04] text-white/50 text-[13px] font-medium hover:bg-white/[0.08] hover:text-white/70 transition"
-                onClick={() => setActiveMode({ id: s.id, mode: "outcome" })}
-              >
-                Mark Outcome
-              </button>
-            </div>
-          )}
-
-          {/* Existing outcome display */}
-          {detail.outcome && (
-            <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
-              <Badge variant={detail.outcome === "positive" ? "green" : detail.outcome === "negative" ? "red" : "default"} className="!rounded-[2px]">
-                {detail.outcome}
-              </Badge>
-              {detail.outcomeDetails && (() => {
-                try {
-                  const parsed = JSON.parse(detail.outcomeDetails);
-                  return parsed.note ? <span className="text-[14px] text-white/40">{parsed.note}</span> : null;
-                } catch { return null; }
-              })()}
-            </div>
-          )}
-
-          {/* ── Mode UIs ────────────────────────────────── */}
+          {/* ── Mode UIs ── */}
 
           {/* Reject mode */}
           {currentMode === "reject" && (
-            <div className="space-y-2 pt-2 border-t border-white/[0.06]">
+            <div className="space-y-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
               <textarea
                 value={feedbackText}
-                onChange={(e) => setFeedbackText(e.target.value)}
+                onChange={e => setFeedbackText(e.target.value)}
                 placeholder="Why is this not a real situation? (optional)"
-                className="w-full bg-white/[0.04] border border-white/[0.09] rounded-[3px] px-3 py-2 text-[14px] text-white/80 placeholder:text-white/[0.25] outline-none focus:border-white/[0.22] font-sans"
+                className="w-full outline-none"
+                style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8", resize: "vertical", fontFamily: "inherit" }}
                 rows={2}
               />
               <div className="flex gap-2">
                 <button
-                  className="px-3 py-1.5 rounded-[3px] border border-[rgba(217,79,79,0.22)] bg-[rgba(217,79,79,0.10)] text-[rgba(217,79,79,0.85)] text-[13px] font-medium hover:bg-[rgba(217,79,79,0.18)] transition"
+                  className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"
                   onClick={() => patchSituation(s.id, { status: "rejected", feedback: feedbackText || undefined })}
-                >
-                  Reject
-                </button>
+                >Reject</button>
                 <button
-                  className="px-3 py-1.5 rounded-[3px] border border-white/[0.10] bg-white/[0.04] text-white/50 text-[13px] font-medium hover:bg-white/[0.08] hover:text-white/70 transition"
+                  className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                  style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
                   onClick={resetInteraction}
-                >
-                  Cancel
-                </button>
+                >Cancel</button>
               </div>
             </div>
           )}
 
-          {/* Teach mode */}
+          {/* Teach AI mode */}
           {currentMode === "teach" && (
-            <div className="space-y-2 pt-2 border-t border-white/[0.06]">
+            <div className="space-y-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
               <select
                 value={feedbackCategory}
-                onChange={(e) => setFeedbackCategory(e.target.value)}
-                className="w-full bg-white/[0.04] border border-white/[0.09] rounded-[3px] px-3 py-2 text-[14px] text-white/80 outline-none focus:border-white/[0.22] font-sans"
-                style={{ backgroundColor: "#182027" }}
+                onChange={e => setFeedbackCategory(e.target.value)}
+                className="w-full outline-none"
+                style={{ background: "#1c1c1c", border: "1px solid #222", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8" }}
               >
-                {CATEGORY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value} style={{ backgroundColor: "#182027" }}>{opt.label}</option>
+                {CATEGORY_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value} style={{ background: "#1c1c1c" }}>{opt.label}</option>
                 ))}
               </select>
               <textarea
                 value={feedbackText}
-                onChange={(e) => setFeedbackText(e.target.value)}
+                onChange={e => setFeedbackText(e.target.value)}
                 placeholder="Teach the AI about this situation — what context is it missing?"
-                className="w-full bg-white/[0.04] border border-white/[0.09] rounded-[3px] px-3 py-2 text-[14px] text-white/80 placeholder:text-white/[0.25] outline-none focus:border-white/[0.22] font-sans"
+                className="w-full outline-none"
+                style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8", resize: "vertical", fontFamily: "inherit" }}
                 rows={2}
               />
               <div className="flex gap-2">
                 <button
-                  className="px-3 py-1.5 rounded-[3px] border border-[rgba(61,166,118,0.22)] bg-[rgba(61,166,118,0.10)] text-[rgba(61,166,118,0.9)] text-[13px] font-medium hover:bg-[rgba(61,166,118,0.18)] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="rounded-full text-[13px] font-medium px-4 py-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: "#16a34a", color: "#fff" }}
                   disabled={!feedbackText.trim()}
                   onClick={() => patchSituation(s.id, {
                     feedback: feedbackText,
                     feedbackCategory: feedbackCategory || undefined,
                   })}
-                >
-                  Save feedback
-                </button>
+                >Save feedback</button>
                 <button
-                  className="px-3 py-1.5 rounded-[3px] border border-white/[0.10] bg-white/[0.04] text-white/50 text-[13px] font-medium hover:bg-white/[0.08] hover:text-white/70 transition"
+                  className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                  style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
                   onClick={resetInteraction}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Edit & Approve mode */}
-          {currentMode === "edit" && (
-            <div className="space-y-2 pt-2 border-t border-white/[0.06]">
-              <p className="text-[13px] text-white/[0.38]">Describe what to change. The AI will revise and re-propose.</p>
-              <textarea
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                placeholder="e.g., Make the email tone more urgent and CC their account manager"
-                className="w-full bg-white/[0.04] border border-white/[0.09] rounded-[3px] px-3 py-2 text-[14px] text-white/80 placeholder:text-white/[0.25] outline-none focus:border-white/[0.22] font-sans"
-                rows={2}
-              />
-              <div className="flex gap-2">
-                <button
-                  className="px-3 py-1.5 rounded-[3px] border border-[rgba(61,166,118,0.22)] bg-[rgba(61,166,118,0.10)] text-[rgba(61,166,118,0.9)] text-[13px] font-medium hover:bg-[rgba(61,166,118,0.18)] transition disabled:opacity-40 disabled:cursor-not-allowed"
-                  disabled={!editText.trim()}
-                  onClick={() => patchSituation(s.id, { editInstruction: editText })}
-                >
-                  Submit Edit
-                </button>
-                <button
-                  className="px-3 py-1.5 rounded-[3px] border border-white/[0.10] bg-white/[0.04] text-white/50 text-[13px] font-medium hover:bg-white/[0.08] hover:text-white/70 transition"
-                  onClick={resetInteraction}
-                >
-                  Cancel
-                </button>
+                >Cancel</button>
               </div>
             </div>
           )}
 
           {/* Outcome mode */}
           {currentMode === "outcome" && (
-            <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+            <div className="space-y-3 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
               <div className="flex gap-2">
-                {(["positive", "negative", "neutral"] as const).map((v) => (
+                {(["positive", "negative", "neutral"] as const).map(v => (
                   <button
                     key={v}
                     onClick={() => setOutcomeValue(v)}
-                    className={`px-4 py-1.5 rounded-[2px] text-[14px] font-medium border transition-colors ${
-                      outcomeValue === v
-                        ? v === "positive" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                        : v === "negative" ? "bg-red-500/20 text-red-300 border-red-500/40"
-                        : "bg-white/10 text-white/70 border-white/20"
-                        : "bg-white/[0.03] text-white/40 border-white/[0.08] hover:bg-white/[0.06]"
-                    }`}
+                    className="px-4 py-1.5 rounded text-[13px] font-medium border transition-colors"
+                    style={{
+                      background: outcomeValue === v
+                        ? v === "positive" ? "rgba(34,197,94,0.15)" : v === "negative" ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.08)"
+                        : "#161616",
+                      borderColor: outcomeValue === v
+                        ? v === "positive" ? "rgba(34,197,94,0.3)" : v === "negative" ? "rgba(239,68,68,0.3)" : "#333"
+                        : "#222",
+                      color: outcomeValue === v
+                        ? v === "positive" ? "#22c55e" : v === "negative" ? "#ef4444" : "#e8e8e8"
+                        : "#707070",
+                    }}
                   >
                     {v.charAt(0).toUpperCase() + v.slice(1)}
                   </button>
@@ -840,38 +990,34 @@ function DetailPane({
               <input
                 type="text"
                 value={outcomeNote}
-                onChange={(e) => setOutcomeNote(e.target.value)}
+                onChange={e => setOutcomeNote(e.target.value)}
                 placeholder="Optional note"
-                className="w-full bg-white/[0.04] border border-white/[0.09] rounded-[3px] px-3 py-2 text-[14px] text-white/80 placeholder:text-white/[0.25] outline-none focus:border-white/[0.22] font-sans"
+                className="w-full outline-none"
+                style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8" }}
               />
               <div className="flex gap-2">
                 <button
-                  className="px-3 py-1.5 rounded-[3px] border border-[rgba(61,166,118,0.22)] bg-[rgba(61,166,118,0.10)] text-[rgba(61,166,118,0.9)] text-[13px] font-medium hover:bg-[rgba(61,166,118,0.18)] transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="rounded-full text-[13px] font-medium px-4 py-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: "#16a34a", color: "#fff" }}
                   disabled={!outcomeValue}
-                  onClick={() => patchSituation(s.id, {
-                    outcome: outcomeValue,
-                    outcomeNote: outcomeNote || undefined,
-                  })}
-                >
-                  Save Outcome
-                </button>
+                  onClick={() => patchSituation(s.id, { outcome: outcomeValue, outcomeNote: outcomeNote || undefined })}
+                >Save Outcome</button>
                 <button
-                  className="px-3 py-1.5 rounded-[3px] border border-white/[0.10] bg-white/[0.04] text-white/50 text-[13px] font-medium hover:bg-white/[0.08] hover:text-white/70 transition"
+                  className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                  style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
                   onClick={resetInteraction}
-                >
-                  Cancel
-                </button>
+                >Cancel</button>
               </div>
             </div>
           )}
 
           {/* Existing feedback display */}
           {detail.feedback && !currentMode && (
-            <div className="flex items-start gap-2 pt-2 border-t border-white/[0.06]">
-              <span className="text-[14px] text-white/40">Feedback:</span>
-              <span className="text-[14px] text-white/60">{detail.feedback}</span>
+            <div className="flex items-start gap-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+              <span style={{ fontSize: 13, color: "#707070" }}>Feedback:</span>
+              <span style={{ fontSize: 13, color: "#b0b0b0" }}>{detail.feedback}</span>
               {detail.feedbackCategory && (
-                <Badge variant="default" className="!rounded-[2px]">{CATEGORY_LABELS[detail.feedbackCategory] ?? detail.feedbackCategory}</Badge>
+                <Badge>{CATEGORY_LABELS[detail.feedbackCategory] ?? detail.feedbackCategory}</Badge>
               )}
             </div>
           )}

@@ -3,7 +3,7 @@
 type BadgeVariant = "default" | "purple" | "green" | "amber" | "red" | "blue";
 
 const variantClasses: Record<BadgeVariant, string> = {
-  default: "bg-white/5 text-white/60 border-white/10",
+  default: "bg-[#222] text-[#b0b0b0] border-[#333]",
   purple: "bg-purple-500/15 text-purple-300 border-purple-500/25",
   green: "bg-emerald-500/15 text-emerald-300 border-emerald-500/25",
   amber: "bg-amber-500/15 text-amber-300 border-amber-500/25",

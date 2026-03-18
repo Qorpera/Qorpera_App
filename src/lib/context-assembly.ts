@@ -87,6 +87,12 @@ export interface CrossDepartmentContext {
   signals: CrossDepartmentSignal[];
 }
 
+export interface ConnectorCapability {
+  provider: string;
+  type: string;
+  scope: "personal" | "company";
+}
+
 export interface ContextSectionMeta {
   section: string;
   itemCount: number;
@@ -145,6 +151,7 @@ export interface SituationContext {
   communicationContext: CommunicationContext;
   crossDepartmentSignals: CrossDepartmentContext;
   contextSections: ContextSectionMeta[];
+  connectorCapabilities: ConnectorCapability[];
 }
 
 // ── Department Discovery ─────────────────────────────────────────────────────
@@ -767,6 +774,38 @@ export async function assembleSituationContext(
     loadCrossDepartmentSignals(operatorId, triggerEntityId, rawEntity?.category ?? null, departmentIds, 30),
   ]);
 
+  // Step 5c: Load active connectors for draft payload provider resolution
+  const activeConnectors = await prisma.sourceConnector.findMany({
+    where: { operatorId, status: "active" },
+    select: { provider: true, name: true, userId: true },
+  });
+
+  // Map providers to their capability types for the reasoning engine
+  const PROVIDER_TYPES: Record<string, string[]> = {
+    google: ["gmail", "google_drive", "google_calendar", "google_sheets"],
+    microsoft: ["outlook", "onedrive", "teams", "microsoft_calendar"],
+    slack: ["slack"],
+    hubspot: ["hubspot"],
+    stripe: ["stripe"],
+  };
+
+  const seen = new Set<string>();
+  const connectorCapabilities: ConnectorCapability[] = activeConnectors.flatMap((c) => {
+    const types = PROVIDER_TYPES[c.provider] ?? [c.provider];
+    return types
+      .filter((type) => {
+        const key = `${c.provider}:${type}:${c.userId ? "personal" : "company"}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((type) => ({
+        provider: c.provider,
+        type,
+        scope: c.userId ? "personal" as const : "company" as const,
+      }));
+  });
+
   // Step 6: Events, priors, capabilities, policies, business context
   const recentEvents = events.map((e) => ({
     id: e.id,
@@ -845,6 +884,7 @@ export async function assembleSituationContext(
     communicationContext,
     crossDepartmentSignals,
     contextSections,
+    connectorCapabilities,
   };
 }
 

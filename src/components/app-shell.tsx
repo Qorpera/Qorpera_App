@@ -73,7 +73,8 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
       <div className="flex h-screen wf-shell">
         {/* Sidebar */}
         <aside
-          className={`flex-shrink-0 flex flex-col border-r border-white/[0.06] bg-black transition-[width] duration-200 ${
+          style={{ background: "#0c0c0c" }}
+          className={`flex-shrink-0 flex flex-col border-r border-[#1e1e1e] transition-[width] duration-200 ${
             collapsed ? "w-14" : "w-60"
           }`}
         >
@@ -113,8 +114,8 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
 
           {/* Footer */}
           {!collapsed && (
-            <div className="px-5 py-3 border-t border-white/[0.06]">
-              <p className="text-[10px] text-white/20">Qorpera Desktop v0.1.0</p>
+            <div className="px-5 py-3 border-t border-[#1e1e1e]">
+              <p className="text-[10px] text-[#444]">Qorpera Desktop v0.1.0</p>
             </div>
           )}
         </aside>

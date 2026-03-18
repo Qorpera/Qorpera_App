@@ -180,6 +180,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       activityTimeline: context.activityTimeline,
       communicationContext: context.communicationContext,
       crossDepartmentSignals: context.crossDepartmentSignals,
+      connectorCapabilities: context.connectorCapabilities,
     };
 
     // 6a. Compute edit instruction and prior feedback (needed by both paths)

@@ -35,6 +35,7 @@ describe("SituationContext type contract", () => {
       communicationContext: { excerpts: [], sourceBreakdown: {} },
       crossDepartmentSignals: { signals: [] },
       contextSections: [],
+      connectorCapabilities: [],
     };
 
     expect(ctx.activityTimeline).toBeDefined();

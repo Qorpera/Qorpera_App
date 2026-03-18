@@ -35,6 +35,7 @@ const minimalInput: ReasoningInput = {
   activityTimeline: { buckets: [], trend: "No trend data available", totalSignals: 0 },
   communicationContext: { excerpts: [], sourceBreakdown: {} },
   crossDepartmentSignals: { signals: [] },
+  connectorCapabilities: [],
 };
 
 const validSpecialistResponse = JSON.stringify({

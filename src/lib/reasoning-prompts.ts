@@ -5,6 +5,7 @@ import type {
   ActivityTimeline,
   CommunicationContext,
   CrossDepartmentContext,
+  ConnectorCapability,
 } from "@/lib/context-assembly";
 import type { PermittedAction, BlockedAction } from "@/lib/policy-evaluator";
 
@@ -50,6 +51,9 @@ export interface ReasoningInput {
   activityTimeline: ActivityTimeline;
   communicationContext: CommunicationContext;
   crossDepartmentSignals: CrossDepartmentContext;
+
+  // v4: draft payload provider resolution
+  connectorCapabilities: ConnectorCapability[];
 }
 
 // ── System Prompt ────────────────────────────────────────────────────────────
@@ -107,7 +111,10 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
     "justification": "string — MUST cite specific evidence from context"
   } or null,
   "confidence": 0.0 to 1.0,
-  "missingContext": ["specific information that would improve this decision"] or null
+  "missingContext": ["specific information that would improve this decision"] or null,
+  "draftPayloads": [
+    // One entry per action to execute. See DRAFT PAYLOADS section for schema per action type.
+  ]
 }
 
 CRITICAL RULES:
@@ -115,7 +122,73 @@ CRITICAL RULES:
 - "justification" MUST reference specific evidence from the provided context — not general reasoning.
 - If no evidence supports any action, chosenAction MUST be null. This is the correct, safe response.
 - "consideredActions" should still list what was evaluated even when chosenAction is null.
-- "evidenceSummary" should list the 3-5 most important facts driving your decision.`;
+- "evidenceSummary" should list the 3-5 most important facts driving your decision.
+
+## DRAFT PAYLOADS
+
+After determining your proposed action, you MUST generate the actual draft content that would be sent or created. This goes in the \`draftPayloads\` array.
+
+For each action in your proposal, produce a complete draft payload:
+
+### Email actions (send_email, reply_to_thread)
+{
+  "actionType": "send_email" or "reply_to_thread",
+  "provider": "gmail" or "outlook" (based on which connector the user has),
+  "payload": {
+    "to": "recipient@email.com",
+    "cc": "optional@email.com",
+    "subject": "Clear, specific subject line",
+    "body": "The complete email text. Write this as a real email the human would send — appropriate tone, specific details from context, proper sign-off. Reference specific amounts, dates, names from the evidence."
+  }
+}
+
+### Slack/Teams message actions (send_slack_message, send_teams_message)
+{
+  "actionType": "send_slack_message" or "send_teams_message",
+  "provider": "slack" or "teams",
+  "payload": {
+    "channel": "#channel-name",
+    "message": "The complete message text. Use @mentions where appropriate."
+  }
+}
+
+### Document creation (create_document, append_to_document)
+{
+  "actionType": "create_document",
+  "provider": "google_drive" or "onedrive",
+  "payload": {
+    "title": "Document title",
+    "content": "The full document text."
+  }
+}
+
+### Spreadsheet creation (create_spreadsheet, update_spreadsheet_cells)
+{
+  "actionType": "create_spreadsheet",
+  "provider": "google_drive" or "onedrive",
+  "payload": {
+    "title": "Spreadsheet title"
+  },
+  "attachments": [{
+    "type": "spreadsheet",
+    "title": "Sheet name",
+    "data": {
+      "format": "spreadsheet",
+      "headers": ["Column A", "Column B"],
+      "rows": [["value1", 100], ["value2", 200]]
+    }
+  }]
+}
+
+### Compound actions
+If the proposed action involves multiple steps (e.g., send an email with a report attached), produce multiple entries in draftPayloads — one for the email, one for the attachment. The email payload should reference the attachment by title.
+
+CRITICAL RULES for drafting:
+- Use SPECIFIC details from the context: exact amounts, dates, names, invoice numbers, etc.
+- Match the tone to the situation urgency and the relationship context.
+- The draft must be ready to send as-is — the human should only need to review and approve, not rewrite.
+- If you cannot draft specific content because the context is insufficient, set the payload fields to descriptive placeholders and note the gap in your reasoning evidenceSummary.
+- The draftPayloads array can be empty ONLY if the proposed action doesn't involve sending or creating content (e.g., "flag for manual review" or "no action needed").`;
 }
 
 // ── User Prompt ──────────────────────────────────────────────────────────────
@@ -280,6 +353,14 @@ ${propsStr || "  (no properties)"}`);
       return `  ${s.departmentName}: ${parts.join(", ")}.${lastAct}`;
     });
     sections.push(`CROSS-DEPARTMENT SIGNALS (other departments' interaction with ${input.triggerEntity.displayName}):\n${sigLines.join("\n")}`);
+  }
+
+  // CONNECTED TOOLS
+  if (input.connectorCapabilities.length > 0) {
+    const toolLines = input.connectorCapabilities
+      .map((c) => `- ${c.type} (${c.provider}, ${c.scope})`)
+      .join("\n");
+    sections.push(`CONNECTED TOOLS:\nThe following tools are active for this operator:\n${toolLines}\n\nWhen drafting payloads, use ONLY providers that are connected. For email: use "gmail" if google gmail is connected, "outlook" if microsoft outlook is connected. For documents/spreadsheets: use "google_drive" if google is connected, "onedrive" if microsoft is connected. For messaging: use "slack" or "teams" based on what's connected.`);
   }
 
   // PERMITTED ACTIONS

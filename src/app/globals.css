@@ -1,18 +1,25 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0e1418;
-  --foreground: #f0f4f7;
-  --card: #182027;
-  --muted: #b8c5ce;
-  --border: #2f3b45;
+  --background: #101010;
+  --foreground: #e8e8e8;
+  --card: #1c1c1c;
+  --muted: #b0b0b0;
+  --border: #2a2a2a;
   --accent: #a855f7;
   --accent-ink: #f3e8ff;
-  --warn: #b45309;
-  --warn-strong: #9a3412;
-  --danger: #b42318;
-  --ok: #15803d;
-  --info: #2563eb;
+  --warn: #f59e0b;
+  --warn-strong: #d97706;
+  --danger: #ef4444;
+  --ok: #22c55e;
+  --info: #3b82f6;
+
+  /* Text hierarchy */
+  --fg: #e8e8e8;
+  --fg2: #b0b0b0;
+  --fg3: #707070;
+  --fg4: #484848;
+  --surface: #161616;
 }
 
 input:-webkit-autofill,
@@ -51,10 +58,7 @@ select:-webkit-autofill {
 body {
   min-height: 100vh;
   color-scheme: dark;
-  background:
-    radial-gradient(circle at 10% 0%, rgba(168, 85, 247, 0.14), transparent 45%),
-    radial-gradient(circle at 100% 0%, rgba(180, 83, 9, 0.1), transparent 50%),
-    var(--background);
+  background: var(--background);
   color: var(--foreground);
   font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -73,15 +77,7 @@ button, a, input, select, textarea {
 /* ─── Shell & Panel ─────────────────────── */
 
 .wf-shell {
-  background:
-    linear-gradient(rgba(10, 14, 17, 0.65), rgba(10, 14, 17, 0.65)),
-    repeating-linear-gradient(
-      90deg,
-      rgba(47, 59, 69, 0.3) 0,
-      rgba(47, 59, 69, 0.3) 1px,
-      transparent 1px,
-      transparent 36px
-    );
+  background: var(--background);
 }
 
 .wf-panel {
@@ -93,16 +89,16 @@ button, a, input, select, textarea {
 }
 
 .wf-soft {
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px !important;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px !important;
 }
 
 .wf-muted { color: var(--muted); }
 
 .wf-chip {
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #333;
+  background: #1c1c1c;
   color: var(--foreground);
   font-size: 0.75rem;
   line-height: 1;
@@ -113,14 +109,14 @@ button, a, input, select, textarea {
 
 .wf-btn {
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid #333;
+  background: #222;
   color: var(--foreground);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 2px 8px rgba(0, 0, 0, 0.18);
+  box-shadow: none;
 }
 .wf-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 4px 12px rgba(0, 0, 0, 0.22);
+  background: #2a2a2a;
+  box-shadow: none;
 }
 
 .wf-btn-primary {
@@ -163,10 +159,10 @@ button, a, input, select, textarea {
 
 /* ─── Contrast fixes ────────────────────── */
 
-.text-white\/25 { color: rgba(255, 255, 255, 0.44) !important; }
-.text-white\/30 { color: rgba(255, 255, 255, 0.50) !important; }
-.text-white\/40 { color: rgba(255, 255, 255, 0.62) !important; }
-.text-white\/50 { color: rgba(255, 255, 255, 0.74) !important; }
+.text-white\/25 { color: var(--fg4) !important; }
+.text-white\/30 { color: #585858 !important; }
+.text-white\/40 { color: var(--fg3) !important; }
+.text-white\/50 { color: #909090 !important; }
 
 /* ─── Scrollbar ─────────────────────────── */
 

@@ -317,6 +317,7 @@ export async function POST(req: NextRequest) {
           activityTimeline: context.activityTimeline,
           communicationContext: context.communicationContext,
           crossDepartmentSignals: context.crossDepartmentSignals,
+          connectorCapabilities: context.connectorCapabilities,
         };
 
         const useMultiAgent = shouldUseMultiAgent(context.contextSections);

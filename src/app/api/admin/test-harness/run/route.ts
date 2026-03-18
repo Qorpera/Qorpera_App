@@ -788,6 +788,7 @@ export async function POST(req: NextRequest) {
                 activityTimeline: context.activityTimeline,
                 communicationContext: context.communicationContext,
                 crossDepartmentSignals: context.crossDepartmentSignals,
+                connectorCapabilities: context.connectorCapabilities,
               };
 
               const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
@@ -929,6 +930,7 @@ export async function POST(req: NextRequest) {
                 activityTimeline: context.activityTimeline,
                 communicationContext: context.communicationContext,
                 crossDepartmentSignals: context.crossDepartmentSignals,
+                connectorCapabilities: context.connectorCapabilities,
               };
 
               const result = await runMultiAgentReasoning(

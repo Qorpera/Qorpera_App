@@ -26,28 +26,35 @@ interface Department {
   isHQ: boolean;
 }
 
-const SLOT_ICONS: Record<string, { label: string; path: string }> = {
-  "org-chart": {
-    label: "Org Chart",
-    path: "M12 3v3m0 12v3m-6-9H3m18 0h-3m-2.25-5.25L17.25 5.25m-10.5 0L8.25 6.75m0 10.5l-1.5 1.5m10.5-1.5l1.5 1.5M12 9a3 3 0 100 6 3 3 0 000-6z",
-  },
-  playbook: {
-    label: "Playbook",
-    path: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
-  },
-};
+interface Member {
+  id: string;
+  displayName: string;
+  entityType: { slug: string };
+  propertyValues: Array<{ property: { slug: string }; value: string }>;
+  autonomySummary?: { supervised: number; notify: number; autonomous: number } | null;
+  ownerUserId: string | null;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const CARD_W = 200;
-const HQ_W = 240;
-const CARD_H = 90;
-const HQ_H = 72;
-const CLICK_THRESHOLD = 5;
+const ORG_W = 1300, ORG_H = 400;
+const DEPT_W = 760, DEPT_H = 320;
+const MEM_W = 110, MEM_H = 90;
+const MEM_COLS = 5;
+const MEM_ROW_GAP = 10;
+const ORG_DEPT_GAP = 600;
+const DEPT_MEM_GAP = 300;
+const SIB_GAP = 14;
+const DEPT_GAP = 300;
+
+const TEXT_OUTLINE = "0 1px 3px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.5)";
+const CARD_BORDER = "1px solid #3a3a3a";
+const CARD_BORDER_EDIT = "1px solid rgba(245,158,11,0.3)";
+
 const POLL_MS = 30_000;
-const MIN_ZOOM = 0.2;
+const MIN_ZOOM = 0.02;
 const MAX_ZOOM = 2;
 const ZOOM_SENSITIVITY = 0.001;
 
@@ -55,13 +62,159 @@ const ZOOM_SENSITIVITY = 0.001;
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+function getInitials(name: string): string {
+  const parts = name.split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+function getFirstName(name: string): string {
+  return name.split(/\s+/)[0];
+}
+
+function getMemberRole(m: Member): string {
+  const pv = m.propertyValues.find(
+    p => p.property.slug === "role" || p.property.slug === "title" || p.property.slug === "job-title",
+  );
+  return pv?.value ?? "";
+}
+
+function getAiLevel(m: Member): "act" | "propose" | "observe" | null {
+  if (m.entityType.slug !== "ai-agent") return null;
+  const s = m.autonomySummary;
+  if (!s) return "observe";
+  if (s.autonomous > 0) return "act";
+  if (s.notify > 0) return "propose";
+  return "observe";
+}
+
+/** Still used when creating a new department to store mapX/mapY for onboarding builder */
 function defaultPosition(index: number, total: number) {
   const radius = 250 + Math.floor(index / 8) * 160;
   const angle = (index / Math.max(total, 1)) * 2 * Math.PI - Math.PI / 2;
-  return {
-    x: Math.cos(angle) * radius,
-    y: Math.sin(angle) * radius,
-  };
+  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tree layout                                                        */
+/* ------------------------------------------------------------------ */
+
+interface TreePos { x: number; y: number }
+
+function memberGridWidth(count: number): number {
+  const cols = Math.min(count, MEM_COLS);
+  return cols * (MEM_W + SIB_GAP) - SIB_GAP;
+}
+
+function computeTreeLayout(
+  departments: Department[],
+  membersByDept: Record<string, Member[]>,
+) {
+  const org = departments.find(d => d.isHQ);
+  const depts = departments.filter(d => !d.isHQ);
+
+  const orgPos: TreePos = { x: 0, y: 0 };
+  const deptY = org ? ORG_DEPT_GAP : 0;
+
+  const deptNodes: Record<string, TreePos & { w: number }> = {};
+  const memberNodeMap: Record<string, TreePos> = {};
+
+  // Dept width is max of card width and member grid width
+  const deptWidths = depts.map(d => {
+    const members = membersByDept[d.id] ?? [];
+    return Math.max(DEPT_W, memberGridWidth(members.length));
+  });
+
+  const totalWidth = deptWidths.reduce((a, b) => a + b, 0) + Math.max(0, depts.length - 1) * DEPT_GAP;
+  let startX = -totalWidth / 2;
+
+  depts.forEach((dept, i) => {
+    const w = deptWidths[i];
+    deptNodes[dept.id] = { x: startX + w / 2, y: deptY, w };
+    startX += w + DEPT_GAP;
+  });
+
+  // Place members in rows of MEM_COLS
+  depts.forEach(dept => {
+    const dNode = deptNodes[dept.id];
+    if (!dNode) return;
+    const members = membersByDept[dept.id] ?? [];
+    if (members.length === 0) return;
+
+    const cols = Math.min(members.length, MEM_COLS);
+    const gridW = cols * (MEM_W + SIB_GAP) - SIB_GAP;
+
+    members.forEach((m, i) => {
+      const col = i % MEM_COLS;
+      const row = Math.floor(i / MEM_COLS);
+      memberNodeMap[m.id] = {
+        x: dNode.x - gridW / 2 + col * (MEM_W + SIB_GAP) + MEM_W / 2,
+        y: dNode.y + DEPT_MEM_GAP + row * (MEM_H + MEM_ROW_GAP),
+      };
+    });
+  });
+
+  return { orgPos, deptY, deptNodes, memberNodes: memberNodeMap };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Connecting lines                                                   */
+/* ------------------------------------------------------------------ */
+
+function computeLines(
+  hasOrg: boolean,
+  depts: Department[],
+  deptNodes: Record<string, TreePos & { w: number }>,
+  membersByDept: Record<string, Member[]>,
+  memberNodes: Record<string, TreePos>,
+  deptY: number,
+) {
+  const lines: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+
+  // Org → departments
+  if (hasOrg && depts.length > 0) {
+    const orgBottom = ORG_H / 2;
+    const deptTop = deptY - DEPT_H / 2;
+    const midY = (orgBottom + deptTop) / 2;
+
+    lines.push({ x1: 0, y1: orgBottom, x2: 0, y2: midY });
+
+    if (depts.length > 1) {
+      const xs = depts.map(d => deptNodes[d.id]?.x ?? 0);
+      lines.push({ x1: Math.min(...xs), y1: midY, x2: Math.max(...xs), y2: midY });
+    }
+
+    depts.forEach(d => {
+      const n = deptNodes[d.id];
+      if (n) lines.push({ x1: n.x, y1: midY, x2: n.x, y2: deptTop });
+    });
+  }
+
+  // Department → members
+  depts.forEach(dept => {
+    const members = membersByDept[dept.id] ?? [];
+    if (members.length === 0) return;
+    const dNode = deptNodes[dept.id];
+    if (!dNode) return;
+
+    const deptBottom = dNode.y + DEPT_H / 2;
+    const memberTop = dNode.y + DEPT_MEM_GAP - MEM_H / 2;
+    const midY = (deptBottom + memberTop) / 2;
+
+    lines.push({ x1: dNode.x, y1: deptBottom, x2: dNode.x, y2: midY });
+
+    if (members.length > 1) {
+      const xs = members.map(m => memberNodes[m.id]?.x ?? 0);
+      lines.push({ x1: Math.min(...xs), y1: midY, x2: Math.max(...xs), y2: midY });
+    }
+
+    members.forEach(m => {
+      const mn = memberNodes[m.id];
+      if (mn) lines.push({ x1: mn.x, y1: midY, x2: mn.x, y2: memberTop });
+    });
+  });
+
+  return lines;
 }
 
 /* ------------------------------------------------------------------ */
@@ -74,6 +227,8 @@ export default function MapPage() {
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
+  const [membersByDept, setMembersByDept] = useState<Record<string, Member[]>>({});
+  const [activeSituationCount, setActiveSituationCount] = useState(0);
 
   /* ---- add / edit modal ---- */
   const [modalOpen, setModalOpen] = useState(false);
@@ -104,22 +259,6 @@ export default function MapPage() {
   /* ---- context menu ---- */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; dept: Department } | null>(null);
 
-  /* ---- node positions (world-space, HQ at origin) ---- */
-  const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
-  const [, forceRender] = useState(0);
-
-  /* ---- card drag ---- */
-  const dragRef = useRef<{
-    id: string;
-    startX: number;
-    startY: number;
-    origX: number;
-    origY: number;
-    moved: boolean;
-  } | null>(null);
-  const justDraggedRef = useRef(false);
-  const [dragId, setDragId] = useState<string | null>(null);
-
   /* ---- canvas pan & zoom ---- */
   const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ startX: number; startY: number; origPanX: number; origPanY: number } | null>(null);
@@ -141,20 +280,39 @@ export default function MapPage() {
       const res = await fetchApi("/api/departments");
       if (!res.ok) return;
       const data: Array<Omit<Department, "isHQ"> & { entityType: { slug: string } }> = await res.json();
-      const mapped = data.map((d, i) => {
-        const isHQ = d.entityType.slug === "organization";
-        const pos = d.mapX != null && d.mapY != null
-          ? { x: d.mapX, y: d.mapY }
-          : isHQ
-            ? { x: 0, y: 0 }
-            : defaultPosition(i, data.filter((dd) => dd.entityType.slug !== "organization").length);
-        positionsRef.current[d.id] = pos;
-        return { ...d, isHQ } as Department;
-      });
+      const mapped = data.map((d) => ({ ...d, isHQ: d.entityType.slug === "organization" })) as Department[];
       setDepartments(mapped);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const fetchMembers = useCallback(async (depts: Department[]) => {
+    const nonHQ = depts.filter(d => !d.isHQ);
+    const results = await Promise.all(
+      nonHQ.map(async d => {
+        try {
+          const res = await fetchApi(`/api/departments/${d.id}/members`);
+          if (!res.ok) return { id: d.id, members: [] as Member[] };
+          return { id: d.id, members: (await res.json()) as Member[] };
+        } catch {
+          return { id: d.id, members: [] as Member[] };
+        }
+      }),
+    );
+    const map: Record<string, Member[]> = {};
+    results.forEach(r => { map[r.id] = r.members; });
+    setMembersByDept(map);
+  }, []);
+
+  const fetchSituationCount = useCallback(async () => {
+    try {
+      const res = await fetchApi("/api/situations?status=detected,proposed");
+      if (res.ok) {
+        const data = await res.json();
+        setActiveSituationCount(data.items?.length ?? 0);
+      }
+    } catch {}
   }, []);
 
   const fetchUnrouted = useCallback(async () => {
@@ -169,9 +327,15 @@ export default function MapPage() {
   useEffect(() => {
     loadDepartments();
     fetchUnrouted();
+    fetchSituationCount();
     const iv = setInterval(loadDepartments, POLL_MS);
     return () => clearInterval(iv);
-  }, [loadDepartments, fetchUnrouted]);
+  }, [loadDepartments, fetchUnrouted, fetchSituationCount]);
+
+  // Fetch members when departments change
+  useEffect(() => {
+    if (departments.length > 0) fetchMembers(departments);
+  }, [departments, fetchMembers]);
 
   // Escape exits edit mode
   useEffect(() => {
@@ -189,75 +353,14 @@ export default function MapPage() {
   }, [toast]);
 
   /* ---------------------------------------------------------------- */
-  /*  Card drag handlers                                               */
-  /* ---------------------------------------------------------------- */
-
-  const onCardMouseDown = useCallback((e: React.MouseEvent, dept: Department) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const pos = positionsRef.current[dept.id] ?? { x: 0, y: 0 };
-    dragRef.current = {
-      id: dept.id,
-      startX: e.clientX,
-      startY: e.clientY,
-      origX: pos.x,
-      origY: pos.y,
-      moved: false,
-    };
-    setDragId(dept.id);
-  }, []);
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      const d = dragRef.current;
-      if (!d) return;
-      const dx = (e.clientX - d.startX) / zoom;
-      const dy = (e.clientY - d.startY) / zoom;
-      if (Math.abs(e.clientX - d.startX) > CLICK_THRESHOLD || Math.abs(e.clientY - d.startY) > CLICK_THRESHOLD) {
-        d.moved = true;
-      }
-      positionsRef.current[d.id] = { x: d.origX + dx, y: d.origY + dy };
-      forceRender((n) => n + 1);
-    };
-
-    const onUp = () => {
-      const d = dragRef.current;
-      if (!d) return;
-      justDraggedRef.current = d.moved;
-      dragRef.current = null;
-      setDragId(null);
-      if (d.moved) {
-        const pos = positionsRef.current[d.id];
-        fetchApi(`/api/departments/${d.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mapX: pos.x, mapY: pos.y }),
-        });
-      }
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, [zoom]);
-
-  /* ---------------------------------------------------------------- */
-  /*  Canvas pan (drag background)                                     */
+  /*  Canvas pan                                                       */
   /* ---------------------------------------------------------------- */
 
   const onCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if (dragRef.current || e.button !== 0) return;
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("[data-card]")) return;
     e.preventDefault();
-    panRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      origPanX: pan.x,
-      origPanY: pan.y,
-    };
+    panRef.current = { startX: e.clientX, startY: e.clientY, origPanX: pan.x, origPanY: pan.y };
     setPanning(true);
   }, [pan]);
 
@@ -265,10 +368,7 @@ export default function MapPage() {
     const onMove = (e: MouseEvent) => {
       const p = panRef.current;
       if (!p) return;
-      setPan({
-        x: p.origPanX + (e.clientX - p.startX),
-        y: p.origPanY + (e.clientY - p.startY),
-      });
+      setPan({ x: p.origPanX + (e.clientX - p.startX), y: p.origPanY + (e.clientY - p.startY) });
     };
     const onUp = () => {
       if (!panRef.current) return;
@@ -277,35 +377,24 @@ export default function MapPage() {
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
 
   /* ---------------------------------------------------------------- */
-  /*  Zoom (scroll wheel)                                              */
+  /*  Zoom                                                             */
   /* ---------------------------------------------------------------- */
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const container = containerRef.current;
     if (!container) return;
-
     const rect = container.getBoundingClientRect();
-    // Mouse position relative to container
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-
     const delta = -e.deltaY * ZOOM_SENSITIVITY;
     const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * (1 + delta)));
     const scale = newZoom / zoom;
-
-    // Adjust pan so zoom centers on mouse position
-    setPan((prev) => ({
-      x: mx - scale * (mx - prev.x),
-      y: my - scale * (my - prev.y),
-    }));
+    setPan(prev => ({ x: mx - scale * (mx - prev.x), y: my - scale * (my - prev.y) }));
     setZoom(newZoom);
   }, [zoom]);
 
@@ -325,22 +414,14 @@ export default function MapPage() {
     window.addEventListener("click", close);
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => { window.removeEventListener("click", close); window.removeEventListener("keydown", onKey); };
   }, [ctxMenu]);
 
   /* ---------------------------------------------------------------- */
-  /*  Center view on mount                                             */
+  /*  Fit view (placeholder — actual logic after layout computation)   */
   /* ---------------------------------------------------------------- */
 
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    setPan({ x: rect.width / 2, y: rect.height / 2 });
-  }, []);
+  const hasFitted = useRef(false);
 
   /* ---------------------------------------------------------------- */
   /*  Add / Edit                                                       */
@@ -378,36 +459,26 @@ export default function MapPage() {
         });
         if (!res.ok) { setFormError("Failed to update"); return; }
         const updated = await res.json();
-        setDepartments((prev) =>
-          prev.map((d) =>
+        setDepartments(prev =>
+          prev.map(d =>
             d.id === editTarget.id
               ? { ...d, displayName: updated.displayName, description: updated.description }
               : d,
           ),
         );
       } else {
-        const nonHQDepts = departments.filter((d) => !d.isHQ);
+        const nonHQDepts = departments.filter(d => !d.isHQ);
         const pos = defaultPosition(nonHQDepts.length, nonHQDepts.length + 1);
         const res = await fetchApi("/api/departments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: formName.trim(),
-            description: formDesc.trim(),
-            mapX: pos.x,
-            mapY: pos.y,
-          }),
+          body: JSON.stringify({ name: formName.trim(), description: formDesc.trim(), mapX: pos.x, mapY: pos.y }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => null);
           setFormError(err?.error ?? "Failed to create");
           return;
         }
-        const created = await res.json();
-        const dept: Department = { ...created, isHQ: false, filledSlots: created.filledSlots ?? [] };
-        positionsRef.current[dept.id] = { x: dept.mapX ?? pos.x, y: dept.mapY ?? pos.y };
-        setDepartments((prev) => [...prev, dept]);
-        // Reload full list to sync
         loadDepartments();
       }
       setModalOpen(false);
@@ -431,8 +502,7 @@ export default function MapPage() {
         setDeleteError(err?.error ?? "Failed to delete");
         return;
       }
-      setDepartments((prev) => prev.filter((d) => d.id !== deleteTarget.id));
-      delete positionsRef.current[deleteTarget.id];
+      setDepartments(prev => prev.filter(d => d.id !== deleteTarget.id));
       setDeleteTarget(null);
     } finally {
       setDeleting(false);
@@ -444,10 +514,8 @@ export default function MapPage() {
   /* ---------------------------------------------------------------- */
 
   function startEditing(deptId: string) {
-    if (editingDept && editingDept !== deptId) {
-      setEditingDept(null); // cancel previous
-    }
-    const dept = departments.find((d) => d.id === deptId);
+    if (editingDept && editingDept !== deptId) setEditingDept(null);
+    const dept = departments.find(d => d.id === deptId);
     if (!dept) return;
     setEditingDept(deptId);
     setEditName(dept.displayName);
@@ -461,9 +529,7 @@ export default function MapPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: editName.trim(), description: editDesc.trim() }),
     });
-    if (res.ok) {
-      loadDepartments();
-    }
+    if (res.ok) loadDepartments();
     setEditingDept(null);
   }
 
@@ -478,31 +544,52 @@ export default function MapPage() {
       body: JSON.stringify({ departmentId }),
     });
     if (res.ok) {
-      setUnroutedEntities((prev) => prev.filter((e) => e.id !== entityId));
-      setUnroutedCount((prev) => prev - 1);
+      setUnroutedEntities(prev => prev.filter(e => e.id !== entityId));
+      setUnroutedCount(prev => prev - 1);
       loadDepartments();
     }
   }
 
   /* ---------------------------------------------------------------- */
-  /*  Reset view                                                       */
+  /*  Derived / layout                                                 */
   /* ---------------------------------------------------------------- */
 
-  function resetView() {
+  const hq = departments.find(d => d.isHQ);
+  const depts = departments.filter(d => !d.isHQ);
+  const totalPeople = depts.reduce((s, d) => s + d.memberCount, 0);
+
+  const { orgPos, deptY, deptNodes, memberNodes } = computeTreeLayout(departments, membersByDept);
+  const lines = computeLines(!!hq, depts, deptNodes, membersByDept, memberNodes, deptY);
+
+  // Fit view to tree on initial load
+  useEffect(() => {
+    if (loading || departments.length === 0 || hasFitted.current) return;
     const container = containerRef.current;
     if (!container) return;
+    hasFitted.current = true;
+
     const rect = container.getBoundingClientRect();
-    setPan({ x: rect.width / 2, y: rect.height / 2 });
-    setZoom(1);
-  }
+    const bounds = { minX: -ORG_W / 2, maxX: ORG_W / 2, minY: -ORG_H / 2, maxY: ORG_H / 2 };
+    const expand = (cx: number, cy: number, hw: number, hh: number) => {
+      bounds.minX = Math.min(bounds.minX, cx - hw);
+      bounds.maxX = Math.max(bounds.maxX, cx + hw);
+      bounds.minY = Math.min(bounds.minY, cy - hh);
+      bounds.maxY = Math.max(bounds.maxY, cy + hh);
+    };
+    for (const id in deptNodes) { const n = deptNodes[id]; expand(n.x, n.y, DEPT_W / 2, DEPT_H / 2); }
+    for (const id in memberNodes) { const n = memberNodes[id]; expand(n.x, n.y, MEM_W / 2, MEM_H / 2); }
 
-  /* ---------------------------------------------------------------- */
-  /*  Derived                                                          */
-  /* ---------------------------------------------------------------- */
+    const treeW = bounds.maxX - bounds.minX;
+    const treeH = bounds.maxY - bounds.minY;
+    const treeCX = (bounds.minX + bounds.maxX) / 2;
+    const treeCY = (bounds.minY + bounds.maxY) / 2;
+    const pad = 60;
+    const z = Math.max(MIN_ZOOM, Math.min((rect.width - pad * 2) / treeW, (rect.height - pad * 2) / treeH, MAX_ZOOM));
 
-  const nonHQ = departments.filter((d) => !d.isHQ);
-  const hq = departments.find((d) => d.isHQ);
-  const hqPos = hq ? (positionsRef.current[hq.id] ?? { x: 0, y: 0 }) : { x: 0, y: 0 };
+    setPan({ x: rect.width / 2 - treeCX * z, y: rect.height / 2 - treeCY * z });
+    setZoom(z);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, departments]);
 
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
@@ -512,17 +599,13 @@ export default function MapPage() {
     <AppShell
       topBarContent={
         <div className="flex items-center gap-3">
-          <span className="text-xs text-white/30">{Math.round(zoom * 100)}%</span>
-          <Button variant="default" size="sm" onClick={resetView}>
-            Reset View
-          </Button>
           {isAdmin && (
             <button
               onClick={() => { setEditMode(!editMode); if (editMode) setEditingDept(null); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              className={`px-3 py-1.5 rounded text-xs font-medium transition ${
                 editMode
                   ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                  : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
+                  : "bg-[#222] text-[#b0b0b0] hover:bg-[#2a2a2a] border border-[#333]"
               }`}
             >
               {editMode ? "Done Editing" : "Edit Map"}
@@ -542,36 +625,37 @@ export default function MapPage() {
       }
     >
       <div className="relative flex-1">
-        {/* ---- toast ---- */}
+        {/* Toast */}
         {toast && (
-          <div className="fixed top-4 right-4 z-50 bg-green-500/20 border border-green-500/30 text-green-300 text-sm px-4 py-2 rounded-lg shadow-lg">
+          <div className="fixed top-4 right-4 z-50 bg-green-500/20 border border-green-500/30 text-green-300 text-sm px-4 py-2 rounded shadow-lg">
             {toast}
           </div>
         )}
 
-        {/* ---- infinite canvas ---- */}
+        {/* Canvas */}
         <div
           ref={containerRef}
           onMouseDown={onCanvasMouseDown}
           onWheel={onWheel}
           className="absolute inset-0 overflow-hidden select-none"
-          style={{
-            cursor: dragId ? "grabbing" : panning ? "grabbing" : "grab",
-            background: "#080c10",
-          }}
+          style={{ cursor: panning ? "grabbing" : "grab", background: "#101010" }}
         >
-          {/* Edit mode ambient indicator */}
+          {/* Edit mode indicator */}
           <div className={`absolute inset-0 pointer-events-none transition ${editMode ? "ring-1 ring-inset ring-amber-500/20" : ""}`} style={{ zIndex: 50 }} />
-          {/* Grid dots (fixed to canvas transform) */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundImage:
-                "radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px)",
-              backgroundSize: `${40 * zoom}px ${40 * zoom}px`,
-              backgroundPosition: `${pan.x % (40 * zoom)}px ${pan.y % (40 * zoom)}px`,
-            }}
-          />
+
+          {/* Zoom controls */}
+          <div className="absolute top-3 right-3 z-40 flex flex-col gap-1">
+            <button
+              onClick={() => setZoom(z => Math.min(MAX_ZOOM, z * 1.2))}
+              style={{ width: 28, height: 28, borderRadius: 4, background: "#1c1c1c", border: "1px solid #2a2a2a", color: "#b0b0b0" }}
+              className="flex items-center justify-center text-sm font-medium hover:bg-[#222] transition"
+            >+</button>
+            <button
+              onClick={() => setZoom(z => Math.max(MIN_ZOOM, z / 1.2))}
+              style={{ width: 28, height: 28, borderRadius: 4, background: "#1c1c1c", border: "1px solid #2a2a2a", color: "#b0b0b0" }}
+              className="flex items-center justify-center text-sm font-medium hover:bg-[#222] transition"
+            >&minus;</button>
+          </div>
 
           {/* Transform layer */}
           <div
@@ -584,153 +668,121 @@ export default function MapPage() {
             }}
           >
             {loading && (
-              <p className="text-white/30 text-sm" style={{ transform: `translate(-50px, -10px)` }}>
+              <p className="text-[#484848] text-sm" style={{ transform: "translate(-50px, -10px)" }}>
                 Loading...
               </p>
             )}
 
-            {/* ---- SVG edges: HQ → departments ---- */}
-            {hq && nonHQ.length > 0 && (
-              <svg
-                className="absolute top-0 left-0 pointer-events-none"
-                style={{ overflow: "visible", width: 1, height: 1 }}
-              >
-                {nonHQ.map((dept) => {
-                  const dPos = positionsRef.current[dept.id];
-                  if (!dPos) return null;
-                  return (
-                    <line
-                      key={dept.id}
-                      x1={hqPos.x}
-                      y1={hqPos.y}
-                      x2={dPos.x}
-                      y2={dPos.y}
-                      stroke="rgba(139,92,246,0.15)"
-                      strokeWidth={1.5 / zoom}
-                      strokeDasharray={`${4 / zoom} ${4 / zoom}`}
-                    />
-                  );
-                })}
-              </svg>
-            )}
+            {/* SVG connecting lines */}
+            <svg className="absolute top-0 left-0 pointer-events-none" style={{ overflow: "visible", width: 1, height: 1 }}>
+              {lines.map((l, i) => (
+                <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#252525" strokeWidth={1} />
+              ))}
+            </svg>
 
-            {/* ---- empty state ---- */}
-            {!loading && nonHQ.length === 0 && !hq && (
+            {/* Empty state */}
+            {!loading && depts.length === 0 && !hq && (
               <div className="text-center pointer-events-none" style={{ transform: "translate(-120px, -30px)" }}>
-                <p className="text-white/30 text-sm">
-                  Add your first department to start mapping your business
-                </p>
+                <p className="text-[#484848] text-sm">Add your first department to start mapping your business</p>
               </div>
             )}
 
-            {/* ---- CompanyHQ node ---- */}
+            {/* ── Organization card ── */}
             {hq && (
               <div
-                onMouseDown={(e) => onCardMouseDown(e, hq)}
+                data-card
                 onClick={() => {
-                  if (justDraggedRef.current) { justDraggedRef.current = false; return; }
                   if (editMode) { startEditing(hq.id); return; }
                   router.push(`/map/${hq.id}`);
                 }}
-                onContextMenu={(e) => onCardContext(e, hq)}
-                className={`absolute rounded-xl border ${editMode ? "border-amber-500/20" : "border-purple-500/30"} bg-purple-500/[0.08] px-5 py-4 transition hover:bg-purple-500/[0.14] hover:shadow-lg hover:shadow-purple-500/10 ${
-                  dragId === hq.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : "cursor-pointer"
-                }`}
+                onContextMenu={e => onCardContext(e, hq)}
+                className="absolute cursor-pointer transition hover:brightness-110"
                 style={{
-                  left: hqPos.x - HQ_W / 2,
-                  top: hqPos.y - HQ_H / 2,
-                  width: HQ_W,
-                  cursor: dragId === hq.id ? "grabbing" : "pointer",
+                  left: orgPos.x - ORG_W / 2,
+                  top: orgPos.y - ORG_H / 2,
+                  width: ORG_W,
+                  height: ORG_H,
+                  borderRadius: 2,
+                  background: "#1c1c1c",
+                  border: editMode ? CARD_BORDER_EDIT : CARD_BORDER,
                 }}
               >
                 {editMode && (
-                  <div className="absolute top-1.5 right-1.5 flex gap-1">
+                  <div className="absolute top-1.5 right-1.5">
                     <button
-                      onClick={(e) => { e.stopPropagation(); startEditing(hq.id); }}
-                      className="w-5 h-5 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                      title="Edit"
+                      onClick={e => { e.stopPropagation(); startEditing(hq.id); }}
+                      className="w-5 h-5 rounded flex items-center justify-center bg-[#222] hover:bg-[#2a2a2a] transition"
                     >
-                      <svg className="w-3 h-3 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <svg className="w-3 h-3 text-[#707070]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                       </svg>
                     </button>
                   </div>
                 )}
                 {editingDept === hq.id ? (
-                  <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="w-full bg-transparent border-b border-purple-500/40 outline-none text-sm font-semibold text-purple-200"
-                      autoFocus
-                      onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }}
-                    />
-                    <input
-                      value={editDesc}
-                      onChange={(e) => setEditDesc(e.target.value)}
-                      className="w-full bg-transparent border-b border-white/10 outline-none text-xs text-white/40"
-                      placeholder="Description"
-                      onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }}
-                    />
-                    <div className="flex gap-1.5 pt-1">
+                  <div className="p-3 space-y-1.5" onClick={e => e.stopPropagation()}>
+                    <input value={editName} onChange={e => setEditName(e.target.value)}
+                      className="w-full bg-transparent border-b border-purple-500/40 outline-none text-sm font-semibold text-[#e8e8e8]"
+                      autoFocus onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
+                    <input value={editDesc} onChange={e => setEditDesc(e.target.value)}
+                      className="w-full bg-transparent border-b border-[#2a2a2a] outline-none text-xs text-[#707070]"
+                      placeholder="Description" onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
+                    <div className="flex gap-1.5">
                       <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">Save</button>
-                      <button onClick={() => setEditingDept(null)} className="text-[10px] text-white/40 hover:text-white/60">Cancel</button>
+                      <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">Cancel</button>
                     </div>
                   </div>
                 ) : (
-                  <>
-                    <h3 className="font-heading text-base font-semibold text-purple-200 truncate">
-                      {hq.displayName}
-                    </h3>
-                    {hq.description && (
-                      <p className="text-xs text-white/40 truncate mt-1">{hq.description}</p>
+                  <div className="flex flex-col items-center justify-center h-full px-10">
+                    <span style={{ fontSize: 72, fontWeight: 600, color: "#e8e8e8", letterSpacing: "-0.02em", textShadow: TEXT_OUTLINE }} className="truncate max-w-full">{hq.displayName}</span>
+                    <span style={{ fontSize: 36, color: "#707070", textShadow: TEXT_OUTLINE }} className="mt-4">
+                      {depts.length} department{depts.length !== 1 ? "s" : ""} &middot; {totalPeople} people
+                    </span>
+                    {activeSituationCount > 0 && (
+                      <span style={{ fontSize: 28, color: "#484848", textShadow: TEXT_OUTLINE }} className="mt-2">
+                        {activeSituationCount} active situation{activeSituationCount !== 1 ? "s" : ""}
+                      </span>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             )}
 
-            {/* ---- department nodes ---- */}
-            {nonHQ.map((dept) => {
-              const pos = positionsRef.current[dept.id];
-              if (!pos) return null;
+            {/* ── Department cards ── */}
+            {depts.map(dept => {
+              const node = deptNodes[dept.id];
+              if (!node) return null;
               const isEditing = editingDept === dept.id;
               return (
                 <div
                   key={dept.id}
-                  onMouseDown={(e) => onCardMouseDown(e, dept)}
-                  onContextMenu={(e) => onCardContext(e, dept)}
+                  data-card
                   onClick={() => {
-                    if (justDraggedRef.current) { justDraggedRef.current = false; return; }
                     if (editMode) { startEditing(dept.id); return; }
                     router.push(`/map/${dept.id}`);
                   }}
-                  className={`absolute wf-soft px-4 py-3 select-none transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-black/20 hover:border-white/20 hover:scale-[1.02] ${
-                    editMode ? "border border-amber-500/20" : ""
-                  } ${dragId === dept.id ? "ring-1 ring-purple-500/40 shadow-lg z-10" : "cursor-pointer"}`}
+                  onContextMenu={e => onCardContext(e, dept)}
+                  className="absolute cursor-pointer transition hover:brightness-110"
                   style={{
-                    left: pos.x - CARD_W / 2,
-                    top: pos.y - CARD_H / 2,
-                    width: CARD_W,
-                    cursor: dragId === dept.id ? "grabbing" : "pointer",
+                    left: node.x - DEPT_W / 2,
+                    top: node.y - DEPT_H / 2,
+                    width: DEPT_W,
+                    height: DEPT_H,
+                    borderRadius: 2,
+                    background: "#1c1c1c",
+                    border: editMode ? CARD_BORDER_EDIT : CARD_BORDER,
                   }}
                 >
                   {editMode && !isEditing && (
                     <div className="absolute top-1.5 right-1.5 flex gap-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); startEditing(dept.id); }}
-                        className="w-5 h-5 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center transition"
-                        title="Edit"
-                      >
-                        <svg className="w-3 h-3 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <button onClick={e => { e.stopPropagation(); startEditing(dept.id); }}
+                        className="w-5 h-5 rounded flex items-center justify-center bg-[#222] hover:bg-[#2a2a2a] transition">
+                        <svg className="w-3 h-3 text-[#707070]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                         </svg>
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(dept); }}
-                        className="w-5 h-5 rounded bg-red-500/10 hover:bg-red-500/20 flex items-center justify-center transition"
-                        title="Delete"
-                      >
+                      <button onClick={e => { e.stopPropagation(); setDeleteTarget(dept); }}
+                        className="w-5 h-5 rounded flex items-center justify-center bg-red-500/10 hover:bg-red-500/20 transition">
                         <svg className="w-3 h-3 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -738,63 +790,94 @@ export default function MapPage() {
                     </div>
                   )}
                   {isEditing ? (
-                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        className="w-full bg-transparent border-b border-purple-500/40 outline-none text-sm font-bold text-white/90"
-                        autoFocus
-                        onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }}
-                      />
-                      <input
-                        value={editDesc}
-                        onChange={(e) => setEditDesc(e.target.value)}
-                        className="w-full bg-transparent border-b border-white/10 outline-none text-xs text-white/40"
-                        placeholder="Description"
-                        onKeyDown={(e) => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }}
-                      />
-                      <div className="flex gap-1.5 pt-1">
+                    <div className="p-3 space-y-1.5" onClick={e => e.stopPropagation()}>
+                      <input value={editName} onChange={e => setEditName(e.target.value)}
+                        className="w-full bg-transparent border-b border-purple-500/40 outline-none text-sm font-bold text-[#e8e8e8]"
+                        autoFocus onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
+                      <input value={editDesc} onChange={e => setEditDesc(e.target.value)}
+                        className="w-full bg-transparent border-b border-[#2a2a2a] outline-none text-xs text-[#707070]"
+                        placeholder="Description" onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
+                      <div className="flex gap-1.5">
                         <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">Save</button>
-                        <button onClick={() => setEditingDept(null)} className="text-[10px] text-white/40 hover:text-white/60">Cancel</button>
+                        <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">Cancel</button>
                       </div>
                     </div>
                   ) : (
-                    <>
-                      <h3 className="text-sm font-bold text-white/90 truncate">{dept.displayName}</h3>
-                      {dept.description && (
-                        <p className="text-xs text-white/40 truncate mt-0.5">{dept.description}</p>
-                      )}
-                      <p className="text-xs text-white/30 mt-1.5">
+                    <div className="h-full flex flex-col items-center justify-center px-8">
+                      <span style={{ fontSize: 52, fontWeight: 600, color: "#e8e8e8", textShadow: TEXT_OUTLINE }} className="truncate max-w-full text-center">{dept.displayName}</span>
+                      <span style={{ fontSize: 28, color: "#707070", textShadow: TEXT_OUTLINE }} className="mt-3">
                         {dept.memberCount} people &middot; {dept.documentCount} docs
-                      </p>
-                      <div className="flex gap-1 mt-1.5">
-                        {Object.entries(SLOT_ICONS).map(([slot, { path }]) => {
-                          const filled = dept.filledSlots?.includes(slot);
-                          return (
-                            <svg
-                              key={slot}
-                              className={`w-3 h-3 ${filled ? "text-purple-400" : "text-white/10"}`}
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={1.5}
-                            >
-                              <path strokeLinecap="round" strokeLinejoin="round" d={path} />
-                            </svg>
-                          );
-                        })}
-                      </div>
-                    </>
+                      </span>
+                    </div>
                   )}
                 </div>
               );
             })}
+
+            {/* ── Member cards ── */}
+            {depts.map(dept => {
+              const members = membersByDept[dept.id] ?? [];
+              return members.map(m => {
+                const mNode = memberNodes[m.id];
+                if (!mNode) return null;
+                const role = getMemberRole(m);
+                const aiLevel = getAiLevel(m);
+                const truncRole = role.length > 14 ? role.slice(0, 13) + "\u2026" : role;
+                return (
+                  <div
+                    key={m.id}
+                    data-card
+                    className="absolute"
+                    style={{
+                      left: mNode.x - MEM_W / 2,
+                      top: mNode.y - MEM_H / 2,
+                      width: MEM_W,
+                      height: MEM_H,
+                      borderRadius: 2,
+                      background: "#1c1c1c",
+                      border: CARD_BORDER,
+                    }}
+                  >
+                    <div className="flex flex-col items-center justify-center h-full">
+                      {/* Avatar */}
+                      <div style={{
+                        width: 26, height: 26, borderRadius: 13,
+                        background: "#222", border: "1px solid #3a3a3a",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        <span style={{ fontSize: 10, color: "#b0b0b0", textShadow: TEXT_OUTLINE }}>{getInitials(m.displayName)}</span>
+                      </div>
+                      {/* Name */}
+                      <span style={{ fontSize: 10.5, fontWeight: 600, color: "#e8e8e8", textShadow: TEXT_OUTLINE }} className="mt-1 truncate max-w-[96px] text-center">
+                        {getFirstName(m.displayName)}
+                      </span>
+                      {/* Role */}
+                      {role && (
+                        <span style={{ fontSize: 9, color: "#707070", textShadow: TEXT_OUTLINE }} className="truncate max-w-[96px] text-center">
+                          {truncRole}
+                        </span>
+                      )}
+                      {/* AI dot */}
+                      {aiLevel && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <div style={{
+                            width: 7, height: 7, borderRadius: 3.5,
+                            background: aiLevel === "act" ? "#22c55e" : aiLevel === "propose" ? "#f59e0b" : "#333",
+                          }} />
+                          <span style={{ fontSize: 8, color: "#484848", textShadow: TEXT_OUTLINE }}>AI</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              });
+            })}
           </div>
         </div>
 
-        {/* ---- Unrouted entities panel ---- */}
+        {/* Unrouted entities panel */}
         {editMode && unroutedEntities.length > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 z-40 bg-[rgba(8,12,16,0.95)] border-t border-amber-500/20">
+          <div className="absolute bottom-0 left-0 right-0 z-40 border-t border-amber-500/20" style={{ background: "rgba(16,16,16,0.95)" }}>
             <button
               onClick={() => setUnroutedOpen(!unroutedOpen)}
               className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium text-amber-300/80 hover:text-amber-300 transition"
@@ -806,24 +889,22 @@ export default function MapPage() {
             </button>
             {unroutedOpen && (
               <div className="max-h-[250px] overflow-y-auto px-4 pb-3 space-y-1">
-                {unroutedEntities.map((entity) => (
-                  <div key={entity.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.03] transition">
+                {unroutedEntities.map(entity => (
+                  <div key={entity.id} className="flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1c1c1c] transition">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entity.entityType.color ?? "#888" }} />
-                    <span className="text-sm text-white/80 flex-1 min-w-0 truncate">{entity.displayName}</span>
-                    <span className="text-[10px] text-white/30">{entity.entityType.name}</span>
+                    <span className="text-sm text-[#e8e8e8] flex-1 min-w-0 truncate">{entity.displayName}</span>
+                    <span className="text-[10px] text-[#484848]">{entity.entityType.name}</span>
                     {entity.sourceSystem && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.05] text-white/30">{entity.sourceSystem}</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1c1c1c] text-[#484848]">{entity.sourceSystem}</span>
                     )}
                     <select
                       defaultValue=""
-                      onChange={(e) => {
-                        if (e.target.value) assignToDepartment(entity.id, e.target.value);
-                      }}
-                      className="bg-transparent border border-white/10 rounded px-2 py-1 text-[11px] text-white/60 outline-none cursor-pointer"
+                      onChange={e => { if (e.target.value) assignToDepartment(entity.id, e.target.value); }}
+                      className="bg-transparent border border-[#2a2a2a] rounded px-2 py-1 text-[11px] text-[#707070] outline-none cursor-pointer"
                     >
                       <option value="" disabled>Assign to...</option>
-                      {departments.filter((d) => d.entityType.slug === "department" || d.isHQ).map((d) => (
-                        <option key={d.id} value={d.id} className="bg-[#182027]">{d.displayName}</option>
+                      {departments.filter(d => d.entityType.slug === "department" || d.isHQ).map(d => (
+                        <option key={d.id} value={d.id} className="bg-[#1c1c1c]">{d.displayName}</option>
                       ))}
                     </select>
                   </div>
@@ -834,48 +915,31 @@ export default function MapPage() {
         )}
       </div>
 
-      {/* ---- context menu (admin only) ---- */}
+      {/* Context menu */}
       {isAdmin && ctxMenu && (
         <div
-          className="fixed z-50 bg-[#182027] border border-white/10 rounded-lg shadow-xl py-1 min-w-[120px]"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          className="fixed z-50 shadow-xl py-1 min-w-[120px]"
+          style={{ left: ctxMenu.x, top: ctxMenu.y, background: "#1c1c1c", border: "1px solid #2a2a2a", borderRadius: 4 }}
         >
           <button
-            className="w-full text-left px-3 py-1.5 text-sm text-white/70 hover:bg-white/[0.06] hover:text-white/90"
+            className="w-full text-left px-3 py-1.5 text-sm text-[#b0b0b0] hover:bg-[#222] hover:text-[#e8e8e8]"
             onClick={() => { openEdit(ctxMenu.dept); setCtxMenu(null); }}
-          >
-            Edit
-          </button>
+          >Edit</button>
           <button
-            className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-white/[0.06] hover:text-red-300"
+            className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-[#222] hover:text-red-300"
             onClick={() => { setDeleteTarget(ctxMenu.dept); setCtxMenu(null); }}
-          >
-            Delete
-          </button>
+          >Delete</button>
         </div>
       )}
 
-      {/* ---- add / edit modal ---- */}
+      {/* Add/Edit modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editTarget ? "Edit Department" : "Add Department"}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="Name"
-            value={formName}
-            onChange={(e) => setFormName(e.target.value)}
-            placeholder="e.g. Engineering"
-            autoFocus
-          />
-          <Input
-            label="Description"
-            value={formDesc}
-            onChange={(e) => setFormDesc(e.target.value)}
-            placeholder="What does this department do?"
-          />
+          <Input label="Name" value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Engineering" autoFocus />
+          <Input label="Description" value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="What does this department do?" />
           {formError && <p className="text-sm text-red-400">{formError}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="default" size="sm" onClick={() => setModalOpen(false)}>
-              Cancel
-            </Button>
+            <Button type="button" variant="default" size="sm" onClick={() => setModalOpen(false)}>Cancel</Button>
             <Button type="submit" variant="primary" size="sm" disabled={saving}>
               {saving ? "Saving..." : editTarget ? "Save" : "Create"}
             </Button>
@@ -883,11 +947,11 @@ export default function MapPage() {
         </form>
       </Modal>
 
-      {/* ---- delete confirmation ---- */}
+      {/* Delete confirmation */}
       <Modal open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} title="Delete Department">
         <div className="space-y-4">
-          <p className="text-sm text-white/60">
-            Are you sure you want to delete <span className="text-white/90 font-medium">{deleteTarget?.displayName}</span>?
+          <p className="text-sm text-[#707070]">
+            Are you sure you want to delete <span className="text-[#e8e8e8] font-medium">{deleteTarget?.displayName}</span>?
             {((deleteTarget?.memberCount ?? 0) > 0 || (deleteTarget?.documentCount ?? 0) > 0) && (
               <span className="block mt-1 text-amber-400/80">
                 This department has {deleteTarget?.memberCount} members and {deleteTarget?.documentCount} documents that will be unlinked.
@@ -896,9 +960,7 @@ export default function MapPage() {
           </p>
           {deleteError && <p className="text-sm text-red-400">{deleteError}</p>}
           <div className="flex justify-end gap-2">
-            <Button variant="default" size="sm" onClick={() => { setDeleteTarget(null); setDeleteError(""); }}>
-              Cancel
-            </Button>
+            <Button variant="default" size="sm" onClick={() => { setDeleteTarget(null); setDeleteError(""); }}>Cancel</Button>
             <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleting}>
               {deleting ? "Deleting..." : "Delete"}
             </Button>

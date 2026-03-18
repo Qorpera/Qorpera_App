@@ -32,3 +32,5 @@ extraResources:
     to: prisma
   - from: node_modules/.prisma
     to: node_modules/.prisma
+  - from: .env
+    to: .env

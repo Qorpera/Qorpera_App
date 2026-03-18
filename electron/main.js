@@ -38,21 +38,30 @@ const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
 const fs = __importStar(require("fs"));
 const isDev = process.env.NODE_ENV === "development";
-// Set DATABASE_URL to user's app data dir
-const dbPath = path.join(electron_1.app.getPath("userData"), "qorpera.db");
-process.env.DATABASE_URL = `file:${dbPath}`;
-// Copy template DB if user's DB is empty or missing
-function ensureDatabase() {
-    const needsInit = !fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0;
-    if (needsInit) {
-        const resourceBase = process.resourcesPath || electron_1.app.getAppPath();
-        const templateDb = path.join(resourceBase, "prisma", "qorpera.db");
-        if (fs.existsSync(templateDb) && fs.statSync(templateDb).size > 0) {
-            fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-            fs.copyFileSync(templateDb, dbPath);
-            console.log("[db] Initialized database from template");
+// Load .env file — check extraResources first (packaged), then app root (dev)
+const resourceBase = electron_1.app.isPackaged ? (process.resourcesPath || electron_1.app.getAppPath()) : electron_1.app.getAppPath();
+const envPath = electron_1.app.isPackaged
+    ? path.join(resourceBase, ".env")
+    : path.join(electron_1.app.getAppPath(), ".env");
+if (fs.existsSync(envPath)) {
+    for (const line of fs.readFileSync(envPath, "utf-8").split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#"))
+            continue;
+        const eqIdx = trimmed.indexOf("=");
+        if (eqIdx === -1)
+            continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        let value = trimmed.slice(eqIdx + 1).trim();
+        // Strip surrounding quotes
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+        }
+        if (!process.env[key]) {
+            process.env[key] = value;
         }
     }
+    console.log("[env] Loaded .env from", envPath);
 }
 let mainWindow = null;
 let nextServer = null;
@@ -110,7 +119,6 @@ function startNextServer() {
                 NODE_PATH: depsDir,
                 PORT: String(PORT),
                 HOSTNAME: "localhost",
-                DATABASE_URL: `file:${dbPath}`,
             },
             stdio: ["pipe", "pipe", "pipe"],
         });
@@ -151,7 +159,6 @@ electron_1.ipcMain.handle("get-app-version", () => electron_1.app.getVersion());
 electron_1.ipcMain.handle("get-platform", () => process.platform);
 electron_1.app.whenReady().then(async () => {
     if (!isDev) {
-        ensureDatabase();
         try {
             await startNextServer();
         }

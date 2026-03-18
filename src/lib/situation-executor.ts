@@ -65,8 +65,22 @@ export async function executeSituationAction(situationId: string) {
       throw new Error(`Provider "${connector.provider}" does not support action execution`);
     }
 
+    // Check for draft payloads from reasoning — use pre-drafted content if available
+    let actionParams = proposed.params;
+    if (situation.reasoning) {
+      try {
+        const reasoning = JSON.parse(situation.reasoning);
+        const draftPayloads: Array<{ actionType: string; payload: Record<string, unknown> }> =
+          reasoning.draftPayloads ?? [];
+        const matchingDraft = draftPayloads.find((d) => d.actionType === proposed.action);
+        if (matchingDraft) {
+          actionParams = { ...matchingDraft.payload, ...actionParams };
+        }
+      } catch {}
+    }
+
     const config = JSON.parse(decrypt(connector.config || "{}"));
-    const result = await provider.executeAction(config, proposed.action, proposed.params);
+    const result = await provider.executeAction(config, proposed.action, actionParams);
 
     // Persist config in case tokens were refreshed
     await prisma.sourceConnector.update({

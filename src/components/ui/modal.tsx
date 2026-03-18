@@ -30,8 +30,8 @@ export function Modal({ open, onClose, title, children, wide }: ModalProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
     >
-      <div className={`bg-[#182027] border border-white/10 rounded-xl shadow-2xl ${wide ? "w-[640px]" : "w-[480px]"} max-h-[85vh] flex flex-col`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/7">
+      <div className={`bg-[#1c1c1c] border border-[#2a2a2a] rounded-lg shadow-2xl ${wide ? "w-[640px]" : "w-[480px]"} max-h-[85vh] flex flex-col`}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a2a2a]">
           <h2 className="text-lg font-medium text-white/90">{title}</h2>
           <button onClick={onClose} className="text-white/40 hover:text-white/70 text-xl leading-none">&times;</button>
         </div>

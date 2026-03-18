@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/components/user-provider";
 
-type Tab = "ai" | "connections" | "team" | "merges";
+type Tab = "ai" | "connections" | "team" | "merges" | "governance";
 
 type ConnectorItem = {
   id: string;
@@ -103,7 +103,7 @@ function SettingsPageInner() {
   const stripeParam = searchParams.get("stripe");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : "ai"
   );
 
   // AI state
@@ -204,6 +204,19 @@ function SettingsPageInner() {
   const [dismissingId, setDismissingId] = useState<string | null>(null);
   const [confirmReverseId, setConfirmReverseId] = useState<string | null>(null);
 
+  // Governance state (moved from governance page)
+  const [govAutoSupervisedConsecutive, setGovAutoSupervisedConsecutive] = useState("10");
+  const [govAutoSupervisedRate, setGovAutoSupervisedRate] = useState("90");
+  const [govAutoNotifyConsecutive, setGovAutoNotifyConsecutive] = useState("20");
+  const [govAutoNotifyRate, setGovAutoNotifyRate] = useState("95");
+  const [govThresholdSaving, setGovThresholdSaving] = useState(false);
+  const [govApprovalThreshold, setGovApprovalThreshold] = useState("");
+  const [govAutoApproveReads, setGovAutoApproveReads] = useState(true);
+  const [govMaxPending, setGovMaxPending] = useState("50");
+  const [govExpiryHours, setGovExpiryHours] = useState("72");
+  const [govSettingsSaving, setGovSettingsSaving] = useState(false);
+  const [govLoading, setGovLoading] = useState(false);
+
   // Load team data
   const loadTeamData = useCallback(async () => {
     setTeamLoading(true);
@@ -243,6 +256,66 @@ function SettingsPageInner() {
   useEffect(() => {
     if (activeTab === "merges") loadMergeData();
   }, [activeTab, loadMergeData]);
+
+  // Load governance data
+  const loadGovernanceData = useCallback(async () => {
+    setGovLoading(true);
+    try {
+      const settings = await fetch("/api/autonomy/settings").then(r => r.json());
+      setGovAutoSupervisedConsecutive(String(settings.supervisedToNotifyConsecutive ?? 10));
+      setGovAutoSupervisedRate(String(Math.round((settings.supervisedToNotifyRate ?? 0.9) * 100)));
+      setGovAutoNotifyConsecutive(String(settings.notifyToAutonomousConsecutive ?? 20));
+      setGovAutoNotifyRate(String(Math.round((settings.notifyToAutonomousRate ?? 0.95) * 100)));
+    } catch {}
+    setGovLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "governance") loadGovernanceData();
+  }, [activeTab, loadGovernanceData]);
+
+  const handleSaveThresholds = async () => {
+    setGovThresholdSaving(true);
+    try {
+      await fetch("/api/autonomy/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          graduation_supervised_to_notify_consecutive: parseInt(govAutoSupervisedConsecutive) || 10,
+          graduation_supervised_to_notify_rate: (parseInt(govAutoSupervisedRate) || 90) / 100,
+          graduation_notify_to_autonomous_consecutive: parseInt(govAutoNotifyConsecutive) || 20,
+          graduation_notify_to_autonomous_rate: (parseInt(govAutoNotifyRate) || 95) / 100,
+        }),
+      });
+      toast("Graduation thresholds saved", "success");
+    } catch {
+      toast("Failed to save thresholds", "error");
+    } finally {
+      setGovThresholdSaving(false);
+    }
+  };
+
+  const handleSaveGovernanceSettings = async () => {
+    setGovSettingsSaving(true);
+    try {
+      const res = await fetch("/api/governance", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requireApprovalAboveAmount: govApprovalThreshold ? parseFloat(govApprovalThreshold) : null,
+          autoApproveReadActions: govAutoApproveReads,
+          maxPendingProposals: parseInt(govMaxPending) || 50,
+          approvalExpiryHours: parseInt(govExpiryHours) || 72,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast("Governance settings saved", "success");
+    } catch {
+      toast("Failed to save governance settings", "error");
+    } finally {
+      setGovSettingsSaving(false);
+    }
+  };
 
   // Fetch Ollama models when any function uses ollama
   const anyOllama = Object.values(fnConfigs).some(c => c.provider === "ollama");
@@ -436,6 +509,7 @@ function SettingsPageInner() {
     { key: "connections", label: "Connections", adminOnly: true },
     { key: "team", label: "Team", adminOnly: true },
     { key: "merges", label: "Entity Merges", adminOnly: true },
+    { key: "governance", label: "AI Governance", adminOnly: true },
   ];
   const tabs = allTabs.filter((t) => !t.adminOnly || isAdmin);
 
@@ -1482,6 +1556,125 @@ function SettingsPageInner() {
                 </Button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── AI Governance Tab ── */}
+        {activeTab === "governance" && (
+          <div className="space-y-6">
+            {govLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+              </div>
+            ) : (
+              <>
+                {/* Graduation Thresholds */}
+                <div style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-4">
+                    Graduation Thresholds
+                  </div>
+                  <div className="space-y-4">
+                    <p style={{ fontSize: 11, fontWeight: 600, color: "#707070", textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
+                      Supervised &rarr; Notify
+                    </p>
+                    <Input
+                      label="Consecutive approvals required"
+                      type="number"
+                      value={govAutoSupervisedConsecutive}
+                      onChange={e => setGovAutoSupervisedConsecutive(e.target.value)}
+                    />
+                    <Input
+                      label="Minimum approval rate (%)"
+                      type="number"
+                      value={govAutoSupervisedRate}
+                      onChange={e => setGovAutoSupervisedRate(e.target.value)}
+                    />
+                    <p style={{ fontSize: 11, fontWeight: 600, color: "#707070", textTransform: "uppercase" as const, letterSpacing: "0.05em" }} className="pt-2">
+                      Notify &rarr; Autonomous
+                    </p>
+                    <Input
+                      label="Consecutive approvals required"
+                      type="number"
+                      value={govAutoNotifyConsecutive}
+                      onChange={e => setGovAutoNotifyConsecutive(e.target.value)}
+                    />
+                    <Input
+                      label="Minimum approval rate (%)"
+                      type="number"
+                      value={govAutoNotifyRate}
+                      onChange={e => setGovAutoNotifyRate(e.target.value)}
+                    />
+                    <div className="pt-2">
+                      <Button variant="primary" onClick={handleSaveThresholds} disabled={govThresholdSaving}>
+                        {govThresholdSaving ? "Saving..." : "Save Thresholds"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* General Governance Settings */}
+                <div style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-4">
+                    General Settings
+                  </div>
+                  <div className="space-y-4">
+                    <Input
+                      label="Approval Threshold (amount)"
+                      type="number"
+                      value={govApprovalThreshold}
+                      onChange={e => setGovApprovalThreshold(e.target.value)}
+                      placeholder="Leave empty for no threshold"
+                    />
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div style={{ fontSize: 13, color: "#b0b0b0" }}>Auto-approve read actions</div>
+                        <div style={{ fontSize: 11, color: "#484848" }}>Allow read operations without policy checks</div>
+                      </div>
+                      <button
+                        onClick={() => setGovAutoApproveReads(!govAutoApproveReads)}
+                        style={{
+                          position: "relative",
+                          display: "inline-flex",
+                          height: 24,
+                          width: 40,
+                          alignItems: "center",
+                          borderRadius: 12,
+                          background: govAutoApproveReads ? "#a855f7" : "#222",
+                          transition: "background 150ms",
+                        }}
+                      >
+                        <span style={{
+                          display: "inline-block",
+                          height: 16,
+                          width: 16,
+                          borderRadius: 8,
+                          background: "#fff",
+                          transition: "transform 150ms",
+                          transform: govAutoApproveReads ? "translateX(20px)" : "translateX(4px)",
+                        }} />
+                      </button>
+                    </div>
+                    <Input
+                      label="Max Pending Proposals"
+                      type="number"
+                      value={govMaxPending}
+                      onChange={e => setGovMaxPending(e.target.value)}
+                    />
+                    <Input
+                      label="Approval Expiry (hours)"
+                      type="number"
+                      value={govExpiryHours}
+                      onChange={e => setGovExpiryHours(e.target.value)}
+                    />
+                    <div className="pt-2">
+                      <Button variant="primary" onClick={handleSaveGovernanceSettings} disabled={govSettingsSaving}>
+                        {govSettingsSaving ? "Saving..." : "Save Settings"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 

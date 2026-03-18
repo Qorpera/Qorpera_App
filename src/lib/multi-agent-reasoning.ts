@@ -459,10 +459,68 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
     "justification": "string — MUST cite which specialist's findings support the decision"
   } or null,
   "confidence": 0.0 to 1.0,
-  "missingContext": ["specific information that would improve this decision"] or null
+  "missingContext": ["specific information that would improve this decision"] or null,
+  "draftPayloads": [
+    // One entry per action to execute. See DRAFT PAYLOADS section for schema per action type.
+  ]
 }
 
-CRITICAL: chosenAction MUST reference a PERMITTED action or be null. Cite which specialist's findings support the decision.`;
+CRITICAL: chosenAction MUST reference a PERMITTED action or be null. Cite which specialist's findings support the decision.
+
+## DRAFT PAYLOADS
+
+After determining your proposed action, you MUST generate the actual draft content that would be sent or created. This goes in the \`draftPayloads\` array.
+
+For each action in your proposal, produce a complete draft payload:
+
+### Email actions (send_email, reply_to_thread)
+{
+  "actionType": "send_email" or "reply_to_thread",
+  "provider": "gmail" or "outlook" (based on connected tools),
+  "payload": {
+    "to": "recipient@email.com",
+    "cc": "optional@email.com",
+    "subject": "Clear, specific subject line",
+    "body": "The complete email text. Write this as a real email — appropriate tone, specific details from specialist findings, proper sign-off."
+  }
+}
+
+### Slack/Teams message actions (send_slack_message, send_teams_message)
+{
+  "actionType": "send_slack_message" or "send_teams_message",
+  "provider": "slack" or "teams",
+  "payload": {
+    "channel": "#channel-name",
+    "message": "The complete message text."
+  }
+}
+
+### Document creation (create_document, append_to_document)
+{
+  "actionType": "create_document",
+  "provider": "google_drive" or "onedrive",
+  "payload": {
+    "title": "Document title",
+    "content": "The full document text."
+  }
+}
+
+### Spreadsheet creation (create_spreadsheet, update_spreadsheet_cells)
+{
+  "actionType": "create_spreadsheet",
+  "provider": "google_drive" or "onedrive",
+  "payload": { "title": "Spreadsheet title" },
+  "attachments": [{
+    "type": "spreadsheet",
+    "title": "Sheet name",
+    "data": { "format": "spreadsheet", "headers": ["Column A", "Column B"], "rows": [["value1", 100]] }
+  }]
+}
+
+CRITICAL RULES for drafting:
+- Use SPECIFIC details from the specialist findings: exact amounts, dates, names, invoice numbers.
+- The draft must be ready to send as-is.
+- The draftPayloads array can be empty ONLY if the proposed action doesn't involve sending or creating content.`;
 
   // Build user prompt with specialist findings
   const findingSections = findings.map((f) => {
@@ -482,9 +540,19 @@ Confidence: ${f.confidenceLevel}
 Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
   });
 
+  // Build CONNECTED TOOLS section for provider resolution
+  let connectedToolsSection = "";
+  if (input.connectorCapabilities.length > 0) {
+    const toolLines = input.connectorCapabilities
+      .map((c) => `- ${c.type} (${c.provider}, ${c.scope})`)
+      .join("\n");
+    connectedToolsSection = `CONNECTED TOOLS:\nThe following tools are active for this operator:\n${toolLines}\n\nWhen drafting payloads, use ONLY providers that are connected.`;
+  }
+
   const userSections = [
     situationHeader(input),
     `SPECIALIST FINDINGS:\n\n${findingSections.join("\n\n")}`,
+    connectedToolsSection,
     formatPermittedActions(input),
     formatBlockedActions(input),
     formatGovernance(input),
@@ -548,6 +616,7 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
     chosenAction: null,
     confidence: 0,
     missingContext: ["Coordinator synthesis failed — manual review required"],
+    draftPayloads: [],
   };
 }
 
