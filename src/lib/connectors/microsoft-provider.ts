@@ -432,7 +432,7 @@ async function* syncOneDrive(
 
       // Determine if we can extract text
       const ext = fileName.split(".").pop()?.toLowerCase() || "";
-      const supportedExts = ["docx", "xlsx", "pptx", "txt", "csv", "md"];
+      const supportedExts = ["docx", "xlsx", "pptx", "txt", "csv", "md", "pdf"];
       if (!supportedExts.includes(ext)) continue;
 
       processedCount++;
@@ -486,6 +486,14 @@ async function* syncOneDrive(
           extractedText = textNodes
             .map((node) => node.replace(/<\/?a:t>/g, ""))
             .join(" ");
+        } else if (ext === "pdf") {
+          const buffer = Buffer.from(await dlResp.arrayBuffer());
+          const { PDFParse } = await import("pdf-parse");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const parser = new PDFParse({ data: buffer, verbosity: 0 }) as any;
+          await parser.load();
+          const result = await parser.getText();
+          extractedText = typeof result === "string" ? result : result?.text ?? "";
         } else if (ext === "txt" || ext === "csv" || ext === "md") {
           extractedText = await dlResp.text();
         }

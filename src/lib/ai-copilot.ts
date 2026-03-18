@@ -1179,9 +1179,10 @@ async function executeTool(
         if (!queryEmbedding) return "Document search is not available — embeddings may not be configured.";
 
         const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
-          sourceTypes: ["drive_doc"],
+          sourceTypes: ["drive_doc", "uploaded_doc"],
           limit,
           departmentIds: docDeptIds.length > 0 ? docDeptIds : undefined,
+          includeParentContext: true,
         });
 
         if (results.length === 0) return "No documents found matching this query.";
@@ -1189,11 +1190,19 @@ async function executeTool(
         return results
           .map((r) => {
             const m = r.metadata || {};
+            const isSummary = m.isDocumentSummary === true;
             const fileName = (m.fileName as string) || "Unknown";
+
+            if (isSummary) {
+              return `Document Overview: ${fileName}\n${r.content.slice(0, 600)}`;
+            }
+
             const mimeType = (m.mimeType as string) || "";
             const modifiedTime = m.modifiedTime ? new Date(m.modifiedTime as string).toLocaleDateString() : "unknown";
+            const sectionTitle = m.sectionTitle ? ` | Section: ${m.sectionTitle}` : "";
+            const chunkInfo = m.chunkTotal ? ` | Part ${r.chunkIndex} of ${m.chunkTotal}` : "";
             const sheetName = m.sheetName ? ` (Sheet: ${m.sheetName})` : "";
-            return `File: ${fileName}${sheetName} | Type: ${mimeType} | Modified: ${modifiedTime} | Relevance: ${r.score.toFixed(2)}\n${r.content.slice(0, 500)}`;
+            return `File: ${fileName}${sheetName}${sectionTitle}${chunkInfo} | Type: ${mimeType} | Modified: ${modifiedTime} | Relevance: ${r.score.toFixed(2)}\n${r.content.slice(0, 500)}`;
           })
           .join("\n\n---\n\n");
       } catch {

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { searchAround } from "@/lib/graph-traversal";
-import { retrieveRelevantContext, retrieveRelevantChunks } from "@/lib/rag/retriever";
+import { retrieveRelevantChunks } from "@/lib/rag/retriever";
 import { embedChunks } from "@/lib/rag/embedder";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 
@@ -679,19 +679,26 @@ export async function assembleSituationContext(
 
   let departmentKnowledge: RAGReference[] = [];
   try {
-    const ragResults =
-      departmentIds.length > 0
-        ? await retrieveRelevantContext(ragQuery, operatorId, departmentIds, 8)
-        : [];
-    departmentKnowledge = ragResults.map((r) => ({
-      documentName: r.documentName,
-      departmentName: r.departmentName,
-      content: r.content,
-      preview: r.content.slice(0, 100),
-      score: r.score,
-      entityId: r.entityId,
-      chunkIndex: r.chunkIndex,
-    }));
+    if (departmentIds.length > 0) {
+      const [ragEmbedding] = await embedChunks([ragQuery]);
+      if (ragEmbedding) {
+        const ragResults = await retrieveRelevantChunks(operatorId, ragEmbedding, {
+          limit: 8,
+          departmentIds,
+          minScore: 0.3,
+          includeParentContext: true,
+        });
+        departmentKnowledge = ragResults.map((r) => ({
+          documentName: (r.metadata?.fileName as string) ?? "Unknown",
+          departmentName: "—",
+          content: r.content,
+          preview: r.content.slice(0, 100),
+          score: r.score,
+          entityId: r.entityId,
+          chunkIndex: r.chunkIndex,
+        }));
+      }
+    }
   } catch (err) {
     console.warn("[context-assembly] RAG retrieval failed, continuing without document context:", err);
   }

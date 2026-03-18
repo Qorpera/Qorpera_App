@@ -10,7 +10,7 @@
  */
 
 import { prisma } from "@/lib/db";
-import { chunkDocument } from "@/lib/rag/chunker";
+import { chunkDocument, estimateTokens } from "@/lib/rag/chunker";
 import { embedChunks } from "@/lib/rag/embedder";
 
 type ContentInput = {
@@ -33,25 +33,75 @@ export async function ingestContent(
   const chunks = chunkDocument(content);
   if (chunks.length === 0) return { chunksCreated: 0 };
 
-  // 2. Embed all chunks (gracefully handles missing API key — returns nulls)
-  let embeddings: (number[] | null)[];
-  try {
-    embeddings = await embedChunks(chunks.map((c) => c.content));
-  } catch (err) {
-    console.error("[content-pipeline] Embedding failed, storing chunks without embeddings:", err);
-    embeddings = chunks.map(() => null);
+  // 2. Build contextual headers for document-type content
+  const isDocument = ["drive_doc", "uploaded_doc"].includes(sourceType);
+  const fileName = (metadata?.fileName as string) || undefined;
+
+  let enrichedChunks = chunks.map((chunk, i) => {
+    if (!isDocument || chunks.length === 1) return chunk;
+
+    const parts: string[] = [];
+    if (fileName) parts.push(`Document: ${fileName}`);
+    if (chunk.sectionTitle) parts.push(`Section: ${chunk.sectionTitle}`);
+    if (chunks.length > 1) parts.push(`Part ${i + 1} of ${chunks.length}`);
+
+    const header = parts.length > 0 ? `[${parts.join(" | ")}]\n` : "";
+    return {
+      ...chunk,
+      content: header + chunk.content,
+      tokenCount: chunk.tokenCount + estimateTokens(header),
+    };
+  });
+
+  // 3. Generate document summary chunk for multi-chunk documents
+  if (isDocument && enrichedChunks.length > 1) {
+    const sectionTitles = chunks
+      .map((c) => c.sectionTitle)
+      .filter((t): t is string => !!t)
+      .filter((t, i, arr) => arr.indexOf(t) === i);
+
+    const summaryParts: string[] = [];
+    if (fileName) summaryParts.push(`Document: ${fileName}`);
+    if (sectionTitles.length > 0) {
+      summaryParts.push(`Sections: ${sectionTitles.join(", ")}`);
+    }
+    const firstContent = content.slice(0, 1200).trim();
+    summaryParts.push(`Overview:\n${firstContent}`);
+
+    const summaryContent = summaryParts.join("\n");
+    enrichedChunks = [
+      { content: summaryContent, chunkIndex: 0, tokenCount: estimateTokens(summaryContent), sectionTitle: undefined },
+      ...enrichedChunks.map((c, i) => ({ ...c, chunkIndex: i + 1 })),
+    ];
   }
 
-  // 3. Deduplicate — delete existing chunks for this source
+  // 4. Embed all chunks (gracefully handles missing API key — returns nulls)
+  let embeddings: (number[] | null)[];
+  try {
+    embeddings = await embedChunks(enrichedChunks.map((c) => c.content));
+  } catch (err) {
+    console.error("[content-pipeline] Embedding failed, storing chunks without embeddings:", err);
+    embeddings = enrichedChunks.map(() => null);
+  }
+
+  // 5. Deduplicate — delete existing chunks for this source
   await prisma.contentChunk.deleteMany({
     where: { operatorId, sourceType, sourceId },
   });
 
-  // 4. Write ContentChunk rows + vector embeddings
+  // 6. Write ContentChunk rows + vector embeddings
   const deptJson = departmentIds?.length ? JSON.stringify(departmentIds) : null;
-  const metaJson = metadata ? JSON.stringify(metadata) : null;
 
-  for (let i = 0; i < chunks.length; i++) {
+  for (let i = 0; i < enrichedChunks.length; i++) {
+    const chunk = enrichedChunks[i];
+    const chunkMeta = {
+      ...metadata,
+      ...(chunk.sectionTitle ? { sectionTitle: chunk.sectionTitle } : {}),
+      ...(chunks.length > 1 ? { chunkTotal: chunks.length } : {}),
+      ...(i === 0 && isDocument && enrichedChunks.length > 1 ? { isDocumentSummary: true } : {}),
+    };
+    const metaJson = JSON.stringify(chunkMeta);
+
     const created = await prisma.contentChunk.create({
       data: {
         operatorId,
@@ -60,9 +110,9 @@ export async function ingestContent(
         sourceId,
         entityId: entityId ?? null,
         departmentIds: deptJson,
-        chunkIndex: chunks[i].chunkIndex,
-        content: chunks[i].content,
-        tokenCount: chunks[i].tokenCount,
+        chunkIndex: chunk.chunkIndex,
+        content: chunk.content,
+        tokenCount: chunk.tokenCount,
         metadata: metaJson,
       },
       select: { id: true },
@@ -82,5 +132,5 @@ export async function ingestContent(
     }
   }
 
-  return { chunksCreated: chunks.length };
+  return { chunksCreated: enrichedChunks.length };
 }

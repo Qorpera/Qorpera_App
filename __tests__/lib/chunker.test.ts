@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chunkDocument } from "@/lib/rag/chunker";
+import { chunkDocument, estimateTokens } from "@/lib/rag/chunker";
 
 describe("chunkDocument", () => {
   it("returns empty array for empty input", () => {
@@ -112,5 +112,71 @@ describe("chunkDocument", () => {
         expect(chunk.tokenCount).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe("structure-aware chunking", () => {
+  it("detects markdown headings and splits on them", () => {
+    const text = `# Introduction\n\nThis is the intro paragraph.\n\n# Methods\n\nHere we describe our methods.\n\n# Results\n\nThe results show improvement.`;
+    const chunks = chunkDocument(text);
+
+    expect(chunks.some((c) => c.sectionTitle === "Introduction")).toBe(true);
+    expect(
+      chunks.some((c) => c.sectionTitle === "Methods" || c.content.includes("methods")),
+    ).toBe(true);
+  });
+
+  it("detects numbered sections", () => {
+    const text = `1. Overview\n\nProject overview content here.\n\n2. Requirements\n\nList of requirements follows.\n\n3. Timeline\n\nThe timeline spans six months.`;
+    const chunks = chunkDocument(text);
+    expect(chunks.some((c) => c.sectionTitle?.includes("Overview"))).toBe(true);
+  });
+
+  it("handles documents with no headings (backward compatible)", () => {
+    const paragraphs = Array.from(
+      { length: 20 },
+      (_, i) =>
+        `Paragraph ${i + 1}. This is enough text to fill a reasonable paragraph with some content that matters for testing the chunker behavior.`,
+    );
+    const text = paragraphs.join("\n\n");
+    const chunks = chunkDocument(text);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    chunks.forEach((c) => {
+      expect(c.sectionTitle).toBeUndefined();
+    });
+  });
+
+  it("never splits mid-section when section fits in chunk", () => {
+    const text = `# Short Section\n\nThis is a short section.\n\n# Another Short Section\n\nAnother short section.`;
+    const chunks = chunkDocument(text);
+
+    for (const chunk of chunks) {
+      if (chunk.sectionTitle === "Short Section") {
+        expect(chunk.content).toContain("This is a short section");
+      }
+    }
+  });
+
+  it("splits large sections by paragraph boundaries within section", () => {
+    const longSection = Array.from(
+      { length: 30 },
+      (_, i) =>
+        `This is paragraph ${i + 1} of a very long section with enough content to exceed chunk limits.`,
+    ).join("\n\n");
+    const text = `# Long Section\n\n${longSection}`;
+    const chunks = chunkDocument(text);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    chunks.forEach((c) => {
+      expect(c.sectionTitle).toBe("Long Section");
+    });
+  });
+});
+
+describe("estimateTokens", () => {
+  it("estimates tokens as characters / 4", () => {
+    expect(estimateTokens("a".repeat(400))).toBe(100);
+    expect(estimateTokens("hello")).toBe(2);
   });
 });

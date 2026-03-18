@@ -42,6 +42,7 @@ export async function retrieveRelevantChunks(
     entityIds?: string[];
     departmentIds?: string[];
     minScore?: number;
+    includeParentContext?: boolean;
   },
 ): Promise<ContentChunkResult[]> {
   const limit = options?.limit ?? 5;
@@ -129,6 +130,76 @@ export async function retrieveRelevantChunks(
     results = results.filter((r) =>
       r.departmentIds.length === 0 || r.departmentIds.some((d) => allowedDepts.has(d)),
     );
+  }
+
+  // Parent-context enrichment: fetch document summary chunks for matched sources
+  if (options?.includeParentContext && results.length > 0) {
+    const sourceIds = [...new Set(results.map((r) => r.sourceId))];
+    const existingSummarySourceIds = new Set(
+      results.filter((r) => r.chunkIndex === 0).map((r) => r.sourceId),
+    );
+    const missingSourceIds = sourceIds.filter((id) => !existingSummarySourceIds.has(id));
+
+    if (missingSourceIds.length > 0) {
+      let summaryChunks = await prisma.$queryRawUnsafe<Array<{
+        id: string;
+        content: string;
+        sourceType: string;
+        sourceId: string;
+        entityId: string | null;
+        departmentIds: string | null;
+        metadata: string | null;
+        chunkIndex: number;
+      }>>(
+        `SELECT id, content, "sourceType", "sourceId", "entityId", "departmentIds",
+                metadata, "chunkIndex"
+         FROM "ContentChunk"
+         WHERE "operatorId" = $1
+           AND "sourceId" = ANY($2::text[])
+           AND "chunkIndex" = 0`,
+        operatorId,
+        missingSourceIds,
+      );
+
+      // Apply department scoping to summary chunks (same logic as main results)
+      if (options?.departmentIds?.length) {
+        const allowedDepts = new Set(options.departmentIds);
+        summaryChunks = summaryChunks.filter((s) => {
+          if (!s.departmentIds) return true;
+          try {
+            const depts: string[] = JSON.parse(s.departmentIds);
+            return depts.length === 0 || depts.some((d) => allowedDepts.has(d));
+          } catch {
+            return true;
+          }
+        });
+      }
+
+      const summaryMap = new Map(summaryChunks.map((s) => [s.sourceId, s]));
+      const enrichedResults: ContentChunkResult[] = [];
+      const addedSummaries = new Set<string>();
+
+      for (const result of results) {
+        if (summaryMap.has(result.sourceId) && !addedSummaries.has(result.sourceId)) {
+          const summary = summaryMap.get(result.sourceId)!;
+          enrichedResults.push({
+            id: summary.id,
+            content: summary.content,
+            sourceType: summary.sourceType,
+            sourceId: summary.sourceId,
+            entityId: summary.entityId,
+            departmentIds: summary.departmentIds ? JSON.parse(summary.departmentIds) : [],
+            metadata: summary.metadata ? JSON.parse(summary.metadata) : null,
+            chunkIndex: summary.chunkIndex,
+            score: 1.0,
+          });
+          addedSummaries.add(result.sourceId);
+        }
+        enrichedResults.push(result);
+      }
+
+      results = enrichedResults;
+    }
   }
 
   return results;

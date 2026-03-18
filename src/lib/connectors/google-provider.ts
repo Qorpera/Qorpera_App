@@ -653,8 +653,25 @@ async function* syncDrive(
             { headers: { Authorization: `Bearer ${accessToken}` } }
           );
           if (dlResp.ok) extractedText = await dlResp.text();
+        } else if (file.mimeType === "application/pdf") {
+          const dlResp = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          if (dlResp.ok) {
+            try {
+              const buffer = Buffer.from(await dlResp.arrayBuffer());
+              const { PDFParse } = await import("pdf-parse");
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const parser = new PDFParse({ data: buffer, verbosity: 0 }) as any;
+              await parser.load();
+              const result = await parser.getText();
+              extractedText = typeof result === "string" ? result : result?.text ?? "";
+            } catch (pdfErr) {
+              console.warn(`[google-sync] Drive: PDF parse failed for ${file.name}:`, pdfErr);
+            }
+          }
         }
-        // PDF: skip content extraction for now (would need pdf-parse)
       } catch (err) {
         console.warn(`[google-sync] Drive: failed to extract content from ${file.name}:`, err);
       }
