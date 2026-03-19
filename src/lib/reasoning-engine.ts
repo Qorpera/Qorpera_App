@@ -7,6 +7,7 @@ import { getBusinessContext, formatBusinessContext } from "@/lib/business-contex
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
+import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -329,6 +330,14 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         }
       }
 
+      // For supervised: check plan autonomy graduation
+      if (resolvedSteps && effectiveAutonomy === "supervised" && updates.executionPlanId) {
+        await checkPlanAutonomyAutoApprove(
+          situation.operatorId, situation.triggerEntityId, updates.executionPlanId as string,
+          resolvedSteps, situation.situationType.name, situationId,
+        );
+      }
+
       // Situation-level notifications
       if (reasoning.actionPlan === null || !resolvedSteps) {
         sendNotificationToAdmins({
@@ -562,6 +571,14 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       }
     }
 
+    // For supervised: check plan autonomy graduation
+    if (resolvedSteps && effectiveAutonomy === "supervised" && updates.executionPlanId) {
+      await checkPlanAutonomyAutoApprove(
+        situation.operatorId, situation.triggerEntityId, updates.executionPlanId as string,
+        resolvedSteps, situation.situationType.name, situationId,
+      );
+    }
+
     // Situation-level notifications
     if (reasoning.actionPlan === null || !resolvedSteps) {
       sendNotificationToAdmins({
@@ -666,6 +683,63 @@ async function enrichPriorSituations(
       createdAt: p.createdAt,
     };
   });
+}
+
+async function checkPlanAutonomyAutoApprove(
+  operatorId: string,
+  triggerEntityId: string | null,
+  planId: string,
+  resolvedSteps: StepDefinition[],
+  situationTypeName: string,
+  situationId: string,
+): Promise<void> {
+  try {
+    if (!triggerEntityId) return;
+
+    // Resolve department AI entity
+    const entity = await prisma.entity.findUnique({
+      where: { id: triggerEntityId },
+      select: { parentDepartmentId: true },
+    });
+    if (!entity?.parentDepartmentId) return;
+
+    const deptAi = await prisma.entity.findFirst({
+      where: { ownerDepartmentId: entity.parentDepartmentId, operatorId, status: "active" },
+      select: { id: true },
+    });
+    if (!deptAi) return;
+
+    const autoApprove = await shouldAutoApprovePlan(deptAi.id, resolvedSteps);
+    if (!autoApprove) return;
+
+    // Auto-advance the first awaiting step
+    const plan = await prisma.executionPlan.findFirst({
+      where: { id: planId },
+      include: { steps: { where: { status: "awaiting_approval" }, orderBy: { sequenceOrder: "asc" }, take: 1 } },
+    });
+    if (!plan?.steps[0]) return;
+
+    const { advanceStep } = await import("@/lib/execution-engine");
+    await advanceStep(plan.steps[0].id, "approve", "system");
+
+    // Look up consecutive approvals for the notification
+    const { computePlanPatternHash } = await import("@/lib/plan-autonomy");
+    const hash = computePlanPatternHash(resolvedSteps);
+    const record = await prisma.planAutonomy.findUnique({
+      where: { aiEntityId_planPatternHash: { aiEntityId: deptAi.id, planPatternHash: hash } },
+    });
+
+    sendNotificationToAdmins({
+      operatorId,
+      type: "plan_auto_executed",
+      title: `Plan auto-executed: ${situationTypeName}`,
+      body: `Plan auto-executed based on pattern trust for situation ${situationTypeName}. Pattern approved ${record?.consecutiveApprovals ?? "20+"} times consecutively.`,
+      sourceType: "situation",
+      sourceId: situationId,
+    }).catch(() => {});
+  } catch (err) {
+    console.error(`[reasoning-engine] Plan autonomy auto-approve failed for ${situationId}:`, err);
+  }
 }
 
 function extractJSON(text: string): Record<string, unknown> | null {
