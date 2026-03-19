@@ -365,9 +365,23 @@ const ORIENTATION_TOOLS: AITool[] = [
   },
 ];
 
+// ── Context-Scoped Tool Selection ────────────────────────────────────────────
+
+const CONTEXT_EXCLUDED_TOOLS: Record<string, Set<string>> = {
+  situation: new Set(["get_recurring_tasks", "create_situation_type", "list_departments", "get_org_structure"]),
+  initiative: new Set(["get_recurring_tasks", "get_delegations", "create_situation_type", "list_departments", "get_org_structure"]),
+  workstream: new Set(["get_recurring_tasks", "create_situation_type", "list_departments", "get_org_structure"]),
+};
+
+export function getToolsForContext(contextType: string | null): typeof COPILOT_TOOLS {
+  if (!contextType || !CONTEXT_EXCLUDED_TOOLS[contextType]) return COPILOT_TOOLS;
+  const excluded = CONTEXT_EXCLUDED_TOOLS[contextType];
+  return COPILOT_TOOLS.filter(t => !excluded.has(t.name));
+}
+
 // ── System Prompt Builder ────────────────────────────────────────────────────
 
-async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" }): Promise<string> {
+async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" }, injectedContext?: string): Promise<string> {
   const visibleDepts = scopeInfo?.visibleDepts;
   const situationScopeWhere = visibleDepts && visibleDepts !== "all"
     ? { OR: [{ situationType: { scopeEntityId: { in: visibleDepts } } }, { situationType: { scopeEntityId: null } }] }
@@ -429,8 +443,10 @@ async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInf
     scopeFraming = `- Department: ${scopeInfo.departmentName}\n- Visibility: You are assisting ${scopeInfo.userName || "a user"} who works in the ${scopeInfo.departmentName} department. Focus your responses on matters relevant to their department.`;
   }
 
+  const contextSection = injectedContext ? `\n${injectedContext}\n` : "";
+
   return `You are the Qorpera AI co-pilot, an intelligent assistant for the operator's entity graph and governance workflow engine.
-${businessSection}${deptSection}
+${contextSection}${businessSection}${deptSection}
 ENTITY MODEL:
 ${typesSummary || "No entity types configured yet."}
 ${situationSection}
@@ -2424,6 +2440,7 @@ export async function chat(
   orientation?: OrientationInfo,
   scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" },
   userId?: string,
+  contextInfo?: { contextType: string; contextText: string } | null,
 ): Promise<ReadableStream> {
   // Build system prompt — orientation-aware or normal
   let systemPrompt: string;
@@ -2434,16 +2451,18 @@ export async function chat(
     if (session) {
       systemPrompt = await buildOrientationSystemPrompt(operatorId, session);
     } else {
-      systemPrompt = await buildSystemPrompt(operatorId, userRole, scopeInfo);
+      systemPrompt = await buildSystemPrompt(operatorId, userRole, scopeInfo, contextInfo?.contextText);
     }
   } else {
-    systemPrompt = await buildSystemPrompt(operatorId, userRole, scopeInfo);
+    systemPrompt = await buildSystemPrompt(operatorId, userRole, scopeInfo, contextInfo?.contextText);
   }
 
-  // Select tools — orientation mode gets extra tools
+  // Select tools — orientation mode gets extra tools, context mode gets scoped tools
+  const contextType = contextInfo?.contextType ?? null;
   const tools = orientation
     ? [...COPILOT_TOOLS, ...ORIENTATION_TOOLS]
-    : COPILOT_TOOLS;
+    : getToolsForContext(contextType);
+  const allowedToolNames = new Set(tools.map(t => t.name));
 
   const messages: AIMessage[] = [
     { role: "system", content: systemPrompt },
@@ -2492,6 +2511,16 @@ export async function chat(
 
           // Execute each tool and add results as proper tool messages
           for (const toolCall of response.toolCalls) {
+            // Defense in depth: don't execute tools not in the allowed set
+            if (!allowedToolNames.has(toolCall.name)) {
+              currentMessages.push({
+                role: "tool",
+                content: `Tool "${toolCall.name}" is not available in this context.`,
+                tool_call_id: toolCall.id,
+                name: toolCall.name,
+              });
+              continue;
+            }
             const result = await executeTool(
               operatorId,
               toolCall.name,

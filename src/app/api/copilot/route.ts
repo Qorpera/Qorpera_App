@@ -4,6 +4,7 @@ import { chat, type OrientationInfo } from "@/lib/ai-copilot";
 import { prisma } from "@/lib/db";
 import type { AIMessage } from "@/lib/ai-provider";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { loadContextForCopilot, getContextRoleInstruction } from "@/lib/copilot-context-loaders";
 
 export async function POST(req: NextRequest) {
   const su = await getSessionUser();
@@ -58,18 +59,30 @@ export async function POST(req: NextRequest) {
     scopeInfo = { userName: scopeUser?.name, departmentName, visibleDepts };
   }
 
-  // TODO: When contextType/contextId are provided, load the relevant context and prepend to conversation:
-  // - "situation" → load situation's reasoning, entity, situation type, execution plan
-  // - "initiative" → load initiative's goal, rationale, execution plan, department
-  // - "workstream" → load via getWorkStreamContext()
-  // Then inject as a system message or user context before calling chat().
-  // For now, contextType and contextId are accepted but not yet used for context injection.
-  const _contextType = body.contextType as string | undefined;
-  const _contextId = body.contextId as string | undefined;
-  void _contextType;
-  void _contextId;
+  // Context injection for embedded chat (situation, initiative, workstream detail panes)
+  let contextInfo: { contextType: string; contextText: string } | null = null;
+  const contextType = typeof body.contextType === "string" ? body.contextType.trim() : null;
+  const contextId = typeof body.contextId === "string" ? body.contextId.trim() : null;
 
-  const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo, user.id);
+  if (contextType && contextId) {
+    try {
+      const contextText = await loadContextForCopilot(contextType, contextId, operatorId);
+      if (contextText) {
+        const roleInstruction = getContextRoleInstruction(contextType);
+        contextInfo = {
+          contextType,
+          contextText: `${roleInstruction}\n\n${contextText}`,
+        };
+      } else {
+        console.warn(`[copilot] Context not found: ${contextType}/${contextId} for operator ${operatorId}`);
+      }
+    } catch (err) {
+      console.warn(`[copilot] Context loading failed for ${contextType}/${contextId}:`, err);
+      // Graceful degradation — continue without context
+    }
+  }
+
+  const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo, user.id, contextInfo);
 
   // Tee the stream: one for the HTTP response, one to capture for persistence
   const [responseStream, captureStream] = stream.tee();
