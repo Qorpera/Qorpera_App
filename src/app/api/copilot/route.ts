@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   void _contextType;
   void _contextId;
 
-  const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo);
+  const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo, user.id);
 
   // Tee the stream: one for the HTTP response, one to capture for persistence
   const [responseStream, captureStream] = stream.tee();

@@ -10,7 +10,7 @@ import { getProvider } from "@/lib/connectors/registry";
 import { decrypt, encrypt } from "@/lib/encryption";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { canAccessEntity } from "@/lib/user-scope";
-import { getWorkStreamContext } from "@/lib/workstreams";
+import { getWorkStreamContext, canMemberAccessWorkStream } from "@/lib/workstreams";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -493,12 +493,33 @@ GUIDELINES:
 
 // ── Tool Execution ───────────────────────────────────────────────────────────
 
+// ── Scope Helper ──────────────────────────────────────────────────────────
+
+async function getVisibleAiEntityIds(
+  visibleDepts: string[],
+  operatorId: string,
+): Promise<string[]> {
+  const entities = await prisma.entity.findMany({
+    where: {
+      operatorId,
+      entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+      OR: [
+        { parentDepartmentId: { in: visibleDepts } },
+        { ownerDepartmentId: { in: visibleDepts } },
+      ],
+    },
+    select: { id: true },
+  });
+  return entities.map(e => e.id);
+}
+
 export async function executeTool(
   operatorId: string,
   toolName: string,
   args: Record<string, unknown>,
   orientationSessionId?: string,
   visibleDepts?: string[] | "all",
+  userId?: string,
 ): Promise<string> {
   const deptVisFilter = visibleDepts && visibleDepts !== "all" ? { id: { in: visibleDepts } } : {};
   switch (toolName) {
@@ -1127,27 +1148,21 @@ export async function executeTool(
         };
       }
 
+      // Resolve visible AI entity IDs (used by delegation, insight, recurring scopes)
+      let briefingAiIds: string[] | null = null;
+      let briefingDelegationScoped = false;
+      if (visibleDepts && visibleDepts !== "all") {
+        briefingAiIds = await getVisibleAiEntityIds(visibleDepts as string[], operatorId);
+        briefingDelegationScoped = true;
+      }
+
       // Build delegation scope filter
       const delegationScopeFilter: Record<string, unknown> = { operatorId };
-      if (visibleDepts && visibleDepts !== "all") {
-        const deptAiForDeleg = await prisma.entity.findMany({
-          where: {
-            operatorId,
-            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
-            OR: [
-              { parentDepartmentId: { in: visibleDepts } },
-              { ownerDepartmentId: { in: visibleDepts } },
-            ],
-          },
-          select: { id: true },
-        });
-        const aiIdsForDeleg = deptAiForDeleg.map(e => e.id);
-        if (aiIdsForDeleg.length > 0) {
-          delegationScopeFilter.OR = [
-            { fromAiEntityId: { in: aiIdsForDeleg } },
-            { toAiEntityId: { in: aiIdsForDeleg } },
-          ];
-        }
+      if (briefingDelegationScoped && briefingAiIds && briefingAiIds.length > 0) {
+        delegationScopeFilter.OR = [
+          { fromAiEntityId: { in: briefingAiIds } },
+          { toAiEntityId: { in: briefingAiIds } },
+        ];
       }
 
       // Build insight scope filter
@@ -1157,10 +1172,23 @@ export async function executeTool(
         createdAt: { gte: sevenDaysAgo },
       };
       if (visibleDepts && visibleDepts !== "all") {
-        insightScopeFilter.OR = [
+        const insightOrClauses: Record<string, unknown>[] = [
           { shareScope: "operator" },
-          { shareScope: "department" },
         ];
+        if (briefingAiIds && briefingAiIds.length > 0) {
+          insightOrClauses.push({ shareScope: "department", aiEntityId: { in: briefingAiIds } });
+        }
+        // Personal insights for the current user's AI entity
+        if (userId) {
+          const userAi = await prisma.entity.findFirst({
+            where: { operatorId, ownerUserId: userId, entityType: { slug: "ai-agent" } },
+            select: { id: true },
+          });
+          if (userAi) {
+            insightOrClauses.push({ shareScope: "personal", aiEntityId: userAi.id });
+          }
+        }
+        insightScopeFilter.OR = insightOrClauses;
       }
 
       // Build recurring tasks scope filter
@@ -1169,6 +1197,14 @@ export async function executeTool(
         status: "active",
         nextTriggerAt: { lte: twentyFourHoursFromNow, gte: now },
       };
+      if (visibleDepts && visibleDepts !== "all") {
+        if (briefingAiIds && briefingAiIds.length > 0) {
+          recurringScope.aiEntityId = { in: briefingAiIds };
+        } else {
+          // No visible AI entities — recurring section will be empty
+          recurringScope.id = "__impossible__";
+        }
+      }
 
       // Query all sections in parallel
       const [
@@ -1224,10 +1260,14 @@ export async function executeTool(
         prisma.initiative.count({ where: { ...initScopeFilter, status: "executing" } }),
         // Proposed initiatives awaiting approval
         prisma.initiative.count({ where: { ...initScopeFilter, status: "proposed" } }),
-        // Pending delegations (need admin approval)
-        prisma.delegation.count({ where: { ...delegationScopeFilter, status: "pending" } }),
+        // Pending delegations (need admin approval) — 0 when scoped with no AI entities
+        (briefingDelegationScoped && (!briefingAiIds || briefingAiIds.length === 0))
+          ? Promise.resolve(0)
+          : prisma.delegation.count({ where: { ...delegationScopeFilter, status: "pending" } }),
         // Human tasks awaiting completion
-        prisma.delegation.count({ where: { ...delegationScopeFilter, status: "accepted", toUserId: { not: null } } }),
+        (briefingDelegationScoped && (!briefingAiIds || briefingAiIds.length === 0))
+          ? Promise.resolve(0)
+          : prisma.delegation.count({ where: { ...delegationScopeFilter, status: "accepted", toUserId: { not: null } } }),
         // Active FollowUps count
         prisma.followUp.count({ where: { operatorId, status: "watching" } }),
         // FollowUps triggering within 24 hours
@@ -1844,24 +1884,10 @@ export async function executeTool(
         const ctx = await getWorkStreamContext(workStreamId);
         if (!ctx) return "Work stream not found.";
 
-        // Scope check: verify items are in visible departments
-        if (visibleDepts && visibleDepts !== "all") {
-          // Check if the workstream's goal is visible
-          const ws = await prisma.workStream.findUnique({
-            where: { id: workStreamId },
-            select: { goalId: true },
-          });
-          if (ws?.goalId) {
-            const goal = await prisma.goal.findFirst({
-              where: {
-                id: ws.goalId,
-                operatorId,
-                OR: [{ departmentId: { in: visibleDepts } }, { departmentId: null }],
-              },
-              select: { id: true },
-            });
-            if (!goal) return "You don't have visibility into this work stream.";
-          }
+        // Scope check using canMemberAccessWorkStream
+        if (visibleDepts && visibleDepts !== "all" && userId) {
+          const canAccess = await canMemberAccessWorkStream(userId, workStreamId, operatorId, visibleDepts as string[]);
+          if (!canAccess) return "You don't have access to this project.";
         }
 
         // Load children count
@@ -1898,16 +1924,15 @@ export async function executeTool(
           take: 10,
         });
 
-        // Scope filter: workstream must be linked to a visible goal or contain visible items
+        // Scope filter: workstream must contain an item linked to a visible department
         let filtered = workstreams;
-        if (visibleDepts && visibleDepts !== "all") {
-          const visibleGoalIds = new Set(
-            (await prisma.goal.findMany({
-              where: { operatorId, OR: [{ departmentId: { in: visibleDepts } }, { departmentId: null }] },
-              select: { id: true },
-            })).map(g => g.id),
-          );
-          filtered = workstreams.filter(ws => !ws.goalId || visibleGoalIds.has(ws.goalId));
+        if (visibleDepts && visibleDepts !== "all" && userId) {
+          const accessible: typeof workstreams = [];
+          for (const ws of workstreams) {
+            const canAccess = await canMemberAccessWorkStream(userId, ws.id, operatorId, visibleDepts as string[]);
+            if (canAccess) accessible.push(ws);
+          }
+          filtered = accessible;
         }
 
         if (filtered.length === 0) return `No work streams found matching "${search}".`;
@@ -1933,53 +1958,33 @@ export async function executeTool(
       if (status) where.status = status;
 
       if (assignedToMe) {
-        // Find the current user's AI entity — we need userId from the caller context
-        // The userId isn't directly available here, so we resolve through the copilot context
-        // For scoped users, find their AI entity
-        // The tool is called with visibleDepts which is derived from userId
-        // We'll check toUserId OR toAiEntityId matching user's AI entity
-        const userAiEntities = await prisma.entity.findMany({
-          where: {
-            operatorId,
-            entityType: { slug: "ai-agent" },
-            ...(visibleDepts && visibleDepts !== "all"
-              ? { parentDepartmentId: { in: visibleDepts } }
-              : {}),
-          },
-          select: { id: true, ownerUserId: true },
-        });
-        const aiEntityIds = userAiEntities.map(e => e.id);
-        const ownerUserIds = userAiEntities.map(e => e.ownerUserId).filter(Boolean) as string[];
+        if (!userId) return "No delegations found — user context not available.";
 
-        where.OR = [
-          ...(aiEntityIds.length > 0 ? [{ toAiEntityId: { in: aiEntityIds } }] : []),
-          ...(ownerUserIds.length > 0 ? [{ toUserId: { in: ownerUserIds } }] : []),
-        ];
-        if ((where.OR as unknown[]).length === 0) {
-          return "No delegations found — no AI entity linked to your account.";
-        }
-      }
-
-      // Scope filter
-      if (visibleDepts && visibleDepts !== "all" && !assignedToMe) {
-        const deptAiEntities = await prisma.entity.findMany({
-          where: {
-            operatorId,
-            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
-            OR: [
-              { parentDepartmentId: { in: visibleDepts } },
-              { ownerDepartmentId: { in: visibleDepts } },
-            ],
-          },
+        // Find the current user's personal AI entity
+        const userAiEntity = await prisma.entity.findFirst({
+          where: { operatorId, ownerUserId: userId, entityType: { slug: "ai-agent" } },
           select: { id: true },
         });
-        const aiIds = deptAiEntities.map(e => e.id);
-        if (aiIds.length > 0) {
-          where.OR = [
-            { fromAiEntityId: { in: aiIds } },
-            { toAiEntityId: { in: aiIds } },
-          ];
+
+        const orClauses: Record<string, unknown>[] = [];
+        if (userAiEntity) {
+          orClauses.push({ toAiEntityId: userAiEntity.id });
         }
+        orClauses.push({ toUserId: userId });
+
+        where.OR = orClauses;
+      }
+
+      // Scope filter (only when not assignedToMe — that path is already scoped to the user)
+      if (visibleDepts && visibleDepts !== "all" && !assignedToMe) {
+        const aiIds = await getVisibleAiEntityIds(visibleDepts as string[], operatorId);
+        if (aiIds.length === 0) {
+          return "No delegations found for your departments.";
+        }
+        where.OR = [
+          { fromAiEntityId: { in: aiIds } },
+          { toAiEntityId: { in: aiIds } },
+        ];
       }
 
       const delegations = await prisma.delegation.findMany({
@@ -2050,19 +2055,11 @@ export async function executeTool(
       if (activeOnly) where.status = "active";
 
       // Scope by department via aiEntity
+      let scopedAiIds: string[] | null = null;
       if (visibleDepts && visibleDepts !== "all") {
-        const deptAiEntities = await prisma.entity.findMany({
-          where: {
-            operatorId,
-            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
-            OR: [
-              { parentDepartmentId: { in: visibleDepts } },
-              { ownerDepartmentId: { in: visibleDepts } },
-            ],
-          },
-          select: { id: true },
-        });
-        where.aiEntityId = { in: deptAiEntities.map(e => e.id) };
+        scopedAiIds = await getVisibleAiEntityIds(visibleDepts as string[], operatorId);
+        if (scopedAiIds.length === 0) return "No recurring tasks found.";
+        where.aiEntityId = { in: scopedAiIds };
       }
 
       if (departmentId) {
@@ -2077,7 +2074,17 @@ export async function executeTool(
           },
           select: { id: true },
         });
-        where.aiEntityId = { in: deptAis.map(e => e.id) };
+        const deptAiIds = deptAis.map(e => e.id);
+
+        if (scopedAiIds) {
+          // Member: intersect with already-scoped set
+          const intersection = deptAiIds.filter(id => scopedAiIds!.includes(id));
+          if (intersection.length === 0) return "No recurring tasks found for that department.";
+          where.aiEntityId = { in: intersection };
+        } else {
+          // Admin: just use the departmentId filter
+          where.aiEntityId = { in: deptAiIds };
+        }
       }
 
       const tasks = await prisma.recurringTask.findMany({
@@ -2416,6 +2423,7 @@ export async function chat(
   userRole?: string,
   orientation?: OrientationInfo,
   scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" },
+  userId?: string,
 ): Promise<ReadableStream> {
   // Build system prompt — orientation-aware or normal
   let systemPrompt: string;
@@ -2490,6 +2498,7 @@ export async function chat(
               toolCall.arguments,
               orientation?.sessionId,
               scopeInfo?.visibleDepts ?? "all",
+              userId,
             );
             currentMessages.push({
               role: "tool",

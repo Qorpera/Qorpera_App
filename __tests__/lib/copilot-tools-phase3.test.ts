@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    goal: { findMany: vi.fn() },
+    goal: { findMany: vi.fn(), findFirst: vi.fn() },
     initiative: { findMany: vi.fn(), count: vi.fn() },
     workStream: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     workStreamItem: { findMany: vi.fn() },
@@ -75,14 +75,15 @@ vi.mock("@/lib/user-scope", () => ({
 
 vi.mock("@/lib/workstreams", () => ({
   getWorkStreamContext: vi.fn(),
+  canMemberAccessWorkStream: vi.fn(),
 }));
 
 import { prisma } from "@/lib/db";
 import { executeTool } from "@/lib/ai-copilot";
-import { getWorkStreamContext } from "@/lib/workstreams";
+import { getWorkStreamContext, canMemberAccessWorkStream } from "@/lib/workstreams";
 
 const mockPrisma = prisma as unknown as {
-  goal: { findMany: ReturnType<typeof vi.fn> };
+  goal: { findMany: ReturnType<typeof vi.fn>; findFirst: ReturnType<typeof vi.fn> };
   initiative: { findMany: ReturnType<typeof vi.fn>; count: ReturnType<typeof vi.fn> };
   workStream: { findUnique: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn>; count: ReturnType<typeof vi.fn> };
   workStreamItem: { findMany: ReturnType<typeof vi.fn> };
@@ -100,6 +101,7 @@ const mockPrisma = prisma as unknown as {
 };
 
 const mockGetWorkStreamContext = getWorkStreamContext as ReturnType<typeof vi.fn>;
+const mockCanMemberAccessWorkStream = canMemberAccessWorkStream as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -108,6 +110,7 @@ beforeEach(() => {
 // ── Test Helpers ─────────────────────────────────────────────────────────────
 
 const OP = "op1";
+const USER_ID = "user1";
 
 // ── get_goals ────────────────────────────────────────────────────────────────
 
@@ -218,7 +221,6 @@ describe("get_workstream", () => {
       items: [{ type: "initiative", id: "i1", status: "executing", summary: "Automate follow-ups" }],
       parent: null,
     });
-    mockPrisma.workStream.findUnique.mockResolvedValue({ goalId: null });
     mockPrisma.workStream.count.mockResolvedValue(2);
 
     const result = await executeTool(OP, "get_workstream", { workStreamId: "ws1" }, undefined, "all");
@@ -234,7 +236,36 @@ describe("get_workstream", () => {
     expect(parsed.items).toHaveLength(1);
   });
 
-  it("returns search results", async () => {
+  it("denies access when canMemberAccessWorkStream returns false", async () => {
+    mockGetWorkStreamContext.mockResolvedValue({
+      id: "ws1", title: "Secret Project", description: "", status: "active",
+      goal: null, items: [], parent: null,
+    });
+    mockCanMemberAccessWorkStream.mockResolvedValue(false);
+
+    const result = await executeTool(OP, "get_workstream", { workStreamId: "ws1" }, undefined, ["dept1"], USER_ID);
+
+    expect(result).toContain("don't have access");
+    expect(mockCanMemberAccessWorkStream).toHaveBeenCalledWith(USER_ID, "ws1", OP, ["dept1"]);
+  });
+
+  it("search filters via canMemberAccessWorkStream for members", async () => {
+    mockPrisma.workStream.findMany.mockResolvedValue([
+      { id: "ws1", title: "Visible Project", description: "desc", status: "active", goalId: null, _count: { items: 3, children: 1 } },
+      { id: "ws2", title: "Hidden Project", description: "desc", status: "active", goalId: null, _count: { items: 1, children: 0 } },
+    ]);
+    mockCanMemberAccessWorkStream
+      .mockResolvedValueOnce(true)   // ws1 accessible
+      .mockResolvedValueOnce(false); // ws2 not accessible
+
+    const result = await executeTool(OP, "get_workstream", { search: "Project" }, undefined, ["dept1"], USER_ID);
+    const parsed = JSON.parse(result);
+
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].title).toBe("Visible Project");
+  });
+
+  it("returns search results without filtering for admin", async () => {
     mockPrisma.workStream.findMany.mockResolvedValue([
       { id: "ws1", title: "Finance Project", description: "desc", status: "active", goalId: null, _count: { items: 3, children: 1 } },
     ]);
@@ -244,6 +275,7 @@ describe("get_workstream", () => {
 
     expect(parsed).toHaveLength(1);
     expect(parsed[0].title).toBe("Finance Project");
+    expect(mockCanMemberAccessWorkStream).not.toHaveBeenCalled();
   });
 });
 
@@ -286,6 +318,40 @@ describe("get_delegations", () => {
       linkedItemTitle: "Overdue Invoice",
     });
   });
+
+  it("assignedToMe uses userId to find personal AI entity", async () => {
+    mockPrisma.entity.findFirst.mockResolvedValue({ id: "myAiEntity" });
+    mockPrisma.delegation.findMany.mockResolvedValue([]);
+
+    await executeTool(OP, "get_delegations", { assignedToMe: true }, undefined, "all", USER_ID);
+
+    // Should look up AI entity by ownerUserId
+    expect(mockPrisma.entity.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ ownerUserId: USER_ID }),
+      }),
+    );
+
+    // Should filter by toAiEntityId or toUserId
+    const delegationCall = mockPrisma.delegation.findMany.mock.calls[0][0];
+    expect(delegationCall.where.OR).toEqual(
+      expect.arrayContaining([
+        { toAiEntityId: "myAiEntity" },
+        { toUserId: USER_ID },
+      ]),
+    );
+  });
+
+  it("member with no AI entities in dept gets empty results (not all results)", async () => {
+    // getVisibleAiEntityIds returns empty
+    mockPrisma.entity.findMany.mockResolvedValue([]);
+
+    const result = await executeTool(OP, "get_delegations", {}, undefined, ["dept1"], USER_ID);
+
+    expect(result).toContain("No delegations found");
+    // delegation.findMany should NOT have been called
+    expect(mockPrisma.delegation.findMany).not.toHaveBeenCalled();
+  });
 });
 
 // ── get_recurring_tasks ──────────────────────────────────────────────────────
@@ -326,6 +392,17 @@ describe("get_recurring_tasks", () => {
       autoApproveSteps: false,
       lastExecutionStatus: "completed",
     });
+  });
+
+  it("member passing departmentId outside scope gets empty results", async () => {
+    // getVisibleAiEntityIds returns AI entity for dept1 only
+    mockPrisma.entity.findMany
+      .mockResolvedValueOnce([{ id: "ai1" }])  // visibleDepts scope → ["ai1"]
+      .mockResolvedValueOnce([{ id: "ai2" }]); // departmentId "dept2" → ["ai2"] (not in scope)
+
+    const result = await executeTool(OP, "get_recurring_tasks", { departmentId: "dept2" }, undefined, ["dept1"], USER_ID);
+
+    expect(result).toContain("No recurring tasks found");
   });
 });
 
@@ -538,5 +615,45 @@ describe("get_operational_briefing (upgraded)", () => {
     expect(result).toContain("Email is more effective");
     expect(result).toContain("Recurring tasks due today:");
     expect(result).toContain("Weekly report");
+  });
+
+  it("member briefing shows 0 delegations when no AI entities match", async () => {
+    // Departments
+    mockPrisma.entity.findMany
+      .mockResolvedValueOnce([{ id: "dept1", displayName: "Finance", description: null }]) // targetDepts
+      .mockResolvedValueOnce([]); // getVisibleAiEntityIds returns empty
+
+    // Situations per dept
+    mockPrisma.situation.findMany
+      .mockResolvedValueOnce([])  // dept situations
+      .mockResolvedValueOnce([]); // unscoped
+
+    // Priority plans
+    mockPrisma.executionPlan.findMany.mockResolvedValue([]);
+
+    // Initiative counts
+    mockPrisma.initiative.count.mockResolvedValue(0);
+
+    // Delegation counts — should NOT be called since aiIds is empty
+    mockPrisma.delegation.count.mockResolvedValue(999);
+
+    // FollowUp
+    mockPrisma.followUp.count.mockResolvedValue(0);
+    mockPrisma.followUp.findMany.mockResolvedValue([]);
+
+    // Insights
+    mockPrisma.operationalInsight.findMany.mockResolvedValue([]);
+
+    // Recurring tasks
+    mockPrisma.recurringTask.findMany.mockResolvedValue([]);
+
+    // Resolve titles
+    mockPrisma.situation.findMany.mockResolvedValue([]);
+    mockPrisma.initiative.findMany.mockResolvedValue([]);
+
+    const result = await executeTool(OP, "get_operational_briefing", { period: "week" }, undefined, ["dept1"], USER_ID);
+
+    // Should show "none pending" — not 999
+    expect(result).toContain("Delegations: none pending");
   });
 });
