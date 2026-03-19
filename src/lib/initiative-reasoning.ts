@@ -5,6 +5,65 @@ import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ensureInternalCapabilities } from "@/lib/internal-capabilities";
 
+// ── Scheduled Evaluation ─────────────────────────────────────────────────────
+
+export async function runScheduledInitiativeEvaluation(): Promise<{
+  departments: number;
+  proposals: number;
+  errors: number;
+}> {
+  const result = { departments: 0, proposals: 0, errors: 0 };
+
+  const operators = await prisma.operator.findMany({
+    select: { id: true },
+  });
+
+  for (const op of operators) {
+    // Check if operator has active goals
+    const goalCount = await prisma.goal.count({
+      where: { operatorId: op.id, status: "active" },
+    });
+    if (goalCount === 0) continue;
+
+    // Evaluate department goals
+    const departments = await prisma.entity.findMany({
+      where: { operatorId: op.id, category: "foundational", status: "active" },
+      select: { id: true },
+    });
+
+    for (const dept of departments) {
+      try {
+        const beforeCount = await prisma.initiative.count({ where: { operatorId: op.id } });
+        await evaluateDepartmentGoals(dept.id, op.id);
+        const afterCount = await prisma.initiative.count({ where: { operatorId: op.id } });
+        result.departments++;
+        result.proposals += afterCount - beforeCount;
+      } catch (err) {
+        result.errors++;
+        console.error(`[initiative-cron] Department ${dept.id} evaluation failed:`, err);
+      }
+    }
+
+    // Evaluate HQ goals
+    const hqGoalCount = await prisma.goal.count({
+      where: { operatorId: op.id, departmentId: null, status: "active" },
+    });
+    if (hqGoalCount > 0) {
+      try {
+        const beforeCount = await prisma.initiative.count({ where: { operatorId: op.id } });
+        await evaluateHQGoals(op.id);
+        const afterCount = await prisma.initiative.count({ where: { operatorId: op.id } });
+        result.proposals += afterCount - beforeCount;
+      } catch (err) {
+        result.errors++;
+        console.error(`[initiative-cron] HQ evaluation failed for operator ${op.id}:`, err);
+      }
+    }
+  }
+
+  return result;
+}
+
 // ── Zod Schema ──────────────────────────────────────────────────────────────
 
 const InitiativeStepSchema = z.object({

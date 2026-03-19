@@ -369,7 +369,7 @@ export async function advancePlanAfterStep(
 
   if (!nextStep) {
     // Plan complete
-    await prisma.executionPlan.update({
+    const completedPlan = await prisma.executionPlan.update({
       where: { id: planId },
       data: { status: "completed", completedAt: new Date() },
     });
@@ -381,6 +381,12 @@ export async function advancePlanAfterStep(
       sourceType: "execution",
       sourceId: planId,
     });
+
+    // Track plan autonomy
+    const { recordPlanCompletion } = await import("@/lib/plan-autonomy");
+    recordPlanCompletion(completedPlan).catch(err =>
+      console.error("Plan autonomy tracking failed:", err),
+    );
 
     // Trigger WorkStream recheck for the plan's source
     triggerPlanWorkStreamRecheck(planId).catch(console.error);
@@ -432,7 +438,7 @@ export async function advanceStep(
       where: { id: stepId },
       data: { status: "failed", errorMessage: "Rejected by user" },
     });
-    await prisma.executionPlan.update({
+    const rejectedPlan = await prisma.executionPlan.update({
       where: { id: step.planId },
       data: { status: "failed" },
     });
@@ -444,6 +450,12 @@ export async function advanceStep(
       sourceType: "execution",
       sourceId: step.planId,
     });
+
+    // Track plan autonomy rejection
+    const { recordPlanRejection } = await import("@/lib/plan-autonomy");
+    recordPlanRejection(rejectedPlan).catch(err =>
+      console.error("Plan autonomy rejection tracking failed:", err),
+    );
   } else if (action === "skip") {
     await prisma.executionStep.update({
       where: { id: stepId },
