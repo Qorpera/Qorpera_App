@@ -24,6 +24,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "type and channel are required" }, { status: 400 });
   }
 
+  const validTypes = [
+    "situation_proposed", "situation_resolved", "initiative_proposed", "step_ready",
+    "delegation_received", "follow_up_triggered", "plan_auto_executed", "peer_signal",
+    "insight_discovered", "system_alert",
+  ];
+  if (!validTypes.includes(type)) {
+    return NextResponse.json({ error: "Invalid notification type" }, { status: 400 });
+  }
+
   const validChannels = ["in_app", "email", "both", "none"];
   if (!validChannels.includes(channel)) {
     return NextResponse.json({ error: "channel must be one of: in_app, email, both, none" }, { status: 400 });
