@@ -170,6 +170,19 @@ export interface SituationContext {
     fromAiEntityId: string;
     fromAiEntityName: string | null;
   } | null;
+
+  // v3 day 6: operational knowledge
+  operationalInsights: OperationalInsightContext[];
+}
+
+export interface OperationalInsightContext {
+  id: string;
+  insightType: string;
+  description: string;
+  confidence: number;
+  promptModification: string | null;
+  shareScope: string;
+  sampleSize: number;
 }
 
 // ── Department Discovery ─────────────────────────────────────────────────────
@@ -923,7 +936,31 @@ export async function assembleSituationContext(
     }
   }
 
-  // Step 9: Build telemetry and return full context
+  // Step 9: Load operational insights
+  const primaryDeptId = departments.length > 0 ? departments[0].id : null;
+  // Resolve AI entity for the situation's assigned user (for personal insight loading)
+  let insightAiEntityId: string | null = null;
+  if (situationId) {
+    const sit = await prisma.situation.findUnique({
+      where: { id: situationId },
+      select: { assignedUserId: true },
+    });
+    if (sit?.assignedUserId) {
+      const aiEnt = await prisma.entity.findFirst({
+        where: { operatorId, ownerUserId: sit.assignedUserId, entityType: { slug: "ai-agent" } },
+        select: { id: true },
+      });
+      insightAiEntityId = aiEnt?.id ?? null;
+    }
+  }
+  const operationalInsights = await loadOperationalInsights(
+    operatorId,
+    insightAiEntityId,
+    primaryDeptId,
+    situationTypeId,
+  );
+
+  // Step 10: Build telemetry and return full context
   const contextSections: ContextSectionMeta[] = [
     { section: "triggerEntity", itemCount: 1, tokenEstimate: Math.ceil(JSON.stringify(triggerEntity).length / 4) },
     { section: "departments", itemCount: departments.length, tokenEstimate: Math.ceil(JSON.stringify(departments).length / 4) },
@@ -936,6 +973,7 @@ export async function assembleSituationContext(
     { section: "priorSituations", itemCount: priorSits.length, tokenEstimate: Math.ceil(JSON.stringify(priorSits).length / 4) },
     ...(workStreamContexts.length > 0 ? [{ section: "workstream_context", itemCount: workStreamContexts.reduce((s, w) => s + w.items.length, 0), tokenEstimate: Math.ceil(JSON.stringify(workStreamContexts).length / 4) }] : []),
     ...(delegationSource ? [{ section: "delegation_source", itemCount: 1, tokenEstimate: Math.ceil(JSON.stringify(delegationSource).length / 4) }] : []),
+    ...(operationalInsights.length > 0 ? [{ section: "operational_knowledge", itemCount: operationalInsights.length, tokenEstimate: Math.ceil(JSON.stringify(operationalInsights).length / 4) }] : []),
   ];
 
   return {
@@ -955,7 +993,71 @@ export async function assembleSituationContext(
     connectorCapabilities,
     workStreamContexts,
     delegationSource,
+    operationalInsights,
   };
+}
+
+// ── Operational Insights ─────────────────────────────────────────────────────
+
+export async function loadOperationalInsights(
+  operatorId: string,
+  aiEntityId: string | null,
+  departmentId: string | null,
+  situationTypeId?: string,
+): Promise<OperationalInsightContext[]> {
+  const orConditions: Record<string, unknown>[] = [
+    { shareScope: "operator" },
+  ];
+
+  if (aiEntityId) {
+    orConditions.push({ aiEntityId, shareScope: "personal" });
+  }
+
+  if (departmentId) {
+    orConditions.push({ departmentId, shareScope: "department" });
+  }
+
+  const allInsights = await prisma.operationalInsight.findMany({
+    where: {
+      operatorId,
+      status: "active",
+      OR: orConditions,
+    },
+    orderBy: { confidence: "desc" },
+    take: 50, // fetch more, filter by situationType below
+  });
+
+  // Filter to insights relevant to this situation type
+  const relevantInsights = allInsights.filter((insight) => {
+    if (insight.shareScope === "operator") return true; // operator-scoped apply broadly
+    try {
+      const evidence = JSON.parse(insight.evidence);
+      return (
+        !evidence?.situationTypeId ||
+        !situationTypeId ||
+        evidence.situationTypeId === situationTypeId
+      );
+    } catch {
+      return true;
+    }
+  }).slice(0, 20);
+
+  return relevantInsights.map((i) => {
+    let sampleSize = 0;
+    try {
+      const evidence = JSON.parse(i.evidence);
+      sampleSize = evidence.sampleSize ?? 0;
+    } catch {}
+    return {
+      id: i.id,
+      insightType: i.insightType,
+      description: i.description,
+      confidence: i.confidence,
+      promptModification: i.promptModification,
+      shareScope: i.shareScope,
+      sampleSize,
+    };
+  });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

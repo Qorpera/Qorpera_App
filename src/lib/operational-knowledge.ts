@@ -523,7 +523,7 @@ export async function extractInsights(
       superseded++;
     }
 
-    await prisma.operationalInsight.create({
+    const newInsight = await prisma.operationalInsight.create({
       data: {
         operatorId,
         aiEntityId,
@@ -538,6 +538,12 @@ export async function extractInsights(
       },
     });
     created++;
+
+    // Evaluate promotion (fire-and-forget)
+    const { evaluateInsightPromotion } = await import("@/lib/knowledge-transfer");
+    evaluateInsightPromotion(newInsight.id).catch((err) =>
+      console.error(`Insight promotion check failed for ${newInsight.id}:`, err),
+    );
   }
 
   return { created, superseded, skipped };

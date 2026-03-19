@@ -186,6 +186,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       connectorCapabilities: context.connectorCapabilities,
       workStreamContexts: context.workStreamContexts,
       delegationSource: context.delegationSource,
+      operationalInsights: context.operationalInsights,
     };
 
     // 6a. Compute edit instruction and prior feedback (needed by both paths)

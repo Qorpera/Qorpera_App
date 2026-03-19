@@ -72,6 +72,15 @@ export interface ReasoningInput {
     fromAiEntityId: string;
     fromAiEntityName: string | null;
   } | null;
+
+  // v3 day 6: operational knowledge
+  operationalInsights?: Array<{
+    insightType: string;
+    description: string;
+    confidence: number;
+    promptModification: string | null;
+    sampleSize: number;
+  }>;
 }
 
 // ── System Prompt ────────────────────────────────────────────────────────────
@@ -369,6 +378,22 @@ ${propsStr || "  (no properties)"}`);
       .map((b) => `  - ${b.name}: ${b.reason}`)
       .join("\n");
     sections.push(`BLOCKED ACTIONS (cannot use these):\n${blockedStr}`);
+  }
+
+  // OPERATIONAL KNOWLEDGE (v3 day 6)
+  if (input.operationalInsights && input.operationalInsights.length > 0) {
+    const insightLines = input.operationalInsights.map((i) =>
+      `- [${i.insightType}] (confidence: ${i.confidence.toFixed(2)}, based on ${i.sampleSize} situations): ${i.description}`,
+    );
+    sections.push(`OPERATIONAL INSIGHTS:\n${insightLines.join("\n")}`);
+
+    const directives = input.operationalInsights.filter((i) => i.promptModification);
+    if (directives.length > 0) {
+      const directiveLines = directives.map((i) =>
+        `- ${i.promptModification} (confidence: ${i.confidence.toFixed(2)}, ${i.sampleSize} situations)`,
+      );
+      sections.push(`BEHAVIORAL DIRECTIVES (from operational experience):\n${directiveLines.join("\n")}`);
+    }
   }
 
   // GOVERNANCE

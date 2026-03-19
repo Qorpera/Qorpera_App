@@ -141,7 +141,7 @@ export async function evaluateDepartmentGoals(
         OR: [{ departmentId }, { shareScope: "operator" }],
         status: "active",
       },
-      select: { description: true, confidence: true, evidence: true, insightType: true },
+      select: { description: true, confidence: true, evidence: true, insightType: true, promptModification: true },
     }),
     prisma.entity.findFirst({
       where: { id: departmentId, operatorId },
@@ -261,7 +261,7 @@ export async function evaluateHQGoals(operatorId: string): Promise<void> {
     }),
     prisma.operationalInsight.findMany({
       where: { operatorId, shareScope: { in: ["department", "operator"] }, status: "active" },
-      select: { description: true, confidence: true, evidence: true, insightType: true, departmentId: true },
+      select: { description: true, confidence: true, evidence: true, insightType: true, departmentId: true, promptModification: true },
     }),
     prisma.operator.findUnique({
       where: { id: operatorId },
@@ -559,7 +559,7 @@ type GoalRow = { id: string; title: string; description: string; measurableTarge
 type InitiativeRow = { goalId: string; status: string; rationale: string };
 type SituationTypeRow = { name: string; description: string };
 type SituationRow = { outcome: string | null; status: string };
-type InsightRow = { description: string; confidence: number; evidence: string; insightType: string };
+type InsightRow = { description: string; confidence: number; evidence: string; insightType: string; promptModification: string | null };
 type DelegationContextRow = { fromName: string; instruction: string; context: string | null; createdAt: string };
 type WorkStreamContextRow = { title: string; description: string | null; goalId: string | null; itemCount: number };
 type PeerSignalRow = { body: string; createdAt: string };
@@ -629,6 +629,19 @@ function buildUserPrompt(
       `  - [${i.insightType}] ${i.description} (confidence: ${i.confidence.toFixed(2)})`
     ).join("\n");
     sections.push(`OPERATIONAL INSIGHTS:\n${insightStr}`);
+
+    const directives = insights.filter(i => i.promptModification);
+    if (directives.length > 0) {
+      const directiveStr = directives.map(i =>
+        `  - ${i.promptModification} (confidence: ${i.confidence.toFixed(2)})`
+      ).join("\n");
+      sections.push(`BEHAVIORAL DIRECTIVES (from operational experience):\n${directiveStr}`);
+    }
+
+    sections.push(`You also have access to operational insights learned from resolved situations. Consider:
+1. Are there insights that suggest a department-wide process change? Propose an initiative.
+2. Are there insights from one department that could benefit others? Propose cross-department knowledge sharing.
+3. Are there conflicting insights between AI entities? Propose investigation.`);
   }
 
   // Delegations received
@@ -730,6 +743,19 @@ function buildHQUserPrompt(
       return `  - [${i.insightType}]${dept} ${i.description} (confidence: ${i.confidence.toFixed(2)})`;
     }).join("\n");
     sections.push(`OPERATIONAL INSIGHTS:\n${insightStr}`);
+
+    const directives = insights.filter(i => i.promptModification);
+    if (directives.length > 0) {
+      const directiveStr = directives.map(i =>
+        `  - ${i.promptModification} (confidence: ${i.confidence.toFixed(2)})`
+      ).join("\n");
+      sections.push(`BEHAVIORAL DIRECTIVES (from operational experience):\n${directiveStr}`);
+    }
+
+    sections.push(`You also have access to operational insights learned from resolved situations. Consider:
+1. Are there insights that suggest a department-wide process change? Propose an initiative.
+2. Are there insights from one department that could benefit others? Propose cross-department knowledge sharing.
+3. Are there conflicting insights between AI entities? Propose investigation.`);
   }
 
   // Delegations received
