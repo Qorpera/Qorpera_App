@@ -96,12 +96,7 @@ export async function loadSituationContext(
     if (currentStep) planSection += ` — current: ${currentStep.title}`;
     planSection += `\n${stepList}`;
 
-    // FollowUps
-    const followUps = await prisma.followUp.findMany({
-      where: { executionStepId: { in: plan.steps.map(s => s.title) } }, // will use step IDs below
-      select: { status: true, triggerAt: true },
-    });
-    // Actually query by planId since step IDs aren't in our select
+    // FollowUps — query via step IDs from the plan
     const stepIds = await prisma.executionStep.findMany({
       where: { planId: plan.id },
       select: { id: true },

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import type { AIMessage } from "@/lib/ai-provider";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { loadContextForCopilot, getContextRoleInstruction } from "@/lib/copilot-context-loaders";
+import { canMemberAccessWorkStream } from "@/lib/workstreams";
 
 export async function POST(req: NextRequest) {
   const su = await getSessionUser();
@@ -61,23 +62,58 @@ export async function POST(req: NextRequest) {
 
   // Context injection for embedded chat (situation, initiative, workstream detail panes)
   let contextInfo: { contextType: string; contextText: string } | null = null;
-  const contextType = typeof body.contextType === "string" ? body.contextType.trim() : null;
-  const contextId = typeof body.contextId === "string" ? body.contextId.trim() : null;
+  let ctxType = typeof body.contextType === "string" ? body.contextType.trim() : null;
+  let ctxId = typeof body.contextId === "string" ? body.contextId.trim() : null;
 
-  if (contextType && contextId) {
+  // Scope check: verify the user has visibility into the requested context item
+  if (ctxType && ctxId && visibleDepts !== "all") {
     try {
-      const contextText = await loadContextForCopilot(contextType, contextId, operatorId);
+      if (ctxType === "situation") {
+        const sit = await prisma.situation.findFirst({
+          where: { id: ctxId, operatorId },
+          select: { situationType: { select: { scopeEntityId: true } } },
+        });
+        if (!sit) {
+          ctxType = null; ctxId = null;
+        } else if (sit.situationType.scopeEntityId && !visibleDepts.includes(sit.situationType.scopeEntityId)) {
+          ctxType = null; ctxId = null;
+        }
+      } else if (ctxType === "initiative") {
+        const init = await prisma.initiative.findFirst({
+          where: { id: ctxId, operatorId },
+          select: { goal: { select: { departmentId: true } } },
+        });
+        if (!init) {
+          ctxType = null; ctxId = null;
+        } else if (init.goal.departmentId && !visibleDepts.includes(init.goal.departmentId)) {
+          ctxType = null; ctxId = null;
+        }
+      } else if (ctxType === "workstream") {
+        const canAccess = await canMemberAccessWorkStream(user.id, ctxId, operatorId, visibleDepts);
+        if (!canAccess) {
+          ctxType = null; ctxId = null;
+        }
+      }
+    } catch (err) {
+      console.warn(`[copilot] Context scope check failed for ${ctxType}/${ctxId}:`, err);
+      ctxType = null; ctxId = null;
+    }
+  }
+
+  if (ctxType && ctxId) {
+    try {
+      const contextText = await loadContextForCopilot(ctxType, ctxId, operatorId);
       if (contextText) {
-        const roleInstruction = getContextRoleInstruction(contextType);
+        const roleInstruction = getContextRoleInstruction(ctxType);
         contextInfo = {
-          contextType,
+          contextType: ctxType,
           contextText: `${roleInstruction}\n\n${contextText}`,
         };
       } else {
-        console.warn(`[copilot] Context not found: ${contextType}/${contextId} for operator ${operatorId}`);
+        console.warn(`[copilot] Context not found: ${ctxType}/${ctxId} for operator ${operatorId}`);
       }
     } catch (err) {
-      console.warn(`[copilot] Context loading failed for ${contextType}/${contextId}:`, err);
+      console.warn(`[copilot] Context loading failed for ${ctxType}/${ctxId}:`, err);
       // Graceful degradation — continue without context
     }
   }
