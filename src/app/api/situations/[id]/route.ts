@@ -81,6 +81,7 @@ export async function GET(
     currentEntityState,
     reasoning: situation.reasoning ? JSON.parse(situation.reasoning) : null,
     proposedAction: situation.proposedAction ? JSON.parse(situation.proposedAction) : null,
+    executionPlanId: situation.executionPlanId,
     actionTaken: situation.actionTaken ? JSON.parse(situation.actionTaken) : null,
     outcome: situation.outcome,
     outcomeDetails: situation.outcomeDetails,

@@ -17,19 +17,29 @@ interface SituationItem {
   triggerEntityName: string | null;
   departmentName: string | null;
   reasoning: ReasoningData | null;
-  proposedAction: ProposedAction | null;
+  proposedAction: ActionStep[] | null;
   editInstruction: string | null;
   createdAt: string;
   resolvedAt: string | null;
+}
+
+interface ActionStep {
+  title: string;
+  description: string;
+  executionMode: "action" | "generate" | "human_task";
+  actionCapabilityName?: string;
+  assignedUserId?: string;
+  params?: Record<string, unknown>;
 }
 
 interface ReasoningData {
   analysis: string;
   evidenceSummary?: string;
   consideredActions: Array<string | ConsideredAction>;
-  chosenAction: ProposedAction | null;
+  actionPlan: ActionStep[] | null;
   confidence: number;
   missingContext: string[] | null;
+  escalation?: { rationale: string; suggestedSteps: ActionStep[] } | null;
 }
 
 interface ConsideredAction {
@@ -41,11 +51,24 @@ interface ConsideredAction {
   expectedOutcome: string;
 }
 
-interface ProposedAction {
-  action: string;
-  connector?: string;
-  params?: Record<string, unknown>;
-  justification: string;
+interface ExecutionPlanData {
+  id: string;
+  status: string;
+  currentStepOrder: number;
+  priorityScore: number | null;
+  steps: Array<{
+    id: string;
+    sequenceOrder: number;
+    title: string;
+    description: string;
+    executionMode: string;
+    status: string;
+    assignedUserId: string | null;
+    outputResult: string | null;
+    approvedAt: string | null;
+    executedAt: string | null;
+    errorMessage: string | null;
+  }>;
 }
 
 interface DraftPayload {
@@ -84,7 +107,8 @@ interface SituationDetail {
   } | null;
   currentEntityState: { id: string; displayName: string; typeName: string; properties: Record<string, string> } | null;
   reasoning: ReasoningData | null;
-  proposedAction: ProposedAction | null;
+  proposedAction: ActionStep[] | null;
+  executionPlanId: string | null;
   actionTaken: { error?: string; action?: string; result?: unknown; executedAt?: string; failedAt?: string } | null;
   feedback: string | null;
   feedbackRating: number | null;
@@ -110,9 +134,10 @@ function safeParseReasoning(raw: unknown): ReasoningData | null {
     analysis: typeof r.analysis === "string" ? r.analysis : "",
     evidenceSummary: typeof r.evidenceSummary === "string" ? r.evidenceSummary : undefined,
     consideredActions: Array.isArray(r.consideredActions) ? r.consideredActions : [],
-    chosenAction: r.chosenAction as ProposedAction | null ?? null,
+    actionPlan: Array.isArray(r.actionPlan) ? r.actionPlan as ActionStep[] : null,
     confidence: typeof r.confidence === "number" ? r.confidence : 0,
     missingContext: Array.isArray(r.missingContext) ? r.missingContext : null,
+    escalation: r.escalation as ReasoningData["escalation"] ?? null,
   };
 }
 
@@ -394,6 +419,26 @@ export default function SituationsPage() {
   );
 }
 
+// ── Execution Mode Badge ─────────────────────────────────────────────────────
+
+const EXEC_MODE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
+  action: { bg: "rgba(168,85,247,0.12)", color: "#c084fc", label: "action" },
+  generate: { bg: "rgba(59,130,246,0.12)", color: "#60a5fa", label: "generate" },
+  human_task: { bg: "rgba(245,158,11,0.12)", color: "#f59e0b", label: "human task" },
+};
+
+function ExecutionModeBadge({ mode }: { mode: string }) {
+  const style = EXEC_MODE_STYLES[mode] ?? EXEC_MODE_STYLES.action;
+  return (
+    <span
+      className="flex-shrink-0"
+      style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: style.bg, color: style.color }}
+    >
+      {style.label}
+    </span>
+  );
+}
+
 // ── Detail Pane ──────────────────────────────────────────────────────────────
 
 function DetailPane({
@@ -427,12 +472,24 @@ function DetailPane({
   const [editingDraft, setEditingDraft] = useState(false);
   const [editedDraftBody, setEditedDraftBody] = useState("");
   const [savedEditedDraft, setSavedEditedDraft] = useState<DraftPayload | null>(null);
+  const [executionPlan, setExecutionPlan] = useState<ExecutionPlanData | null>(null);
+
+  // Fetch execution plan when situation has one
+  useEffect(() => {
+    if (!detail?.executionPlanId) { setExecutionPlan(null); return; }
+    let cancelled = false;
+    fetch(`/api/execution-plans/${detail.executionPlanId}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (!cancelled && data) setExecutionPlan(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [detail?.executionPlanId]);
 
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
   const canAct = s.status === "detected" || s.status === "proposed";
   const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
-  const proposedAction = detail?.proposedAction;
+  const actionPlan = reasoning?.actionPlan ?? (Array.isArray(detail?.proposedAction) ? detail!.proposedAction as ActionStep[] : null);
   const sev = severityBadge(s);
 
   // Draft payloads from raw reasoning
@@ -489,11 +546,24 @@ function DetailPane({
     <div className="px-6 py-5 space-y-5">
       {/* ── Header ── */}
       <div>
-        <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "#e8e8e8" }}>
-          {s.triggerEntityName ?? "Unknown"} &mdash; {s.situationType.name}
-        </h1>
+        <div className="flex items-start justify-between">
+          <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "#e8e8e8" }}>
+            {s.triggerEntityName ?? "Unknown"} &mdash; {s.situationType.name}
+          </h1>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Badge variant={sev.variant}>{sev.label}</Badge>
+            {/* Star/favorite placeholder — wired to WorkStream in Prompt 3 */}
+            <button
+              className="text-[#484848] hover:text-[#707070] transition-colors"
+              title="Add to workstream"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+              </svg>
+            </button>
+          </div>
+        </div>
         <div className="flex items-center gap-2 mt-2 flex-wrap">
-          <Badge variant={sev.variant}>{sev.label}</Badge>
           {s.departmentName && <Badge>{s.departmentName}</Badge>}
           <span style={{ fontSize: 12, color: "#707070" }}>{(s.confidence * 100).toFixed(0)}%</span>
           <span style={{ fontSize: 12, color: "#484848" }}>{timeAgo(s.createdAt)}</span>
@@ -544,28 +614,101 @@ function DetailPane({
             </div>
           ) : null}
 
-          {/* ── PROPOSED ACTION section ── */}
-          {reasoning && proposedAction ? (
+          {/* ── PROPOSED ACTION / PLAN section ── */}
+          {reasoning && actionPlan && actionPlan.length === 1 ? (
+            /* Single-step plan: show as simple proposed action */
             <div>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
                 Proposed Action
               </div>
               <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-                <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0" }}>{proposedAction.action}</p>
-                <p style={{ fontSize: 12, color: "#707070" }} className="mt-1">{proposedAction.justification}</p>
+                <p style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.65, color: "#b0b0b0" }}>{actionPlan[0].title}</p>
+                <p style={{ fontSize: 12, color: "#707070" }} className="mt-1">{actionPlan[0].description}</p>
                 {policyNote && (
                   <p style={{ fontSize: 11, color: "#484848" }} className="mt-1">{policyNote}</p>
                 )}
               </div>
             </div>
-          ) : reasoning && !proposedAction ? (
+          ) : reasoning && actionPlan && actionPlan.length > 1 ? (
+            /* Multi-step plan display */
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
+                Proposed Plan &middot; {actionPlan.length} steps
+              </div>
+              <div style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, overflow: "hidden" }}>
+                {actionPlan.map((step, i) => {
+                  const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
+                  const isCompleted = planStep?.status === "completed";
+                  const isActive = planStep?.status === "executing" || planStep?.status === "awaiting_approval" || planStep?.status === "approved";
+                  const isPending = !planStep || planStep.status === "pending";
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        padding: "10px 16px",
+                        borderBottom: i < actionPlan.length - 1 ? "1px solid #1e1e1e" : "none",
+                        opacity: executionPlan ? (isPending && !isActive ? 0.5 : 1) : 1,
+                        background: isActive ? "rgba(168,85,247,0.04)" : "transparent",
+                      }}
+                      className="flex items-start gap-3"
+                    >
+                      {/* Step number or status icon */}
+                      <div className="flex-shrink-0 mt-0.5" style={{ width: 20, textAlign: "center" }}>
+                        {isCompleted ? (
+                          <span style={{ color: "#22c55e", fontSize: 14 }}>&#10003;</span>
+                        ) : (
+                          <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "#c084fc" : "#484848" }}>({i + 1})</span>
+                        )}
+                      </div>
+                      {/* Step content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span style={{ fontSize: 13, fontWeight: 500, color: isCompleted ? "#707070" : "#b0b0b0" }} className="truncate">
+                            {step.title}
+                          </span>
+                          <ExecutionModeBadge mode={step.executionMode} />
+                        </div>
+                        <p style={{ fontSize: 12, color: "#707070", marginTop: 2 }} className="line-clamp-2">
+                          {step.description}
+                        </p>
+                        {planStep?.errorMessage && (
+                          <p style={{ fontSize: 11, color: "#ef4444", marginTop: 2 }}>{planStep.errorMessage}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {policyNote && (
+                <p style={{ fontSize: 11, color: "#484848" }} className="mt-2">{policyNote}</p>
+              )}
+              {/* Execution plan status */}
+              {executionPlan && (
+                <div className="flex items-center gap-2 mt-2">
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    padding: "2px 8px",
+                    borderRadius: 3,
+                    background: executionPlan.status === "completed" ? "rgba(34,197,94,0.1)" : executionPlan.status === "failed" ? "rgba(239,68,68,0.1)" : "rgba(168,85,247,0.1)",
+                    color: executionPlan.status === "completed" ? "#22c55e" : executionPlan.status === "failed" ? "#ef4444" : "#c084fc",
+                  }}>
+                    Plan {executionPlan.status}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#484848" }}>
+                    Step {executionPlan.currentStepOrder} of {executionPlan.steps.length}
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : reasoning && !actionPlan ? (
             <p style={{ fontSize: 13, color: "#707070" }} className="italic">No action recommended — please review.</p>
           ) : s.status === "reasoning" ? (
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
               <p style={{ fontSize: 13, color: "#707070" }}>AI is analyzing this situation...</p>
             </div>
-          ) : s.status === "executing" ? (
+          ) : s.status === "executing" || s.status === "auto_executing" ? (
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-emerald-400" />
               <p style={{ fontSize: 13, color: "#707070" }}>Executing action...</p>
@@ -691,7 +834,7 @@ function DetailPane({
                 style={{ background: "#16a34a", color: "#fff" }}
                 onClick={handleApprove}
               >
-                Approve
+                {actionPlan && actionPlan.length > 1 ? "Approve plan" : "Approve"}
               </button>
               <button
                 className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"

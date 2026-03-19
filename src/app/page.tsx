@@ -19,7 +19,7 @@ export default async function Home() {
     orderBy: { createdAt: "desc" },
   });
 
-  if (orientation?.phase === "active") redirect("/map");
+  if (orientation?.phase === "active") redirect("/situations");
   if (orientation?.phase === "orienting") redirect("/copilot");
 
   redirect("/onboarding");
