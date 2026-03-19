@@ -222,26 +222,24 @@ The plan should accomplish the task using the available actions and current cont
         console.error(`[recurring-tasks] Auto-advance failed for task ${task.id}:`, err),
       );
     }
+    await sendNotificationToAdmins({
+      operatorId: task.operatorId,
+      type: "recurring_task_triggered",
+      title: `Recurring task auto-executing: ${task.title}`,
+      body: `A ${resolvedSteps.length}-step plan is being executed automatically.`,
+      sourceType: "recurring_task",
+      sourceId: task.id,
+    });
   } else {
     await sendNotificationToAdmins({
       operatorId: task.operatorId,
       type: "recurring_task_triggered",
-      title: `Recurring task plan ready: ${task.title}`,
+      title: `Recurring task triggered, plan ready for review: ${task.title}`,
       body: `A ${resolvedSteps.length}-step plan has been created and is awaiting review.`,
       sourceType: "recurring_task",
       sourceId: task.id,
     });
   }
-
-  // Always send trigger notification
-  await sendNotificationToAdmins({
-    operatorId: task.operatorId,
-    type: "recurring_task_triggered",
-    title: `Recurring task executed: ${task.title}`,
-    body: `Plan created with ${resolvedSteps.length} steps.`,
-    sourceType: "recurring_task",
-    sourceId: task.id,
-  });
 }
 
 // ── CRUD Helpers ─────────────────────────────────────────────────────────────
