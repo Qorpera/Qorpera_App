@@ -40,7 +40,7 @@ export async function createExecutionPlan(
   sourceId: string,
   steps: StepDefinition[],
 ): Promise<string> {
-  return prisma.$transaction(async (tx) => {
+  const planId = await prisma.$transaction(async (tx) => {
     const plan = await tx.executionPlan.create({
       data: {
         operatorId,
@@ -70,6 +70,17 @@ export async function createExecutionPlan(
 
     return plan.id;
   });
+
+  // Score immediately (fire-and-forget)
+  scorePlanOnCreate(planId).catch(console.error);
+
+  return planId;
+}
+
+// Fire-and-forget: score newly created plan
+async function scorePlanOnCreate(planId: string): Promise<void> {
+  const { computeSinglePlanPriority } = await import("@/lib/prioritization-engine");
+  await computeSinglePlanPriority(planId);
 }
 
 // ── Execute Step ─────────────────────────────────────────────────────────────
@@ -463,6 +474,9 @@ export async function advanceStep(
     });
     await advancePlanAfterStep(stepId, step.planId, step.sequenceOrder, step.plan.operatorId);
   }
+
+  // Rescore priority after status change (fire-and-forget)
+  scorePlanOnCreate(step.planId).catch(console.error);
 }
 
 // ── Complete Human Step ──────────────────────────────────────────────────────

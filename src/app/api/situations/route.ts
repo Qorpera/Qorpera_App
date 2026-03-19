@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
   const typeId = params.get("typeId");
   const severityMin = params.get("severity_min");
   const severityMax = params.get("severity_max");
+  const sort = params.get("sort");
   const limit = Math.min(Math.max(parseInt(params.get("limit") ?? "50", 10) || 50, 1), 200);
   const offset = Math.max(parseInt(params.get("offset") ?? "0", 10) || 0, 0);
 
@@ -41,13 +42,19 @@ export async function GET(req: NextRequest) {
     where.severity = severity;
   }
 
+  const orderBy =
+    sort === "priority"
+      ? [{ executionPlan: { priorityScore: "desc" as const } }, { createdAt: "desc" as const }]
+      : [{ severity: "desc" as const }, { createdAt: "desc" as const }];
+
   const [situations, total] = await Promise.all([
     prisma.situation.findMany({
       where,
       include: {
         situationType: { select: { name: true, slug: true, autonomyLevel: true, scopeEntityId: true } },
+        ...(sort === "priority" ? { executionPlan: { select: { priorityScore: true } } } : {}),
       },
-      orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
+      orderBy,
       skip: offset,
       take: limit,
     }),
@@ -72,7 +79,7 @@ export async function GET(req: NextRequest) {
     try { reasoning = s.reasoning ? JSON.parse(s.reasoning) : null; } catch {}
     try { proposedAction = s.proposedAction ? JSON.parse(s.proposedAction) : null; } catch {}
 
-    return {
+    const item: Record<string, unknown> = {
       id: s.id,
       situationType: s.situationType,
       severity: s.severity,
@@ -90,6 +97,10 @@ export async function GET(req: NextRequest) {
       createdAt: s.createdAt.toISOString(),
       resolvedAt: s.resolvedAt?.toISOString() ?? null,
     };
+    if (sort === "priority" && "executionPlan" in s) {
+      item.priorityScore = (s as { executionPlan?: { priorityScore: number | null } | null }).executionPlan?.priorityScore ?? null;
+    }
+    return item;
   });
 
   return NextResponse.json({ items, total, limit, offset });

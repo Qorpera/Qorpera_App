@@ -51,6 +51,7 @@ model Operator {
   recurringTasks      RecurringTask[]
   planAutonomies      PlanAutonomy[]
   operationalInsights OperationalInsight[]
+  priorityOverrides   PriorityOverride[]
 }
 
 model User {
@@ -72,6 +73,7 @@ model User {
   connectors     SourceConnector[]
   aiEntity       Entity?  @relation("AiEntity")
   notificationPreferences NotificationPreference[]
+  priorityOverrides PriorityOverride[]
 
   @@index([operatorId])
   @@index([entityId])
@@ -684,6 +686,7 @@ model ExecutionPlan {
   steps      ExecutionStep[]
   initiative Initiative?
   situation  Situation?
+  priorityOverride PriorityOverride?
 
   @@index([operatorId, status])
   @@index([operatorId, sourceType, sourceId])
@@ -860,4 +863,17 @@ model NotificationPreference {
 
   @@unique([userId, notificationType])
   @@index([userId])
+}
+
+model PriorityOverride {
+  id              String    @id @default(dbgenerated("gen_random_uuid()"))
+  operatorId      String
+  executionPlanId String    @unique
+  overrideType    String    // "pin" | "snooze"
+  snoozeUntil     DateTime?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  executionPlan   ExecutionPlan @relation(fields: [executionPlanId], references: [id], onDelete: Cascade)
+  createdBy       User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
 }
