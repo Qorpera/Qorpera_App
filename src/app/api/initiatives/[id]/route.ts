@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { advanceStep } from "@/lib/execution-engine";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
+import { recheckWorkStreamStatus } from "@/lib/workstreams";
 
 export async function GET(
   _req: NextRequest,
@@ -149,6 +150,9 @@ export async function PATCH(
       }
     }
 
+    // Trigger WorkStream recheck
+    triggerInitiativeWorkStreamRecheck(id);
+
     const current = await prisma.initiative.findUnique({ where: { id }, select: { status: true } });
     return NextResponse.json({ id, status: current?.status ?? "approved" });
   }
@@ -175,5 +179,19 @@ export async function PATCH(
     sourceId: id,
   }).catch(() => {});
 
+  // Trigger WorkStream recheck
+  triggerInitiativeWorkStreamRecheck(id);
+
   return NextResponse.json({ id, status: "rejected" });
+}
+
+function triggerInitiativeWorkStreamRecheck(initiativeId: string) {
+  prisma.workStreamItem.findMany({
+    where: { itemType: "initiative", itemId: initiativeId },
+    select: { workStreamId: true },
+  }).then(items => {
+    for (const item of items) {
+      recheckWorkStreamStatus(item.workStreamId).catch(console.error);
+    }
+  }).catch(console.error);
 }

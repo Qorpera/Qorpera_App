@@ -6,6 +6,7 @@ import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
 import { advanceStep } from "@/lib/execution-engine";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { recheckWorkStreamStatus } from "@/lib/workstreams";
 
 export async function GET(
   _req: NextRequest,
@@ -298,6 +299,18 @@ export async function PATCH(
         );
       }
     }
+  }
+
+  // Trigger WorkStream auto-complete recheck
+  if (body.status) {
+    prisma.workStreamItem.findMany({
+      where: { itemType: "situation", itemId: id },
+      select: { workStreamId: true },
+    }).then(items => {
+      for (const item of items) {
+        recheckWorkStreamStatus(item.workStreamId).catch(console.error);
+      }
+    }).catch(console.error);
   }
 
   return NextResponse.json({ id: updated.id, status: updated.status });

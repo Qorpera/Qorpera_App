@@ -4,6 +4,7 @@ import { getProvider } from "@/lib/connectors/registry";
 import { decrypt, encrypt } from "@/lib/encryption";
 import { sendNotification, sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { evaluateActionPolicies } from "@/lib/policy-evaluator";
+import { recheckWorkStreamStatus } from "@/lib/workstreams";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -347,6 +348,9 @@ async function advancePlanAfterStep(
       sourceType: "execution",
       sourceId: planId,
     });
+
+    // Trigger WorkStream recheck for the plan's source
+    triggerPlanWorkStreamRecheck(planId).catch(console.error);
   } else {
     // Advance to next step
     await prisma.executionPlan.update({
@@ -516,6 +520,24 @@ export async function amendExecutionPlan(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function triggerPlanWorkStreamRecheck(planId: string): Promise<void> {
+  const plan = await prisma.executionPlan.findUnique({
+    where: { id: planId },
+    select: { sourceType: true, sourceId: true },
+  });
+  if (!plan) return;
+
+  if (plan.sourceType === "situation" || plan.sourceType === "initiative") {
+    const items = await prisma.workStreamItem.findMany({
+      where: { itemType: plan.sourceType, itemId: plan.sourceId },
+      select: { workStreamId: true },
+    });
+    for (const item of items) {
+      await recheckWorkStreamStatus(item.workStreamId);
+    }
+  }
+}
 
 function mapActionResult(capabilityName: string, result: unknown): StepOutput {
   const r = (result ?? {}) as Record<string, unknown>;
