@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSession, setSessionCookie } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
+import { seedNotificationPreferences } from "@/lib/ai-entity-helpers";
 
 class TxError extends Error {
   constructor(message: string, public status: number) {
@@ -99,6 +100,9 @@ export async function POST(
     }
     throw error;
   }
+
+  // Seed notification preferences (idempotent, non-blocking)
+  await seedNotificationPreferences(user.id, user.role);
 
   // Create session
   const { token: sessionToken, expiresAt } = await createSession(user.id);

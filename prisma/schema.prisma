@@ -41,6 +41,16 @@ model Operator {
   activitySignals     ActivitySignal[]
   entityMergeLogs     EntityMergeLog[]
   personalAutonomies  PersonalAutonomy[]
+  // v3: Goal-driven execution
+  goals               Goal[]
+  initiatives         Initiative[]
+  executionPlans      ExecutionPlan[]
+  workStreams          WorkStream[]
+  delegations         Delegation[]
+  followUps           FollowUp[]
+  recurringTasks      RecurringTask[]
+  planAutonomies      PlanAutonomy[]
+  operationalInsights OperationalInsight[]
 }
 
 model User {
@@ -61,6 +71,7 @@ model User {
   invitesCreated Invite[]  @relation("InviteCreator")
   connectors     SourceConnector[]
   aiEntity       Entity?  @relation("AiEntity")
+  notificationPreferences NotificationPreference[]
 
   @@index([operatorId])
   @@index([entityId])
@@ -142,6 +153,7 @@ model Entity {
   mapY         Float?
   parentDepartmentId String?
   ownerUserId      String?  @unique  // Only set on ai-agent entities — links to the owning User
+  ownerDepartmentId String? @unique  // Only set on department-ai entities
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -368,11 +380,15 @@ model Situation {
   editInstruction  String?  // freeform text from Edit & Approve flow
 
   resolvedAt      DateTime?
+  executionPlanId String?  @unique
+  workStreamId    String?
   createdAt       DateTime @default(now())
 
   operator      Operator       @relation(fields: [operatorId], references: [id])
   situationType SituationType  @relation(fields: [situationTypeId], references: [id])
   events        SituationEvent[]
+  executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
+  workStream    WorkStream?    @relation(fields: [workStreamId], references: [id])
 
   @@index([operatorId, status])
   @@index([situationTypeId, createdAt(sort: Desc)])
@@ -605,4 +621,232 @@ model PersonalAutonomy {
   @@unique([situationTypeId, aiEntityId])
   @@index([operatorId])
   @@index([aiEntityId])
+}
+
+// ─── Phase 3: Goals & Execution ─────────────────────────
+
+model Goal {
+  id                String    @id @default(cuid())
+  operatorId        String
+  departmentId      String?   // null = HQ-level goal
+  title             String
+  description       String
+  measurableTarget  String?
+  priority          Int       @default(3) // 1-5, 1 = highest
+  status            String    @default("active") // active, achieved, paused
+  deadline          DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  operator    Operator    @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  initiatives Initiative[]
+
+  @@index([operatorId, status])
+  @@index([operatorId, departmentId])
+}
+
+model Initiative {
+  id                String    @id @default(cuid())
+  operatorId        String
+  goalId            String
+  aiEntityId        String    // the department-ai or hq-ai that proposed this
+  executionPlanId   String?   @unique
+  workStreamId      String?
+  status            String    @default("proposed") // proposed, approved, executing, completed, rejected, failed, paused
+  rationale         String
+  impactAssessment  String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  operator      Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  goal          Goal           @relation(fields: [goalId], references: [id])
+  executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
+  workStream    WorkStream?    @relation(fields: [workStreamId], references: [id])
+
+  @@index([operatorId, status])
+  @@index([goalId])
+  @@index([workStreamId])
+}
+
+model ExecutionPlan {
+  id              String    @id @default(cuid())
+  operatorId      String
+  sourceType      String    // "situation" | "initiative" | "recurring" | "delegation"
+  sourceId        String    // ID of the source record
+  status          String    @default("pending") // pending, approved, executing, completed, failed, paused, amended
+  currentStepOrder Int      @default(1)
+  approvedAt      DateTime?
+  approvedById    String?
+  completedAt     DateTime?
+  priorityScore   Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  operator   Operator        @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  steps      ExecutionStep[]
+  initiative Initiative?
+  situation  Situation?
+
+  @@index([operatorId, status])
+  @@index([operatorId, sourceType, sourceId])
+}
+
+model ExecutionStep {
+  id                    String    @id @default(cuid())
+  planId                String
+  sequenceOrder         Int
+  title                 String
+  description           String
+  executionMode         String    // "action" | "generate" | "human_task"
+  actionCapabilityId    String?
+  assignedUserId        String?
+  inputContext          String?   // JSON
+  outputResult          String?   // JSON — typed StepOutput
+  status                String    @default("pending") // pending, awaiting_approval, approved, executing, completed, failed, skipped, amended
+  approvedAt            DateTime?
+  approvedById          String?
+  executedAt            DateTime?
+  errorMessage          String?
+  originalDescription   String?   // preserved when amended
+  createdAt             DateTime  @default(now())
+
+  plan     ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  followUp FollowUp?
+
+  @@unique([planId, sequenceOrder])
+  @@index([planId, status])
+}
+
+model WorkStream {
+  id                String    @id @default(cuid())
+  operatorId        String
+  title             String
+  description       String?
+  goalId            String?
+  ownerAiEntityId   String?
+  status            String    @default("active") // active, completed, paused, abandoned
+  parentWorkStreamId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  completedAt       DateTime?
+
+  operator        Operator     @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  parentWorkStream WorkStream? @relation("WorkStreamChildren", fields: [parentWorkStreamId], references: [id])
+  children        WorkStream[] @relation("WorkStreamChildren")
+  initiatives     Initiative[]
+  situations      Situation[]
+
+  @@index([operatorId, status])
+}
+
+model Delegation {
+  id              String    @id @default(cuid())
+  operatorId      String
+  fromAiEntityId  String
+  toAiEntityId    String?
+  toUserId        String?
+  workStreamId    String?
+  situationId     String?
+  initiativeId    String?
+  instruction     String
+  context         String?   // JSON
+  status          String    @default("pending") // pending, accepted, completed, returned
+  returnReason    String?
+  completedNotes  String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId, status])
+  @@index([toUserId, status])
+  @@index([toAiEntityId, status])
+}
+
+model FollowUp {
+  id                String    @id @default(cuid())
+  operatorId        String
+  executionStepId   String    @unique
+  situationId       String?
+  triggerCondition  String    // JSON: { type: "timeout" | "response_received" | "property_change", ... }
+  fallbackAction    String    // JSON: { type: "escalate" | "new_plan" | "notify" | "skip", ... }
+  status            String    @default("watching") // watching, triggered, expired, cancelled
+  triggerAt         DateTime?
+  createdAt         DateTime  @default(now())
+  triggeredAt       DateTime?
+
+  operator      Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  executionStep ExecutionStep @relation(fields: [executionStepId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId, status])
+  @@index([status, triggerAt])
+}
+
+model RecurringTask {
+  id                      String    @id @default(cuid())
+  operatorId              String
+  aiEntityId              String
+  title                   String
+  description             String?
+  cronExpression          String
+  executionPlanTemplate   String    // JSON — template for plan creation
+  lastTriggeredAt         DateTime?
+  nextTriggerAt           DateTime?
+  autoApproveSteps        Boolean   @default(false)
+  status                  String    @default("active") // active, paused
+  createdAt               DateTime  @default(now())
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId, status])
+  @@index([status, nextTriggerAt])
+}
+
+model PlanAutonomy {
+  id                    String    @id @default(cuid())
+  operatorId            String
+  aiEntityId            String
+  planPatternHash       String    // SHA256 of step titles+modes
+  consecutiveApprovals  Int       @default(0)
+  autoApproved          Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@unique([aiEntityId, planPatternHash])
+  @@index([operatorId])
+}
+
+model OperationalInsight {
+  id              String    @id @default(cuid())
+  operatorId      String
+  aiEntityId      String
+  departmentId    String?
+  insightType     String    // approach_effectiveness, timing_pattern, entity_preference, escalation_pattern, resolution_pattern
+  description     String
+  evidence        String    // JSON: { sampleSize, successRate, situations[], ... }
+  confidence      Float
+  shareScope      String    @default("personal") // personal, department, operator
+  status          String    @default("active") // active, superseded, invalidated
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId, shareScope, status])
+  @@index([aiEntityId, status])
+  @@index([operatorId, departmentId, status])
+}
+
+model NotificationPreference {
+  id               String @id @default(cuid())
+  userId           String
+  notificationType String  // situation_proposed, situation_resolved, initiative_proposed, step_ready, delegation_received, follow_up_triggered, plan_auto_executed, peer_signal, insight_discovered, system_alert
+  channel          String  @default("both") // in_app, email, both, none
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, notificationType])
+  @@index([userId])
 }

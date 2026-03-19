@@ -168,6 +168,24 @@ export const HARDCODED_TYPE_DEFS: Record<string, HardcodedTypeDef> = {
     defaultCategory: "base",
     properties: [],
   },
+  "department-ai": {
+    slug: "department-ai",
+    name: "Department AI",
+    description: "AI entity that manages a department's strategy and knowledge",
+    icon: "brain",
+    color: "#8b5cf6",
+    defaultCategory: "base",
+    properties: [],
+  },
+  "hq-ai": {
+    slug: "hq-ai",
+    name: "HQ AI",
+    description: "Organization-level AI entity for cross-department strategy",
+    icon: "sparkles",
+    color: "#ec4899",
+    defaultCategory: "base",
+    properties: [],
+  },
 };
 
 // Category priority for merge hierarchy

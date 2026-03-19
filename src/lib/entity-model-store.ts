@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { ensureDepartmentAi } from "@/lib/ai-entity-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -297,7 +298,7 @@ export async function createEntity(operatorId: string, input: EntityInput) {
   const entityId = await prisma.$transaction(async (tx) => {
     const entityType = await tx.entityType.findUnique({
       where: { id: input.entityTypeId },
-      select: { defaultCategory: true },
+      select: { defaultCategory: true, slug: true },
     });
 
     const entity = await tx.entity.create({
@@ -333,10 +334,15 @@ export async function createEntity(operatorId: string, input: EntityInput) {
       }
     }
 
-    return entity.id;
+    return { id: entity.id, slug: entityType?.slug };
   });
 
-  return getEntity(operatorId, entityId);
+  // Fire-and-forget: create department AI when a department entity is created
+  if (entityId.slug === "department") {
+    ensureDepartmentAi(operatorId, entityId.id, input.displayName).catch(console.error);
+  }
+
+  return getEntity(operatorId, entityId.id);
 }
 
 export async function updateEntity(
