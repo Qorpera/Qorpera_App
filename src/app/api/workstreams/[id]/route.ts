@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { canMemberAccessWorkStream } from "@/lib/workstreams";
 
 export async function GET(
   _req: NextRequest,
@@ -8,8 +10,17 @@ export async function GET(
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { operatorId } = su;
+  const { user, operatorId } = su;
   const { id } = await params;
+
+  // Member scope check
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  if (visibleDepts !== "all") {
+    const canAccess = await canMemberAccessWorkStream(user.id, id, operatorId, visibleDepts);
+    if (!canAccess) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+  }
 
   const ws = await prisma.workStream.findFirst({
     where: { id, operatorId },

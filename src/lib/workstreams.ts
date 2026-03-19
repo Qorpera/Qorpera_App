@@ -108,18 +108,26 @@ export async function recheckWorkStreamStatus(workStreamId: string): Promise<voi
         where: { id: item.itemId },
         select: { status: true },
       });
-      if (!situation || !["resolved", "dismissed"].includes(situation.status)) {
+      if (!situation) {
+        // Orphaned reference — clean up and treat as terminal
+        await prisma.workStreamItem.delete({ where: { id: item.id } }).catch(() => {});
+        continue;
+      }
+      if (!["resolved", "dismissed"].includes(situation.status)) {
         allTerminal = false;
-        break;
       }
     } else if (item.itemType === "initiative") {
       const initiative = await prisma.initiative.findUnique({
         where: { id: item.itemId },
         select: { status: true },
       });
-      if (!initiative || !["completed", "rejected"].includes(initiative.status)) {
+      if (!initiative) {
+        // Orphaned reference — clean up and treat as terminal
+        await prisma.workStreamItem.delete({ where: { id: item.id } }).catch(() => {});
+        continue;
+      }
+      if (!["completed", "rejected"].includes(initiative.status)) {
         allTerminal = false;
-        break;
       }
     }
   }
@@ -152,6 +160,56 @@ export async function recheckWorkStreamStatus(workStreamId: string): Promise<voi
   if (ws.parentWorkStreamId) {
     await recheckWorkStreamStatus(ws.parentWorkStreamId);
   }
+}
+
+// ── Member Access Check ──────────────────────────────────────────────────────
+
+export async function canMemberAccessWorkStream(
+  userId: string,
+  workStreamId: string,
+  operatorId: string,
+  visibleDepts: string[],
+): Promise<boolean> {
+  // Check if workstream contains a situation assigned to this user
+  const assignedSituations = await prisma.situation.findMany({
+    where: { operatorId, assignedUserId: userId },
+    select: { id: true },
+  });
+  const assignedSitIds = assignedSituations.map(s => s.id);
+
+  if (assignedSitIds.length > 0) {
+    const match = await prisma.workStreamItem.findFirst({
+      where: {
+        workStreamId,
+        itemType: "situation",
+        itemId: { in: assignedSitIds },
+      },
+      select: { id: true },
+    });
+    if (match) return true;
+  }
+
+  // Check if workstream's goal is visible to this member
+  const ws = await prisma.workStream.findUnique({
+    where: { id: workStreamId },
+    select: { goalId: true },
+  });
+  if (ws?.goalId) {
+    const goal = await prisma.goal.findFirst({
+      where: {
+        id: ws.goalId,
+        operatorId,
+        OR: [
+          { departmentId: { in: visibleDepts } },
+          { departmentId: null },
+        ],
+      },
+      select: { id: true },
+    });
+    if (goal) return true;
+  }
+
+  return false;
 }
 
 // ── Get WorkStream Context (for reasoning) ───────────────────────────────────

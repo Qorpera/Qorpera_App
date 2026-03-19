@@ -52,6 +52,10 @@ export async function GET(req: NextRequest) {
     });
     const visibleGoalIds = visibleGoals.map(g => g.id);
 
+    // Members see WorkStreams that either contain their assigned situations,
+    // or are linked to goals in their visible departments.
+    // WorkStreams with goalId: null are only visible if they contain the member's situations.
+    // This is intentional — unlinked WorkStreams without the member's work are not their concern.
     where.OR = [
       { id: { in: memberWsIds } },
       { goalId: { in: visibleGoalIds } },

@@ -2,7 +2,7 @@
 
 -- WorkStreamItem (many-to-many junction table)
 CREATE TABLE "WorkStreamItem" (
-  "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+  "id" TEXT NOT NULL,
   "workStreamId" TEXT NOT NULL,
   "itemType" TEXT NOT NULL,
   "itemId" TEXT NOT NULL,
