@@ -177,7 +177,7 @@ describe("executeStep — action mode", () => {
 
     // Should have looked for user's connector via findFirst
     expect(prisma.sourceConnector.findFirst).toHaveBeenCalledWith({
-      where: { provider: "google", userId: "user1", status: "active" },
+      where: { operatorId: "op1", provider: "google", userId: "user1", status: "active" },
     });
   });
 

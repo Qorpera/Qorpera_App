@@ -201,6 +201,7 @@ async function executeActionStep(
     if (capConnector) {
       const userConnector = await prisma.sourceConnector.findFirst({
         where: {
+          operatorId: step.plan.operatorId,
           provider: capConnector.provider,
           userId: step.assignedUserId,
           status: "active",
@@ -444,7 +445,7 @@ function mapActionResult(capabilityName: string, result: unknown): StepOutput {
       return { type: "calendar_event", eventId: String(r.eventId ?? ""), platform: String(r.platform ?? ""), attendees: (r.attendees ?? []) as string[] };
     case "send_slack_message":
     case "send_teams_message":
-      return { type: "message", channelId: String(r.channelId ?? ""), messageId: String(r.messageId ?? ""), platform: String(r.platform ?? capabilityName.includes("slack") ? "slack" : "teams") };
+      return { type: "message", channelId: String(r.channelId ?? ""), messageId: String(r.messageId ?? ""), platform: String(r.platform ?? (capabilityName.includes("slack") ? "slack" : "teams")) };
     default:
       return { type: "data", payload: r, description: capabilityName };
   }
