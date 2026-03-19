@@ -183,7 +183,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       communicationContext: context.communicationContext,
       crossDepartmentSignals: context.crossDepartmentSignals,
       connectorCapabilities: context.connectorCapabilities,
-      workStreamContext: context.workStreamContext,
+      workStreamContexts: context.workStreamContexts,
       delegationSource: context.delegationSource,
     };
 

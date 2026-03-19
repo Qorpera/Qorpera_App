@@ -56,7 +56,7 @@ export interface ReasoningInput {
   connectorCapabilities: ConnectorCapability[];
 
   // v4 day 4: workstream + delegation context
-  workStreamContext?: {
+  workStreamContexts?: Array<{
     id: string;
     title: string;
     description: string | null;
@@ -64,7 +64,7 @@ export interface ReasoningInput {
     goal: { id: string; title: string; description: string } | null;
     items: Array<{ type: string; id: string; status: string; summary: string }>;
     parent: { id: string; title: string; description: string | null; itemCount: number } | null;
-  } | null;
+  }>;
   delegationSource?: {
     id: string;
     instruction: string;
@@ -222,21 +222,23 @@ ${propsStr || "  (no properties)"}`);
   }
 
   // WORKSTREAM CONTEXT
-  if (input.workStreamContext) {
-    const ws = input.workStreamContext;
-    const wsLines = [`  Title: ${ws.title}`, `  Status: ${ws.status}`];
-    if (ws.description) wsLines.push(`  Description: ${ws.description}`);
-    if (ws.goal) wsLines.push(`  Goal: ${ws.goal.title} — ${ws.goal.description}`);
-    if (ws.items.length > 0) {
-      wsLines.push(`  Related work (${ws.items.length} items):`);
-      for (const item of ws.items) {
-        wsLines.push(`    - [${item.type}] ${item.summary} (${item.status})`);
+  if (input.workStreamContexts && input.workStreamContexts.length > 0) {
+    const wsSections = input.workStreamContexts.map(ws => {
+      const wsLines = [`  ### ${ws.title}`, `  Status: ${ws.status}`];
+      if (ws.description) wsLines.push(`  Description: ${ws.description}`);
+      if (ws.goal) wsLines.push(`  Goal: ${ws.goal.title} — ${ws.goal.description}`);
+      if (ws.items.length > 0) {
+        wsLines.push(`  Related work (${ws.items.length} items):`);
+        for (const item of ws.items) {
+          wsLines.push(`    - [${item.type}] ${item.summary} (${item.status})`);
+        }
       }
-    }
-    if (ws.parent) {
-      wsLines.push(`  Part of: ${ws.parent.title} (${ws.parent.itemCount} items)`);
-    }
-    sections.push(`WORKSTREAM CONTEXT:\nThis situation is part of an active workstream:\n${wsLines.join("\n")}`);
+      if (ws.parent) {
+        wsLines.push(`  Part of: ${ws.parent.title} (${ws.parent.itemCount} items)`);
+      }
+      return wsLines.join("\n");
+    });
+    sections.push(`WORKSTREAM CONTEXT:\nThis situation is part of the following work streams:\n\n${wsSections.join("\n\n")}`);
   }
 
   // DELEGATION SOURCE

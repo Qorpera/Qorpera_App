@@ -427,13 +427,13 @@ describe("buildReasoningUserPrompt — workstream + delegation context", () => {
       communicationContext: { excerpts: [], sourceBreakdown: {} },
       crossDepartmentSignals: { signals: [] },
       connectorCapabilities: [],
-      workStreamContext: {
+      workStreamContexts: [{
         id: "ws-1", title: "Q1 Revenue Push", description: "Drive Q1 targets",
         status: "active",
         goal: { id: "g-1", title: "Revenue Growth", description: "Grow 20%" },
         items: [{ type: "initiative", id: "i-1", status: "executing", summary: "Email campaign" }],
         parent: null,
-      },
+      }],
     });
 
     expect(result).toContain("WORKSTREAM CONTEXT");

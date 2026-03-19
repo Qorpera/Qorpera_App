@@ -154,7 +154,7 @@ export interface SituationContext {
   connectorCapabilities: ConnectorCapability[];
 
   // v3 day 4 additions
-  workStreamContext?: {
+  workStreamContexts?: Array<{
     id: string;
     title: string;
     description: string | null;
@@ -162,7 +162,7 @@ export interface SituationContext {
     goal: { id: string; title: string; description: string } | null;
     items: Array<{ type: string; id: string; status: string; summary: string }>;
     parent: { id: string; title: string; description: string | null; itemCount: number } | null;
-  } | null;
+  }>;
   delegationSource?: {
     id: string;
     instruction: string;
@@ -884,17 +884,18 @@ export async function assembleSituationContext(
   const bizCtxStr = businessCtx ? formatBusinessContext(businessCtx) : "";
 
   // Step 8: Load workstream + delegation context (requires situationId)
-  let workStreamContext: SituationContext["workStreamContext"] = null;
+  let workStreamContexts: SituationContext["workStreamContexts"] = [];
   let delegationSource: SituationContext["delegationSource"] = null;
 
   if (situationId) {
-    const wsItem = await prisma.workStreamItem.findFirst({
+    const wsItems = await prisma.workStreamItem.findMany({
       where: { itemType: "situation", itemId: situationId },
       select: { workStreamId: true },
     });
-    if (wsItem) {
+    if (wsItems.length > 0) {
       const { getWorkStreamContext } = await import("@/lib/workstreams");
-      workStreamContext = await getWorkStreamContext(wsItem.workStreamId);
+      const contexts = await Promise.all(wsItems.map(i => getWorkStreamContext(i.workStreamId)));
+      workStreamContexts = contexts.filter((c): c is NonNullable<typeof c> => c !== null);
     }
 
     const sitWithDelegation = await prisma.situation.findUnique({
@@ -933,7 +934,7 @@ export async function assembleSituationContext(
     { section: "relatedEntities", itemCount: allNeighbors.length, tokenEstimate: Math.ceil(JSON.stringify(relatedEntities).length / 4) },
     { section: "recentEvents", itemCount: recentEvents.length, tokenEstimate: Math.ceil(JSON.stringify(recentEvents).length / 4) },
     { section: "priorSituations", itemCount: priorSits.length, tokenEstimate: Math.ceil(JSON.stringify(priorSits).length / 4) },
-    ...(workStreamContext ? [{ section: "workstream_context", itemCount: workStreamContext.items.length, tokenEstimate: Math.ceil(JSON.stringify(workStreamContext).length / 4) }] : []),
+    ...(workStreamContexts.length > 0 ? [{ section: "workstream_context", itemCount: workStreamContexts.reduce((s, w) => s + w.items.length, 0), tokenEstimate: Math.ceil(JSON.stringify(workStreamContexts).length / 4) }] : []),
     ...(delegationSource ? [{ section: "delegation_source", itemCount: 1, tokenEstimate: Math.ceil(JSON.stringify(delegationSource).length / 4) }] : []),
   ];
 
@@ -952,7 +953,7 @@ export async function assembleSituationContext(
     crossDepartmentSignals,
     contextSections,
     connectorCapabilities,
-    workStreamContext,
+    workStreamContexts,
     delegationSource,
   };
 }
