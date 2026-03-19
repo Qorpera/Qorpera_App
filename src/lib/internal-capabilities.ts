@@ -83,6 +83,7 @@ export async function executeInternalCapability(
   name: string,
   inputContext: string | null,
   operatorId: string,
+  planOwnerAiEntityId?: string,
 ): Promise<StepOutput> {
   const context = inputContext ? JSON.parse(inputContext) : {};
   const params = context.params ?? context;
@@ -95,7 +96,7 @@ export async function executeInternalCapability(
     case "update_goal":
       return executeUpdateGoal(params, operatorId);
     case "create_delegation":
-      return executeCreateDelegation(params, operatorId);
+      return executeCreateDelegation(params, operatorId, planOwnerAiEntityId);
     default:
       throw new Error(`Unknown internal capability: ${name}`);
   }
@@ -203,6 +204,7 @@ async function executeUpdateGoal(
 async function executeCreateDelegation(
   params: Record<string, unknown>,
   operatorId: string,
+  planOwnerAiEntityId?: string,
 ): Promise<StepOutput> {
   const instruction = String(params.instruction ?? "");
   if (!instruction) throw new Error("create_delegation requires instruction");
@@ -211,27 +213,12 @@ async function executeCreateDelegation(
   const toUserId = params.toUserId ? String(params.toUserId) : undefined;
   const context = (params.context ?? {}) as Record<string, unknown>;
 
-  // Resolve fromAiEntityId: find the AI entity executing this plan
-  // The caller (execution-engine) passes operatorId; we need the department AI or HQ AI.
-  // Look for the execution plan that contains this step to find the source AI entity.
-  // For now, find the first active department-ai or hq-ai for the operator.
-  let fromAiEntityId: string | null = null;
+  // Resolve fromAiEntityId from params, plan context, or fail
+  const fromAiEntityId = (params.fromAiEntityId ? String(params.fromAiEntityId) : null)
+    ?? planOwnerAiEntityId
+    ?? null;
 
-  if (params.fromAiEntityId) {
-    fromAiEntityId = String(params.fromAiEntityId);
-  } else {
-    const aiEntity = await prisma.entity.findFirst({
-      where: {
-        operatorId,
-        entityType: { slug: { in: ["department-ai", "hq-ai"] } },
-        status: "active",
-      },
-      select: { id: true },
-    });
-    fromAiEntityId = aiEntity?.id ?? null;
-  }
-
-  if (!fromAiEntityId) throw new Error("No AI entity found to send delegation from");
+  if (!fromAiEntityId) throw new Error("Cannot determine fromAiEntityId for delegation");
 
   const { createDelegation } = await import("@/lib/delegations");
   const delegation = await createDelegation({

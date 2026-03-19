@@ -13,7 +13,6 @@ interface CreateDelegationParams {
   workStreamId?: string;
   situationId?: string;
   initiativeId?: string;
-  executionStepId?: string;
 }
 
 // ── Create Delegation ────────────────────────────────────────────────────────
@@ -118,9 +117,10 @@ export async function createDelegation(params: CreateDelegationParams) {
 export async function approveDelegation(
   delegationId: string,
   approvingUserId: string,
+  operatorId: string,
 ): Promise<void> {
-  const delegation = await prisma.delegation.findUnique({
-    where: { id: delegationId },
+  const delegation = await prisma.delegation.findFirst({
+    where: { id: delegationId, operatorId },
   });
   if (!delegation) throw new Error("Delegation not found");
   if (delegation.status !== "pending") throw new Error("Delegation is not pending");
@@ -221,17 +221,27 @@ async function ensureDelegationSituationType(operatorId: string): Promise<string
   });
   if (existing) return existing.id;
 
-  const created = await prisma.situationType.create({
-    data: {
-      operatorId,
-      slug: "delegation-task",
-      name: "Delegation Task",
-      description: "Work delegated from another AI entity",
-      detectionLogic: JSON.stringify({ mode: "manual" }),
-      autonomyLevel: "supervised",
-    },
-  });
-  return created.id;
+  try {
+    const created = await prisma.situationType.create({
+      data: {
+        operatorId,
+        slug: "delegation-task",
+        name: "Delegation Task",
+        description: "Work delegated from another AI entity",
+        detectionLogic: JSON.stringify({ mode: "manual" }),
+        autonomyLevel: "supervised",
+      },
+    });
+    return created.id;
+  } catch {
+    // Concurrent creation — re-query
+    const retried = await prisma.situationType.findFirst({
+      where: { operatorId, slug: "delegation-task" },
+      select: { id: true },
+    });
+    if (retried) return retried.id;
+    throw new Error("Failed to create delegation-task SituationType");
+  }
 }
 
 // ── Complete Delegation ──────────────────────────────────────────────────────
@@ -240,10 +250,11 @@ export async function completeDelegation(
   delegationId: string,
   userId: string,
   notes: string,
+  operatorId?: string,
 ): Promise<void> {
-  const delegation = await prisma.delegation.findUnique({
-    where: { id: delegationId },
-  });
+  const delegation = operatorId
+    ? await prisma.delegation.findFirst({ where: { id: delegationId, operatorId } })
+    : await prisma.delegation.findUnique({ where: { id: delegationId } });
   if (!delegation) throw new Error("Delegation not found");
   if (delegation.status !== "accepted") throw new Error("Delegation is not accepted");
 
@@ -271,7 +282,7 @@ export async function completeDelegation(
     operatorId: delegation.operatorId,
     type: "system_alert",
     title: "Delegation completed",
-    body: `Delegation from ${fromEntity?.displayName ?? "AI"} completed: ${notes.slice(0, 200)}`,
+    body: `Delegation from ${fromEntity?.displayName ?? "AI"} completed by user ${userId}: ${notes.slice(0, 200)}`,
     sourceType: "delegation",
     sourceId: delegationId,
   }).catch(console.error);
@@ -283,10 +294,11 @@ export async function returnDelegation(
   delegationId: string,
   userId: string,
   reason: string,
+  operatorId?: string,
 ): Promise<void> {
-  const delegation = await prisma.delegation.findUnique({
-    where: { id: delegationId },
-  });
+  const delegation = operatorId
+    ? await prisma.delegation.findFirst({ where: { id: delegationId, operatorId } })
+    : await prisma.delegation.findUnique({ where: { id: delegationId } });
   if (!delegation) throw new Error("Delegation not found");
   if (delegation.status !== "pending" && delegation.status !== "accepted") {
     throw new Error("Delegation cannot be returned from current status");
@@ -310,7 +322,7 @@ export async function returnDelegation(
     operatorId: delegation.operatorId,
     type: "system_alert",
     title: "Delegation returned",
-    body: `Delegation from ${fromEntity?.displayName ?? "AI"} was returned: ${reason.slice(0, 200)}`,
+    body: `Delegation from ${fromEntity?.displayName ?? "AI"} returned by user ${userId}: ${reason.slice(0, 200)}`,
     sourceType: "delegation",
     sourceId: delegationId,
   }).catch(console.error);

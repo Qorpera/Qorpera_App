@@ -162,8 +162,18 @@ async function executeActionStep(
 
   // Internal capability (no connector) — execute directly
   if (!capability.connectorId) {
+    // Resolve the AI entity that owns this plan
+    let planOwnerAiEntityId: string | undefined;
+    if (step.plan.sourceType === "initiative") {
+      const initiative = await prisma.initiative.findUnique({
+        where: { id: step.plan.sourceId },
+        select: { aiEntityId: true },
+      });
+      planOwnerAiEntityId = initiative?.aiEntityId;
+    }
+
     const { executeInternalCapability } = await import("@/lib/internal-capabilities");
-    const output = await executeInternalCapability(capability.name, step.inputContext, step.plan.operatorId);
+    const output = await executeInternalCapability(capability.name, step.inputContext, step.plan.operatorId, planOwnerAiEntityId);
     await prisma.executionStep.update({
       where: { id: step.id },
       data: {

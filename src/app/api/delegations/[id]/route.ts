@@ -104,7 +104,7 @@ export async function PATCH(
       if (user.role !== "admin" && user.role !== "superadmin") {
         return NextResponse.json({ error: "Admin only" }, { status: 403 });
       }
-      await approveDelegation(id, user.id);
+      await approveDelegation(id, user.id, operatorId);
       return NextResponse.json({ id, status: "accepted" });
     }
 
@@ -116,7 +116,7 @@ export async function PATCH(
       if (!notes) {
         return NextResponse.json({ error: "notes is required for completion" }, { status: 400 });
       }
-      await completeDelegation(id, user.id, notes);
+      await completeDelegation(id, user.id, notes, operatorId);
       return NextResponse.json({ id, status: "completed" });
     }
 
@@ -130,7 +130,7 @@ export async function PATCH(
       if (!returnReason) {
         return NextResponse.json({ error: "returnReason is required" }, { status: 400 });
       }
-      await returnDelegation(id, user.id, returnReason);
+      await returnDelegation(id, user.id, returnReason, operatorId);
       return NextResponse.json({ id, status: "returned" });
     }
   } catch (err) {

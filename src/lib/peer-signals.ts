@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
+import { sendNotification } from "@/lib/notification-dispatch";
 
 // ── Send Peer Signal ─────────────────────────────────────────────────────────
 
@@ -18,10 +18,9 @@ export async function sendPeerSignal(params: PeerSignalParams): Promise<void> {
     select: { ownerDepartmentId: true },
   });
 
-  // Find an admin user in the target department to attach the notification to
+  // Find an admin user in the target department to attach the data record to
   let targetUserId: string | null = null;
   if (targetAi?.ownerDepartmentId) {
-    // Find users with scope to this department who are admins
     const adminUser = await prisma.user.findFirst({
       where: {
         operatorId: params.operatorId,
@@ -32,7 +31,8 @@ export async function sendPeerSignal(params: PeerSignalParams): Promise<void> {
     targetUserId = adminUser?.id ?? null;
   }
 
-  // Create peer signal notification
+  // 1. Create the data record for context assembly (direct create — needs sourceAiEntityId
+  //    which sendNotification doesn't support; this is a system data record, not a user notification)
   if (targetUserId) {
     await prisma.notification.create({
       data: {
@@ -46,16 +46,27 @@ export async function sendPeerSignal(params: PeerSignalParams): Promise<void> {
     });
   }
 
-  // Also notify all admins about cross-department intelligence
-  sendNotificationToAdmins({
-    operatorId: params.operatorId,
-    type: "peer_signal",
-    title: "Cross-department AI signal",
-    body: params.content.slice(0, 300),
-    sourceType: "peer_signal",
-    sourceId: params.fromAiEntityId,
-    excludeUserId: targetUserId ?? undefined,
-  }).catch(console.error);
+  // 2. Notify admins through sendNotification (respects preferences)
+  const admins = await prisma.user.findMany({
+    where: {
+      operatorId: params.operatorId,
+      role: { in: ["admin", "superadmin"] },
+    },
+    select: { id: true },
+  });
+
+  for (const admin of admins) {
+    if (admin.id === targetUserId) continue; // already has the data record
+    sendNotification({
+      operatorId: params.operatorId,
+      userId: admin.id,
+      type: "peer_signal",
+      title: "Cross-department AI signal",
+      body: params.content.slice(0, 300),
+      sourceType: "peer_signal",
+      sourceId: params.fromAiEntityId,
+    }).catch(console.error);
+  }
 }
 
 // ── Get Peer Signals for AI ──────────────────────────────────────────────────
