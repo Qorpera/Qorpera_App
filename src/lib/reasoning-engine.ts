@@ -45,6 +45,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       situation.situationTypeId,
       situation.triggerEntityId ?? "",
       situation.triggerEventId ?? undefined,
+      situationId,
     );
 
     // 5. Resolve governance
@@ -182,6 +183,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       communicationContext: context.communicationContext,
       crossDepartmentSignals: context.crossDepartmentSignals,
       connectorCapabilities: context.connectorCapabilities,
+      workStreamContext: context.workStreamContext,
+      delegationSource: context.delegationSource,
     };
 
     // 6a. Compute edit instruction and prior feedback (needed by both paths)

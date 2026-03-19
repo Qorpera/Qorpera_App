@@ -100,9 +100,52 @@ export async function evaluateDepartmentGoals(
     where: { operatorId, parentDepartmentId: departmentId, category: "base", status: "active" },
   });
 
+  // 2b. Load delegation, workstream, and peer signal context
+  const [acceptedDelegations, activeWorkStreams] = await Promise.all([
+    prisma.delegation.findMany({
+      where: { operatorId, toAiEntityId: deptAi.id, status: "accepted" },
+      select: { id: true, instruction: true, context: true, fromAiEntityId: true, createdAt: true },
+      take: 10,
+    }),
+    prisma.workStream.findMany({
+      where: { operatorId, ownerAiEntityId: deptAi.id, status: "active" },
+      include: { items: { select: { itemType: true, itemId: true } } },
+      take: 10,
+    }),
+  ]);
+
+  // Resolve delegation sender names
+  const delegationFromIds = [...new Set(acceptedDelegations.map(d => d.fromAiEntityId))];
+  const delegationFromEntities = delegationFromIds.length > 0
+    ? await prisma.entity.findMany({ where: { id: { in: delegationFromIds } }, select: { id: true, displayName: true } })
+    : [];
+  const delegationNameMap = new Map(delegationFromEntities.map(e => [e.id, e.displayName]));
+
+  const { getPeerSignalsForAi } = await import("@/lib/peer-signals");
+  const peerSignals = await getPeerSignalsForAi(deptAi.id, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+
   // 3. Build prompt
   const systemPrompt = buildDepartmentSystemPrompt(department.displayName, operator?.companyName ?? "the company");
-  const userPrompt = buildUserPrompt(goals, existingInitiatives, capabilities, situationTypes, recentSituations, insights, department.displayName, department.description, memberCount);
+  const userPrompt = buildUserPrompt(
+    goals, existingInitiatives, capabilities, situationTypes, recentSituations, insights,
+    department.displayName, department.description, memberCount,
+    acceptedDelegations.map(d => ({
+      fromName: delegationNameMap.get(d.fromAiEntityId) ?? "Unknown AI",
+      instruction: d.instruction,
+      context: d.context,
+      createdAt: d.createdAt.toISOString(),
+    })),
+    activeWorkStreams.map(ws => ({
+      title: ws.title,
+      description: ws.description,
+      goalId: ws.goalId,
+      itemCount: ws.items.length,
+    })),
+    peerSignals.map(s => ({
+      body: s.body,
+      createdAt: s.createdAt.toISOString(),
+    })),
+  );
 
   // 4. Call LLM + validate
   const output = await callAndValidate(systemPrompt, userPrompt);
@@ -173,9 +216,43 @@ export async function evaluateHQGoals(operatorId: string): Promise<void> {
     select: { id: true, displayName: true, description: true },
   });
 
+  // 2b. Load delegation and workstream context for HQ AI
+  const [acceptedDelegations, activeWorkStreams] = await Promise.all([
+    prisma.delegation.findMany({
+      where: { operatorId, toAiEntityId: hqAi.id, status: "accepted" },
+      select: { id: true, instruction: true, context: true, fromAiEntityId: true, createdAt: true },
+      take: 10,
+    }),
+    prisma.workStream.findMany({
+      where: { operatorId, ownerAiEntityId: hqAi.id, status: "active" },
+      include: { items: { select: { itemType: true, itemId: true } } },
+      take: 10,
+    }),
+  ]);
+
+  const delegationFromIds = [...new Set(acceptedDelegations.map(d => d.fromAiEntityId))];
+  const delegationFromEntities = delegationFromIds.length > 0
+    ? await prisma.entity.findMany({ where: { id: { in: delegationFromIds } }, select: { id: true, displayName: true } })
+    : [];
+  const delegationNameMap = new Map(delegationFromEntities.map(e => [e.id, e.displayName]));
+
   // 3. Build prompt
   const systemPrompt = buildHQSystemPrompt(operator?.companyName ?? "the company");
-  const userPrompt = buildHQUserPrompt(goals, existingInitiatives, capabilities, situationTypes, recentSituations, insights, departments);
+  const userPrompt = buildHQUserPrompt(
+    goals, existingInitiatives, capabilities, situationTypes, recentSituations, insights, departments,
+    acceptedDelegations.map(d => ({
+      fromName: delegationNameMap.get(d.fromAiEntityId) ?? "Unknown AI",
+      instruction: d.instruction,
+      context: d.context,
+      createdAt: d.createdAt.toISOString(),
+    })),
+    activeWorkStreams.map(ws => ({
+      title: ws.title,
+      description: ws.description,
+      goalId: ws.goalId,
+      itemCount: ws.items.length,
+    })),
+  );
 
   // 4. Call LLM + validate
   const output = await callAndValidate(systemPrompt, userPrompt);
@@ -345,6 +422,10 @@ RULES:
 - Do NOT propose initiatives that duplicate existing active/executing initiatives for the same goal.
 - Be specific and actionable. "Improve customer retention" is not a step. "Draft personalized re-engagement email to clients with declining activity" is.
 - Include human_task steps where human judgment or non-digital action is needed.
+- You can create delegations to other department AIs or to specific employees using the create_delegation action.
+- If an initiative requires work from another department, include a delegation step targeting that department's AI.
+- When you receive delegations, prioritize them alongside your department's goals. A delegation from HQ represents organizational priority.
+- Consider intelligence from peer departments when proposing initiatives. Cross-department patterns may reveal opportunities or risks.
 
 OUTPUT FORMAT:
 Respond with ONLY valid JSON:
@@ -385,6 +466,8 @@ RULES:
 - Do NOT propose initiatives that duplicate existing active/executing initiatives for the same goal.
 - Be specific and actionable. Consider cross-department coordination needs.
 - Include human_task steps where human judgment or non-digital action is needed.
+- You can create delegations to department AIs or to specific employees using the create_delegation action.
+- Propose work that involves multiple departments by delegating parts to peer department AIs.
 
 OUTPUT FORMAT:
 Respond with ONLY valid JSON:
@@ -416,6 +499,9 @@ type InitiativeRow = { goalId: string; status: string; rationale: string };
 type SituationTypeRow = { name: string; description: string };
 type SituationRow = { outcome: string | null; status: string };
 type InsightRow = { description: string; confidence: number; evidence: string; insightType: string };
+type DelegationContextRow = { fromName: string; instruction: string; context: string | null; createdAt: string };
+type WorkStreamContextRow = { title: string; description: string | null; goalId: string | null; itemCount: number };
+type PeerSignalRow = { body: string; createdAt: string };
 
 function buildUserPrompt(
   goals: GoalRow[],
@@ -427,6 +513,9 @@ function buildUserPrompt(
   departmentName: string,
   departmentDescription: string | null,
   memberCount: number,
+  delegations?: DelegationContextRow[],
+  workStreams?: WorkStreamContextRow[],
+  peerSignals?: PeerSignalRow[],
 ): string {
   const sections: string[] = [];
 
@@ -481,6 +570,30 @@ function buildUserPrompt(
     sections.push(`OPERATIONAL INSIGHTS:\n${insightStr}`);
   }
 
+  // Delegations received
+  if (delegations && delegations.length > 0) {
+    const delStr = delegations.map(d =>
+      `  From ${d.fromName}: "${d.instruction}" (received ${d.createdAt.split("T")[0]})`
+    ).join("\n");
+    sections.push(`DELEGATIONS RECEIVED:\nYou have received the following delegations from other AI entities. Consider these when proposing initiatives:\n${delStr}`);
+  }
+
+  // Active work streams
+  if (workStreams && workStreams.length > 0) {
+    const wsStr = workStreams.map(ws =>
+      `  ${ws.title} — ${ws.itemCount} items${ws.description ? ` — ${ws.description}` : ""}`
+    ).join("\n");
+    sections.push(`ACTIVE WORK STREAMS:\n${wsStr}`);
+  }
+
+  // Peer signals
+  if (peerSignals && peerSignals.length > 0) {
+    const sigStr = peerSignals.map(s =>
+      `  (${s.createdAt.split("T")[0]}): "${s.body}"`
+    ).join("\n");
+    sections.push(`INTELLIGENCE FROM PEER DEPARTMENTS:\n${sigStr}`);
+  }
+
   return sections.join("\n\n");
 }
 
@@ -496,6 +609,8 @@ function buildHQUserPrompt(
   recentSituations: SituationRow[],
   insights: HQInsightRow[],
   departments: DepartmentRow[],
+  delegations?: DelegationContextRow[],
+  workStreams?: WorkStreamContextRow[],
 ): string {
   const sections: string[] = [];
 
@@ -554,6 +669,22 @@ function buildHQUserPrompt(
       return `  - [${i.insightType}]${dept} ${i.description} (confidence: ${i.confidence.toFixed(2)})`;
     }).join("\n");
     sections.push(`OPERATIONAL INSIGHTS:\n${insightStr}`);
+  }
+
+  // Delegations received
+  if (delegations && delegations.length > 0) {
+    const delStr = delegations.map(d =>
+      `  From ${d.fromName}: "${d.instruction}" (received ${d.createdAt.split("T")[0]})`
+    ).join("\n");
+    sections.push(`DELEGATIONS RECEIVED:\n${delStr}`);
+  }
+
+  // Active work streams
+  if (workStreams && workStreams.length > 0) {
+    const wsStr = workStreams.map(ws =>
+      `  ${ws.title} — ${ws.itemCount} items${ws.description ? ` — ${ws.description}` : ""}`
+    ).join("\n");
+    sections.push(`ACTIVE WORK STREAMS:\n${wsStr}`);
   }
 
   return sections.join("\n\n");

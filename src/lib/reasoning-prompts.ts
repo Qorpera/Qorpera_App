@@ -54,6 +54,24 @@ export interface ReasoningInput {
 
   // v4: draft payload provider resolution
   connectorCapabilities: ConnectorCapability[];
+
+  // v4 day 4: workstream + delegation context
+  workStreamContext?: {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string;
+    goal: { id: string; title: string; description: string } | null;
+    items: Array<{ type: string; id: string; status: string; summary: string }>;
+    parent: { id: string; title: string; description: string | null; itemCount: number } | null;
+  } | null;
+  delegationSource?: {
+    id: string;
+    instruction: string;
+    context: unknown;
+    fromAiEntityId: string;
+    fromAiEntityName: string | null;
+  } | null;
 }
 
 // ── System Prompt ────────────────────────────────────────────────────────────
@@ -201,6 +219,31 @@ ${propsStr || "  (no properties)"}`);
     }
 
     sections.push(`BEHAVIORAL EVIDENCE:\n\n${behaviorParts.join("\n")}`);
+  }
+
+  // WORKSTREAM CONTEXT
+  if (input.workStreamContext) {
+    const ws = input.workStreamContext;
+    const wsLines = [`  Title: ${ws.title}`, `  Status: ${ws.status}`];
+    if (ws.description) wsLines.push(`  Description: ${ws.description}`);
+    if (ws.goal) wsLines.push(`  Goal: ${ws.goal.title} — ${ws.goal.description}`);
+    if (ws.items.length > 0) {
+      wsLines.push(`  Related work (${ws.items.length} items):`);
+      for (const item of ws.items) {
+        wsLines.push(`    - [${item.type}] ${item.summary} (${item.status})`);
+      }
+    }
+    if (ws.parent) {
+      wsLines.push(`  Part of: ${ws.parent.title} (${ws.parent.itemCount} items)`);
+    }
+    sections.push(`WORKSTREAM CONTEXT:\nThis situation is part of an active workstream:\n${wsLines.join("\n")}`);
+  }
+
+  // DELEGATION SOURCE
+  if (input.delegationSource) {
+    const del = input.delegationSource;
+    const contextStr = del.context ? `\nContext: ${JSON.stringify(del.context)}` : "";
+    sections.push(`DELEGATION SOURCE:\nThis situation was delegated from ${del.fromAiEntityName ?? del.fromAiEntityId}.\nInstruction: "${del.instruction}"${contextStr}`);
   }
 
   // DEPARTMENT CONTEXT

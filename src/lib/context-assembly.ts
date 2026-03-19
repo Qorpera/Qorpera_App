@@ -152,6 +152,24 @@ export interface SituationContext {
   crossDepartmentSignals: CrossDepartmentContext;
   contextSections: ContextSectionMeta[];
   connectorCapabilities: ConnectorCapability[];
+
+  // v3 day 4 additions
+  workStreamContext?: {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string;
+    goal: { id: string; title: string; description: string } | null;
+    items: Array<{ type: string; id: string; status: string; summary: string }>;
+    parent: { id: string; title: string; description: string | null; itemCount: number } | null;
+  } | null;
+  delegationSource?: {
+    id: string;
+    instruction: string;
+    context: unknown;
+    fromAiEntityId: string;
+    fromAiEntityName: string | null;
+  } | null;
 }
 
 // ── Department Discovery ─────────────────────────────────────────────────────
@@ -621,6 +639,7 @@ export async function assembleSituationContext(
   situationTypeId: string,
   triggerEntityId: string,
   triggerEventId?: string,
+  situationId?: string,
 ): Promise<SituationContext> {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
@@ -864,7 +883,46 @@ export async function assembleSituationContext(
 
   const bizCtxStr = businessCtx ? formatBusinessContext(businessCtx) : "";
 
-  // Step 8: Build telemetry and return full context
+  // Step 8: Load workstream + delegation context (requires situationId)
+  let workStreamContext: SituationContext["workStreamContext"] = null;
+  let delegationSource: SituationContext["delegationSource"] = null;
+
+  if (situationId) {
+    const wsItem = await prisma.workStreamItem.findFirst({
+      where: { itemType: "situation", itemId: situationId },
+      select: { workStreamId: true },
+    });
+    if (wsItem) {
+      const { getWorkStreamContext } = await import("@/lib/workstreams");
+      workStreamContext = await getWorkStreamContext(wsItem.workStreamId);
+    }
+
+    const sitWithDelegation = await prisma.situation.findUnique({
+      where: { id: situationId },
+      select: { delegationId: true },
+    });
+    if (sitWithDelegation?.delegationId) {
+      const delegation = await prisma.delegation.findUnique({
+        where: { id: sitWithDelegation.delegationId },
+        select: { id: true, instruction: true, context: true, fromAiEntityId: true },
+      });
+      if (delegation) {
+        const fromEntity = await prisma.entity.findUnique({
+          where: { id: delegation.fromAiEntityId },
+          select: { displayName: true },
+        });
+        delegationSource = {
+          id: delegation.id,
+          instruction: delegation.instruction,
+          context: delegation.context ? safeParseJSON(delegation.context) : null,
+          fromAiEntityId: delegation.fromAiEntityId,
+          fromAiEntityName: fromEntity?.displayName ?? null,
+        };
+      }
+    }
+  }
+
+  // Step 9: Build telemetry and return full context
   const contextSections: ContextSectionMeta[] = [
     { section: "triggerEntity", itemCount: 1, tokenEstimate: Math.ceil(JSON.stringify(triggerEntity).length / 4) },
     { section: "departments", itemCount: departments.length, tokenEstimate: Math.ceil(JSON.stringify(departments).length / 4) },
@@ -875,6 +933,8 @@ export async function assembleSituationContext(
     { section: "relatedEntities", itemCount: allNeighbors.length, tokenEstimate: Math.ceil(JSON.stringify(relatedEntities).length / 4) },
     { section: "recentEvents", itemCount: recentEvents.length, tokenEstimate: Math.ceil(JSON.stringify(recentEvents).length / 4) },
     { section: "priorSituations", itemCount: priorSits.length, tokenEstimate: Math.ceil(JSON.stringify(priorSits).length / 4) },
+    ...(workStreamContext ? [{ section: "workstream_context", itemCount: workStreamContext.items.length, tokenEstimate: Math.ceil(JSON.stringify(workStreamContext).length / 4) }] : []),
+    ...(delegationSource ? [{ section: "delegation_source", itemCount: 1, tokenEstimate: Math.ceil(JSON.stringify(delegationSource).length / 4) }] : []),
   ];
 
   return {
@@ -892,6 +952,8 @@ export async function assembleSituationContext(
     crossDepartmentSignals,
     contextSections,
     connectorCapabilities,
+    workStreamContext,
+    delegationSource,
   };
 }
 
