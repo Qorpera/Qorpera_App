@@ -162,7 +162,6 @@ export async function assembleExtractionData(
   ]);
 
   // Find peer AI entities in the same department for cross-AI analysis
-  let peerAiEntityIds: string[] = [];
   if (departmentId) {
     const peerEntities = await prisma.entity.findMany({
       where: {
@@ -177,8 +176,6 @@ export async function assembleExtractionData(
       },
       select: { id: true, displayName: true, ownerUserId: true },
     });
-    peerAiEntityIds = peerEntities.map((p) => p.id);
-
     // Load peer situations for comparative analysis
     if (peerEntities.length > 0) {
       const peerUserIds = peerEntities
@@ -317,7 +314,6 @@ export async function assembleExtractionData(
     const handlerAiName = aiInfo?.name ?? aiEntity.displayName;
 
     // Find or create approach entry
-    const approachKey = `${capId}:${handlerAiId}`;
     let approach = group.approaches.find(
       (a) => a.actionCapabilityId === capId && a.aiEntityId === handlerAiId,
     );
@@ -496,7 +492,7 @@ export async function extractInsights(
     }
 
     // Check for existing active insight with same type + situationType + aiEntity
-    const existing = await prisma.operationalInsight.findFirst({
+    const existingInsights = await prisma.operationalInsight.findMany({
       where: {
         aiEntityId,
         insightType: insight.insightType,
@@ -504,25 +500,27 @@ export async function extractInsights(
       },
     });
 
-    if (existing) {
-      // Check if same situation type
+    // Find the one matching this situation type
+    const matchingExisting = existingInsights.find((existing) => {
       try {
         const existingEvidence = JSON.parse(existing.evidence);
-        if (existingEvidence.situationTypeId === insight.evidence.situationTypeId) {
-          if (insight.confidence <= existing.confidence) {
-            skipped++;
-            continue;
-          }
-          // Supersede old insight
-          await prisma.operationalInsight.update({
-            where: { id: existing.id },
-            data: { status: "superseded" },
-          });
-          superseded++;
-        }
+        return existingEvidence?.situationTypeId === insight.evidence.situationTypeId;
       } catch {
-        // Parse error on existing evidence — create new anyway
+        return false;
       }
+    });
+
+    if (matchingExisting) {
+      if (insight.confidence <= matchingExisting.confidence) {
+        skipped++;
+        continue;
+      }
+      // Supersede old insight
+      await prisma.operationalInsight.update({
+        where: { id: matchingExisting.id },
+        data: { status: "superseded" },
+      });
+      superseded++;
     }
 
     await prisma.operationalInsight.create({
