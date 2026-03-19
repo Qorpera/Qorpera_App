@@ -7,6 +7,7 @@ import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalD
 import { advanceStep } from "@/lib/execution-engine";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
+import { completeDelegation } from "@/lib/delegations";
 
 export async function GET(
   _req: NextRequest,
@@ -311,6 +312,12 @@ export async function PATCH(
         recheckWorkStreamStatus(item.workStreamId).catch(console.error);
       }
     }).catch(console.error);
+  }
+
+  // Auto-complete linked delegation when situation is resolved/dismissed
+  if ((body.status === "resolved" || body.status === "dismissed") && situation.delegationId) {
+    completeDelegation(situation.delegationId, user.id, `Situation ${body.status}`)
+      .catch(console.error);
   }
 
   return NextResponse.json({ id: updated.id, status: updated.status });
