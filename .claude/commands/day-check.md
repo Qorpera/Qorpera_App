@@ -1,6 +1,6 @@
 ---
-allowed-tools: Read, Grep, Glob, Bash(npx tsc --noEmit:*), Bash(npx prisma validate:*), Bash(npm run build:*), Bash(git diff:*), Bash(git log:*)
-description: End-of-day integration check — build, types, schema, patterns
+allowed-tools: Read, Grep, Glob, Bash(npm test:*), Bash(npx tsc --noEmit:*), Bash(npx prisma validate:*), Bash(npm run build:*), Bash(git diff:*), Bash(git log:*), Bash(grep -r:*)
+description: End-of-day integration check — tests, build, types, schema, patterns
 ---
 
 ## What changed today
@@ -13,59 +13,103 @@ description: End-of-day integration check — build, types, schema, patterns
 
 Run a full integration verification of today's work against the Qorpera codebase. This is the final gate before tagging and pushing.
 
-### Step 1: Build Verification
-Run and report results:
+### Step 1: Test Suite (BLOCKING)
+```
+npm test
+```
+If any test fails, report the exact failure and stop. Do not proceed to further steps. Tests are the first gate — everything else is meaningless if tests fail.
+
+### Step 2: Build Verification (BLOCKING)
+Run each command and report results:
 ```
 npx prisma validate
 npx prisma generate
-npm test
 npx tsc --noEmit
 npm run build
 ```
 If any step fails, report the exact error and stop. Do not proceed to pattern checks.
 
-### Step 2: Schema Consistency
-- Compare `prisma/schema.prisma` against actual usage in today's changed files
-- Check that any new model/field has a corresponding migration file in `prisma/migrations/`
-- Verify no `prisma db push` was used against production (check git history for migration files)
+### Step 3: Pattern Compliance Scan
 
-### Step 3: Pattern Compliance (today's files only)
-For each file changed today, verify:
+Run these scans and report any violations:
 
-**API routes:**
-- [ ] `getSessionUser(request)` as first call
-- [ ] operatorId from session, never from request body
-- [ ] Scope filtering applied on GET routes
-- [ ] Role check on mutation routes
-- [ ] Superadmin excluded from user-facing queries
-
-**Prisma operations:**
-- [ ] ContentChunk creates use `select: { id: true }`
-- [ ] Vector operations use `$queryRaw` with parameterized queries
-- [ ] Multi-step mutations wrapped in `$transaction()` where atomicity matters
-
-**Connectors (if changed):**
-- [ ] sync() returns `AsyncGenerator<SyncYield>`
-- [ ] SyncYield kinds match types in sync-types.ts
-- [ ] OAuth tokens encrypted before storage
-
-**General:**
-- [ ] No unused imports or dead code introduced
-- [ ] Error boundaries: async code has try/catch, errors logged not swallowed
-- [ ] No console.log with sensitive data (tokens, passwords, keys)
-
-### Step 4: Cross-cutting Concerns
-- Check `instrumentation.ts` — if new background tasks were added, verify globalThis HMR guard
-- Check `connector-sync.ts` — if SyncYield routing was modified, verify all three kinds still route correctly
-- Check `identity-resolution.ts` — if merge logic was touched, verify snapshot is still stored before mutations
-
-### Step 5: Dead Code Scan
+**Auth & isolation:**
 ```
-grep -rn "TODO\|FIXME\|HACK\|XXX" src/ --include="*.ts" --include="*.tsx"
+grep -rn "operatorId.*req\|operatorId.*body\|operatorId.*params" src/app/api/ --include="*.ts" | grep -v "getSessionUser"
 ```
-Report any new TODOs added today. Flag any that should be resolved before push.
+Flag: any route accepting operatorId from request instead of session.
+
+**ContentChunk select:**
+```
+grep -rn "contentChunk.create" src/ --include="*.ts" | grep -v "select:"
+```
+Flag: any ContentChunk create missing `select: { id: true }`.
+
+**pgvector injection surface:**
+```
+grep -rn '\$queryRaw\|executeRaw' src/ --include="*.ts" | grep -v "Prisma.sql\|tagged template"
+```
+Flag: any raw SQL that uses string concatenation instead of tagged templates.
+
+**Dead imports from situation-executor:**
+```
+grep -rn "situation-executor\|executeSituationAction" src/ --include="*.ts" | grep -v "\.test\." | grep -v "node_modules"
+```
+Flag: any non-test file importing from situation-executor.ts.
+
+**Legacy notification pattern in new code:**
+Check today's diff for any new `prisma.notification.create` calls. New code must use `sendNotification()` from `notification-dispatch.ts`.
+```
+git diff HEAD~1 -- src/ | grep "+.*notification.create" | grep -v "sendNotification\|notification-dispatch\|\.test\."
+```
+Flag: new code using direct notification creation.
+
+**Password/token exposure:**
+```
+grep -rn "passwordHash" src/app/api/ --include="*.ts" | grep -v "select:" | grep -v "omit"
+grep -rn "console.log" src/ --include="*.ts" | grep -iE "token|secret|key|password"
+```
+Flag: passwordHash in API responses or secrets in console.log.
+
+**Superadmin in user lists:**
+Check any user-listing query added today for superadmin exclusion:
+```
+git diff HEAD~1 -- src/ | grep -A5 "findMany.*user\|findMany.*User" | grep -v "superadmin"
+```
+Flag: user lists missing `role: { not: "superadmin" }` filter.
+
+### Step 4: Phase 3 Specific Checks
+
+**Execution path integrity:**
+- Verify no new code imports `executeSituationAction` or calls it directly
+- Verify any new plan creation goes through `createExecutionPlan`
+- Verify any new step advancement goes through `advanceStep`
+
+**Reasoning output format:**
+- If reasoning-engine.ts was modified, verify output uses `actionPlan` (array), not `chosenAction`
+- If any frontend file was modified, verify it handles `actionPlan` array format, not old `.action`/`.justification` fields
+
+**Department scope:**
+- If any new GET endpoint returns department-scoped data, verify `getVisibleDepartmentIds` is used for member users
+
+**Internal capability routing:**
+- If execution-engine.ts was modified, verify `connectorId === null` check routes to `executeInternalCapability`
+
+### Step 5: Dead Code Check
+
+List any files that appear to be unused (imported by nothing):
+```
+for f in $(git diff --name-only HEAD~1 | grep "\.ts$"); do
+  basename=$(echo $f | sed 's|.*/||' | sed 's|\.ts$||')
+  count=$(grep -rn "$basename" src/ --include="*.ts" | grep -v "$f" | grep -v "node_modules" | wc -l)
+  if [ "$count" -eq 0 ]; then
+    echo "POSSIBLY DEAD: $f (no imports found)"
+  fi
+done
+```
 
 ### Output Format
+
 Report as a checklist:
 - ✅ Passing checks (brief, one line each)
 - ❌ Failing checks (with details and file:line references)
