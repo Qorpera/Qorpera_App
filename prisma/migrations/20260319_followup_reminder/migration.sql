@@ -1,0 +1,1 @@
+ALTER TABLE "FollowUp" ADD COLUMN "reminderSent" BOOLEAN NOT NULL DEFAULT false;

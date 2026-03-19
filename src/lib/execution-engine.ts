@@ -5,6 +5,7 @@ import { decrypt, encrypt } from "@/lib/encryption";
 import { sendNotification, sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { evaluateActionPolicies } from "@/lib/policy-evaluator";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
+import { addBusinessDays } from "@/lib/business-days";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,6 +111,28 @@ export async function executeStep(stepId: string): Promise<void> {
           sourceId: step.planId,
         });
       }
+
+      // Auto-FollowUp: escalate to department admin after 3 business days
+      const triggerAt = addBusinessDays(new Date(), 3);
+      const escalateTargetId = await getDepartmentAdminId(step.plan.operatorId, step);
+      await prisma.followUp.create({
+        data: {
+          operatorId: step.plan.operatorId,
+          executionStepId: step.id,
+          situationId: step.plan.sourceType === "situation" ? step.plan.sourceId : null,
+          triggerCondition: JSON.stringify({
+            type: "timeout",
+            businessDays: 3,
+          }),
+          fallbackAction: JSON.stringify({
+            type: "escalate",
+            targetUserId: escalateTargetId,
+          }),
+          status: "watching",
+          triggerAt,
+          reminderSent: false,
+        },
+      });
 
       return; // Do NOT advance
     }
@@ -459,6 +482,17 @@ export async function completeHumanStep(
     },
   });
 
+  // Cancel any watching FollowUps for this step
+  await prisma.followUp.updateMany({
+    where: {
+      executionStepId: step.id,
+      status: "watching",
+    },
+    data: {
+      status: "cancelled",
+    },
+  });
+
   await advancePlanAfterStep(stepId, step.planId, step.sequenceOrder, step.plan.operatorId);
 }
 
@@ -547,6 +581,43 @@ async function triggerPlanWorkStreamRecheck(planId: string): Promise<void> {
       await recheckWorkStreamStatus(item.workStreamId);
     }
   }
+}
+
+async function getDepartmentAdminId(
+  operatorId: string,
+  step: { assignedUserId: string | null },
+): Promise<string> {
+  if (step.assignedUserId) {
+    // Find the assigned user's department memberships
+    const scopes = await prisma.userScope.findMany({
+      where: { userId: step.assignedUserId },
+      select: { departmentEntityId: true },
+    });
+
+    if (scopes.length > 0) {
+      // Find an admin in one of those departments
+      const deptIds = scopes.map((s) => s.departmentEntityId);
+      const adminScope = await prisma.userScope.findFirst({
+        where: {
+          departmentEntityId: { in: deptIds },
+          user: {
+            operatorId,
+            role: { in: ["admin", "superadmin"] },
+          },
+        },
+        select: { userId: true },
+      });
+      if (adminScope) return adminScope.userId;
+    }
+  }
+
+  // Fallback: any admin/superadmin for the operator
+  const admin = await prisma.user.findFirst({
+    where: { operatorId, role: { in: ["superadmin", "admin"] } },
+    select: { id: true },
+  });
+  // There's always at least the operator creator as superadmin
+  return admin!.id;
 }
 
 function mapActionResult(capabilityName: string, result: unknown): StepOutput {

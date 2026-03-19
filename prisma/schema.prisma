@@ -782,6 +782,7 @@ model FollowUp {
   fallbackAction    String    // JSON: { type: "escalate" | "new_plan" | "notify" | "skip", ... }
   status            String    @default("watching") // watching, triggered, expired, cancelled
   triggerAt         DateTime?
+  reminderSent      Boolean   @default(false)
   createdAt         DateTime  @default(now())
   triggeredAt       DateTime?
 

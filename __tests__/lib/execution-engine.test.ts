@@ -13,7 +13,9 @@ vi.mock("@/lib/db", () => ({
     entity: { findUnique: vi.fn() },
     notificationPreference: { findUnique: vi.fn() },
     notification: { create: vi.fn() },
-    user: { findMany: vi.fn() },
+    user: { findMany: vi.fn(), findFirst: vi.fn() },
+    followUp: { create: vi.fn(), updateMany: vi.fn() },
+    userScope: { findMany: vi.fn(), findFirst: vi.fn() },
   },
 }));
 
@@ -65,6 +67,13 @@ beforeEach(() => {
   (prisma.notificationPreference.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ channel: "in_app" });
   (prisma.notification.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "n1" });
   (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  // Default: getDepartmentAdminId fallback
+  (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "admin1" });
+  (prisma.userScope.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  (prisma.userScope.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  // Default: followUp mocks
+  (prisma.followUp.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "fu1" });
+  (prisma.followUp.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
 });
 
 // ── createExecutionPlan ──────────────────────────────────────────────────────
@@ -371,6 +380,18 @@ describe("executeStep — human_task mode", () => {
     // Plan should NOT be advanced — no findFirst for next step
     expect(prisma.executionStep.findFirst).not.toHaveBeenCalled();
     expect(prisma.executionPlan.update).not.toHaveBeenCalled();
+
+    // FollowUp auto-created with 3 business day timeout
+    expect(prisma.followUp.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        operatorId: "op1",
+        executionStepId: "step3",
+        status: "watching",
+        reminderSent: false,
+        triggerCondition: expect.stringContaining('"type":"timeout"'),
+        fallbackAction: expect.stringContaining('"type":"escalate"'),
+      }),
+    });
   });
 });
 
@@ -535,6 +556,12 @@ describe("completeHumanStep", () => {
     expect(prisma.executionStep.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "step2" }, data: { status: "awaiting_approval" } }),
     );
+
+    // FollowUp cancelled
+    expect(prisma.followUp.updateMany).toHaveBeenCalledWith({
+      where: { executionStepId: "step1", status: "watching" },
+      data: { status: "cancelled" },
+    });
   });
 
   it("throws when wrong user tries to complete", async () => {

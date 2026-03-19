@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/db";
 
+// Notification types: delegation_received, delegation_completed, delegation_failed,
+// system_alert, step_ready, follow_up_reminder, follow_up_triggered
+
 type SendNotificationParams = {
   operatorId: string;
   userId: string;
