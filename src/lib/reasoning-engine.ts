@@ -4,7 +4,8 @@ import { assembleSituationContext } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import { buildReasoningSystemPrompt, buildReasoningUserPrompt, type ReasoningInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
-import { executeSituationAction } from "@/lib/situation-executor";
+import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -224,20 +225,51 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       let reasoning = multiAgentResult.coordinatorReasoning;
 
       // Post-reasoning policy verification (same as single-pass)
-      if (reasoning.chosenAction) {
-        const chosenName = reasoning.chosenAction.action;
-        const isPermitted = policyResult.permitted.some((p) => p.name === chosenName);
-        const isBlocked = policyResult.blocked.some((b) => b.name === chosenName);
+      if (reasoning.actionPlan) {
+        const actionSteps = reasoning.actionPlan.filter(s => s.executionMode === "action");
+        for (const step of actionSteps) {
+          if (step.actionCapabilityName) {
+            const isPermitted = policyResult.permitted.some(p => p.name === step.actionCapabilityName);
+            const isBlocked = policyResult.blocked.some(b => b.name === step.actionCapabilityName);
+            if (!isPermitted || isBlocked) {
+              console.warn(`[reasoning-engine] AI proposed blocked action "${step.actionCapabilityName}" in plan for situation ${situationId}. Nullifying plan.`);
+              reasoning = {
+                ...reasoning,
+                actionPlan: null,
+                analysis: reasoning.analysis + `\n\n[SYSTEM: Plan nullified — step "${step.title}" uses blocked action "${step.actionCapabilityName}".]`,
+              };
+              break;
+            }
+          }
+        }
+      }
 
-        if (!isPermitted || isBlocked) {
-          console.warn(
-            `[reasoning-engine] Multi-agent proposed blocked/unpermitted action "${reasoning.chosenAction.action}" for situation ${situationId}. Overriding to null.`,
-          );
-          reasoning = {
-            ...reasoning,
-            chosenAction: null,
-            analysis: reasoning.analysis + "\n\n[SYSTEM: Proposed action was overridden — it violates governance policy.]",
-          };
+      // Resolve actionCapabilityName → actionCapabilityId for action steps
+      let resolvedSteps: StepDefinition[] | null = null;
+      if (reasoning.actionPlan) {
+        resolvedSteps = [];
+        for (const step of reasoning.actionPlan) {
+          let actionCapabilityId: string | undefined;
+          if (step.executionMode === "action" && step.actionCapabilityName) {
+            const cap = await prisma.actionCapability.findFirst({
+              where: { operatorId: situation.operatorId, name: step.actionCapabilityName, enabled: true },
+            });
+            if (!cap) {
+              console.warn(`[reasoning-engine] ActionCapability "${step.actionCapabilityName}" not found. Nullifying plan.`);
+              reasoning = { ...reasoning, actionPlan: null };
+              resolvedSteps = null;
+              break;
+            }
+            actionCapabilityId = cap.id;
+          }
+          resolvedSteps.push({
+            title: step.title,
+            description: step.description,
+            executionMode: step.executionMode,
+            actionCapabilityId,
+            assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
+            inputContext: step.params ? { params: step.params } : undefined,
+          });
         }
       }
 
@@ -252,38 +284,27 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         }),
       };
 
-      if (reasoning.chosenAction) {
-        updates.proposedAction = JSON.stringify(reasoning.chosenAction);
+      // Store proposedAction as the full plan for backward-compatible UI display
+      if (reasoning.actionPlan) {
+        updates.proposedAction = JSON.stringify(reasoning.actionPlan);
       }
 
-      // Advance status (same logic as single-pass)
-      const revised = situation.editInstruction ? " (Revised)" : "";
-      if (reasoning.chosenAction === null) {
+      // Advance status
+      if (reasoning.actionPlan === null || !resolvedSteps) {
         updates.status = "proposed";
-        await createNotification(
-          situation.operatorId,
-          situationId,
-          `Review needed${revised}: ${situation.situationType.name}`,
-          `AI analyzed the situation (multi-agent) but recommends no action. Please review the reasoning.`,
-        );
       } else if (effectiveAutonomy === "supervised") {
+        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+        updates.executionPlanId = planId;
         updates.status = "proposed";
-        await createNotification(
-          situation.operatorId,
-          situationId,
-          `Action proposed${revised}: ${situation.situationType.name}`,
-          `AI proposes: ${reasoning.chosenAction.action} — ${reasoning.chosenAction.justification.slice(0, 100)}`,
-        );
       } else if (effectiveAutonomy === "notify") {
-        updates.status = "auto_executing";
-        await createNotification(
-          situation.operatorId,
-          situationId,
-          `Auto-executing${revised}: ${situation.situationType.name}`,
-          `AI is executing: ${reasoning.chosenAction.action}. Review and reverse if needed.`,
-        );
+        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+        updates.executionPlanId = planId;
+        updates.status = "executing";
       } else {
-        updates.status = "auto_executing";
+        // autonomous
+        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+        updates.executionPlanId = planId;
+        updates.status = "executing";
       }
 
       await prisma.situation.update({
@@ -291,10 +312,81 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         data: updates,
       });
 
-      if (updates.status === "auto_executing") {
-        executeSituationAction(situationId).catch((err) =>
-          console.error(`[reasoning-engine] Execution failed for ${situationId}:`, err),
-        );
+      // For notify/autonomous: auto-advance the first step
+      if (resolvedSteps && (effectiveAutonomy === "notify" || effectiveAutonomy === "autonomous")) {
+        const plan = await prisma.executionPlan.findFirst({
+          where: { id: updates.executionPlanId as string },
+          include: { steps: { orderBy: { sequenceOrder: "asc" }, take: 1 } },
+        });
+        if (plan?.steps[0]) {
+          const { advanceStep } = await import("@/lib/execution-engine");
+          advanceStep(plan.steps[0].id, "approve", "system").catch(err =>
+            console.error(`[reasoning-engine] Auto-advance failed for ${situationId}:`, err)
+          );
+        }
+      }
+
+      // Situation-level notifications
+      if (reasoning.actionPlan === null || !resolvedSteps) {
+        sendNotificationToAdmins({
+          operatorId: situation.operatorId,
+          type: "situation_proposed",
+          title: `Review needed: ${situation.situationType.name}`,
+          body: "AI analyzed the situation but recommends no action. Please review the reasoning.",
+          sourceType: "situation",
+          sourceId: situationId,
+        }).catch(() => {});
+      } else if (effectiveAutonomy === "supervised") {
+        sendNotificationToAdmins({
+          operatorId: situation.operatorId,
+          type: "situation_proposed",
+          title: `Plan proposed: ${situation.situationType.name}`,
+          body: `AI proposes a ${resolvedSteps.length}-step plan: ${resolvedSteps.map(s => s.title).join(" → ")}`,
+          sourceType: "situation",
+          sourceId: situationId,
+        }).catch(() => {});
+      } else if (effectiveAutonomy === "notify") {
+        sendNotificationToAdmins({
+          operatorId: situation.operatorId,
+          type: "situation_proposed",
+          title: `Auto-executing: ${situation.situationType.name}`,
+          body: `AI is executing a ${resolvedSteps.length}-step plan. Review and reverse if needed.`,
+          sourceType: "situation",
+          sourceId: situationId,
+        }).catch(() => {});
+      }
+      // autonomous: no notification (by design)
+
+      // Handle escalation
+      if (reasoning.escalation) {
+        const triggerEntity = situation.triggerEntityId
+          ? await prisma.entity.findUnique({ where: { id: situation.triggerEntityId }, select: { parentDepartmentId: true } })
+          : null;
+
+        if (triggerEntity?.parentDepartmentId) {
+          const deptAi = await prisma.entity.findFirst({
+            where: { ownerDepartmentId: triggerEntity.parentDepartmentId, operatorId: situation.operatorId },
+            select: { id: true },
+          });
+
+          const goal = await prisma.goal.findFirst({
+            where: { operatorId: situation.operatorId, departmentId: triggerEntity.parentDepartmentId, status: "active" },
+            orderBy: { priority: "asc" },
+          });
+
+          if (deptAi && goal) {
+            await prisma.initiative.create({
+              data: {
+                operatorId: situation.operatorId,
+                goalId: goal.id,
+                aiEntityId: deptAi.id,
+                status: "proposed",
+                rationale: reasoning.escalation.rationale,
+                impactAssessment: `Escalated from situation: ${situation.situationType?.name ?? situationId}`,
+              },
+            }).catch(err => console.error(`[reasoning-engine] Escalation initiative creation failed:`, err));
+          }
+        }
       }
 
       return; // multi-agent path complete
@@ -305,7 +397,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     let userPrompt = buildReasoningUserPrompt(reasoningInput);
 
     if (editInstructionText) {
-      userPrompt += `\n\nEDIT REQUEST:\n${editInstructionText}\n\nRevise your chosenAction to incorporate this feedback. Keep the same situation analysis but adjust the action parameters and justification accordingly.`;
+      userPrompt += `\n\nEDIT REQUEST:\n${editInstructionText}\n\nRevise your actionPlan to incorporate this feedback. Keep the same situation analysis but adjust the plan steps and justification accordingly.`;
     }
 
     if (priorFeedbackLines) {
@@ -372,65 +464,80 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }
 
     // 8b. Post-reasoning policy verification — catch LLM ignoring BLOCKED instructions
-    if (reasoning!.chosenAction) {
-      const chosenName = reasoning!.chosenAction.action;
-      const isPermitted = policyResult.permitted.some(
-        (p) => p.name === chosenName,
-      );
-      const isBlocked = policyResult.blocked.some(
-        (b) => b.name === chosenName,
-      );
-
-      if (!isPermitted || isBlocked) {
-        console.warn(
-          `[reasoning-engine] AI proposed blocked/unpermitted action "${reasoning.chosenAction.action}" for situation ${situationId}. Overriding to null.`,
-        );
-        reasoning = {
-          ...reasoning,
-          chosenAction: null,
-          analysis: reasoning.analysis + "\n\n[SYSTEM: Proposed action was overridden — it violates governance policy.]",
-        };
+    if (reasoning.actionPlan) {
+      const actionSteps = reasoning.actionPlan.filter(s => s.executionMode === "action");
+      for (const step of actionSteps) {
+        if (step.actionCapabilityName) {
+          const isPermitted = policyResult.permitted.some(p => p.name === step.actionCapabilityName);
+          const isBlocked = policyResult.blocked.some(b => b.name === step.actionCapabilityName);
+          if (!isPermitted || isBlocked) {
+            console.warn(`[reasoning-engine] AI proposed blocked action "${step.actionCapabilityName}" in plan for situation ${situationId}. Nullifying plan.`);
+            reasoning = {
+              ...reasoning,
+              actionPlan: null,
+              analysis: reasoning.analysis + `\n\n[SYSTEM: Plan nullified — step "${step.title}" uses blocked action "${step.actionCapabilityName}".]`,
+            };
+            break;
+          }
+        }
       }
     }
 
-    // 9. Store reasoning
+    // 9. Resolve actionCapabilityName → actionCapabilityId for action steps
+    let resolvedSteps: StepDefinition[] | null = null;
+    if (reasoning.actionPlan) {
+      resolvedSteps = [];
+      for (const step of reasoning.actionPlan) {
+        let actionCapabilityId: string | undefined;
+        if (step.executionMode === "action" && step.actionCapabilityName) {
+          const cap = await prisma.actionCapability.findFirst({
+            where: { operatorId: situation.operatorId, name: step.actionCapabilityName, enabled: true },
+          });
+          if (!cap) {
+            console.warn(`[reasoning-engine] ActionCapability "${step.actionCapabilityName}" not found. Nullifying plan.`);
+            reasoning = { ...reasoning, actionPlan: null };
+            resolvedSteps = null;
+            break;
+          }
+          actionCapabilityId = cap.id;
+        }
+        resolvedSteps.push({
+          title: step.title,
+          description: step.description,
+          executionMode: step.executionMode,
+          actionCapabilityId,
+          assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
+          inputContext: step.params ? { params: step.params } : undefined,
+        });
+      }
+    }
+
+    // 10. Store reasoning
     const updates: Record<string, unknown> = {
       reasoning: JSON.stringify(reasoning),
     };
 
-    if (reasoning.chosenAction) {
-      updates.proposedAction = JSON.stringify(reasoning.chosenAction);
+    // Store proposedAction as the full plan for backward-compatible UI display
+    if (reasoning.actionPlan) {
+      updates.proposedAction = JSON.stringify(reasoning.actionPlan);
     }
 
-    // 10. Advance status
-    const revised = situation.editInstruction ? " (Revised)" : "";
-    if (reasoning.chosenAction === null) {
+    // 11. Advance status
+    if (reasoning.actionPlan === null || !resolvedSteps) {
       updates.status = "proposed";
-      await createNotification(
-        situation.operatorId,
-        situationId,
-        `Review needed${revised}: ${situation.situationType.name}`,
-        `AI analyzed the situation but recommends no action. Please review the reasoning.`,
-      );
     } else if (effectiveAutonomy === "supervised") {
+      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+      updates.executionPlanId = planId;
       updates.status = "proposed";
-      await createNotification(
-        situation.operatorId,
-        situationId,
-        `Action proposed${revised}: ${situation.situationType.name}`,
-        `AI proposes: ${reasoning.chosenAction.action} — ${reasoning.chosenAction.justification.slice(0, 100)}`,
-      );
     } else if (effectiveAutonomy === "notify") {
-      updates.status = "auto_executing";
-      await createNotification(
-        situation.operatorId,
-        situationId,
-        `Auto-executing${revised}: ${situation.situationType.name}`,
-        `AI is executing: ${reasoning.chosenAction.action}. Review and reverse if needed.`,
-      );
+      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+      updates.executionPlanId = planId;
+      updates.status = "executing";
     } else {
       // autonomous
-      updates.status = "auto_executing";
+      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+      updates.executionPlanId = planId;
+      updates.status = "executing";
     }
 
     await prisma.situation.update({
@@ -438,11 +545,81 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       data: updates,
     });
 
-    // Day 14: fire-and-forget execution for auto_executing situations
-    if (updates.status === "auto_executing") {
-      executeSituationAction(situationId).catch((err) =>
-        console.error(`[reasoning-engine] Execution failed for ${situationId}:`, err),
-      );
+    // For notify/autonomous: auto-advance the first step
+    if (resolvedSteps && (effectiveAutonomy === "notify" || effectiveAutonomy === "autonomous")) {
+      const plan = await prisma.executionPlan.findFirst({
+        where: { id: updates.executionPlanId as string },
+        include: { steps: { orderBy: { sequenceOrder: "asc" }, take: 1 } },
+      });
+      if (plan?.steps[0]) {
+        const { advanceStep } = await import("@/lib/execution-engine");
+        advanceStep(plan.steps[0].id, "approve", "system").catch(err =>
+          console.error(`[reasoning-engine] Auto-advance failed for ${situationId}:`, err)
+        );
+      }
+    }
+
+    // Situation-level notifications
+    if (reasoning.actionPlan === null || !resolvedSteps) {
+      sendNotificationToAdmins({
+        operatorId: situation.operatorId,
+        type: "situation_proposed",
+        title: `Review needed: ${situation.situationType.name}`,
+        body: "AI analyzed the situation but recommends no action. Please review the reasoning.",
+        sourceType: "situation",
+        sourceId: situationId,
+      }).catch(() => {});
+    } else if (effectiveAutonomy === "supervised") {
+      sendNotificationToAdmins({
+        operatorId: situation.operatorId,
+        type: "situation_proposed",
+        title: `Plan proposed: ${situation.situationType.name}`,
+        body: `AI proposes a ${resolvedSteps.length}-step plan: ${resolvedSteps.map(s => s.title).join(" → ")}`,
+        sourceType: "situation",
+        sourceId: situationId,
+      }).catch(() => {});
+    } else if (effectiveAutonomy === "notify") {
+      sendNotificationToAdmins({
+        operatorId: situation.operatorId,
+        type: "situation_proposed",
+        title: `Auto-executing: ${situation.situationType.name}`,
+        body: `AI is executing a ${resolvedSteps.length}-step plan. Review and reverse if needed.`,
+        sourceType: "situation",
+        sourceId: situationId,
+      }).catch(() => {});
+    }
+    // autonomous: no notification (by design)
+
+    // Handle escalation
+    if (reasoning.escalation) {
+      const triggerEntity = situation.triggerEntityId
+        ? await prisma.entity.findUnique({ where: { id: situation.triggerEntityId }, select: { parentDepartmentId: true } })
+        : null;
+
+      if (triggerEntity?.parentDepartmentId) {
+        const deptAi = await prisma.entity.findFirst({
+          where: { ownerDepartmentId: triggerEntity.parentDepartmentId, operatorId: situation.operatorId },
+          select: { id: true },
+        });
+
+        const goal = await prisma.goal.findFirst({
+          where: { operatorId: situation.operatorId, departmentId: triggerEntity.parentDepartmentId, status: "active" },
+          orderBy: { priority: "asc" },
+        });
+
+        if (deptAi && goal) {
+          await prisma.initiative.create({
+            data: {
+              operatorId: situation.operatorId,
+              goalId: goal.id,
+              aiEntityId: deptAi.id,
+              status: "proposed",
+              rationale: reasoning.escalation.rationale,
+              impactAssessment: `Escalated from situation: ${situation.situationType?.name ?? situationId}`,
+            },
+          }).catch(err => console.error(`[reasoning-engine] Escalation initiative creation failed:`, err));
+        }
+      }
     }
 
   } catch (err) {
@@ -456,23 +633,6 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function createNotification(
-  operatorId: string,
-  situationId: string,
-  title: string,
-  body: string,
-): Promise<void> {
-  await prisma.notification.create({
-    data: {
-      operatorId,
-      title,
-      body,
-      sourceType: "situation",
-      sourceId: situationId,
-    },
-  }).catch(() => {});
-}
 
 async function enrichPriorSituations(
   priors: Array<{ id: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>,

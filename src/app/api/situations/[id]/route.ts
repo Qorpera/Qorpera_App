@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
-import { executeSituationAction } from "@/lib/situation-executor";
+import { advanceStep } from "@/lib/execution-engine";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(
@@ -270,11 +270,34 @@ export async function PATCH(
     data: updates,
   });
 
-  // Fire-and-forget execution AFTER status + assignedUserId are persisted
+  // Route approval through execution plan
   if (body.status === "approved") {
-    executeSituationAction(id).catch((err) =>
-      console.error(`[situation-patch] Execution failed for ${id}:`, err),
-    );
+    const situationWithPlan = await prisma.situation.findUnique({
+      where: { id },
+      select: { executionPlanId: true },
+    });
+
+    if (situationWithPlan?.executionPlanId) {
+      const nextStep = await prisma.executionStep.findFirst({
+        where: { planId: situationWithPlan.executionPlanId, status: "awaiting_approval" },
+        orderBy: { sequenceOrder: "asc" },
+      });
+      if (nextStep) {
+        // Update assignedUserId on all action steps that don't have one
+        await prisma.executionStep.updateMany({
+          where: {
+            planId: situationWithPlan.executionPlanId,
+            executionMode: "action",
+            assignedUserId: null,
+          },
+          data: { assignedUserId: user.id },
+        });
+
+        advanceStep(nextStep.id, "approve", user.id).catch(err =>
+          console.error(`[situation-patch] Step advance failed for ${id}:`, err),
+        );
+      }
+    }
   }
 
   return NextResponse.json({ id: updated.id, status: updated.status });

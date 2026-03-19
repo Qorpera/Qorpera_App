@@ -59,12 +59,13 @@ const validCoordinatorResponse = JSON.stringify({
     evidenceAgainst: ["No communication data to confirm relationship health"],
     expectedOutcome: "Re-engage customer",
   }],
-  chosenAction: {
-    action: "send_email",
-    connector: "google",
+  actionPlan: [{
+    title: "Send follow-up email",
+    description: "Send a follow-up email to re-engage Acme Corp based on financial indicators.",
+    executionMode: "action",
+    actionCapabilityName: "send_email",
     params: { to: "acme@example.com", subject: "Follow up", body: "Hello..." },
-    justification: "Financial analyst identified upsell potential and all specialists agree on outreach.",
-  },
+  }],
   confidence: 0.75,
   missingContext: ["Communication history would improve confidence"],
 });
@@ -128,12 +129,13 @@ describe("ReasoningOutputSchema validation", () => {
           expectedOutcome: "Re-engage the customer relationship",
         },
       ],
-      chosenAction: {
-        action: "send_email",
-        connector: "google",
+      actionPlan: [{
+        title: "Send check-in email",
+        description: "Re-engage the customer with a check-in email.",
+        executionMode: "action",
+        actionCapabilityName: "send_email",
         params: { to: "client@example.com", subject: "Checking in", body: "Hi..." },
-        justification: "Email volume dropped 60% and no meetings in 14 days justify a check-in.",
-      },
+      }],
       confidence: 0.85,
       missingContext: null,
     };
@@ -141,12 +143,12 @@ describe("ReasoningOutputSchema validation", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts null chosenAction", () => {
+  it("accepts null actionPlan", () => {
     const valid = {
       analysis: "Insufficient evidence to act.",
       evidenceSummary: "No financial data, no communication history.",
       consideredActions: [],
-      chosenAction: null,
+      actionPlan: null,
       confidence: 0.3,
       missingContext: ["Need email history", "Need invoice data"],
     };
@@ -159,7 +161,7 @@ describe("ReasoningOutputSchema validation", () => {
       analysis: "Short",
       evidenceSummary: "Short but ok at exactly 10",
       consideredActions: [],
-      chosenAction: null,
+      actionPlan: null,
       confidence: 0.5,
       missingContext: null,
     };
@@ -172,7 +174,7 @@ describe("ReasoningOutputSchema validation", () => {
       analysis: "Valid analysis text here.",
       evidenceSummary: "Valid evidence summary here.",
       consideredActions: [],
-      chosenAction: null,
+      actionPlan: null,
       confidence: 1.5,
       missingContext: null,
     };
@@ -195,7 +197,7 @@ describe("runMultiAgentReasoning — specialist execution", () => {
 
     expect(mockCallLLM).toHaveBeenCalledTimes(4);
     expect(result.findings).toHaveLength(3);
-    expect(result.coordinatorReasoning.chosenAction).not.toBeNull();
+    expect(result.coordinatorReasoning.actionPlan).not.toBeNull();
     expect(result.routingReason).toContain("15000");
   });
 
@@ -251,7 +253,7 @@ describe("runMultiAgentReasoning — specialist execution", () => {
 
     expect(mockCallLLM).toHaveBeenCalledTimes(5);
     expect(result.coordinatorReasoning.confidence).toBe(0);
-    expect(result.coordinatorReasoning.chosenAction).toBeNull();
+    expect(result.coordinatorReasoning.actionPlan).toBeNull();
     expect(result.coordinatorReasoning.analysis).toContain("failed");
   });
 });

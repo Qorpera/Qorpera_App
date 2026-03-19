@@ -76,7 +76,7 @@ You reason and act ONLY from the evidence provided below. You do not guess, assu
 - Outcomes of prior similar situations
 - Human feedback on previous decisions
 
-If you cannot justify an action through the provided evidence, you MUST set chosenAction to null and explain what information is missing in the missingContext field. An unjustified action is worse than no action.
+If you cannot justify an action through the provided evidence, you MUST set actionPlan to null and explain what information is missing in the missingContext field. An unjustified action is worse than no action.
 
 GOVERNANCE POLICIES ARE HARD BLOCKERS:
 - BLOCKED actions are forbidden. Do not consider them under any circumstances.
@@ -87,8 +87,8 @@ REASONING PROCESS:
 1. Analyze the situation using ONLY the evidence provided
 2. Consider which permitted actions address the situation
 3. For each potential action, identify the specific evidence that justifies it
-4. If evidence supports an action AND the action is within policy → propose it
-5. If evidence is insufficient → set chosenAction to null and flag missingContext
+4. If evidence supports an action AND the action is within policy → propose it in actionPlan
+5. If evidence is insufficient → set actionPlan to null and flag missingContext
 6. Cite your evidence: reference specific entity properties, document excerpts, event data, or prior outcomes
 
 OUTPUT FORMAT:
@@ -104,91 +104,33 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       "expectedOutcome": "what would happen based on prior outcomes or business context"
     }
   ],
-  "chosenAction": {
-    "action": "action name (must match a permitted action)",
-    "connector": "connector name",
-    "params": { "param1": "value1" },
-    "justification": "string — MUST cite specific evidence from context"
-  } or null,
+  "actionPlan": [
+    {
+      "title": "short step title",
+      "description": "what this step should accomplish",
+      "executionMode": "action | generate | human_task",
+      "actionCapabilityName": "action name (for action mode, must match a permitted action)",
+      "params": { "param1": "value1" }
+    }
+  ] or null,
   "confidence": 0.0 to 1.0,
   "missingContext": ["specific information that would improve this decision"] or null,
-  "draftPayloads": [
-    // One entry per action to execute. See DRAFT PAYLOADS section for schema per action type.
-  ]
+  "escalation": {
+    "rationale": "why this needs strategic attention beyond the immediate response",
+    "suggestedSteps": [same step format as actionPlan]
+  } or null
 }
 
 CRITICAL RULES:
-- "chosenAction" MUST reference a PERMITTED action, or be null.
-- "justification" MUST reference specific evidence from the provided context — not general reasoning.
-- If no evidence supports any action, chosenAction MUST be null. This is the correct, safe response.
-- "consideredActions" should still list what was evaluated even when chosenAction is null.
-- "evidenceSummary" should list the 3-5 most important facts driving your decision.
-
-## DRAFT PAYLOADS
-
-After determining your proposed action, you MUST generate the actual draft content that would be sent or created. This goes in the \`draftPayloads\` array.
-
-For each action in your proposal, produce a complete draft payload:
-
-### Email actions (send_email, reply_to_thread)
-{
-  "actionType": "send_email" or "reply_to_thread",
-  "provider": "gmail" or "outlook" (based on which connector the user has),
-  "payload": {
-    "to": "recipient@email.com",
-    "cc": "optional@email.com",
-    "subject": "Clear, specific subject line",
-    "body": "The complete email text. Write this as a real email the human would send — appropriate tone, specific details from context, proper sign-off. Reference specific amounts, dates, names from the evidence."
-  }
-}
-
-### Slack/Teams message actions (send_slack_message, send_teams_message)
-{
-  "actionType": "send_slack_message" or "send_teams_message",
-  "provider": "slack" or "teams",
-  "payload": {
-    "channel": "#channel-name",
-    "message": "The complete message text. Use @mentions where appropriate."
-  }
-}
-
-### Document creation (create_document, append_to_document)
-{
-  "actionType": "create_document",
-  "provider": "google_drive" or "onedrive",
-  "payload": {
-    "title": "Document title",
-    "content": "The full document text."
-  }
-}
-
-### Spreadsheet creation (create_spreadsheet, update_spreadsheet_cells)
-{
-  "actionType": "create_spreadsheet",
-  "provider": "google_drive" or "onedrive",
-  "payload": {
-    "title": "Spreadsheet title"
-  },
-  "attachments": [{
-    "type": "spreadsheet",
-    "title": "Sheet name",
-    "data": {
-      "format": "spreadsheet",
-      "headers": ["Column A", "Column B"],
-      "rows": [["value1", 100], ["value2", 200]]
-    }
-  }]
-}
-
-### Compound actions
-If the proposed action involves multiple steps (e.g., send an email with a report attached), produce multiple entries in draftPayloads — one for the email, one for the attachment. The email payload should reference the attachment by title.
-
-CRITICAL RULES for drafting:
-- Use SPECIFIC details from the context: exact amounts, dates, names, invoice numbers, etc.
-- Match the tone to the situation urgency and the relationship context.
-- The draft must be ready to send as-is — the human should only need to review and approve, not rewrite.
-- If you cannot draft specific content because the context is insufficient, set the payload fields to descriptive placeholders and note the gap in your reasoning evidenceSummary.
-- The draftPayloads array can be empty ONLY if the proposed action doesn't involve sending or creating content (e.g., "flag for manual review" or "no action needed").`;
+- "actionPlan" is an ordered array of steps, or null if no action is warranted.
+- A single action is a one-element array. Multi-step plans have multiple elements.
+- Each step with executionMode "action" MUST reference a PERMITTED action via "actionCapabilityName".
+- Steps with executionMode "generate" produce LLM-generated content (drafts, analysis, summaries).
+- Steps with executionMode "human_task" assign work to a human (phone calls, meetings, physical tasks).
+- If no evidence supports any action, actionPlan MUST be null. This is the correct, safe response.
+- "escalation" is for situations that need strategic initiative beyond the immediate response. It creates a draft proposal for leadership review. Most situations do NOT need escalation.
+- "consideredActions" should still list what was evaluated even when actionPlan is null.
+- "evidenceSummary" should list the 3-5 most important facts driving your decision.`;
 }
 
 // ── User Prompt ──────────────────────────────────────────────────────────────
@@ -373,7 +315,7 @@ ${propsStr || "  (no properties)"}`);
       .join("\n");
     sections.push(`PERMITTED ACTIONS:\n${actionsStr}`);
   } else {
-    sections.push("PERMITTED ACTIONS:\nNo actions are currently available. Set chosenAction to null and explain this constraint.");
+    sections.push("PERMITTED ACTIONS:\nNo actions are currently available. Set actionPlan to null and explain this constraint.");
   }
 
   // BLOCKED ACTIONS

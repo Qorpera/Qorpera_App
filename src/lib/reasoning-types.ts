@@ -1,27 +1,12 @@
 import { z } from "zod";
 
-export const DraftAttachmentSchema = z.object({
-  type: z.enum(["spreadsheet", "document"]),
+const ActionStepSchema = z.object({
   title: z.string(),
-  description: z.string().optional(),
-  data: z.union([
-    z.object({
-      format: z.literal("spreadsheet"),
-      headers: z.array(z.string()),
-      rows: z.array(z.array(z.union([z.string(), z.number(), z.null()]))),
-    }),
-    z.object({
-      format: z.literal("document"),
-      content: z.string(),
-    }),
-  ]),
-});
-
-export const DraftPayloadSchema = z.object({
-  actionType: z.string(),
-  provider: z.enum(["gmail", "outlook", "slack", "teams", "google_drive", "onedrive"]).optional(),
-  payload: z.record(z.unknown()),
-  attachments: z.array(DraftAttachmentSchema).optional(),
+  description: z.string(),
+  executionMode: z.enum(["action", "generate", "human_task"]),
+  actionCapabilityName: z.string().optional(),  // matches ActionCapability.name
+  assignedUserId: z.string().optional(),
+  params: z.record(z.any()).optional(),
 });
 
 export const ReasoningOutputSchema = z.object({
@@ -33,17 +18,14 @@ export const ReasoningOutputSchema = z.object({
     evidenceAgainst: z.array(z.string()),
     expectedOutcome: z.string(),
   })),
-  chosenAction: z.object({
-    action: z.string(),
-    connector: z.string(),
-    params: z.record(z.any()),
-    justification: z.string().min(10),
-  }).nullable(),
+  actionPlan: z.array(ActionStepSchema).nullable(),  // null = no action, array = ordered steps (can be length 1)
   confidence: z.number().min(0).max(1),
   missingContext: z.array(z.string()).nullable(),
-  draftPayloads: z.array(DraftPayloadSchema).optional().default([]),
+  escalation: z.object({
+    rationale: z.string(),
+    suggestedSteps: z.array(ActionStepSchema),
+  }).nullable().optional(),  // null/absent = no escalation
 });
 
 export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;
-export type DraftPayload = z.infer<typeof DraftPayloadSchema>;
-export type DraftAttachment = z.infer<typeof DraftAttachmentSchema>;
+export type ActionStep = z.infer<typeof ActionStepSchema>;

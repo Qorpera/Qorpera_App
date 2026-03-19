@@ -20,6 +20,11 @@ export async function GET(req: NextRequest) {
   // Build where clause
   const where: Record<string, unknown> = { operatorId, ...situationScopeFilter(visibleDepts) };
 
+  // Members only see their own assigned situations
+  if (user.role === "member") {
+    where.assignedUserId = user.id;
+  }
+
   if (statusParam) {
     const statuses = statusParam.split(",").map((s) => s.trim());
     where.status = { in: statuses };

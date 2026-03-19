@@ -159,6 +159,21 @@ async function executeActionStep(
     throw new Error("ActionCapability not found or disabled");
   }
 
+  // Internal capability (no connector) — execute directly
+  if (!capability.connectorId) {
+    const { executeInternalCapability } = await import("@/lib/internal-capabilities");
+    const output = await executeInternalCapability(capability.name, step.inputContext, step.plan.operatorId);
+    await prisma.executionStep.update({
+      where: { id: step.id },
+      data: {
+        status: "completed",
+        executedAt: new Date(),
+        outputResult: JSON.stringify(output),
+      },
+    });
+    return;
+  }
+
   // Governance check
   if (step.plan.sourceType === "situation") {
     const situation = await prisma.situation.findUnique({
@@ -431,6 +446,73 @@ export async function completeHumanStep(
   });
 
   await advancePlanAfterStep(stepId, step.planId, step.sequenceOrder, step.plan.operatorId);
+}
+
+// ── Plan Amendment ────────────────────────────────────────────────────────
+
+export type PlanAmendment = {
+  stepSequenceOrder: number;
+  newDescription: string;
+  newTitle?: string;
+};
+
+export async function amendExecutionPlan(
+  planId: string,
+  amendments: PlanAmendment[],
+): Promise<void> {
+  const plan = await prisma.executionPlan.findUnique({
+    where: { id: planId },
+    include: { steps: { orderBy: { sequenceOrder: "asc" } } },
+  });
+
+  if (!plan) throw new Error("Plan not found");
+  if (!["executing", "approved", "pending", "amended"].includes(plan.status)) {
+    throw new Error(`Cannot amend plan in status "${plan.status}"`);
+  }
+
+  const amendedStepTitles: string[] = [];
+
+  for (const amendment of amendments) {
+    const step = plan.steps.find(s => s.sequenceOrder === amendment.stepSequenceOrder);
+    if (!step) {
+      throw new Error(`Step with sequenceOrder ${amendment.stepSequenceOrder} not found`);
+    }
+    if (!["pending", "awaiting_approval"].includes(step.status)) {
+      throw new Error(`Cannot amend step "${step.title}" — status is "${step.status}"`);
+    }
+
+    const updates: Record<string, unknown> = {
+      description: amendment.newDescription,
+    };
+    if (amendment.newTitle) {
+      updates.title = amendment.newTitle;
+    }
+    // Preserve original description only if not already set
+    if (!step.originalDescription) {
+      updates.originalDescription = step.description;
+    }
+
+    await prisma.executionStep.update({
+      where: { id: step.id },
+      data: updates,
+    });
+
+    amendedStepTitles.push(amendment.newTitle ?? step.title);
+  }
+
+  await prisma.executionPlan.update({
+    where: { id: planId },
+    data: { status: "amended" },
+  });
+
+  await sendNotificationToAdmins({
+    operatorId: plan.operatorId,
+    type: "system_alert",
+    title: "Plan amended",
+    body: `Steps amended: ${amendedStepTitles.join(", ")}`,
+    sourceType: "execution",
+    sourceId: planId,
+  });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

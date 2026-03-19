@@ -204,7 +204,7 @@ function formatPermittedActions(input: ReasoningInput): string {
       .join("\n");
     return `PERMITTED ACTIONS:\n${actionsStr}`;
   }
-  return "PERMITTED ACTIONS:\nNo actions are currently available. Set chosenAction to null and explain this constraint.";
+  return "PERMITTED ACTIONS:\nNo actions are currently available. Set actionPlan to null and explain this constraint.";
 }
 
 function formatBlockedActions(input: ReasoningInput): string {
@@ -452,75 +452,32 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       "expectedOutcome": "what would happen based on prior outcomes or business context"
     }
   ],
-  "chosenAction": {
-    "action": "action name (must match a permitted action)",
-    "connector": "connector name",
-    "params": { "param1": "value1" },
-    "justification": "string — MUST cite which specialist's findings support the decision"
-  } or null,
+  "actionPlan": [
+    {
+      "title": "short step title",
+      "description": "what this step should accomplish",
+      "executionMode": "action | generate | human_task",
+      "actionCapabilityName": "action name (for action mode, must match a permitted action)",
+      "params": { "param1": "value1" }
+    }
+  ] or null,
   "confidence": 0.0 to 1.0,
   "missingContext": ["specific information that would improve this decision"] or null,
-  "draftPayloads": [
-    // One entry per action to execute. See DRAFT PAYLOADS section for schema per action type.
-  ]
+  "escalation": {
+    "rationale": "why this needs strategic attention beyond the immediate response",
+    "suggestedSteps": [same step format as actionPlan]
+  } or null
 }
 
-CRITICAL: chosenAction MUST reference a PERMITTED action or be null. Cite which specialist's findings support the decision.
-
-## DRAFT PAYLOADS
-
-After determining your proposed action, you MUST generate the actual draft content that would be sent or created. This goes in the \`draftPayloads\` array.
-
-For each action in your proposal, produce a complete draft payload:
-
-### Email actions (send_email, reply_to_thread)
-{
-  "actionType": "send_email" or "reply_to_thread",
-  "provider": "gmail" or "outlook" (based on connected tools),
-  "payload": {
-    "to": "recipient@email.com",
-    "cc": "optional@email.com",
-    "subject": "Clear, specific subject line",
-    "body": "The complete email text. Write this as a real email — appropriate tone, specific details from specialist findings, proper sign-off."
-  }
-}
-
-### Slack/Teams message actions (send_slack_message, send_teams_message)
-{
-  "actionType": "send_slack_message" or "send_teams_message",
-  "provider": "slack" or "teams",
-  "payload": {
-    "channel": "#channel-name",
-    "message": "The complete message text."
-  }
-}
-
-### Document creation (create_document, append_to_document)
-{
-  "actionType": "create_document",
-  "provider": "google_drive" or "onedrive",
-  "payload": {
-    "title": "Document title",
-    "content": "The full document text."
-  }
-}
-
-### Spreadsheet creation (create_spreadsheet, update_spreadsheet_cells)
-{
-  "actionType": "create_spreadsheet",
-  "provider": "google_drive" or "onedrive",
-  "payload": { "title": "Spreadsheet title" },
-  "attachments": [{
-    "type": "spreadsheet",
-    "title": "Sheet name",
-    "data": { "format": "spreadsheet", "headers": ["Column A", "Column B"], "rows": [["value1", 100]] }
-  }]
-}
-
-CRITICAL RULES for drafting:
-- Use SPECIFIC details from the specialist findings: exact amounts, dates, names, invoice numbers.
-- The draft must be ready to send as-is.
-- The draftPayloads array can be empty ONLY if the proposed action doesn't involve sending or creating content.`;
+CRITICAL RULES:
+- "actionPlan" is an ordered array of steps, or null if no action is warranted.
+- A single action is a one-element array. Multi-step plans have multiple elements.
+- Each step with executionMode "action" MUST reference a PERMITTED action via "actionCapabilityName".
+- Steps with executionMode "generate" produce LLM-generated content (drafts, analysis, summaries).
+- Steps with executionMode "human_task" assign work to a human (phone calls, meetings, physical tasks).
+- If no evidence supports any action, actionPlan MUST be null. This is the correct, safe response.
+- "escalation" is for situations that need strategic initiative beyond the immediate response. Most situations do NOT need escalation.
+- Cite which specialist's findings support the decision.`;
 
   // Build user prompt with specialist findings
   const findingSections = findings.map((f) => {
@@ -561,7 +518,7 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
   let userPrompt = userSections.join("\n\n");
 
   if (editInstruction) {
-    userPrompt += `\n\nEDIT REQUEST:\n${editInstruction}\n\nRevise your chosenAction to incorporate this feedback while considering the specialist findings.`;
+    userPrompt += `\n\nEDIT REQUEST:\n${editInstruction}\n\nRevise your actionPlan to incorporate this feedback while considering the specialist findings.`;
   }
 
   if (priorFeedbackLines && priorFeedbackLines.length > 0) {
@@ -613,10 +570,9 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
     analysis: `Multi-agent coordinator failed to produce valid output. Raw: ${rawResponse.slice(0, 500)}`,
     evidenceSummary: "Coordinator synthesis failed — specialist findings were collected but could not be synthesized.",
     consideredActions: [],
-    chosenAction: null,
+    actionPlan: null,
     confidence: 0,
     missingContext: ["Coordinator synthesis failed — manual review required"],
-    draftPayloads: [],
   };
 }
 

@@ -831,7 +831,7 @@ export async function POST(req: NextRequest) {
                 assert(assertions, "confidence between 0 and 1", reasoning.confidence >= 0 && reasoning.confidence <= 1, `confidence=${reasoning.confidence}`);
 
                 data.summary = reasoning.analysis?.slice(0, 200);
-                data.chosenAction = reasoning.chosenAction?.action ?? null;
+                data.chosenAction = reasoning.actionPlan?.[0]?.actionCapabilityName ?? null;
                 data.confidence = reasoning.confidence;
                 data.consideredActionsCount = reasoning.consideredActions?.length ?? 0;
               }

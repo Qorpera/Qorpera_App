@@ -11,6 +11,7 @@
 
 import { prisma } from "../src/lib/db";
 import { ensureHqAi, ensureDepartmentAi, seedNotificationPreferences } from "../src/lib/ai-entity-helpers";
+import { ensureInternalCapabilities } from "../src/lib/internal-capabilities";
 
 async function main() {
   let hqAiCount = 0;
@@ -55,8 +56,15 @@ async function main() {
     notifPrefCount++;
   }
 
+  // 4. Ensure internal capabilities for each operator
+  let internalCapCount = 0;
+  for (const op of operators) {
+    await ensureInternalCapabilities(op.id);
+    internalCapCount++;
+  }
+
   console.log(
-    `Created ${hqAiCount} HQ AIs, ${deptAiCount} department AIs, ${notifPrefCount} notification preference sets`,
+    `Created ${hqAiCount} HQ AIs, ${deptAiCount} department AIs, ${notifPrefCount} notification preference sets, bootstrapped internal capabilities for ${internalCapCount} operators`,
   );
 }
 
