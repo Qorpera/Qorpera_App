@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { sendNotification, sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { isWithinOneBusinessDay } from "@/lib/business-days";
-import { advanceStep, createExecutionPlan } from "@/lib/execution-engine";
+import { advancePlanAfterStep, createExecutionPlan } from "@/lib/execution-engine";
 import type { StepDefinition } from "@/lib/execution-engine";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -87,11 +87,12 @@ async function processTimeout(
   const now = new Date();
 
   if (followUp.triggerAt && followUp.triggerAt <= now) {
-    // Deadline passed — trigger fallback
-    await prisma.followUp.update({
-      where: { id: followUp.id },
+    // Deadline passed — trigger fallback (guard against race with completeHumanStep)
+    const updated = await prisma.followUp.updateMany({
+      where: { id: followUp.id, status: "watching" },
       data: { status: "triggered", triggeredAt: now },
     });
+    if (updated.count === 0) return; // Already cancelled by completeHumanStep
     await executeFallbackAction(followUp);
     result.triggered++;
     return;
@@ -116,8 +117,8 @@ async function processTimeout(
         linkUrl: "/situations",
       });
     }
-    await prisma.followUp.update({
-      where: { id: followUp.id },
+    await prisma.followUp.updateMany({
+      where: { id: followUp.id, status: "watching" },
       data: { reminderSent: true },
     });
     result.reminders++;
@@ -141,11 +142,11 @@ async function processResponseReceived(
 
   if (signals) {
     // Response received — condition satisfied, no fallback needed
-    await prisma.followUp.update({
-      where: { id: followUp.id },
+    const updated = await prisma.followUp.updateMany({
+      where: { id: followUp.id, status: "watching" },
       data: { status: "cancelled", triggeredAt: new Date() },
     });
-    result.triggered++;
+    if (updated.count > 0) result.triggered++;
   }
   // else: continue watching
 }
@@ -176,10 +177,11 @@ async function processPropertyChange(
   });
 
   if (propValue && propValue.value === String(condition.expectedValue)) {
-    await prisma.followUp.update({
-      where: { id: followUp.id },
+    const updated = await prisma.followUp.updateMany({
+      where: { id: followUp.id, status: "watching" },
       data: { status: "triggered", triggeredAt: new Date() },
     });
+    if (updated.count === 0) return; // Already cancelled
     await executeFallbackAction(followUp);
     result.triggered++;
   }
@@ -226,14 +228,17 @@ async function executeFallbackAction(followUp: FollowUpWithStep): Promise<void> 
         break;
       }
       case "skip_step": {
-        // Find a system admin user ID for the advance operation
-        const admin = await prisma.user.findFirst({
-          where: { operatorId, role: { in: ["superadmin", "admin"] } },
-          select: { id: true },
+        // Directly skip — advanceStep requires "awaiting_approval" but human_task steps are "executing"
+        await prisma.executionStep.update({
+          where: { id: followUp.executionStepId },
+          data: { status: "skipped" },
         });
-        if (admin) {
-          await advanceStep(followUp.executionStepId, "skip", admin.id);
-        }
+        await advancePlanAfterStep(
+          followUp.executionStepId,
+          followUp.executionStep.planId,
+          followUp.executionStep.sequenceOrder,
+          operatorId,
+        );
         break;
       }
       case "create_plan": {
@@ -276,6 +281,7 @@ type FollowUpWithStep = {
   executionStep: {
     id: string;
     planId: string;
+    sequenceOrder: number;
     title: string;
     description: string;
     status: string;

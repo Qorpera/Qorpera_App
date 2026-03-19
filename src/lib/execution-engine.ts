@@ -356,7 +356,7 @@ async function executeGenerateStep(
 
 // ── Plan Advancement ─────────────────────────────────────────────────────────
 
-async function advancePlanAfterStep(
+export async function advancePlanAfterStep(
   stepId: string,
   planId: string,
   currentSequenceOrder: number,
