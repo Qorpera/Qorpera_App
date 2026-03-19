@@ -1,24 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import {
   computeSinglePlanPriority,
   computePlanPriorityWithBreakdown,
 } from "@/lib/prioritization-engine";
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ planId: string }> },
-) {
-  const su = await getSessionUser();
-  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { operatorId } = su;
-  const { planId } = await params;
-
+async function checkPlanVisibility(
+  planId: string,
+  operatorId: string,
+  userId: string,
+): Promise<{ id: string; sourceType: string; sourceId: string; priorityScore: number | null; priorityOverride: { overrideType: string; snoozeUntil: Date | null } | null } | null> {
   const plan = await prisma.executionPlan.findFirst({
     where: { id: planId, operatorId },
     select: {
       id: true,
+      sourceType: true,
+      sourceId: true,
       priorityScore: true,
       priorityOverride: {
         select: { overrideType: true, snoozeUntil: true },
@@ -26,6 +25,44 @@ export async function GET(
     },
   });
 
+  if (!plan) return null;
+
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
+  if (visibleDepts === "all") return plan;
+
+  // Member visibility check based on source department
+  if (plan.sourceType === "situation") {
+    const situation = await prisma.situation.findUnique({
+      where: { id: plan.sourceId },
+      select: { situationType: { select: { scopeEntityId: true } } },
+    });
+    // Unscoped situation types are visible to all
+    if (situation && situation.situationType.scopeEntityId !== null) {
+      if (!visibleDepts.includes(situation.situationType.scopeEntityId)) return null;
+    }
+  } else if (plan.sourceType === "initiative") {
+    const initiative = await prisma.initiative.findUnique({
+      where: { id: plan.sourceId },
+      select: { goal: { select: { departmentId: true } } },
+    });
+    // HQ-level goals (null department) not visible to members
+    if (!initiative?.goal?.departmentId) return null;
+    if (!visibleDepts.includes(initiative.goal.departmentId)) return null;
+  }
+
+  return plan;
+}
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ planId: string }> },
+) {
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { user, operatorId } = su;
+  const { planId } = await params;
+
+  const plan = await checkPlanVisibility(planId, operatorId, user.id);
   if (!plan) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const result = await computePlanPriorityWithBreakdown(planId);

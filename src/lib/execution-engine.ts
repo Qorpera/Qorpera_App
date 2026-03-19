@@ -475,8 +475,10 @@ export async function advanceStep(
     await advancePlanAfterStep(stepId, step.planId, step.sequenceOrder, step.plan.operatorId);
   }
 
-  // Rescore priority after status change (fire-and-forget)
-  scorePlanOnCreate(step.planId).catch(console.error);
+  // Only rescore if the plan is still active (not rejected/failed)
+  if (action !== "reject") {
+    scorePlanOnCreate(step.planId).catch(console.error);
+  }
 }
 
 // ── Complete Human Step ──────────────────────────────────────────────────────

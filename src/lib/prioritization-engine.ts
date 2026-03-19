@@ -112,23 +112,34 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
     }
   }
 
-  // ── Urgency (weight: 0.30) ──────────────────────────────────────────────
-  let urgency = 20; // default
+  // ── Load source data once ────────────────────────────────────────────
+  let sourceSituation: { triggerEntityId: string | null; situationType: { detectionLogic: string } } | null = null;
+  let sourceInitiative: { goal: { priority: number } } | null = null;
+
   if (plan.sourceType === "situation") {
-    const situation = await prisma.situation.findFirst({
+    sourceSituation = await prisma.situation.findFirst({
       where: { executionPlanId: plan.id },
       select: {
+        triggerEntityId: true,
         situationType: { select: { detectionLogic: true } },
       },
     });
-    if (situation) {
-      try {
-        const detection = JSON.parse(situation.situationType.detectionLogic);
-        if (detection.urgency && URGENCY_MAP[detection.urgency]) {
-          urgency = URGENCY_MAP[detection.urgency];
-        }
-      } catch { /* detectionLogic parse error — use default */ }
-    }
+  } else if (plan.sourceType === "initiative") {
+    sourceInitiative = await prisma.initiative.findFirst({
+      where: { executionPlanId: plan.id },
+      select: { goal: { select: { priority: true } } },
+    });
+  }
+
+  // ── Urgency (weight: 0.30) ──────────────────────────────────────────────
+  let urgency = 20; // default
+  if (sourceSituation) {
+    try {
+      const detection = JSON.parse(sourceSituation.situationType.detectionLogic);
+      if (detection.urgency && URGENCY_MAP[detection.urgency]) {
+        urgency = URGENCY_MAP[detection.urgency];
+      }
+    } catch { /* detectionLogic parse error — use default */ }
   }
 
   // FollowUp urgency boost
@@ -157,39 +168,27 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
 
   // ── Impact (weight: 0.30) ──────────────────────────────────────────────
   let impact = 30; // default
-  if (plan.sourceType === "situation") {
-    const situation = await prisma.situation.findFirst({
-      where: { executionPlanId: plan.id },
-      select: { triggerEntityId: true },
+  if (sourceSituation?.triggerEntityId) {
+    const propertyValues = await prisma.propertyValue.findMany({
+      where: { entityId: sourceSituation.triggerEntityId },
+      select: {
+        value: true,
+        property: { select: { slug: true, name: true } },
+      },
     });
-    if (situation?.triggerEntityId) {
-      const propertyValues = await prisma.propertyValue.findMany({
-        where: { entityId: situation.triggerEntityId },
-        select: {
-          value: true,
-          property: { select: { slug: true, name: true } },
-        },
-      });
-      const monetaryKeys = ["amount", "value", "revenue", "cost", "price", "salary"];
-      for (const pv of propertyValues) {
-        const keyLower = (pv.property.slug || pv.property.name).toLowerCase();
-        if (monetaryKeys.some((mk) => keyLower.includes(mk))) {
-          const numVal = parseFloat(pv.value);
-          if (isFinite(numVal) && numVal > 0) {
-            impact = Math.min(100, 20 * Math.log10(numVal + 1));
-            break;
-          }
+    const monetaryKeys = ["amount", "value", "revenue", "cost", "price", "salary"];
+    for (const pv of propertyValues) {
+      const keyLower = (pv.property.slug || pv.property.name).toLowerCase();
+      if (monetaryKeys.some((mk) => keyLower.includes(mk))) {
+        const numVal = parseFloat(pv.value);
+        if (isFinite(numVal) && numVal > 0) {
+          impact = Math.min(100, 20 * Math.log10(numVal + 1));
+          break;
         }
       }
     }
-  } else if (plan.sourceType === "initiative") {
-    const initiative = await prisma.initiative.findFirst({
-      where: { executionPlanId: plan.id },
-      select: { goal: { select: { priority: true } } },
-    });
-    if (initiative?.goal) {
-      impact = initiative.goal.priority * 20;
-    }
+  } else if (sourceInitiative?.goal) {
+    impact = sourceInitiative.goal.priority * 20;
   }
 
   // ── Dependencies (weight: 0.20) ────────────────────────────────────────

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { operatorId } = su;
+  const { user, operatorId } = su;
+
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
 
   const params = req.nextUrl.searchParams;
   const statusParam = params.get("status");
@@ -18,6 +21,31 @@ export async function GET(req: NextRequest) {
   if (statusParam) {
     const statuses = statusParam.split(",").map((s) => s.trim());
     where.status = { in: statuses };
+  }
+
+  // Scope filtering for members
+  if (visibleDepts !== "all") {
+    where.OR = [
+      // Situation-sourced: scope department visible or unscoped
+      {
+        sourceType: "situation",
+        situation: {
+          OR: [
+            { situationType: { scopeEntityId: { in: visibleDepts } } },
+            { situationType: { scopeEntityId: null } },
+          ],
+        },
+      },
+      // Initiative-sourced: goal department visible (HQ-level excluded for members)
+      {
+        sourceType: "initiative",
+        initiative: {
+          goal: { departmentId: { in: visibleDepts } },
+        },
+      },
+      // Recurring/delegation: include for all authenticated users
+      { sourceType: { in: ["recurring", "delegation"] } },
+    ];
   }
 
   const orderBy =
