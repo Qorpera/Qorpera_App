@@ -58,6 +58,17 @@ export async function POST(req: NextRequest) {
     scopeInfo = { userName: scopeUser?.name, departmentName, visibleDepts };
   }
 
+  // TODO: When contextType/contextId are provided, load the relevant context and prepend to conversation:
+  // - "situation" → load situation's reasoning, entity, situation type, execution plan
+  // - "initiative" → load initiative's goal, rationale, execution plan, department
+  // - "workstream" → load via getWorkStreamContext()
+  // Then inject as a system message or user context before calling chat().
+  // For now, contextType and contextId are accepted but not yet used for context injection.
+  const _contextType = body.contextType as string | undefined;
+  const _contextId = body.contextId as string | undefined;
+  void _contextType;
+  void _contextId;
+
   const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo);
 
   // Tee the stream: one for the HTTP response, one to capture for persistence

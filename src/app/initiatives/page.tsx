@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
+import { ContextualChat } from "@/components/contextual-chat";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -283,16 +284,26 @@ export default function InitiativesPage() {
         </div>
 
         {/* ── Right: detail pane ── */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {selectedId && detail ? (
-            <DetailPane
-              key={selectedId}
-              detail={detail}
-              detailLoading={detailLoading}
-              patchInitiative={patchInitiative}
-              advanceStep={advanceStep}
-              completeHumanStep={completeHumanStep}
-            />
+            <>
+              <div className="flex-1 overflow-y-auto">
+                <DetailPane
+                  key={selectedId}
+                  detail={detail}
+                  detailLoading={detailLoading}
+                  patchInitiative={patchInitiative}
+                  advanceStep={advanceStep}
+                  completeHumanStep={completeHumanStep}
+                />
+              </div>
+              <ContextualChat
+                contextType="initiative"
+                contextId={detail.id}
+                placeholder="Discuss this initiative..."
+                hints={["What's the expected ROI?", "Are there dependencies?"]}
+              />
+            </>
           ) : selectedId && detailLoading ? (
             <div className="flex justify-center py-16">
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />

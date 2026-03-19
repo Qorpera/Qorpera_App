@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
+import { ContextualChat } from "@/components/contextual-chat";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -386,25 +388,35 @@ export default function SituationsPage() {
         </div>
 
         {/* ── Right: detail pane ── */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {selectedSituation ? (
-            <DetailPane
-              key={selectedId}
-              situation={selectedSituation}
-              detail={detail}
-              detailLoading={detailLoading}
-              activeMode={activeMode}
-              setActiveMode={setActiveMode}
-              patchSituation={patchSituation}
-              feedbackText={feedbackText}
-              setFeedbackText={setFeedbackText}
-              feedbackCategory={feedbackCategory}
-              setFeedbackCategory={setFeedbackCategory}
-              outcomeValue={outcomeValue}
-              setOutcomeValue={setOutcomeValue}
-              outcomeNote={outcomeNote}
-              setOutcomeNote={setOutcomeNote}
-            />
+            <>
+              <div className="flex-1 overflow-y-auto">
+                <DetailPane
+                  key={selectedId}
+                  situation={selectedSituation}
+                  detail={detail}
+                  detailLoading={detailLoading}
+                  activeMode={activeMode}
+                  setActiveMode={setActiveMode}
+                  patchSituation={patchSituation}
+                  feedbackText={feedbackText}
+                  setFeedbackText={setFeedbackText}
+                  feedbackCategory={feedbackCategory}
+                  setFeedbackCategory={setFeedbackCategory}
+                  outcomeValue={outcomeValue}
+                  setOutcomeValue={setOutcomeValue}
+                  outcomeNote={outcomeNote}
+                  setOutcomeNote={setOutcomeNote}
+                />
+              </div>
+              <ContextualChat
+                contextType="situation"
+                contextId={selectedSituation.id}
+                placeholder="Discuss this situation..."
+                hints={["What evidence supports this?", "Should I escalate?"]}
+              />
+            </>
           ) : (
             <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "#484848" }}>
               Select a situation
@@ -471,6 +483,11 @@ function DetailPane({
   const [editedDraftBody, setEditedDraftBody] = useState("");
   const [savedEditedDraft, setSavedEditedDraft] = useState<DraftPayload | null>(null);
   const [executionPlan, setExecutionPlan] = useState<ExecutionPlanData | null>(null);
+  const [linkedWorkStream, setLinkedWorkStream] = useState<{ id: string; title: string } | null>(null);
+  const [showStarDropdown, setShowStarDropdown] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [workStreams, setWorkStreams] = useState<Array<{ id: string; title: string }>>([]);
+  const router = useRouter();
 
   // Fetch execution plan when situation has one
   useEffect(() => {
@@ -482,6 +499,31 @@ function DetailPane({
       .catch(() => {});
     return () => { cancelled = true; };
   }, [detail?.executionPlanId, detail?.status]);
+
+  // Check if situation is in a WorkStream
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/workstreams")
+      .then(res => res.ok ? res.json() : [])
+      .then(async (wsList: Array<{ id: string; title: string }>) => {
+        if (cancelled) return;
+        setWorkStreams(wsList);
+        // Check each workstream for this situation
+        for (const ws of wsList) {
+          const res = await fetch(`/api/workstreams/${ws.id}`);
+          if (!res.ok || cancelled) continue;
+          const wsDetail = await res.json();
+          const found = wsDetail.items?.find((item: { itemType: string; itemId: string }) => item.itemType === "situation" && item.itemId === s.id);
+          if (found) {
+            if (!cancelled) setLinkedWorkStream({ id: ws.id, title: ws.title });
+            return;
+          }
+        }
+        if (!cancelled) setLinkedWorkStream(null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [s.id]);
 
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
@@ -550,15 +592,88 @@ function DetailPane({
           </h1>
           <div className="flex items-center gap-2 flex-shrink-0">
             <Badge variant={sev.variant}>{sev.label}</Badge>
-            {/* Star/favorite placeholder — wired to WorkStream in Prompt 3 */}
-            <button
-              className="text-[#484848] hover:text-[#707070] transition-colors"
-              title="Add to workstream"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
-              </svg>
-            </button>
+            {/* Star/favorite — WorkStream linkage */}
+            <div className="relative">
+              <button
+                className={`transition-colors ${linkedWorkStream ? "text-[#f59e0b]" : "text-[#484848] hover:text-[#707070]"}`}
+                title={linkedWorkStream ? `In project: ${linkedWorkStream.title}` : "Add to project"}
+                onClick={() => {
+                  if (linkedWorkStream) {
+                    router.push("/projects");
+                  } else {
+                    setShowStarDropdown(!showStarDropdown);
+                  }
+                }}
+              >
+                <svg className="w-5 h-5" fill={linkedWorkStream ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+                </svg>
+              </button>
+
+              {showStarDropdown && !linkedWorkStream && (
+                <div
+                  className="absolute right-0 top-full mt-1 z-10"
+                  style={{ background: "#1c1c1c", border: "1px solid #333", borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", width: 220, overflow: "hidden" }}
+                >
+                  <button
+                    className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-white/[0.04]"
+                    style={{ color: "#c084fc", borderBottom: "1px solid #222" }}
+                    disabled={creatingProject}
+                    onClick={async () => {
+                      setCreatingProject(true);
+                      try {
+                        // Get user's AI entity for ownerAiEntityId
+                        const meRes = await fetch("/api/me/ai-entity");
+                        const meData = meRes.ok ? await meRes.json() : null;
+                        if (!meData?.id) { setCreatingProject(false); return; }
+
+                        const title = `${s.triggerEntityName ?? "Unknown"} — ${s.situationType.name}`;
+                        const wsRes = await fetch("/api/workstreams", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ title, description: title, ownerAiEntityId: meData.id }),
+                        });
+                        if (!wsRes.ok) { setCreatingProject(false); return; }
+                        const ws = await wsRes.json();
+
+                        await fetch(`/api/workstreams/${ws.id}/items`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ itemType: "situation", itemId: s.id }),
+                        });
+
+                        setLinkedWorkStream({ id: ws.id, title });
+                        setShowStarDropdown(false);
+                      } catch {}
+                      setCreatingProject(false);
+                    }}
+                  >
+                    {creatingProject ? "Creating..." : "+ Create new project"}
+                  </button>
+                  {workStreams.map(ws => (
+                    <button
+                      key={ws.id}
+                      className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-white/[0.04] truncate"
+                      style={{ color: "#b0b0b0", borderBottom: "1px solid #222" }}
+                      onClick={async () => {
+                        await fetch(`/api/workstreams/${ws.id}/items`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ itemType: "situation", itemId: s.id }),
+                        });
+                        setLinkedWorkStream({ id: ws.id, title: ws.title });
+                        setShowStarDropdown(false);
+                      }}
+                    >
+                      {ws.title}
+                    </button>
+                  ))}
+                  {workStreams.length === 0 && (
+                    <div className="px-3 py-2 text-[11px]" style={{ color: "#484848" }}>No existing projects</div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 mt-2 flex-wrap">
