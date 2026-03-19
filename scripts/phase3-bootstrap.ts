@@ -9,11 +9,8 @@
  * Usage: npx tsx scripts/phase3-bootstrap.ts
  */
 
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../src/lib/db";
 import { ensureHqAi, ensureDepartmentAi, seedNotificationPreferences } from "../src/lib/ai-entity-helpers";
-
-// Use a fresh Prisma client (script runs outside Next.js)
-const prisma = new PrismaClient();
 
 async function main() {
   let hqAiCount = 0;
@@ -67,5 +64,4 @@ main()
   .catch((e) => {
     console.error(e);
     process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+  });

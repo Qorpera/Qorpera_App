@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(
   _req: NextRequest,
@@ -28,6 +29,15 @@ export async function GET(
   });
 
   if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Scope check: members can only see goals for their visible departments + HQ-level
+  if (goal.departmentId) {
+    const visibleDepts = await getVisibleDepartmentIds(operatorId, su.user.id);
+    if (visibleDepts !== "all" && !visibleDepts.includes(goal.departmentId)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+  }
+
   return NextResponse.json(goal);
 }
 

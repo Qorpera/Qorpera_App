@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(
   _req: NextRequest,
@@ -10,6 +11,11 @@ export async function GET(
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
   const { id: departmentId } = await params;
+
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.user.id);
+  if (visibleDepts !== "all" && !visibleDepts.includes(departmentId)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const aiEntity = await prisma.entity.findFirst({
     where: {
