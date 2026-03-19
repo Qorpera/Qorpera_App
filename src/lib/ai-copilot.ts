@@ -10,6 +10,7 @@ import { getProvider } from "@/lib/connectors/registry";
 import { decrypt, encrypt } from "@/lib/encryption";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { canAccessEntity } from "@/lib/user-scope";
+import { getWorkStreamContext } from "@/lib/workstreams";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -265,6 +266,84 @@ const COPILOT_TOOLS: AITool[] = [
       },
     },
   },
+  {
+    name: "get_goals",
+    description: "Get business goals. Use when the user asks about goals, objectives, targets, or what the company/department is working toward.",
+    parameters: {
+      type: "object",
+      properties: {
+        departmentId: { type: "string", description: "Filter to a specific department. Null returns HQ-level goals." },
+        status: { type: "string", enum: ["active", "achieved", "paused"], description: "Goal status filter. Default: active." },
+      },
+    },
+  },
+  {
+    name: "get_initiatives",
+    description: "Get AI-proposed initiatives and their progress. Use when the user asks what the AI has proposed, what strategic work is happening, or about department AI activity.",
+    parameters: {
+      type: "object",
+      properties: {
+        departmentId: { type: "string", description: "Filter to a specific department." },
+        status: { type: "string", enum: ["proposed", "approved", "executing", "completed", "rejected"], description: "Initiative status filter." },
+        goalId: { type: "string", description: "Filter by parent goal ID." },
+      },
+    },
+  },
+  {
+    name: "get_workstream",
+    description: "Get details about a project or work stream. Use when the user asks about a specific project, grouped work, or 'what's happening with X'.",
+    parameters: {
+      type: "object",
+      properties: {
+        workStreamId: { type: "string", description: "Direct lookup by ID." },
+        search: { type: "string", description: "Search by title if workStreamId not provided." },
+      },
+    },
+  },
+  {
+    name: "get_delegations",
+    description: "Get delegations — work assigned between AIs or from AI to humans. Use when the user asks 'what's been delegated to me', 'what tasks are assigned', or about AI-to-AI coordination.",
+    parameters: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["pending", "accepted", "completed", "returned"], description: "Delegation status filter." },
+        assignedToMe: { type: "boolean", description: "If true, filter to delegations targeting the current user's AI entity or the user directly. Default: false." },
+      },
+    },
+  },
+  {
+    name: "get_recurring_tasks",
+    description: "Get recurring automated tasks. Use when the user asks 'what runs automatically', 'scheduled tasks', or about recurring work.",
+    parameters: {
+      type: "object",
+      properties: {
+        departmentId: { type: "string", description: "Filter to a specific department." },
+        activeOnly: { type: "boolean", description: "Only show active tasks. Default: true." },
+      },
+    },
+  },
+  {
+    name: "get_insights",
+    description: "Get what the AI has learned from experience. Use when the user asks 'what has the AI learned', 'what works best for X', patterns, or effectiveness data.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search against insight descriptions (substring match)." },
+        departmentId: { type: "string", description: "Filter by department." },
+        insightType: { type: "string", enum: ["approach_effectiveness", "timing_pattern", "entity_preference", "escalation_pattern", "resolution_pattern"], description: "Filter by insight type." },
+      },
+    },
+  },
+  {
+    name: "get_priorities",
+    description: "Get the highest-priority items needing attention. Use when the user asks 'what should I work on', 'what's most urgent', 'priorities', or 'what needs attention'.",
+    parameters: {
+      type: "object",
+      properties: {
+        n: { type: "number", description: "Number of items to return (default 5, max 20)." },
+      },
+    },
+  },
 ];
 
 const ORIENTATION_TOOLS: AITool[] = [
@@ -379,6 +458,12 @@ CAPABILITIES:
 - Search messages: use when user asks about Slack or Teams conversations, channel discussions, or internal chat
 - Get message thread: retrieve the full thread from Slack or Teams by thread ID
 - Get activity summary: use when user asks about activity levels, trends, communication volume, or what's been happening
+- Get goals and initiatives: use when user asks about objectives, targets, strategic work, or AI proposals
+- Get work streams: use when user asks about projects, grouped work, or progress
+- Get delegations: use when user asks about assigned work, AI-to-AI coordination, or human tasks
+- Get recurring tasks: use when user asks about scheduled or automated work
+- Get insights: use when user asks what the AI has learned, best approaches, or effectiveness patterns
+- Get priorities: use when user asks what needs attention, what's most urgent, or what to work on next
 - Create new situation types scoped to specific departments
 
 USER CONTEXT:
@@ -408,7 +493,7 @@ GUIDELINES:
 
 // ── Tool Execution ───────────────────────────────────────────────────────────
 
-async function executeTool(
+export async function executeTool(
   operatorId: string,
   toolName: string,
   args: Record<string, unknown>,
@@ -980,6 +1065,9 @@ async function executeTool(
       else if (period === "week") periodStart.setDate(now.getDate() - 7);
       else periodStart.setDate(now.getDate() - 30);
 
+      const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
       let targetDepts: Array<{ id: string; displayName: string; description: string | null }>;
 
       if (deptName) {
@@ -1007,19 +1095,170 @@ async function executeTool(
 
       if (targetDepts.length === 0) return "No departments found.";
 
-      const sections: string[] = [];
+      // Build scope filter for execution plans
+      const planScopeFilter: Record<string, unknown> = {
+        operatorId,
+        status: { in: ["pending", "approved", "executing"] },
+      };
+      if (visibleDepts && visibleDepts !== "all") {
+        planScopeFilter.OR = [
+          {
+            sourceType: "situation",
+            situation: {
+              OR: [
+                { situationType: { scopeEntityId: { in: visibleDepts } } },
+                { situationType: { scopeEntityId: null } },
+              ],
+            },
+          },
+          {
+            sourceType: "initiative",
+            initiative: { goal: { departmentId: { in: visibleDepts } } },
+          },
+          { sourceType: { in: ["recurring", "delegation"] } },
+        ];
+      }
 
-      for (const dept of targetDepts) {
-        const situations = await prisma.situation.findMany({
+      // Build initiative scope filter
+      const initScopeFilter: Record<string, unknown> = { operatorId };
+      if (visibleDepts && visibleDepts !== "all") {
+        initScopeFilter.goal = {
+          OR: [{ departmentId: { in: visibleDepts } }, { departmentId: null }],
+        };
+      }
+
+      // Build delegation scope filter
+      const delegationScopeFilter: Record<string, unknown> = { operatorId };
+      if (visibleDepts && visibleDepts !== "all") {
+        const deptAiForDeleg = await prisma.entity.findMany({
           where: {
             operatorId,
-            createdAt: { gte: periodStart },
-            situationType: { scopeEntityId: dept.id },
+            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+            OR: [
+              { parentDepartmentId: { in: visibleDepts } },
+              { ownerDepartmentId: { in: visibleDepts } },
+            ],
+          },
+          select: { id: true },
+        });
+        const aiIdsForDeleg = deptAiForDeleg.map(e => e.id);
+        if (aiIdsForDeleg.length > 0) {
+          delegationScopeFilter.OR = [
+            { fromAiEntityId: { in: aiIdsForDeleg } },
+            { toAiEntityId: { in: aiIdsForDeleg } },
+          ];
+        }
+      }
+
+      // Build insight scope filter
+      const insightScopeFilter: Record<string, unknown> = {
+        operatorId,
+        status: "active",
+        createdAt: { gte: sevenDaysAgo },
+      };
+      if (visibleDepts && visibleDepts !== "all") {
+        insightScopeFilter.OR = [
+          { shareScope: "operator" },
+          { shareScope: "department" },
+        ];
+      }
+
+      // Build recurring tasks scope filter
+      const recurringScope: Record<string, unknown> = {
+        operatorId,
+        status: "active",
+        nextTriggerAt: { lte: twentyFourHoursFromNow, gte: now },
+      };
+
+      // Query all sections in parallel
+      const [
+        situationsByDept,
+        unscopedSituations,
+        priorityPlans,
+        executingInitiatives,
+        proposedInitiatives,
+        pendingDelegations,
+        humanDelegations,
+        watchingFollowUps,
+        urgentFollowUps,
+        recentInsights,
+        recurringTasksDueToday,
+      ] = await Promise.all([
+        // Situations by department
+        Promise.all(targetDepts.map(async (dept) => {
+          const situations = await prisma.situation.findMany({
+            where: {
+              operatorId,
+              createdAt: { gte: periodStart },
+              situationType: { scopeEntityId: dept.id },
+            },
+            include: { situationType: { select: { name: true } } },
+            orderBy: { createdAt: "desc" },
+          });
+          return { dept, situations };
+        })),
+        // Unscoped situations
+        prisma.situation.findMany({
+          where: {
+            operatorId, createdAt: { gte: periodStart },
+            situationType: { scopeEntityId: null },
           },
           include: { situationType: { select: { name: true } } },
-          orderBy: { createdAt: "desc" },
-        });
+        }),
+        // Top 5 priority items
+        prisma.executionPlan.findMany({
+          ...({ where: planScopeFilter }),
+          orderBy: [{ priorityScore: "desc" }, { createdAt: "desc" }],
+          take: 5,
+          select: {
+            id: true,
+            sourceType: true,
+            sourceId: true,
+            priorityScore: true,
+            currentStepOrder: true,
+            priorityOverride: { select: { overrideType: true, snoozeUntil: true } },
+            steps: { select: { title: true, sequenceOrder: true }, orderBy: { sequenceOrder: "asc" } },
+          },
+        }),
+        // Executing initiatives count
+        prisma.initiative.count({ where: { ...initScopeFilter, status: "executing" } }),
+        // Proposed initiatives awaiting approval
+        prisma.initiative.count({ where: { ...initScopeFilter, status: "proposed" } }),
+        // Pending delegations (need admin approval)
+        prisma.delegation.count({ where: { ...delegationScopeFilter, status: "pending" } }),
+        // Human tasks awaiting completion
+        prisma.delegation.count({ where: { ...delegationScopeFilter, status: "accepted", toUserId: { not: null } } }),
+        // Active FollowUps count
+        prisma.followUp.count({ where: { operatorId, status: "watching" } }),
+        // FollowUps triggering within 24 hours
+        prisma.followUp.findMany({
+          where: {
+            operatorId,
+            status: "watching",
+            triggerAt: { lte: twentyFourHoursFromNow, gte: now },
+          },
+          select: { id: true, triggerAt: true },
+          take: 5,
+        }),
+        // Recent insights (last 7 days)
+        prisma.operationalInsight.findMany({
+          where: insightScopeFilter,
+          orderBy: { confidence: "desc" },
+          take: 3,
+          select: { description: true, confidence: true, insightType: true },
+        }),
+        // Recurring tasks due in next 24 hours
+        prisma.recurringTask.findMany({
+          where: recurringScope,
+          select: { title: true, nextTriggerAt: true },
+          take: 5,
+        }),
+      ]);
 
+      // Build situation sections (existing logic)
+      const sections: string[] = [];
+
+      for (const { dept, situations } of situationsByDept) {
         const active = situations.filter(s => ["detected", "proposed", "reasoning", "auto_executing", "executing"].includes(s.status)).length;
         const resolved = situations.filter(s => s.status === "resolved").length;
         const pending = situations.filter(s => s.status === "proposed");
@@ -1042,23 +1281,69 @@ async function executeTool(
         sections.push(section);
       }
 
-      // Unscoped situations
-      const unscoped = await prisma.situation.findMany({
-        where: {
-          operatorId, createdAt: { gte: periodStart },
-          situationType: { scopeEntityId: null },
-        },
-        include: { situationType: { select: { name: true } } },
-      });
-      if (unscoped.length > 0) {
-        sections.push(`Global (no department scope): ${unscoped.length} situations`);
+      if (unscopedSituations.length > 0) {
+        sections.push(`Global (no department scope): ${unscopedSituations.length} situations`);
       }
+
+      // Resolve priority plan titles
+      const priSitIds = priorityPlans.filter(p => p.sourceType === "situation").map(p => p.sourceId);
+      const priInitIds = priorityPlans.filter(p => p.sourceType === "initiative").map(p => p.sourceId);
+      const [priSits, priInits] = await Promise.all([
+        priSitIds.length > 0
+          ? prisma.situation.findMany({
+              where: { id: { in: priSitIds }, operatorId },
+              select: { id: true, situationType: { select: { name: true } } },
+            })
+          : [],
+        priInitIds.length > 0
+          ? prisma.initiative.findMany({
+              where: { id: { in: priInitIds }, operatorId },
+              select: { id: true, rationale: true },
+            })
+          : [],
+      ]);
+      const priTitleMap = new Map<string, string>();
+      for (const s of priSits) priTitleMap.set(s.id, s.situationType.name);
+      for (const i of priInits) priTitleMap.set(i.id, i.rationale.slice(0, 80));
+
+      // Build priority section
+      let prioritySection = "";
+      if (priorityPlans.length > 0) {
+        const items = priorityPlans.map(p => {
+          const currentStep = p.steps.find(s => s.sequenceOrder === p.currentStepOrder);
+          const isPinned = p.priorityOverride?.overrideType === "pin";
+          const title = priTitleMap.get(p.sourceId) ?? p.sourceType;
+          return `    - [${p.sourceType}] ${title} (score: ${p.priorityScore ?? 0}${isPinned ? ", PINNED" : ""})${currentStep ? ` — next: ${currentStep.title}` : ""}`;
+        });
+        prioritySection = `\n  Priority items (top ${priorityPlans.length}):\n${items.join("\n")}`;
+      }
+
+      // Build new sections
+      const initiativeSection = `\n  Initiatives: ${executingInitiatives} executing, ${proposedInitiatives} awaiting approval`;
+
+      const delegationSection = pendingDelegations + humanDelegations > 0
+        ? `\n  Delegations: ${pendingDelegations} pending approval, ${humanDelegations} human tasks in progress`
+        : `\n  Delegations: none pending`;
+
+      const followUpSection = watchingFollowUps > 0
+        ? `\n  Follow-ups: ${watchingFollowUps} watching${urgentFollowUps.length > 0 ? `, ${urgentFollowUps.length} triggering within 24h` : ""}`
+        : `\n  Follow-ups: none active`;
+
+      const recentInsightCount = recentInsights.length;
+      let insightSection = `\n  Recently learned: ${recentInsightCount} new insight${recentInsightCount !== 1 ? "s" : ""} this week`;
+      if (recentInsights.length > 0) {
+        insightSection += ` — most notable: "${recentInsights[0].description.slice(0, 100)}" (confidence: ${recentInsights[0].confidence.toFixed(2)})`;
+      }
+
+      const recurringSection = recurringTasksDueToday.length > 0
+        ? `\n  Recurring tasks due today: ${recurringTasksDueToday.map(t => t.title).join(", ")}`
+        : `\n  Recurring tasks due today: none`;
 
       const header = deptName
         ? `Operational briefing for ${deptName} (${period}):`
         : `Operational briefing across ${targetDepts.length} departments (${period}):`;
 
-      return `${header}\n\n${sections.join("\n\n")}`;
+      return `${header}\n\n${sections.join("\n\n")}${prioritySection}${initiativeSection}${delegationSection}${followUpSection}${insightSection}${recurringSection}`;
     }
 
     case "search_department_knowledge": {
@@ -1450,6 +1735,570 @@ async function executeTool(
       }
 
       return lines.join("\n");
+    }
+
+    // ── Phase 3 Tools ──────────────────────────────────────────────────────
+
+    case "get_goals": {
+      const departmentId = args.departmentId ? String(args.departmentId) : undefined;
+      const status = args.status ? String(args.status) : "active";
+
+      const where: Record<string, unknown> = { operatorId, status };
+      if (departmentId) where.departmentId = departmentId;
+
+      if (visibleDepts && visibleDepts !== "all") {
+        where.OR = [
+          { departmentId: { in: visibleDepts } },
+          { departmentId: null },
+        ];
+      }
+
+      const goals = await prisma.goal.findMany({
+        where,
+        include: { _count: { select: { initiatives: true } } },
+        orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+      });
+
+      if (goals.length === 0) return "No goals found matching those criteria.";
+
+      return JSON.stringify(goals.map(g => ({
+        id: g.id,
+        title: g.title,
+        description: g.description.slice(0, 200),
+        priority: g.priority,
+        status: g.status,
+        deadline: g.deadline?.toISOString() ?? null,
+        departmentId: g.departmentId,
+        initiativeCount: g._count.initiatives,
+      })));
+    }
+
+    case "get_initiatives": {
+      const departmentId = args.departmentId ? String(args.departmentId) : undefined;
+      const status = args.status ? String(args.status) : undefined;
+      const goalId = args.goalId ? String(args.goalId) : undefined;
+
+      const where: Record<string, unknown> = { operatorId };
+      if (status) where.status = status;
+      if (goalId) where.goalId = goalId;
+      if (departmentId) where.goal = { departmentId };
+
+      // Scope: initiatives where the goal's department is in visibleDepts, or HQ goals
+      if (visibleDepts && visibleDepts !== "all") {
+        where.goal = {
+          ...(typeof where.goal === "object" ? where.goal as Record<string, unknown> : {}),
+          OR: [
+            { departmentId: { in: visibleDepts } },
+            { departmentId: null },
+          ],
+        };
+      }
+
+      const initiatives = await prisma.initiative.findMany({
+        where,
+        include: {
+          goal: { select: { title: true } },
+          executionPlan: {
+            select: {
+              status: true,
+              currentStepOrder: true,
+              _count: { select: { steps: true } },
+              steps: { where: { status: "completed" }, select: { id: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+
+      if (initiatives.length === 0) return "No initiatives found matching those criteria.";
+
+      // Resolve workstream titles
+      const initIds = initiatives.map(i => i.id);
+      const wsItems = initIds.length > 0
+        ? await prisma.workStreamItem.findMany({
+            where: { itemType: "initiative", itemId: { in: initIds } },
+            select: { itemId: true, workStream: { select: { title: true } } },
+          })
+        : [];
+      const wsMap = new Map(wsItems.map(w => [w.itemId, w.workStream.title]));
+
+      return JSON.stringify(initiatives.map(i => ({
+        id: i.id,
+        title: i.rationale.slice(0, 200),
+        rationale: i.rationale.slice(0, 200),
+        status: i.status,
+        goalTitle: i.goal.title,
+        planStatus: i.executionPlan?.status ?? null,
+        stepsCompleted: i.executionPlan?.steps.length ?? 0,
+        stepsTotal: i.executionPlan?._count.steps ?? 0,
+        workStreamTitle: wsMap.get(i.id) ?? null,
+      })));
+    }
+
+    case "get_workstream": {
+      const workStreamId = args.workStreamId ? String(args.workStreamId) : undefined;
+      const search = args.search ? String(args.search) : undefined;
+
+      if (workStreamId) {
+        const ctx = await getWorkStreamContext(workStreamId);
+        if (!ctx) return "Work stream not found.";
+
+        // Scope check: verify items are in visible departments
+        if (visibleDepts && visibleDepts !== "all") {
+          // Check if the workstream's goal is visible
+          const ws = await prisma.workStream.findUnique({
+            where: { id: workStreamId },
+            select: { goalId: true },
+          });
+          if (ws?.goalId) {
+            const goal = await prisma.goal.findFirst({
+              where: {
+                id: ws.goalId,
+                operatorId,
+                OR: [{ departmentId: { in: visibleDepts } }, { departmentId: null }],
+              },
+              select: { id: true },
+            });
+            if (!goal) return "You don't have visibility into this work stream.";
+          }
+        }
+
+        // Load children count
+        const childCount = await prisma.workStream.count({
+          where: { parentWorkStreamId: workStreamId },
+        });
+
+        return JSON.stringify({
+          id: ctx.id,
+          title: ctx.title,
+          description: ctx.description,
+          status: ctx.status,
+          goalTitle: ctx.goal?.title ?? null,
+          items: ctx.items.map(i => ({ type: i.type, title: i.summary.slice(0, 200), status: i.status })),
+          parentTitle: ctx.parent?.title ?? null,
+          childCount,
+        });
+      }
+
+      if (search) {
+        const workstreams = await prisma.workStream.findMany({
+          where: {
+            operatorId,
+            title: { contains: search, mode: "insensitive" },
+          },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            status: true,
+            goalId: true,
+            _count: { select: { items: true, children: true } },
+          },
+          take: 10,
+        });
+
+        // Scope filter: workstream must be linked to a visible goal or contain visible items
+        let filtered = workstreams;
+        if (visibleDepts && visibleDepts !== "all") {
+          const visibleGoalIds = new Set(
+            (await prisma.goal.findMany({
+              where: { operatorId, OR: [{ departmentId: { in: visibleDepts } }, { departmentId: null }] },
+              select: { id: true },
+            })).map(g => g.id),
+          );
+          filtered = workstreams.filter(ws => !ws.goalId || visibleGoalIds.has(ws.goalId));
+        }
+
+        if (filtered.length === 0) return `No work streams found matching "${search}".`;
+
+        return JSON.stringify(filtered.map(ws => ({
+          id: ws.id,
+          title: ws.title,
+          description: ws.description?.slice(0, 200) ?? null,
+          status: ws.status,
+          itemCount: ws._count.items,
+          childCount: ws._count.children,
+        })));
+      }
+
+      return "Please provide either a workStreamId or a search term.";
+    }
+
+    case "get_delegations": {
+      const status = args.status ? String(args.status) : undefined;
+      const assignedToMe = args.assignedToMe === true;
+
+      const where: Record<string, unknown> = { operatorId };
+      if (status) where.status = status;
+
+      if (assignedToMe) {
+        // Find the current user's AI entity — we need userId from the caller context
+        // The userId isn't directly available here, so we resolve through the copilot context
+        // For scoped users, find their AI entity
+        // The tool is called with visibleDepts which is derived from userId
+        // We'll check toUserId OR toAiEntityId matching user's AI entity
+        const userAiEntities = await prisma.entity.findMany({
+          where: {
+            operatorId,
+            entityType: { slug: "ai-agent" },
+            ...(visibleDepts && visibleDepts !== "all"
+              ? { parentDepartmentId: { in: visibleDepts } }
+              : {}),
+          },
+          select: { id: true, ownerUserId: true },
+        });
+        const aiEntityIds = userAiEntities.map(e => e.id);
+        const ownerUserIds = userAiEntities.map(e => e.ownerUserId).filter(Boolean) as string[];
+
+        where.OR = [
+          ...(aiEntityIds.length > 0 ? [{ toAiEntityId: { in: aiEntityIds } }] : []),
+          ...(ownerUserIds.length > 0 ? [{ toUserId: { in: ownerUserIds } }] : []),
+        ];
+        if ((where.OR as unknown[]).length === 0) {
+          return "No delegations found — no AI entity linked to your account.";
+        }
+      }
+
+      // Scope filter
+      if (visibleDepts && visibleDepts !== "all" && !assignedToMe) {
+        const deptAiEntities = await prisma.entity.findMany({
+          where: {
+            operatorId,
+            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+            OR: [
+              { parentDepartmentId: { in: visibleDepts } },
+              { ownerDepartmentId: { in: visibleDepts } },
+            ],
+          },
+          select: { id: true },
+        });
+        const aiIds = deptAiEntities.map(e => e.id);
+        if (aiIds.length > 0) {
+          where.OR = [
+            { fromAiEntityId: { in: aiIds } },
+            { toAiEntityId: { in: aiIds } },
+          ];
+        }
+      }
+
+      const delegations = await prisma.delegation.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take: 20,
+      });
+
+      if (delegations.length === 0) return "No delegations found.";
+
+      // Resolve entity names
+      const entityIds = new Set<string>();
+      for (const d of delegations) {
+        entityIds.add(d.fromAiEntityId);
+        if (d.toAiEntityId) entityIds.add(d.toAiEntityId);
+      }
+      const entities = entityIds.size > 0
+        ? await prisma.entity.findMany({
+            where: { id: { in: [...entityIds] } },
+            select: { id: true, displayName: true },
+          })
+        : [];
+      const nameMap = new Map(entities.map(e => [e.id, e.displayName]));
+
+      // Resolve linked item titles
+      const sitIds = delegations.map(d => d.situationId).filter(Boolean) as string[];
+      const initIds = delegations.map(d => d.initiativeId).filter(Boolean) as string[];
+      const [situations, inits] = await Promise.all([
+        sitIds.length > 0
+          ? prisma.situation.findMany({
+              where: { id: { in: sitIds } },
+              select: { id: true, situationType: { select: { name: true } } },
+            })
+          : [],
+        initIds.length > 0
+          ? prisma.initiative.findMany({
+              where: { id: { in: initIds } },
+              select: { id: true, rationale: true },
+            })
+          : [],
+      ]);
+      const sitTitleMap = new Map(situations.map(s => [s.id, s.situationType.name]));
+      const initTitleMap = new Map(inits.map(i => [i.id, i.rationale.slice(0, 100)]));
+
+      return JSON.stringify(delegations.map(d => ({
+        id: d.id,
+        instruction: d.instruction.slice(0, 200),
+        status: d.status,
+        sourceAiName: nameMap.get(d.fromAiEntityId) ?? "Unknown",
+        targetName: d.toAiEntityId
+          ? nameMap.get(d.toAiEntityId) ?? "Unknown AI"
+          : d.toUserId ?? "Unknown User",
+        type: d.toAiEntityId ? "ai-to-ai" : "ai-to-human",
+        createdAt: d.createdAt.toISOString(),
+        linkedItemTitle: d.situationId
+          ? sitTitleMap.get(d.situationId) ?? null
+          : d.initiativeId
+            ? initTitleMap.get(d.initiativeId) ?? null
+            : null,
+      })));
+    }
+
+    case "get_recurring_tasks": {
+      const departmentId = args.departmentId ? String(args.departmentId) : undefined;
+      const activeOnly = args.activeOnly !== false; // default true
+
+      const where: Record<string, unknown> = { operatorId };
+      if (activeOnly) where.status = "active";
+
+      // Scope by department via aiEntity
+      if (visibleDepts && visibleDepts !== "all") {
+        const deptAiEntities = await prisma.entity.findMany({
+          where: {
+            operatorId,
+            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+            OR: [
+              { parentDepartmentId: { in: visibleDepts } },
+              { ownerDepartmentId: { in: visibleDepts } },
+            ],
+          },
+          select: { id: true },
+        });
+        where.aiEntityId = { in: deptAiEntities.map(e => e.id) };
+      }
+
+      if (departmentId) {
+        const deptAis = await prisma.entity.findMany({
+          where: {
+            operatorId,
+            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+            OR: [
+              { parentDepartmentId: departmentId },
+              { ownerDepartmentId: departmentId },
+            ],
+          },
+          select: { id: true },
+        });
+        where.aiEntityId = { in: deptAis.map(e => e.id) };
+      }
+
+      const tasks = await prisma.recurringTask.findMany({
+        where,
+        orderBy: { nextTriggerAt: "asc" },
+        take: 20,
+      });
+
+      if (tasks.length === 0) return "No recurring tasks found.";
+
+      // Resolve AI entity → department names
+      const aiEntityIds = [...new Set(tasks.map(t => t.aiEntityId))];
+      const aiEntities = aiEntityIds.length > 0
+        ? await prisma.entity.findMany({
+            where: { id: { in: aiEntityIds } },
+            select: { id: true, parentDepartmentId: true, ownerDepartmentId: true },
+          })
+        : [];
+      const deptIds = [...new Set(aiEntities.flatMap(e => [e.parentDepartmentId, e.ownerDepartmentId].filter(Boolean) as string[]))];
+      const depts = deptIds.length > 0
+        ? await prisma.entity.findMany({
+            where: { id: { in: deptIds } },
+            select: { id: true, displayName: true },
+          })
+        : [];
+      const deptNameMap = new Map(depts.map(d => [d.id, d.displayName]));
+      const aiToDept = new Map(aiEntities.map(e => [e.id, deptNameMap.get(e.ownerDepartmentId ?? e.parentDepartmentId ?? "") ?? "HQ"]));
+
+      // Get last execution for each task
+      const taskIds = tasks.map(t => t.id);
+      const lastPlans = taskIds.length > 0
+        ? await prisma.executionPlan.findMany({
+            where: { sourceType: "recurring", sourceId: { in: taskIds } },
+            orderBy: { createdAt: "desc" },
+            distinct: ["sourceId"],
+            select: { sourceId: true, status: true, createdAt: true },
+          })
+        : [];
+      const lastPlanMap = new Map(lastPlans.map(p => [p.sourceId, p]));
+
+      return JSON.stringify(tasks.map(t => {
+        const lastPlan = lastPlanMap.get(t.id);
+        return {
+          id: t.id,
+          title: t.title,
+          cronExpression: t.cronExpression,
+          nextTriggerAt: t.nextTriggerAt?.toISOString() ?? null,
+          isActive: t.status === "active",
+          autoApproveSteps: t.autoApproveSteps,
+          lastExecutionStatus: lastPlan?.status ?? null,
+          lastExecutionAt: lastPlan?.createdAt.toISOString() ?? null,
+          departmentName: aiToDept.get(t.aiEntityId) ?? "HQ",
+        };
+      }));
+    }
+
+    case "get_insights": {
+      const query = args.query ? String(args.query) : undefined;
+      const departmentId = args.departmentId ? String(args.departmentId) : undefined;
+      const insightType = args.insightType ? String(args.insightType) : undefined;
+
+      const where: Record<string, unknown> = { operatorId, status: "active" };
+      if (insightType) where.insightType = insightType;
+      if (departmentId) where.departmentId = departmentId;
+
+      // Scope by shareScope
+      if (visibleDepts && visibleDepts !== "all") {
+        // Find user's AI entity
+        const userAiEntities = await prisma.entity.findMany({
+          where: {
+            operatorId,
+            entityType: { slug: "ai-agent" },
+            parentDepartmentId: { in: visibleDepts },
+          },
+          select: { id: true },
+        });
+        const userAiIds = userAiEntities.map(e => e.id);
+
+        // Dept AI entities
+        const deptAiEntities = await prisma.entity.findMany({
+          where: {
+            operatorId,
+            entityType: { slug: { in: ["department-ai", "hq-ai"] } },
+            OR: [
+              { parentDepartmentId: { in: visibleDepts } },
+              { ownerDepartmentId: { in: visibleDepts } },
+            ],
+          },
+          select: { id: true },
+        });
+
+        where.OR = [
+          { shareScope: "operator" },
+          { shareScope: "department", aiEntityId: { in: [...userAiIds, ...deptAiEntities.map(e => e.id)] } },
+          ...(userAiIds.length > 0 ? [{ shareScope: "personal", aiEntityId: { in: userAiIds } }] : []),
+        ];
+      }
+
+      if (query) {
+        where.description = { contains: query, mode: "insensitive" };
+      }
+
+      const insights = await prisma.operationalInsight.findMany({
+        where,
+        orderBy: [{ confidence: "desc" }, { createdAt: "desc" }],
+        take: 15,
+      });
+
+      if (insights.length === 0) return "No insights found matching those criteria.";
+
+      return JSON.stringify(insights.map(i => ({
+        id: i.id,
+        insightType: i.insightType,
+        description: i.description.slice(0, 200),
+        confidence: i.confidence,
+        sampleSize: (() => { try { return JSON.parse(i.evidence).sampleSize; } catch { return null; } })(),
+        shareScope: i.shareScope,
+        promptModification: i.promptModification?.slice(0, 200) ?? null,
+        createdAt: i.createdAt.toISOString(),
+      })));
+    }
+
+    case "get_priorities": {
+      const n = Math.min(Math.max(typeof args.n === "number" ? args.n : 5, 1), 20);
+
+      const where: Record<string, unknown> = {
+        operatorId,
+        status: { in: ["pending", "approved", "executing"] },
+      };
+
+      // Scope filter
+      if (visibleDepts && visibleDepts !== "all") {
+        where.OR = [
+          {
+            sourceType: "situation",
+            situation: {
+              OR: [
+                { situationType: { scopeEntityId: { in: visibleDepts } } },
+                { situationType: { scopeEntityId: null } },
+              ],
+            },
+          },
+          {
+            sourceType: "initiative",
+            initiative: {
+              goal: { departmentId: { in: visibleDepts } },
+            },
+          },
+          { sourceType: { in: ["recurring", "delegation"] } },
+        ];
+      }
+
+      const plans = await prisma.executionPlan.findMany({
+        where,
+        orderBy: [{ priorityScore: "desc" }, { createdAt: "desc" }],
+        take: n,
+        select: {
+          id: true,
+          sourceType: true,
+          sourceId: true,
+          status: true,
+          priorityScore: true,
+          currentStepOrder: true,
+          priorityOverride: { select: { overrideType: true, snoozeUntil: true } },
+          steps: {
+            select: { title: true, sequenceOrder: true },
+            orderBy: { sequenceOrder: "asc" },
+          },
+        },
+      });
+
+      if (plans.length === 0) return "No priority items found.";
+
+      // Resolve source titles
+      const sitIds = plans.filter(p => p.sourceType === "situation").map(p => p.sourceId);
+      const initIds = plans.filter(p => p.sourceType === "initiative").map(p => p.sourceId);
+      const recurringIds = plans.filter(p => p.sourceType === "recurring").map(p => p.sourceId);
+
+      const [sitNames, initNames, recurringNames] = await Promise.all([
+        sitIds.length > 0
+          ? prisma.situation.findMany({
+              where: { id: { in: sitIds }, operatorId },
+              select: { id: true, situationType: { select: { name: true } } },
+            })
+          : [],
+        initIds.length > 0
+          ? prisma.initiative.findMany({
+              where: { id: { in: initIds }, operatorId },
+              select: { id: true, rationale: true },
+            })
+          : [],
+        recurringIds.length > 0
+          ? prisma.recurringTask.findMany({
+              where: { id: { in: recurringIds }, operatorId },
+              select: { id: true, title: true },
+            })
+          : [],
+      ]);
+
+      const titleMap = new Map<string, string>();
+      for (const s of sitNames) titleMap.set(s.id, s.situationType.name);
+      for (const i of initNames) titleMap.set(i.id, i.rationale.slice(0, 100));
+      for (const r of recurringNames) titleMap.set(r.id, r.title);
+
+      return JSON.stringify(plans.map(p => {
+        const currentStep = p.steps.find(s => s.sequenceOrder === p.currentStepOrder);
+        const isPinned = p.priorityOverride?.overrideType === "pin";
+        const isSnoozed = p.priorityOverride?.overrideType === "snooze"
+          && p.priorityOverride.snoozeUntil
+          && p.priorityOverride.snoozeUntil > new Date();
+        return {
+          planId: p.id,
+          sourceType: p.sourceType,
+          sourceTitle: titleMap.get(p.sourceId) ?? null,
+          priorityScore: p.priorityScore,
+          currentStep: currentStep?.title ?? null,
+          isPinned,
+          isSnoozed: !!isSnoozed,
+          urgencyReason: isPinned ? "Pinned by user" : (isSnoozed ? "Snoozed" : null),
+        };
+      }));
     }
 
     case "get_email_thread": {
