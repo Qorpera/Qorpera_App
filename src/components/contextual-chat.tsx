@@ -48,6 +48,7 @@ export function ContextualChat({
         body: JSON.stringify({
           message: text,
           history,
+          sessionId: `${contextType}-${contextId}`,
           contextType,
           contextId,
         }),

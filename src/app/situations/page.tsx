@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
@@ -487,7 +487,20 @@ function DetailPane({
   const [showStarDropdown, setShowStarDropdown] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [workStreams, setWorkStreams] = useState<Array<{ id: string; title: string }>>([]);
+  const starDropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  // Outside-click dismiss for star dropdown
+  useEffect(() => {
+    if (!showStarDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (starDropdownRef.current && !starDropdownRef.current.contains(e.target as Node)) {
+        setShowStarDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showStarDropdown]);
 
   // Fetch execution plan when situation has one
   useEffect(() => {
@@ -500,30 +513,31 @@ function DetailPane({
     return () => { cancelled = true; };
   }, [detail?.executionPlanId, detail?.status]);
 
-  // Check if situation is in a WorkStream
+  // Check if situation is in a WorkStream (single query)
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/workstreams")
-      .then(res => res.ok ? res.json() : [])
-      .then(async (wsList: Array<{ id: string; title: string }>) => {
+    fetch(`/api/workstreams/check-membership?itemType=situation&itemId=${s.id}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
         if (cancelled) return;
-        setWorkStreams(wsList);
-        // Check each workstream for this situation
-        for (const ws of wsList) {
-          const res = await fetch(`/api/workstreams/${ws.id}`);
-          if (!res.ok || cancelled) continue;
-          const wsDetail = await res.json();
-          const found = wsDetail.items?.find((item: { itemType: string; itemId: string }) => item.itemType === "situation" && item.itemId === s.id);
-          if (found) {
-            if (!cancelled) setLinkedWorkStream({ id: ws.id, title: ws.title });
-            return;
-          }
+        if (data?.workStreamId) {
+          setLinkedWorkStream({ id: data.workStreamId, title: data.workStreamTitle });
+        } else {
+          setLinkedWorkStream(null);
         }
-        if (!cancelled) setLinkedWorkStream(null);
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [s.id]);
+
+  // Fetch workstream list for the "add to project" dropdown (lazy, only when dropdown opens)
+  useEffect(() => {
+    if (!showStarDropdown || workStreams.length > 0) return;
+    fetch("/api/workstreams")
+      .then(res => res.ok ? res.json() : [])
+      .then(data => setWorkStreams(data))
+      .catch(() => {});
+  }, [showStarDropdown, workStreams.length]);
 
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
@@ -593,7 +607,7 @@ function DetailPane({
           <div className="flex items-center gap-2 flex-shrink-0">
             <Badge variant={sev.variant}>{sev.label}</Badge>
             {/* Star/favorite — WorkStream linkage */}
-            <div className="relative">
+            <div className="relative" ref={starDropdownRef}>
               <button
                 className={`transition-colors ${linkedWorkStream ? "text-[#f59e0b]" : "text-[#484848] hover:text-[#707070]"}`}
                 title={linkedWorkStream ? `In project: ${linkedWorkStream.title}` : "Add to project"}
