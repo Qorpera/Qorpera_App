@@ -78,7 +78,7 @@ export function AppNav({ pendingApprovals = 0, collapsed = false }: { pendingApp
         const visibleItems = group.items.filter(
           (item) =>
             (!item.superadminOnly || isSuperadmin) &&
-            (!item.adminOnly || role === "admin" || role === "superadmin"),
+            (!item.adminOnly || role === "admin" || isSuperadmin),
         );
         if (visibleItems.length === 0) return null;
         return (

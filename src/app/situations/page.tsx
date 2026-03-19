@@ -16,8 +16,6 @@ interface SituationItem {
   triggerEntityId: string | null;
   triggerEntityName: string | null;
   departmentName: string | null;
-  reasoning: ReasoningData | null;
-  proposedAction: ActionStep[] | null;
   editInstruction: string | null;
   createdAt: string;
   resolvedAt: string | null;
@@ -483,7 +481,7 @@ function DetailPane({
       .then(data => { if (!cancelled && data) setExecutionPlan(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [detail?.executionPlanId]);
+  }, [detail?.executionPlanId, detail?.status]);
 
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
