@@ -419,6 +419,9 @@ function AccountPageInner() {
           </div>
         </div>
 
+        {/* Notification Preferences */}
+        <NotificationPreferences />
+
         {/* Logout */}
         <div className="mt-8">
           <Button
@@ -466,5 +469,97 @@ function AccountPageInner() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+// ── Notification Preferences ────────────────────────────────────────────────
+
+const NOTIFICATION_TYPES = [
+  { type: "situation_proposed", label: "New situation detected" },
+  { type: "situation_resolved", label: "Situation resolved" },
+  { type: "initiative_proposed", label: "Initiative proposed" },
+  { type: "step_ready", label: "Step ready for review" },
+  { type: "delegation_received", label: "Task delegated to you" },
+  { type: "follow_up_triggered", label: "Follow-up triggered" },
+  { type: "plan_auto_executed", label: "Plan auto-executed" },
+  { type: "peer_signal", label: "Cross-department signal" },
+  { type: "insight_discovered", label: "New insight discovered" },
+  { type: "system_alert", label: "System alert" },
+];
+
+const CHANNEL_OPTIONS = [
+  { value: "in_app", label: "In-app" },
+  { value: "email", label: "Email" },
+  { value: "both", label: "Both" },
+  { value: "none", label: "None" },
+];
+
+function NotificationPreferences() {
+  const [prefs, setPrefs] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetchApi("/api/notification-preferences")
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          const map: Record<string, string> = {};
+          for (const p of data) map[p.notificationType] = p.channel;
+          setPrefs(map);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const updatePref = async (type: string, channel: string) => {
+    setSaving(type);
+    try {
+      const res = await fetchApi("/api/notification-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, channel }),
+      });
+      if (res.ok) {
+        setPrefs(prev => ({ ...prev, [type]: channel }));
+        toast("Preference saved", "success");
+      }
+    } catch {}
+    setSaving(null);
+  };
+
+  return (
+    <div className="mt-8 pt-8 border-t border-white/[0.06]">
+      <h2 className="text-sm font-medium text-white/60 mb-2">Notification Preferences</h2>
+      <p className="text-xs text-white/35 mb-4">
+        Choose how you receive each type of notification.
+      </p>
+
+      {loading ? (
+        <div className="flex justify-center py-4">
+          <div className="h-4 w-4 animate-spin rounded-full border border-[#2a2a2a] border-t-[#707070]" />
+        </div>
+      ) : (
+        <div className="wf-soft divide-y divide-white/[0.04]">
+          {NOTIFICATION_TYPES.map(({ type, label }) => (
+            <div key={type} className="flex items-center justify-between px-5 py-3">
+              <span className="text-sm text-white/70">{label}</span>
+              <select
+                value={prefs[type] ?? "in_app"}
+                onChange={e => updatePref(type, e.target.value)}
+                disabled={saving === type}
+                className="outline-none text-xs"
+                style={{ background: "#1c1c1c", border: "1px solid #333", borderRadius: 4, padding: "4px 8px", color: "#b0b0b0" }}
+              >
+                {CHANNEL_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value} style={{ background: "#1c1c1c" }}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

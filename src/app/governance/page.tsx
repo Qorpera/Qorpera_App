@@ -425,6 +425,12 @@ export default function GovernancePage() {
           )}
         </section>
 
+        {/* ── Section 4: AI Knowledge ── */}
+        <InsightsSection isAdmin={isAdmin} toast={toast} />
+
+        {/* ── Section 5: Goals ── */}
+        <GoalsSection isAdmin={isAdmin} toast={toast} />
+
         {/* ── New Policy Modal ── */}
         <Modal open={showNewPolicy} onClose={() => { setShowNewPolicy(false); resetPolicyForm(); }} title="New Rule">
           <div className="space-y-4">
@@ -469,5 +475,336 @@ export default function GovernancePage() {
         </Modal>
       </div>
     </AppShell>
+  );
+}
+
+// ── Insights Section ────────────────────────────────────────────────────────
+
+interface InsightItem {
+  id: string;
+  description: string;
+  evidence: { sampleSize?: number; successRate?: number } | null;
+  confidence: number;
+  shareScope: string;
+  status: string;
+  aiEntityName: string | null;
+}
+
+const SCOPE_STYLES: Record<string, { bg: string; color: string }> = {
+  personal: { bg: "rgba(168,85,247,0.1)", color: "#c084fc" },
+  department: { bg: "rgba(59,130,246,0.1)", color: "#60a5fa" },
+  operator: { bg: "rgba(34,197,94,0.1)", color: "#22c55e" },
+};
+
+function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: string, type: "success" | "error") => void }) {
+  const [insights, setInsights] = useState<InsightItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadInsights = useCallback(async () => {
+    try {
+      const res = await fetch("/api/insights");
+      if (res.ok) {
+        const data = await res.json();
+        setInsights(data.items ?? []);
+      }
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadInsights(); }, [loadInsights]);
+
+  const handlePromote = async (id: string, currentScope: string) => {
+    const targetScope = currentScope === "personal" ? "department" : "operator";
+    try {
+      await fetch(`/api/insights/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "promote", targetScope }),
+      });
+      toast("Insight promoted", "success");
+      loadInsights();
+    } catch {
+      toast("Promotion failed", "error");
+    }
+  };
+
+  const handleInvalidate = async (id: string) => {
+    try {
+      await fetch(`/api/insights/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "invalidate" }),
+      });
+      toast("Insight invalidated", "success");
+      loadInsights();
+    } catch {
+      toast("Action failed", "error");
+    }
+  };
+
+  return (
+    <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }} className="mb-4">
+        AI Knowledge
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-4">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+        </div>
+      ) : insights.length === 0 ? (
+        <p style={{ fontSize: 13, color: "#484848" }}>
+          No operational insights yet. Insights are extracted from resolved situations after enough data accumulates.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {insights.map(insight => {
+            const scopeStyle = SCOPE_STYLES[insight.shareScope] ?? SCOPE_STYLES.personal;
+            return (
+              <div key={insight.id} style={{ background: "#1c1c1c", border: "1px solid #222", borderRadius: 4, padding: "12px 14px" }}>
+                <div className="flex items-start justify-between gap-3">
+                  <p style={{ fontSize: 13, lineHeight: 1.6, color: "#b0b0b0", flex: 1 }}>{insight.description}</p>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: scopeStyle.bg, color: scopeStyle.color }}>
+                      {insight.shareScope}
+                    </span>
+                    {insight.status !== "active" && (
+                      <Badge variant={insight.status === "superseded" ? "amber" : "red"}>{insight.status}</Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 mt-2" style={{ fontSize: 11, color: "#484848" }}>
+                  {insight.evidence?.sampleSize && <span>Sample: {insight.evidence.sampleSize}</span>}
+                  {insight.evidence?.successRate != null && <span>Success: {(insight.evidence.successRate * 100).toFixed(0)}%</span>}
+                  <span>Confidence: {(insight.confidence * 100).toFixed(0)}%</span>
+                  {insight.aiEntityName && <span>{insight.aiEntityName}</span>}
+                </div>
+                {isAdmin && insight.status === "active" && (
+                  <div className="flex items-center gap-2 mt-2">
+                    {insight.shareScope !== "operator" && (
+                      <button
+                        onClick={() => handlePromote(insight.id, insight.shareScope)}
+                        className="text-[11px] px-2 py-0.5 rounded transition"
+                        style={{ background: "rgba(168,85,247,0.1)", color: "#c084fc" }}
+                      >
+                        Promote
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleInvalidate(insight.id)}
+                      className="text-[11px] px-2 py-0.5 rounded transition"
+                      style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
+                    >
+                      Invalidate
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── Goals Section ───────────────────────────────────────────────────────────
+
+interface GoalItem {
+  id: string;
+  title: string;
+  description: string;
+  priority: number;
+  status: string;
+  departmentId: string | null;
+  deadline: string | null;
+  _count: { initiatives: number };
+}
+
+function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: string, type: "success" | "error") => void }) {
+  const [goals, setGoals] = useState<GoalItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [formTitle, setFormTitle] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+  const [formPriority, setFormPriority] = useState("3");
+  const [saving, setSaving] = useState(false);
+  const [departments, setDepartments] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [formDeptId, setFormDeptId] = useState("");
+
+  const loadGoals = useCallback(async () => {
+    try {
+      const res = await fetch("/api/goals");
+      if (res.ok) setGoals(await res.json());
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadGoals(); }, [loadGoals]);
+
+  useEffect(() => {
+    if (!showForm || departments.length > 0) return;
+    fetch("/api/departments")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        const depts = Array.isArray(data) ? data : (data.departments ?? []);
+        setDepartments(depts);
+      })
+      .catch(() => {});
+  }, [showForm, departments.length]);
+
+  const handleCreate = async () => {
+    if (!formTitle.trim() || !formDescription.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/goals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: formTitle.trim(),
+          description: formDescription.trim(),
+          priority: parseInt(formPriority) || 3,
+          departmentId: formDeptId || undefined,
+        }),
+      });
+      if (res.ok) {
+        setShowForm(false);
+        setFormTitle("");
+        setFormDescription("");
+        setFormPriority("3");
+        setFormDeptId("");
+        loadGoals();
+        toast("Goal created", "success");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast(data.error || "Failed", "error");
+      }
+    } catch {
+      toast("Failed to create goal", "error");
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this goal?")) return;
+    try {
+      const res = await fetch(`/api/goals/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        loadGoals();
+        toast("Goal deleted", "success");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast(data.error || "Cannot delete", "error");
+      }
+    } catch {
+      toast("Delete failed", "error");
+    }
+  };
+
+  return (
+    <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
+      <div className="flex items-center justify-between mb-4">
+        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }}>
+          Goals
+        </div>
+        {isAdmin && !showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            style={{ fontSize: 11, color: "#b0b0b0", background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px" }}
+            className="hover:bg-[#2a2a2a] transition"
+          >
+            + Add goal
+          </button>
+        )}
+      </div>
+
+      {/* Add goal form */}
+      {showForm && (
+        <div className="mb-4 space-y-3" style={{ background: "#1c1c1c", border: "1px solid #333", borderRadius: 4, padding: 14 }}>
+          <Input label="Title" value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="Goal title" />
+          <Input label="Description" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Goal description" />
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-xs text-white/40 mb-1 block">Priority (1-5)</label>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                value={formPriority}
+                onChange={e => setFormPriority(e.target.value)}
+                className="w-full outline-none text-sm"
+                style={{ background: "#161616", border: "1px solid #333", borderRadius: 4, padding: "6px 10px", color: "#e8e8e8" }}
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs text-white/40 mb-1 block">Department</label>
+              <select
+                value={formDeptId}
+                onChange={e => setFormDeptId(e.target.value)}
+                className="w-full outline-none text-sm"
+                style={{ background: "#161616", border: "1px solid #333", borderRadius: 4, padding: "6px 10px", color: "#e8e8e8" }}
+              >
+                <option value="" style={{ background: "#161616" }}>HQ-level (none)</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.id} style={{ background: "#161616" }}>{d.displayName}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button variant="primary" size="sm" onClick={handleCreate} disabled={saving || !formTitle.trim()}>
+              {saving ? "Creating..." : "Create Goal"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-4">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+        </div>
+      ) : goals.length === 0 ? (
+        <p style={{ fontSize: 13, color: "#484848" }}>No goals configured yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {goals.map(goal => (
+            <div key={goal.id} style={{ background: "#1c1c1c", border: "1px solid #222", borderRadius: 4, padding: "10px 14px" }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "#e8e8e8" }}>{goal.title}</span>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 500,
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                    background: goal.status === "achieved" ? "rgba(34,197,94,0.1)" : goal.status === "paused" ? "rgba(245,158,11,0.1)" : "rgba(168,85,247,0.1)",
+                    color: goal.status === "achieved" ? "#22c55e" : goal.status === "paused" ? "#f59e0b" : "#c084fc",
+                  }}>
+                    {goal.status}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ fontSize: 11, color: "#484848" }}>P{goal.priority}</span>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleDelete(goal.id)}
+                      className="text-[11px] transition hover:text-red-400"
+                      style={{ color: "#484848" }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p style={{ fontSize: 12, color: "#707070", marginTop: 2 }}>{goal.description}</p>
+              <div style={{ fontSize: 11, color: "#484848", marginTop: 4 }}>
+                {goal._count.initiatives} initiative{goal._count.initiatives !== 1 ? "s" : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

@@ -229,6 +229,7 @@ export default function MapPage() {
   const [loading, setLoading] = useState(true);
   const [membersByDept, setMembersByDept] = useState<Record<string, Member[]>>({});
   const [activeSituationCount, setActiveSituationCount] = useState(0);
+  const [deptStats, setDeptStats] = useState<Record<string, { situations: number; initiatives: number }>>({});
 
   /* ---- add / edit modal ---- */
   const [modalOpen, setModalOpen] = useState(false);
@@ -331,6 +332,32 @@ export default function MapPage() {
     const iv = setInterval(loadDepartments, POLL_MS);
     return () => clearInterval(iv);
   }, [loadDepartments, fetchUnrouted, fetchSituationCount]);
+
+  // Fetch department stats (situation + initiative counts)
+  useEffect(() => {
+    if (departments.length === 0) return;
+    Promise.all([
+      fetchApi("/api/situations?status=detected,proposed,reasoning,executing").then(r => r.ok ? r.json() : { items: [] }),
+      fetchApi("/api/initiatives").then(r => r.ok ? r.json() : { items: [] }),
+    ]).then(([sitData, iniData]) => {
+      const stats: Record<string, { situations: number; initiatives: number }> = {};
+      for (const dept of departments) {
+        stats[dept.id] = { situations: 0, initiatives: 0 };
+      }
+      for (const s of sitData.items ?? []) {
+        if (s.departmentName) {
+          const dept = departments.find(d => d.displayName === s.departmentName);
+          if (dept && stats[dept.id]) stats[dept.id].situations++;
+        }
+      }
+      for (const i of iniData.items ?? []) {
+        if (i.goalDepartmentId && stats[i.goalDepartmentId]) {
+          stats[i.goalDepartmentId].initiatives++;
+        }
+      }
+      setDeptStats(stats);
+    }).catch(() => {});
+  }, [departments]);
 
   // Fetch members when departments change
   useEffect(() => {
@@ -808,6 +835,13 @@ export default function MapPage() {
                       <span style={{ fontSize: 28, color: "#707070", textShadow: TEXT_OUTLINE }} className="mt-3">
                         {dept.memberCount} people &middot; {dept.documentCount} docs
                       </span>
+                      {(deptStats[dept.id]?.situations > 0 || deptStats[dept.id]?.initiatives > 0) && (
+                        <span style={{ fontSize: 22, color: "#484848", textShadow: TEXT_OUTLINE }} className="mt-2">
+                          {deptStats[dept.id].situations > 0 && <>{deptStats[dept.id].situations} situation{deptStats[dept.id].situations !== 1 ? "s" : ""}</>}
+                          {deptStats[dept.id].situations > 0 && deptStats[dept.id].initiatives > 0 && " · "}
+                          {deptStats[dept.id].initiatives > 0 && <>{deptStats[dept.id].initiatives} initiative{deptStats[dept.id].initiatives !== 1 ? "s" : ""}</>}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -841,11 +875,16 @@ export default function MapPage() {
                     <div className="flex flex-col items-center justify-center h-full">
                       {/* Avatar */}
                       <div style={{
-                        width: 26, height: 26, borderRadius: 13,
-                        background: "#222", border: "1px solid #3a3a3a",
+                        width: 26, height: 26, borderRadius: aiLevel ? 6 : 13,
+                        background: aiLevel ? "rgba(168,85,247,0.15)" : "#222",
+                        border: aiLevel ? "1px solid rgba(168,85,247,0.3)" : "1px solid #3a3a3a",
                         display: "flex", alignItems: "center", justifyContent: "center",
                       }}>
-                        <span style={{ fontSize: 10, color: "#b0b0b0", textShadow: TEXT_OUTLINE }}>{getInitials(m.displayName)}</span>
+                        {aiLevel ? (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "#c084fc", textShadow: TEXT_OUTLINE }}>AI</span>
+                        ) : (
+                          <span style={{ fontSize: 10, color: "#b0b0b0", textShadow: TEXT_OUTLINE }}>{getInitials(m.displayName)}</span>
+                        )}
                       </div>
                       {/* Name */}
                       <span style={{ fontSize: 10.5, fontWeight: 600, color: "#e8e8e8", textShadow: TEXT_OUTLINE }} className="mt-1 truncate max-w-[96px] text-center">

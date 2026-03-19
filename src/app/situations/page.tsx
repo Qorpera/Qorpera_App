@@ -349,6 +349,7 @@ export default function SituationsPage() {
 
           {/* List */}
           <div className="flex-1 overflow-y-auto">
+            <DelegationFeed />
             {loading && (
               <div className="flex justify-center py-10">
                 <div className="h-4 w-4 animate-spin rounded-full border border-[#2a2a2a] border-t-[#707070]" />
@@ -426,6 +427,116 @@ export default function SituationsPage() {
 
       </div>
     </AppShell>
+  );
+}
+
+// ── Delegation Feed ──────────────────────────────────────────────────────────
+
+interface DelegationItem {
+  id: string;
+  instruction: string;
+  fromAiEntityName: string | null;
+  status: string;
+  situationId: string | null;
+  createdAt: string;
+}
+
+function DelegationFeed() {
+  const [delegations, setDelegations] = useState<DelegationItem[]>([]);
+  const [expanded, setExpanded] = useState(false);
+  const [completingId, setCompletingId] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    fetch("/api/delegations?status=pending")
+      .then(res => res.ok ? res.json() : { items: [] })
+      .then(data => setDelegations(data.items ?? []))
+      .catch(() => {});
+  }, []);
+
+  if (delegations.length === 0) return null;
+
+  const handleComplete = async (id: string) => {
+    if (!notes.trim()) return;
+    try {
+      await fetch(`/api/delegations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "complete", notes: notes.trim() }),
+      });
+      setDelegations(prev => prev.filter(d => d.id !== id));
+      setCompletingId(null);
+      setNotes("");
+    } catch {}
+  };
+
+  return (
+    <div style={{ borderBottom: "1px solid #1e1e1e" }}>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full text-left px-4 py-2 flex items-center gap-2"
+        style={{ background: "rgba(168,85,247,0.04)" }}
+      >
+        <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-purple-500 text-[10px] font-bold text-white px-1">
+          {delegations.length}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: "#c084fc" }}>
+          task{delegations.length !== 1 ? "s" : ""} assigned to you
+        </span>
+        <svg className={`w-3 h-3 ml-auto transition-transform ${expanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="#c084fc" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3 space-y-2">
+          {delegations.map(d => (
+            <div key={d.id} style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "8px 12px" }}>
+              <p style={{ fontSize: 12, color: "#b0b0b0" }}>{d.instruction}</p>
+              <p style={{ fontSize: 11, color: "#484848", marginTop: 2 }}>
+                From: {d.fromAiEntityName ?? "AI"}
+              </p>
+              {completingId === d.id ? (
+                <div className="mt-2 space-y-1.5">
+                  <textarea
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    placeholder="Describe what you did..."
+                    className="w-full outline-none"
+                    style={{ background: "#111", border: "1px solid #333", borderRadius: 4, padding: "6px 8px", fontSize: 11, color: "#e8e8e8", resize: "vertical", fontFamily: "inherit" }}
+                    rows={2}
+                  />
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => handleComplete(d.id)}
+                      disabled={!notes.trim()}
+                      className="text-[11px] px-2 py-0.5 rounded transition disabled:opacity-40"
+                      style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}
+                    >
+                      Submit
+                    </button>
+                    <button
+                      onClick={() => { setCompletingId(null); setNotes(""); }}
+                      className="text-[11px] px-2 py-0.5 rounded transition"
+                      style={{ color: "#484848" }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setCompletingId(d.id)}
+                  className="mt-2 text-[11px] px-2 py-0.5 rounded transition"
+                  style={{ background: "rgba(34,197,94,0.1)", color: "#22c55e" }}
+                >
+                  Mark complete
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
