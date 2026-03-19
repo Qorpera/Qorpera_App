@@ -841,6 +841,7 @@ model OperationalInsight {
   description     String
   evidence        String    // JSON: { sampleSize, successRate, situations[], ... }
   confidence      Float
+  promptModification String?
   shareScope      String    @default("personal") // personal, department, operator
   status          String    @default("active") // active, superseded, invalidated
   createdAt       DateTime  @default(now())

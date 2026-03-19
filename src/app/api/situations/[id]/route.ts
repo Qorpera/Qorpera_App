@@ -8,6 +8,7 @@ import { advanceStep } from "@/lib/execution-engine";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { completeDelegation } from "@/lib/delegations";
+import { checkInsightExtractionTrigger } from "@/lib/operational-knowledge";
 
 export async function GET(
   _req: NextRequest,
@@ -318,6 +319,11 @@ export async function PATCH(
   if ((body.status === "resolved" || body.status === "dismissed") && situation.delegationId) {
     completeDelegation(situation.delegationId, user.id, `Situation ${body.status}`)
       .catch(console.error);
+  }
+
+  // Fire-and-forget: check if insight extraction should run
+  if (body.status === "resolved") {
+    checkInsightExtractionTrigger(operatorId, situation.assignedUserId).catch(console.error);
   }
 
   return NextResponse.json({ id: updated.id, status: updated.status });
