@@ -42,6 +42,20 @@ export const INTERNAL_CAPABILITIES = [
     sideEffects: ["Updates an existing Goal"],
   },
   {
+    name: "create_recurring_task",
+    description: "Create a recurring task that executes on a schedule. Used when the AI identifies repeating work patterns (weekly reports, monthly reviews, daily digests).",
+    inputSchema: {
+      title: { type: "string", required: true },
+      description: { type: "string", required: true },
+      cronExpression: { type: "string", required: true },
+      autoApproveSteps: { type: "boolean", required: false },
+      departmentId: { type: "string", required: false },
+      outputFormat: { type: "string", required: false },
+      additionalInstructions: { type: "string", required: false },
+    },
+    sideEffects: ["Creates a RecurringTask that triggers on the given cron schedule"],
+  },
+  {
     name: "create_delegation",
     description: "Delegate work to another AI entity or a human user. Used for cross-department coordination or assigning tasks.",
     inputSchema: {
@@ -95,6 +109,8 @@ export async function executeInternalCapability(
       return executeCreateGoal(params, operatorId);
     case "update_goal":
       return executeUpdateGoal(params, operatorId);
+    case "create_recurring_task":
+      return executeCreateRecurringTask(params, operatorId, planOwnerAiEntityId);
     case "create_delegation":
       return executeCreateDelegation(params, operatorId, planOwnerAiEntityId);
     default:
@@ -199,6 +215,49 @@ async function executeUpdateGoal(
   });
 
   return { type: "data", payload: { goalId, updated: true }, description: "Goal updated" };
+}
+
+async function executeCreateRecurringTask(
+  params: Record<string, unknown>,
+  operatorId: string,
+  planOwnerAiEntityId?: string,
+): Promise<StepOutput> {
+  const title = String(params.title ?? "");
+  const description = String(params.description ?? "");
+  const cronExpression = String(params.cronExpression ?? "");
+
+  if (!title || !description || !cronExpression) {
+    throw new Error("create_recurring_task requires title, description, and cronExpression");
+  }
+
+  const aiEntityId = planOwnerAiEntityId;
+  if (!aiEntityId) throw new Error("Cannot determine aiEntityId for recurring task");
+
+  const { createRecurringTask } = await import("@/lib/recurring-tasks");
+  const task = await createRecurringTask({
+    operatorId,
+    aiEntityId,
+    title,
+    description,
+    cronExpression,
+    autoApproveSteps: params.autoApproveSteps === true,
+    contextHints: {
+      departmentId: params.departmentId ? String(params.departmentId) : undefined,
+      outputFormat: params.outputFormat ? String(params.outputFormat) : undefined,
+      additionalInstructions: params.additionalInstructions ? String(params.additionalInstructions) : undefined,
+    },
+  });
+
+  return {
+    type: "data",
+    payload: {
+      recurringTaskId: task.id,
+      title: task.title,
+      cronExpression: task.cronExpression,
+      nextTriggerAt: task.nextTriggerAt?.toISOString() ?? null,
+    },
+    description: `Created recurring task: ${title}`,
+  };
 }
 
 async function executeCreateDelegation(

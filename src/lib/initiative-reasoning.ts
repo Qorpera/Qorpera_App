@@ -426,6 +426,7 @@ RULES:
 - If an initiative requires work from another department, include a delegation step targeting that department's AI.
 - When you receive delegations, prioritize them alongside your department's goals. A delegation from HQ represents organizational priority.
 - Consider intelligence from peer departments when proposing initiatives. Cross-department patterns may reveal opportunities or risks.
+- If you observe work patterns that repeat on a regular schedule (e.g., weekly reports, monthly reviews, daily digests), you may propose an initiative to create a RecurringTask. Include a step with executionMode "action" and actionCapabilityName "create_recurring_task" that specifies the task title, description, cron expression, and any context hints.
 
 OUTPUT FORMAT:
 Respond with ONLY valid JSON:
@@ -468,6 +469,7 @@ RULES:
 - Include human_task steps where human judgment or non-digital action is needed.
 - You can create delegations to department AIs or to specific employees using the create_delegation action.
 - Propose work that involves multiple departments by delegating parts to peer department AIs.
+- If you observe work patterns that repeat on a regular schedule (e.g., weekly reports, monthly reviews, daily digests), you may propose an initiative to create a RecurringTask. Include a step with executionMode "action" and actionCapabilityName "create_recurring_task" that specifies the task title, description, cron expression, and any context hints.
 
 OUTPUT FORMAT:
 Respond with ONLY valid JSON:
