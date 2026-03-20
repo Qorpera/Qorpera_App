@@ -51,6 +51,9 @@ const PROVIDER_COLORS: Record<string, string> = {
   slack: "#4A154B",
   economic: "#1e3a5f",
   "google-ads": "#4285f4",
+  shopify: "#96bf48",
+  linkedin: "#0A66C2",
+  "meta-ads": "#1877F2",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -59,6 +62,9 @@ const PROVIDER_LABELS: Record<string, string> = {
   slack: "Slack",
   economic: "e-conomic",
   "google-ads": "Google Ads",
+  shopify: "Shopify",
+  linkedin: "LinkedIn",
+  "meta-ads": "Meta Ads",
 };
 
 /* ------------------------------------------------------------------ */
@@ -200,9 +206,8 @@ function OnboardingPage() {
       initPositions(allDepts);
 
       // If returning from OAuth, force step 5 so the callback effect can fire
-      const isOAuthReturn = searchParams.get("hubspot") === "connected"
-        || searchParams.get("stripe") === "connected"
-        || searchParams.get("google-ads") === "connected";
+      const oauthProviders = ["hubspot", "stripe", "google-ads", "shopify", "linkedin", "meta-ads"];
+      const isOAuthReturn = oauthProviders.some(p => searchParams.get(p) === "connected");
       if (isOAuthReturn) {
         setStep(5);
         return;
@@ -739,7 +744,7 @@ function OnboardingPage() {
     if (res.ok) {
       const data = await res.json();
       // Company connectors have no userId — filter to company providers
-      const companyProviders = ["hubspot", "stripe", "slack", "economic", "google-ads"];
+      const companyProviders = ["hubspot", "stripe", "slack", "economic", "google-ads", "shopify", "linkedin", "meta-ads"];
       const company = (data.connectors || []).filter((c: { provider: string; userId?: string | null }) =>
         !c.userId && companyProviders.includes(c.provider)
       );
@@ -757,9 +762,8 @@ function OnboardingPage() {
   // Detect OAuth return
   useEffect(() => {
     if (step !== 5) return;
-    const connected = searchParams.get("hubspot") === "connected"
-      || searchParams.get("stripe") === "connected"
-      || searchParams.get("google-ads") === "connected";
+    const oauthProviders = ["hubspot", "stripe", "google-ads", "shopify", "linkedin", "meta-ads"];
+    const connected = oauthProviders.some(p => searchParams.get(p) === "connected");
 
     if (!connected) return;
 
@@ -1619,6 +1623,22 @@ function OnboardingPage() {
                       onClick={async () => {
                         const config: Record<string, string> = {};
                         tokenModal.fields.forEach(f => { config[f.key] = tokenValues[f.key]; });
+
+                        // Check if provider also has an oauth field — if so, redirect to auth-url
+                        const provider = providers.find(p => p.id === tokenModal.providerId);
+                        const hasOauth = provider?.configSchema?.some((f: any) => f.type === "oauth");
+
+                        if (hasOauth) {
+                          const params = new URLSearchParams({ from: "onboarding" });
+                          tokenModal.fields.forEach(f => { params.set(f.key, tokenValues[f.key]); });
+                          const authRes = await fetch(`/api/connectors/${tokenModal.providerId}/auth-url?${params.toString()}`);
+                          const authData = await authRes.json();
+                          if (authData.url) window.location.href = authData.url;
+                          setTokenModal(null);
+                          return;
+                        }
+
+                        // Token-only providers (like e-conomic): POST directly
                         const res = await fetch("/api/connectors", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },

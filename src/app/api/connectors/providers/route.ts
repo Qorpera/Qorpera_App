@@ -19,6 +19,9 @@ export async function GET() {
     microsoft: () => !!(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
     economic: () => !!process.env.ECONOMIC_APP_SECRET_TOKEN,
     "google-ads": () => !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_ADS_DEVELOPER_TOKEN),
+    shopify: () => !!(process.env.SHOPIFY_CLIENT_ID && process.env.SHOPIFY_CLIENT_SECRET),
+    linkedin: () => !!(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET),
+    "meta-ads": () => !!(process.env.META_APP_ID && process.env.META_APP_SECRET),
   };
 
   const result = providers.map((p) => ({

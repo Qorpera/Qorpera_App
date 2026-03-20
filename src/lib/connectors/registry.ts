@@ -7,8 +7,11 @@ import { slackProvider } from "./slack-provider";
 import { microsoftProvider } from "./microsoft-provider";
 import { economicProvider } from "./economic-provider";
 import { googleAdsProvider } from "./google-ads-provider";
+import { shopifyProvider } from "./shopify-provider";
+import { linkedinProvider } from "./linkedin-provider";
+import { metaAdsProvider } from "./meta-ads-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider];
 
 export function getProvider(id: string): ConnectorProvider | undefined {
   return PROVIDERS.find((p) => p.id === id);

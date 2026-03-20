@@ -14,6 +14,9 @@ process.env.GOOGLE_ADS_MANAGER_ACCOUNT_ID = "1234567890";
 
 import { economicProvider } from "@/lib/connectors/economic-provider";
 import { googleAdsProvider } from "@/lib/connectors/google-ads-provider";
+import { shopifyProvider } from "@/lib/connectors/shopify-provider";
+import { linkedinProvider } from "@/lib/connectors/linkedin-provider";
+import { metaAdsProvider } from "@/lib/connectors/meta-ads-provider";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 beforeEach(() => {
@@ -606,5 +609,503 @@ describe("google-ads provider", () => {
     );
     expect(content).toContain('"campaign.synced"');
     expect(content).toContain('entityTypeSlug: "campaign"');
+  });
+});
+
+// ── Shopify provider ────────────────────────────────────────────────────────
+
+describe("shopify provider", () => {
+  const config = {
+    store_domain: "teststore.myshopify.com",
+    access_token: "shpat_test123",
+  };
+
+  test("configSchema has store_domain text field and oauth field", () => {
+    const domainField = shopifyProvider.configSchema.find((f) => f.key === "store_domain");
+    expect(domainField).toBeDefined();
+    expect(domainField!.type).toBe("text");
+    expect(domainField!.required).toBe(true);
+
+    const oauthField = shopifyProvider.configSchema.find((f) => f.key === "oauth");
+    expect(oauthField).toBeDefined();
+    expect(oauthField!.type).toBe("oauth");
+  });
+
+  test("sync yields order events with order entity mapping", async () => {
+    // Orders page
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        orders: [
+          {
+            id: 1001,
+            order_number: 1001,
+            name: "#1001",
+            total_price: "99.99",
+            currency: "USD",
+            financial_status: "paid",
+            fulfillment_status: "fulfilled",
+            line_items: [{ id: 1 }, { id: 2 }],
+            created_at: "2025-01-15T10:00:00Z",
+            customer: { id: 501 },
+            refunds: [],
+          },
+        ],
+      }),
+      headers: new Headers(),
+    })
+    // Products
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ products: [] }),
+      headers: new Headers(),
+    })
+    // Customers
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ customers: [] }),
+      headers: new Headers(),
+    });
+
+    const yields: any[] = [];
+    for await (const item of shopifyProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const orderEvent = yields.find(
+      (y) => y.kind === "event" && y.data.eventType === "order.synced"
+    );
+    expect(orderEvent).toBeDefined();
+    expect(orderEvent.data.payload.id).toBe(1001);
+    expect(orderEvent.data.payload.name).toBe("#1001");
+    expect(orderEvent.data.payload.total).toBe("99.99");
+    expect(orderEvent.data.payload.item_count).toBe(2);
+  });
+
+  test("sync yields product events reusing product entity type", async () => {
+    mockFetch
+      // Orders
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ orders: [] }),
+        headers: new Headers(),
+      })
+      // Products
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          products: [
+            {
+              id: 2001,
+              title: "Widget",
+              status: "active",
+              product_type: "Gadgets",
+              variants: [{ sku: "WID-001", price: "29.99", inventory_quantity: 50 }],
+            },
+          ],
+        }),
+        headers: new Headers(),
+      })
+      // Customers
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ customers: [] }),
+        headers: new Headers(),
+      });
+
+    const yields: any[] = [];
+    for await (const item of shopifyProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const productEvent = yields.find(
+      (y) => y.kind === "event" && y.data.eventType === "product.synced"
+    );
+    expect(productEvent).toBeDefined();
+    expect(productEvent.data.payload.name).toBe("Widget");
+    expect(productEvent.data.payload.sku).toBe("WID-001");
+  });
+
+  test("sync yields customer events reusing contact entity type", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ orders: [] }),
+        headers: new Headers(),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ products: [] }),
+        headers: new Headers(),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          customers: [
+            { id: 501, first_name: "Jane", last_name: "Doe", email: "jane@test.com", phone: "+1234" },
+          ],
+        }),
+        headers: new Headers(),
+      });
+
+    const yields: any[] = [];
+    for await (const item of shopifyProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const customerEvent = yields.find(
+      (y) => y.kind === "event" && y.data.eventType === "customer.synced"
+    );
+    expect(customerEvent).toBeDefined();
+    expect(customerEvent.data.payload.name).toBe("Jane Doe");
+    expect(customerEvent.data.payload.email).toBe("jane@test.com");
+  });
+
+  test("sync yields refund activity signals", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orders: [
+            {
+              id: 1002,
+              order_number: 1002,
+              name: "#1002",
+              total_price: "50.00",
+              currency: "USD",
+              financial_status: "refunded",
+              fulfillment_status: null,
+              line_items: [{ id: 1 }],
+              created_at: "2025-01-10T10:00:00Z",
+              refunds: [
+                {
+                  created_at: "2025-01-12T10:00:00Z",
+                  note: "Customer changed mind",
+                  transactions: [{ amount: "50.00" }],
+                },
+              ],
+            },
+          ],
+        }),
+        headers: new Headers(),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ products: [] }),
+        headers: new Headers(),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ customers: [] }),
+        headers: new Headers(),
+      });
+
+    const yields: any[] = [];
+    for await (const item of shopifyProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const refundSignal = yields.find(
+      (y) => y.kind === "activity" && y.data.signalType === "order_refunded"
+    );
+    expect(refundSignal).toBeDefined();
+    expect(refundSignal.data.metadata.amount).toBe(50);
+    expect(refundSignal.data.metadata.reason).toBe("Customer changed mind");
+  });
+
+  test("sync yields order-customer associations", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          orders: [
+            {
+              id: 1003,
+              order_number: 1003,
+              name: "#1003",
+              total_price: "100.00",
+              currency: "USD",
+              financial_status: "paid",
+              fulfillment_status: null,
+              line_items: [{ id: 1 }],
+              created_at: "2025-02-01T10:00:00Z",
+              customer: { id: 601 },
+              refunds: [],
+            },
+          ],
+        }),
+        headers: new Headers(),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ products: [] }),
+        headers: new Headers(),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ customers: [] }),
+        headers: new Headers(),
+      });
+
+    const yields: any[] = [];
+    for await (const item of shopifyProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const assocEvent = yields.find(
+      (y) => y.kind === "event" && y.data.eventType === "association.found"
+    );
+    expect(assocEvent).toBeDefined();
+    expect(assocEvent.data.payload.fromExternalId).toBe("601");
+    expect(assocEvent.data.payload.toExternalId).toBe("1003");
+    expect(assocEvent.data.payload.relationshipType).toBe("ordered");
+  });
+
+  test("order.synced materializer maps to order entity type", async () => {
+    const { readFileSync } = await import("fs");
+    const { resolve } = await import("path");
+    const content = readFileSync(
+      resolve(__dirname, "../../src/lib/event-materializer.ts"),
+      "utf8"
+    );
+    expect(content).toContain('"order.synced"');
+    expect(content).toContain('entityTypeSlug: "order"');
+  });
+});
+
+// ── LinkedIn provider ───────────────────────────────────────────────────────
+
+describe("linkedin provider", () => {
+  const config = {
+    access_token: "test-linkedin-token",
+    organization_id: "12345",
+  };
+
+  test("configSchema has oauth field", () => {
+    const field = linkedinProvider.configSchema.find((f) => f.key === "oauth");
+    expect(field).toBeDefined();
+    expect(field!.type).toBe("oauth");
+  });
+
+  test("sync yields page posts as content (no entity events)", async () => {
+    // Posts
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        elements: [
+          {
+            id: "post-1",
+            created: { time: Date.now(), actor: "urn:li:person:abc" },
+            specificContent: {
+              "com.linkedin.ugc.ShareContent": {
+                shareCommentary: { text: "Excited to announce our new product!" },
+              },
+            },
+          },
+        ],
+      }),
+    })
+    // Follower stats
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        elements: [
+          { followerCounts: { organicFollowerCount: 5000, paidFollowerCount: 200 } },
+        ],
+      }),
+    });
+
+    const yields: any[] = [];
+    for await (const item of linkedinProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const contentYield = yields.find((y) => y.kind === "content");
+    expect(contentYield).toBeDefined();
+    expect(contentYield.data.sourceType).toBe("linkedin_post");
+    expect(contentYield.data.content).toContain("new product");
+  });
+
+  test("sync yields follower stats as activity", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ elements: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          elements: [
+            { followerCounts: { organicFollowerCount: 3000, paidFollowerCount: 500 } },
+          ],
+        }),
+      });
+
+    const yields: any[] = [];
+    for await (const item of linkedinProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const followerSignal = yields.find(
+      (y) => y.kind === "activity" && y.data.signalType === "linkedin_follower_count"
+    );
+    expect(followerSignal).toBeDefined();
+    expect(followerSignal.data.metadata.totalFollowers).toBe(3500);
+  });
+
+  test("no event yields (content + activity only)", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          elements: [
+            {
+              id: "post-2",
+              created: { time: Date.now(), actor: "urn:li:person:xyz" },
+              specificContent: {
+                "com.linkedin.ugc.ShareContent": {
+                  shareCommentary: { text: "Test post" },
+                },
+              },
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ elements: [] }),
+      });
+
+    const yields: any[] = [];
+    for await (const item of linkedinProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const eventYields = yields.filter((y) => y.kind === "event");
+    expect(eventYields).toHaveLength(0);
+  });
+});
+
+// ── Meta Ads provider ───────────────────────────────────────────────────────
+
+describe("meta-ads provider", () => {
+  const config = {
+    access_token: "test-meta-token",
+    ad_account_id: "act_123456",
+    ad_account_currency: "EUR",
+  };
+
+  test("configSchema has oauth field", () => {
+    const field = metaAdsProvider.configSchema.find((f) => f.key === "oauth");
+    expect(field).toBeDefined();
+    expect(field!.type).toBe("oauth");
+  });
+
+  test("sync yields campaign events reusing campaign entity type", async () => {
+    // Campaigns list
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: "meta-c1",
+            name: "Summer Promo",
+            status: "ACTIVE",
+            start_time: "2025-06-01",
+            stop_time: "2025-08-31",
+            daily_budget: "5000",
+          },
+        ],
+      }),
+    })
+    // Insights for campaign
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { impressions: "80000", clicks: "3200", spend: "4500.50", conversions: "320", ctr: "0.04" },
+        ],
+      }),
+    });
+
+    const yields: any[] = [];
+    for await (const item of metaAdsProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const campaignEvent = yields.find(
+      (y) => y.kind === "event" && y.data.eventType === "campaign.synced"
+    );
+    expect(campaignEvent).toBeDefined();
+    expect(campaignEvent.data.payload.id).toBe("meta-c1");
+    expect(campaignEvent.data.payload.name).toBe("Summer Promo");
+    expect(campaignEvent.data.payload.spend).toBe(4500.50);
+    expect(campaignEvent.data.payload.currency).toBe("EUR");
+  });
+
+  test("campaign platform property is meta_ads", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: "meta-c2", name: "Fall Sale", status: "ACTIVE", daily_budget: "3000" },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [] }),
+      });
+
+    const yields: any[] = [];
+    for await (const item of metaAdsProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const campaignEvent = yields.find(
+      (y) => y.kind === "event" && y.data.eventType === "campaign.synced"
+    );
+    expect(campaignEvent.data.payload.platform).toBe("meta_ads");
+  });
+
+  test("sync yields performance summary as content", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            { id: "c1", name: "C1", status: "ACTIVE", daily_budget: "1000" },
+            { id: "c2", name: "C2", status: "ACTIVE", daily_budget: "2000" },
+          ],
+        }),
+      })
+      // Insights for c1
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ impressions: "10000", clicks: "500", spend: "800", conversions: "50", ctr: "0.05" }],
+        }),
+      })
+      // Insights for c2
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ impressions: "20000", clicks: "1000", spend: "1600", conversions: "100", ctr: "0.05" }],
+        }),
+      });
+
+    const yields: any[] = [];
+    for await (const item of metaAdsProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const contentYield = yields.find((y) => y.kind === "content");
+    expect(contentYield).toBeDefined();
+    expect(contentYield.data.sourceType).toBe("ads_performance_summary");
+    expect(contentYield.data.sourceId).toBe("meta-ads-summary");
+    expect(contentYield.data.content).toContain("2 active campaigns");
+    expect(contentYield.data.content).toContain("2400.00 total spend");
+    expect(contentYield.data.metadata.platform).toBe("meta_ads");
   });
 });
