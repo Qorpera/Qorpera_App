@@ -105,7 +105,13 @@ export const googleAdsProvider: ConnectorProvider = {
       query = `SELECT campaign.id, campaign.name, campaign.status, campaign.start_date, campaign.end_date, campaign.campaign_budget, metrics.impressions, metrics.clicks, metrics.conversions, metrics.cost_micros, metrics.ctr FROM campaign WHERE campaign.status != 'REMOVED' AND segments.date >= '${sinceDate}' ORDER BY campaign.id`;
     }
 
-    const results = await searchStream(accessToken, customerId, query);
+    let results: any[];
+    try {
+      results = await searchStream(accessToken, customerId, query);
+    } catch {
+      // API error — return gracefully instead of killing the sync
+      return;
+    }
 
     let totalSpend = 0;
     let totalImpressions = 0;

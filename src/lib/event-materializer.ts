@@ -204,6 +204,7 @@ const EVENT_MATERIALIZERS: Record<string, EventMaterializerRule> = {
       currency: p.currency,
       status: p.status,
       category: p.category,
+      "inventory-count": p.inventory_count != null ? String(p.inventory_count) : undefined,
     }),
     extractIdentity: (p) => ({}),
     extractExternalRef: (p, source) => ({

@@ -9,6 +9,10 @@ export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  if (su.user.role !== "admin" && su.user.role !== "superadmin") {
+    return NextResponse.json({ error: "Only admins can install Google Ads" }, { status: 403 });
+  }
+
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
     return NextResponse.json(
       { error: "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET." },
