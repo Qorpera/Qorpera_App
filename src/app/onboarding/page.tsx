@@ -49,12 +49,14 @@ const PROVIDER_COLORS: Record<string, string> = {
   hubspot: "#ff7a59",
   stripe: "#635bff",
   slack: "#4A154B",
+  economic: "#1e3a5f",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
   hubspot: "HubSpot",
   stripe: "Stripe",
   slack: "Slack",
+  economic: "e-conomic",
 };
 
 /* ------------------------------------------------------------------ */
@@ -147,6 +149,8 @@ function OnboardingPage() {
   // Step 5 state (connectors)
   const [providers, setProviders] = useState<Provider[]>([]);
   const [companyConnectors, setCompanyConnectors] = useState<Array<{ id: string; provider: string; name: string; status: string }>>([]);
+  const [tokenModal, setTokenModal] = useState<{ providerId: string; label: string; fields: Array<{ key: string; label: string; placeholder?: string }> } | null>(null);
+  const [tokenValues, setTokenValues] = useState<Record<string, string>>({});
 
   // Step 6 state (sync)
   const [syncStarted, setSyncStarted] = useState(false);
@@ -731,9 +735,10 @@ function OnboardingPage() {
     const res = await fetch("/api/connectors");
     if (res.ok) {
       const data = await res.json();
-      // Company connectors have no userId — filter to HubSpot/Stripe
+      // Company connectors have no userId — filter to HubSpot/Stripe/Slack/e-conomic
+      const companyProviders = ["hubspot", "stripe", "slack", "economic"];
       const company = (data.connectors || []).filter((c: { provider: string; userId?: string | null }) =>
-        !c.userId && (c.provider === "hubspot" || c.provider === "stripe")
+        !c.userId && companyProviders.includes(c.provider)
       );
       setCompanyConnectors(company);
     }
@@ -763,6 +768,18 @@ function OnboardingPage() {
   }, [step, searchParams]);
 
   function handleConnectProvider(providerId: string) {
+    const provider = providers.find(p => p.id === providerId);
+    const nonOauthFields = provider?.configSchema?.filter((f: any) => f.type !== "oauth") || [];
+    if (nonOauthFields.length > 0) {
+      setTokenModal({
+        providerId,
+        label: PROVIDER_LABELS[providerId] ?? provider?.name ?? providerId,
+        fields: nonOauthFields.map((f: any) => ({ key: f.key, label: f.label, placeholder: f.placeholder })),
+      });
+      setTokenValues({});
+      return;
+    }
+    // Existing OAuth flow
     fetch(`/api/connectors/${providerId}/auth-url?from=onboarding`)
       .then(r => r.json())
       .then(data => {
@@ -1572,6 +1589,49 @@ function OnboardingPage() {
                 Continue
               </Button>
             </div>
+
+            {tokenModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                <div className="wf-soft p-6 w-full max-w-md space-y-4">
+                  <h3 className="text-lg font-medium text-white/80">Connect {tokenModal.label}</h3>
+                  {tokenModal.fields.map(f => (
+                    <div key={f.key} className="space-y-1">
+                      <label className="text-xs text-white/50">{f.label}</label>
+                      <input
+                        type="password"
+                        placeholder={f.placeholder}
+                        value={tokenValues[f.key] || ""}
+                        onChange={e => setTokenValues(prev => ({ ...prev, [f.key]: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-sm text-white/80 placeholder-white/20"
+                      />
+                    </div>
+                  ))}
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button onClick={() => setTokenModal(null)} className="text-sm text-white/40 hover:text-white/60">Cancel</button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={tokenModal.fields.some(f => !tokenValues[f.key])}
+                      onClick={async () => {
+                        const config: Record<string, string> = {};
+                        tokenModal.fields.forEach(f => { config[f.key] = tokenValues[f.key]; });
+                        const res = await fetch("/api/connectors", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ provider: tokenModal.providerId, config }),
+                        });
+                        if (res.ok) {
+                          setTokenModal(null);
+                          loadCompanyConnectors();
+                        }
+                      }}
+                    >
+                      Connect
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

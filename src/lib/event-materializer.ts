@@ -155,6 +155,22 @@ const EVENT_MATERIALIZERS: Record<string, EventMaterializerRule> = {
       externalId: String(p.id),
     }),
   },
+  "product.synced": {
+    entityTypeSlug: "product",
+    extractDisplayName: (p) => p.name || p.sku || `Product ${p.id}`,
+    extractProperties: (p) => ({
+      sku: p.sku,
+      price: p.price != null ? String(p.price) : undefined,
+      currency: p.currency,
+      status: p.status,
+      category: p.category,
+    }),
+    extractIdentity: (p) => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
   "row.synced": {
     entityTypeSlug: "record",
     extractDisplayName: (p) =>

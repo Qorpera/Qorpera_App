@@ -69,4 +69,5 @@ export interface Provider {
   id: string;
   name: string;
   configured: boolean;
+  configSchema?: Array<{ key: string; label: string; type: string; required: boolean; placeholder?: string }>;
 }

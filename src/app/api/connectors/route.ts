@@ -70,12 +70,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Unknown provider: ${providerId}` }, { status: 400 });
   }
 
+  // For connectors with inline config (non-OAuth), test connection first
+  if (config && Object.keys(config).length > 0) {
+    try {
+      const testResult = await provider.testConnection(config);
+      if (!testResult.ok) {
+        return NextResponse.json(
+          { error: testResult.error || "Connection test failed" },
+          { status: 400 }
+        );
+      }
+    } catch (err) {
+      return NextResponse.json(
+        { error: `Connection test error: ${err instanceof Error ? err.message : String(err)}` },
+        { status: 400 }
+      );
+    }
+  }
+
   const connector = await prisma.sourceConnector.create({
     data: {
       operatorId,
       provider: providerId,
-      name: name || "",
-      status: "pending",
+      name: name || provider.name,
+      status: config ? "active" : "pending",
       config: config ? encrypt(JSON.stringify(config)) : null,
     },
   });

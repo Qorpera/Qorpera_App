@@ -59,9 +59,12 @@ function AccountPageInner() {
   const [exporting, setExporting] = useState(false);
   const [googleConnector, setGoogleConnector] = useState<PersonalConnector | null>(null);
   const [microsoftConnector, setMicrosoftConnector] = useState<PersonalConnector | null>(null);
+  const [economicConnector, setEconomicConnector] = useState<PersonalConnector | null>(null);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
   const [connectingMicrosoft, setConnectingMicrosoft] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [tokenModal, setTokenModal] = useState<{ providerId: string; label: string; fields: Array<{ key: string; label: string; placeholder?: string }> } | null>(null);
+  const [tokenValues, setTokenValues] = useState<Record<string, string>>({});
   const [aiEntity, setAiEntity] = useState<AiEntity | null | undefined>(undefined);
   const [paRows, setPaRows] = useState<PersonalAutonomyRow[]>([]);
 
@@ -77,8 +80,12 @@ function AccountPageInner() {
         const microsoft = connectors.find(
           (c: { provider: string; userId?: string | null }) => c.provider === "microsoft" && c.userId
         );
+        const economic = connectors.find(
+          (c: { provider: string; userId?: string | null }) => c.provider === "economic" && !c.userId
+        );
         setGoogleConnector(google || null);
         setMicrosoftConnector(microsoft || null);
+        setEconomicConnector(economic || null);
       }
     } catch {}
   }, []);
@@ -417,6 +424,119 @@ function AccountPageInner() {
               </Button>
             )}
           </div>
+
+          {/* e-conomic */}
+          <div className="wf-soft px-5 py-4 flex items-center gap-3 mt-3">
+            <span
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+              style={{ backgroundColor: "#1e3a5f" }}
+            >
+              EC
+            </span>
+            <div className="flex-1 min-w-0">
+              <span className="text-sm text-white/80">e-conomic</span>
+              <p className="text-[11px] text-white/35 mt-0.5">
+                Customers, Invoices, Products
+              </p>
+            </div>
+            {economicConnector ? (
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-xs text-white/50 block">{economicConnector.name}</span>
+                  <span className="text-[10px] text-emerald-400">Connected</span>
+                </div>
+                <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <button
+                  disabled={disconnecting}
+                  className="text-[11px] text-white/30 hover:text-red-400 transition-colors ml-1 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!confirm("Disconnect e-conomic? Synced data will remain, but no new data will sync.")) return;
+                    setDisconnecting(true);
+                    try {
+                      const res = await fetchApi(`/api/connectors/${economicConnector.id}`, { method: "DELETE" });
+                      if (res.ok) {
+                        setEconomicConnector(null);
+                        toast("e-conomic disconnected.", "success");
+                      } else {
+                        const data = await res.json().catch(() => ({}));
+                        toast(data.error || "Failed to disconnect.", "error");
+                      }
+                    } catch {
+                      toast("Failed to disconnect.", "error");
+                    } finally {
+                      setDisconnecting(false);
+                    }
+                  }}
+                >
+                  {disconnecting ? "..." : "Disconnect"}
+                </button>
+              </div>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  setTokenModal({
+                    providerId: "economic",
+                    label: "e-conomic",
+                    fields: [{ key: "grant_token", label: "Agreement Grant Token", placeholder: "Paste your grant token from e-conomic Settings → Apps" }],
+                  });
+                  setTokenValues({});
+                }}
+              >
+                Connect e-conomic
+              </Button>
+            )}
+          </div>
+
+          {tokenModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="wf-soft p-6 w-full max-w-md space-y-4">
+                <h3 className="text-lg font-medium text-white/80">Connect {tokenModal.label}</h3>
+                {tokenModal.fields.map(f => (
+                  <div key={f.key} className="space-y-1">
+                    <label className="text-xs text-white/50">{f.label}</label>
+                    <input
+                      type="password"
+                      placeholder={f.placeholder}
+                      value={tokenValues[f.key] || ""}
+                      onChange={e => setTokenValues(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-sm text-white/80 placeholder-white/20"
+                    />
+                  </div>
+                ))}
+                <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setTokenModal(null)} className="text-sm text-white/40 hover:text-white/60">Cancel</button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={tokenModal.fields.some(f => !tokenValues[f.key])}
+                    onClick={async () => {
+                      const config: Record<string, string> = {};
+                      tokenModal.fields.forEach(f => { config[f.key] = tokenValues[f.key]; });
+                      const res = await fetchApi("/api/connectors", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ provider: tokenModal.providerId, config }),
+                      });
+                      if (res.ok) {
+                        setTokenModal(null);
+                        loadPersonalConnectors();
+                        toast(`${tokenModal.label} connected.`, "success");
+                      } else {
+                        const data = await res.json().catch(() => ({}));
+                        toast(data.error || "Connection failed.", "error");
+                      }
+                    }}
+                  >
+                    Connect
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Notification Preferences */}

@@ -5,8 +5,9 @@ import { hubspotProvider } from "./hubspot";
 import { stripeProvider } from "./stripe";
 import { slackProvider } from "./slack-provider";
 import { microsoftProvider } from "./microsoft-provider";
+import { economicProvider } from "./economic-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider];
 
 export function getProvider(id: string): ConnectorProvider | undefined {
   return PROVIDERS.find((p) => p.id === id);
