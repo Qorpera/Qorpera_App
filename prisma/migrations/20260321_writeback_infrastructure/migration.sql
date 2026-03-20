@@ -14,3 +14,7 @@ ALTER TABLE "Situation" ADD COLUMN "spawningStepId" TEXT;
 
 -- ExecutionStep: awaiting_situation is now a valid status value
 -- (No DDL needed — status is a TEXT column, values are application-level)
+
+-- Backfill: all existing capabilities were already active, set them to enabled
+-- so they continue working. Only new write-back capabilities from Day 11+ connectors start as 'pending'.
+UPDATE "ActionCapability" SET "writeBackStatus" = 'enabled' WHERE "enabled" = true;

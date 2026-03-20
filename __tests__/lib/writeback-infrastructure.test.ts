@@ -169,6 +169,9 @@ describe("writeBackStatus gate", () => {
       id: "cap1", name: "send_email", slug: "send_email", description: "Send email",
       enabled: true, connectorId: "conn1", writeBackStatus: "pending",
     });
+    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "conn1", provider: "google",
+    });
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     await executeStep("step1");
@@ -188,6 +191,9 @@ describe("writeBackStatus gate", () => {
     (prisma.actionCapability.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "cap1", name: "send_email", slug: "send_email", description: "Send email",
       enabled: true, connectorId: "conn1", writeBackStatus: "disabled",
+    });
+    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "conn1", provider: "google",
     });
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 

@@ -196,10 +196,14 @@ async function executeActionStep(
 
   // writeBackStatus gate: only connector-backed capabilities with writeBackStatus
   if (capability.connectorId && capability.writeBackStatus !== "enabled") {
+    const connectorForType = await prisma.sourceConnector.findUnique({
+      where: { id: capability.connectorId },
+      select: { provider: true },
+    });
     const errorPayload = JSON.stringify({
       code: "WRITEBACK_NOT_ENABLED",
       capabilitySlug: capability.slug || capability.name,
-      connectorType: capability.connectorId,
+      connectorType: connectorForType?.provider ?? "unknown",
       message: `Write-back for ${capability.name} has not been enabled. An admin can enable this in Settings → Connections.`,
     });
     await prisma.executionStep.update({
