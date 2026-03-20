@@ -155,6 +155,28 @@ const EVENT_MATERIALIZERS: Record<string, EventMaterializerRule> = {
       externalId: String(p.id),
     }),
   },
+  "campaign.synced": {
+    entityTypeSlug: "campaign",
+    extractDisplayName: (p) => p.name || `Campaign ${p.id}`,
+    extractProperties: (p) => ({
+      platform: p.platform,
+      status: p.status,
+      budget: p.budget != null ? String(p.budget) : undefined,
+      spend: p.spend != null ? String(p.spend) : undefined,
+      currency: p.currency,
+      impressions: p.impressions != null ? String(p.impressions) : undefined,
+      clicks: p.clicks != null ? String(p.clicks) : undefined,
+      conversions: p.conversions != null ? String(p.conversions) : undefined,
+      ctr: p.ctr != null ? String(p.ctr) : undefined,
+      "start-date": p.startDate,
+      "end-date": p.endDate,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
   "product.synced": {
     entityTypeSlug: "product",
     extractDisplayName: (p) => p.name || p.sku || `Product ${p.id}`,

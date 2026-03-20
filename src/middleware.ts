@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   "/api/auth/hubspot/callback",
   "/api/auth/stripe/callback",
   "/api/connectors/google/callback",
+  "/api/connectors/google-ads/callback",
   "/api/connectors/slack/callback",
   "/api/connectors/microsoft/callback",
   "/api/webhooks/",

@@ -7,10 +7,13 @@ vi.mock("@/lib/db", () => ({ prisma: {} }));
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-// Set env var for economic provider
+// Set env vars for providers
 process.env.ECONOMIC_APP_SECRET_TOKEN = "test-app-secret";
+process.env.GOOGLE_ADS_DEVELOPER_TOKEN = "test-dev-token";
+process.env.GOOGLE_ADS_MANAGER_ACCOUNT_ID = "1234567890";
 
 import { economicProvider } from "@/lib/connectors/economic-provider";
+import { googleAdsProvider } from "@/lib/connectors/google-ads-provider";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 beforeEach(() => {
@@ -454,9 +457,6 @@ describe("new entity type definitions", () => {
 
 describe("event materializer rules", () => {
   test("product.synced maps to product entity type", async () => {
-    // We need to import the materializer module to access the rules indirectly.
-    // Since EVENT_MATERIALIZERS isn't exported, we test via the materializer behavior.
-    // Instead, read the file and check the rule exists.
     const { readFileSync } = await import("fs");
     const { resolve } = await import("path");
     const content = readFileSync(
@@ -465,5 +465,146 @@ describe("event materializer rules", () => {
     );
     expect(content).toContain('"product.synced"');
     expect(content).toContain('entityTypeSlug: "product"');
+  });
+});
+
+// ── Google Ads provider ─────────────────────────────────────────────────────
+
+describe("google-ads provider", () => {
+  const config = {
+    access_token: "test-access-token",
+    refresh_token: "test-refresh-token",
+    token_expiry: new Date(Date.now() + 3600 * 1000).toISOString(),
+    customer_id: "1234567890",
+  };
+
+  test("configSchema has oauth field", () => {
+    const field = googleAdsProvider.configSchema.find((f) => f.key === "oauth");
+    expect(field).toBeDefined();
+    expect(field!.type).toBe("oauth");
+    expect(field!.required).toBe(true);
+  });
+
+  test("sync yields campaign events with campaign entity mapping", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ([
+        {
+          results: [
+            {
+              campaign: {
+                id: "111",
+                name: "Spring Sale",
+                status: "ENABLED",
+                startDate: "2025-03-01",
+                endDate: "2025-04-01",
+                campaignBudget: "campaigns/111/budgets/222",
+              },
+              metrics: {
+                impressions: 50000,
+                clicks: 2500,
+                conversions: 150,
+                costMicros: 75000000,
+                ctr: 0.05,
+              },
+            },
+          ],
+        },
+      ]),
+    });
+
+    const yields: any[] = [];
+    for await (const item of googleAdsProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const campaignEvent = yields.find(
+      (y) => y.kind === "event" && y.data.eventType === "campaign.synced"
+    );
+    expect(campaignEvent).toBeDefined();
+    expect(campaignEvent.data.payload.id).toBe("111");
+    expect(campaignEvent.data.payload.name).toBe("Spring Sale");
+    expect(campaignEvent.data.payload.platform).toBe("google_ads");
+    expect(campaignEvent.data.payload.spend).toBe(75);
+    expect(campaignEvent.data.payload.impressions).toBe(50000);
+    expect(campaignEvent.data.payload.clicks).toBe(2500);
+    expect(campaignEvent.data.payload.conversions).toBe(150);
+  });
+
+  test("sync yields performance summary as content", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ([
+        {
+          results: [
+            {
+              campaign: { id: "111", name: "Campaign A", status: "ENABLED" },
+              metrics: { impressions: 10000, clicks: 500, conversions: 50, costMicros: 25000000, ctr: 0.05 },
+            },
+            {
+              campaign: { id: "222", name: "Campaign B", status: "ENABLED" },
+              metrics: { impressions: 20000, clicks: 1000, conversions: 100, costMicros: 50000000, ctr: 0.05 },
+            },
+          ],
+        },
+      ]),
+    });
+
+    const yields: any[] = [];
+    for await (const item of googleAdsProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const contentYield = yields.find((y) => y.kind === "content");
+    expect(contentYield).toBeDefined();
+    expect(contentYield.data.sourceType).toBe("ads_performance_summary");
+    expect(contentYield.data.sourceId).toBe("google-ads-summary");
+    expect(contentYield.data.content).toContain("2 active campaigns");
+    expect(contentYield.data.content).toContain("75.00 total spend");
+    expect(contentYield.data.content).toContain("1500 clicks");
+    expect(contentYield.data.metadata.platform).toBe("google_ads");
+  });
+
+  test("sync yields activity signals per campaign", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ([
+        {
+          results: [
+            {
+              campaign: { id: "111", name: "C1", status: "ENABLED" },
+              metrics: { impressions: 1000, clicks: 50, conversions: 5, costMicros: 5000000, ctr: 0.05 },
+            },
+            {
+              campaign: { id: "222", name: "C2", status: "ENABLED" },
+              metrics: { impressions: 2000, clicks: 100, conversions: 10, costMicros: 10000000, ctr: 0.05 },
+            },
+          ],
+        },
+      ]),
+    });
+
+    const yields: any[] = [];
+    for await (const item of googleAdsProvider.sync(config)) {
+      yields.push(item);
+    }
+
+    const activitySignals = yields.filter(
+      (y) => y.kind === "activity" && y.data.signalType === "campaign_synced"
+    );
+    expect(activitySignals).toHaveLength(2);
+    expect(activitySignals[0].data.metadata.platform).toBe("google_ads");
+    expect(activitySignals[1].data.metadata.platform).toBe("google_ads");
+  });
+
+  test("campaign.synced materializer maps to campaign entity type", async () => {
+    const { readFileSync } = await import("fs");
+    const { resolve } = await import("path");
+    const content = readFileSync(
+      resolve(__dirname, "../../src/lib/event-materializer.ts"),
+      "utf8"
+    );
+    expect(content).toContain('"campaign.synced"');
+    expect(content).toContain('entityTypeSlug: "campaign"');
   });
 });

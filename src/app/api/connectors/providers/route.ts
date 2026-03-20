@@ -18,6 +18,7 @@ export async function GET() {
     slack: () => !!(process.env.SLACK_CLIENT_ID && process.env.SLACK_CLIENT_SECRET),
     microsoft: () => !!(process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET),
     economic: () => !!process.env.ECONOMIC_APP_SECRET_TOKEN,
+    "google-ads": () => !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_ADS_DEVELOPER_TOKEN),
   };
 
   const result = providers.map((p) => ({

@@ -50,6 +50,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   stripe: "#635bff",
   slack: "#4A154B",
   economic: "#1e3a5f",
+  "google-ads": "#4285f4",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -57,6 +58,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   stripe: "Stripe",
   slack: "Slack",
   economic: "e-conomic",
+  "google-ads": "Google Ads",
 };
 
 /* ------------------------------------------------------------------ */
@@ -199,7 +201,8 @@ function OnboardingPage() {
 
       // If returning from OAuth, force step 5 so the callback effect can fire
       const isOAuthReturn = searchParams.get("hubspot") === "connected"
-        || searchParams.get("stripe") === "connected";
+        || searchParams.get("stripe") === "connected"
+        || searchParams.get("google-ads") === "connected";
       if (isOAuthReturn) {
         setStep(5);
         return;
@@ -735,8 +738,8 @@ function OnboardingPage() {
     const res = await fetch("/api/connectors");
     if (res.ok) {
       const data = await res.json();
-      // Company connectors have no userId — filter to HubSpot/Stripe/Slack/e-conomic
-      const companyProviders = ["hubspot", "stripe", "slack", "economic"];
+      // Company connectors have no userId — filter to company providers
+      const companyProviders = ["hubspot", "stripe", "slack", "economic", "google-ads"];
       const company = (data.connectors || []).filter((c: { provider: string; userId?: string | null }) =>
         !c.userId && companyProviders.includes(c.provider)
       );
@@ -755,7 +758,8 @@ function OnboardingPage() {
   useEffect(() => {
     if (step !== 5) return;
     const connected = searchParams.get("hubspot") === "connected"
-      || searchParams.get("stripe") === "connected";
+      || searchParams.get("stripe") === "connected"
+      || searchParams.get("google-ads") === "connected";
 
     if (!connected) return;
 
