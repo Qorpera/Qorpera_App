@@ -8,6 +8,8 @@ const PUBLIC_PATHS = [
   "/api/auth/check",
   "/api/auth/hubspot/callback",
   "/api/auth/stripe/callback",
+  "/api/auth/pipedrive/callback",
+  "/api/auth/salesforce/callback",
   "/api/connectors/google/callback",
   "/api/connectors/google-ads/callback",
   "/api/connectors/shopify/callback",

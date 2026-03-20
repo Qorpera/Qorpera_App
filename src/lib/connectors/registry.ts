@@ -10,8 +10,10 @@ import { googleAdsProvider } from "./google-ads-provider";
 import { shopifyProvider } from "./shopify-provider";
 import { linkedinProvider } from "./linkedin-provider";
 import { metaAdsProvider } from "./meta-ads-provider";
+import { pipedriveProvider } from "./pipedrive-provider";
+import { salesforceProvider } from "./salesforce-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider];
 
 export function getProvider(id: string): ConnectorProvider | undefined {
   return PROVIDERS.find((p) => p.id === id);
