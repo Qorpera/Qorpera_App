@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM, streamLLM, type AIMessage, type AITool } from "@/lib/ai-provider";
+import { callLLM, streamLLM, getModel, type AIMessage, type AITool, type LLMMessage } from "@/lib/ai-provider";
 import { getEntityContext, searchEntities } from "@/lib/entity-resolution";
 import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
 import { listEntityTypes } from "@/lib/entity-model-store";
@@ -2464,9 +2464,12 @@ export async function chat(
     : getToolsForContext(contextType);
   const allowedToolNames = new Set(tools.map(t => t.name));
 
-  const messages: AIMessage[] = [
-    { role: "system", content: systemPrompt },
-    ...history,
+  // Build LLM messages — system prompt goes to instructions, not messages
+  const llmHistory: LLMMessage[] = (history as LLMMessage[]).filter(
+    (m) => m.role !== "system" as string,
+  );
+  const initialMessages: LLMMessage[] = [
+    ...llmHistory,
     { role: "user", content: userMessage },
   ];
 
@@ -2475,30 +2478,49 @@ export async function chat(
       const encoder = new TextEncoder();
 
       try {
-        let currentMessages = [...messages];
+        let currentMessages = [...initialMessages];
         let maxIterations = 5;
 
         while (maxIterations > 0) {
           maxIterations--;
 
           const aiFn = orientation ? "orientation" as const : "copilot" as const;
-          const response = await callLLM(currentMessages, { tools, temperature: 0.3, aiFunction: aiFn });
+          const response = await callLLM({
+            instructions: systemPrompt,
+            messages: currentMessages,
+            tools,
+            temperature: 0.3,
+            aiFunction: aiFn,
+            model: getModel("copilot"),
+            operatorId,
+            webSearch: true,
+            thinking: true,
+          });
 
           if (!response.toolCalls?.length) {
-            if (response.content) {
-              controller.enqueue(encoder.encode(response.content));
+            if (response.text) {
+              controller.enqueue(encoder.encode(response.text));
             } else {
-              for await (const chunk of streamLLM(currentMessages, { temperature: 0.3, aiFunction: aiFn })) {
+              for await (const chunk of streamLLM({
+                instructions: systemPrompt,
+                messages: currentMessages,
+                temperature: 0.3,
+                aiFunction: aiFn,
+                model: getModel("copilot"),
+                operatorId,
+                webSearch: true,
+                thinking: true,
+              })) {
                 controller.enqueue(encoder.encode(chunk));
               }
             }
             break;
           }
 
-          // Add assistant message WITH tool_calls preserved (for OpenAI protocol)
+          // Add assistant message WITH tool_calls preserved
           currentMessages.push({
             role: "assistant",
-            content: response.content || "",
+            content: response.text || "",
             tool_calls: response.toolCalls.map((tc) => ({
               id: tc.id,
               type: "function" as const,

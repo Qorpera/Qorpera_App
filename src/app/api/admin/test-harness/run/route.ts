@@ -794,18 +794,20 @@ export async function POST(req: NextRequest) {
               const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
               const userPrompt = buildReasoningUserPrompt(reasoningInput);
 
-              const response = await callLLM(
-                [
-                  { role: "system", content: systemPrompt },
+              const response = await callLLM({
+                instructions: systemPrompt,
+                messages: [
                   { role: "user", content: userPrompt },
                 ],
-                { temperature: 0.2, maxTokens: 4096, aiFunction: "reasoning" },
-              );
+                temperature: 0.2,
+                maxTokens: 4096,
+                aiFunction: "reasoning",
+              });
 
-              assert(assertions, "LLM returned a response", !!response.content, `${response.content.length} chars`);
+              assert(assertions, "LLM returned a response", !!response.text, `${response.text.length} chars`);
 
               // Parse
-              const rawResponse = response.content;
+              const rawResponse = response.text;
               const fenceMatch = rawResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
               const jsonStr = fenceMatch ? fenceMatch[1].trim() : rawResponse.trim();
 

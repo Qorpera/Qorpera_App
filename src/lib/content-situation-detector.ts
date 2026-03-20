@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { resolveEntity } from "@/lib/entity-resolution";
 import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
@@ -280,15 +280,16 @@ For each message, respond with:
   }
 ]`;
 
-  const response = await callLLM(
-    [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    { temperature: 0.1, maxTokens: 2000, aiFunction: "reasoning" },
-  );
+  const response = await callLLM({
+    instructions: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userPrompt }],
+    temperature: 0.1,
+    maxTokens: 2000,
+    aiFunction: "reasoning",
+    model: getModel("contentDetection"),
+  });
 
-  const parsed = extractJSONArray(response.content);
+  const parsed = extractJSONArray(response.text);
   if (!parsed) {
     console.error("[content-detection] Failed to parse LLM response");
     return [];

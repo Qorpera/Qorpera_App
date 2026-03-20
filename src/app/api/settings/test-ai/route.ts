@@ -20,17 +20,19 @@ export async function POST(req: NextRequest) {
   try {
     const config = await getAIConfig(aiFunction);
 
-    const response = await callLLM(
-      [{ role: "user", content: "Respond with exactly: OK" }],
-      { maxTokens: 10, temperature: 0, aiFunction },
-    );
+    const response = await callLLM({
+      messages: [{ role: "user", content: "Respond with exactly: OK" }],
+      maxTokens: 10,
+      temperature: 0,
+      aiFunction,
+    });
 
     return NextResponse.json({
       ok: true,
       provider: config.provider,
       model: config.model,
       baseUrl: config.baseUrl,
-      response: response.content.trim(),
+      response: response.text.trim(),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

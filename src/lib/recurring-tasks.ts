@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { createExecutionPlan, advanceStep, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { CronExpressionParser } from "cron-parser";
@@ -164,16 +164,19 @@ Respond with ONLY valid JSON — an array of steps:
 
 The plan should accomplish the task using the available actions and current context.`;
 
-  const response = await callLLM(
-    [
-      { role: "system", content: systemPrompt },
+  const response = await callLLM({
+    instructions: systemPrompt,
+    messages: [
       { role: "user", content: `Execute the recurring task: "${task.title}"` },
     ],
-    { aiFunction: "reasoning", temperature: 0.3, maxTokens: 4096 },
-  );
+    aiFunction: "reasoning",
+    temperature: 0.3,
+    maxTokens: 4096,
+    model: getModel("executionGenerate"),
+  });
 
   // Parse response
-  const parsed = extractJSONAny(response.content);
+  const parsed = extractJSONAny(response.text);
   if (!parsed) {
     throw new Error("Could not parse JSON from LLM response");
   }

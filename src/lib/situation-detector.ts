@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { assembleSituationContext, type SituationContext } from "@/lib/context-assembly";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
@@ -477,12 +477,15 @@ Respond with ONLY valid JSON (no markdown): an array with one object per entity 
 [{ "matches": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation" }]`;
 
     try {
-      const response = await callLLM(
-        [{ role: "user", content: prompt }],
-        { temperature: 0.1, maxTokens: 1000, aiFunction: "reasoning" },
-      );
+      const response = await callLLM({
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        maxTokens: 1000,
+        aiFunction: "reasoning",
+        model: getModel("contentDetection"),
+      });
 
-      const parsed = extractJSONArray(response.content);
+      const parsed = extractJSONArray(response.text);
       if (Array.isArray(parsed)) {
         for (let j = 0; j < batch.length; j++) {
           const result = parsed[j];

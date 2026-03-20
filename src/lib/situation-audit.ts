@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { regeneratePreFilter } from "@/lib/situation-prefilter";
 import { extractJSONArray } from "@/lib/json-helpers";
 
@@ -102,8 +102,8 @@ async function auditSingleType(
   const missedDescriptions: string[] = [];
 
   try {
-    const response = await callLLM(
-      [{
+    const response = await callLLM({
+      messages: [{
         role: "user",
         content: `You are auditing whether business entities match a situation pattern.
 
@@ -116,10 +116,13 @@ For each entity, determine if it currently matches the situation pattern.
 Respond with ONLY valid JSON (no markdown): an array with one object per entity in order:
 [{ "matches": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation" }]`,
       }],
-      { temperature: 0.1, maxTokens: 1500, aiFunction: "reasoning" },
-    );
+      temperature: 0.1,
+      maxTokens: 1500,
+      aiFunction: "reasoning",
+      model: getModel("contentDetection"),
+    });
 
-    const parsed = extractJSONArray(response.content);
+    const parsed = extractJSONArray(response.text);
     if (Array.isArray(parsed)) {
       for (let i = 0; i < Math.min(sample.length, parsed.length); i++) {
         const result = parsed[i];

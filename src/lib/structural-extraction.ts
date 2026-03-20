@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM, type AIMessage } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -101,12 +101,15 @@ export async function extractStructuralDocument(
   switch (doc.documentType) {
     case "org-chart": {
       const systemPrompt = buildOrgChartPrompt(deptName);
-      const messages: AIMessage[] = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Extract from this document:\n\n${text}` },
-      ];
-      const response = await callLLM(messages, { temperature: 0.1, maxTokens: 4000, aiFunction: "reasoning" });
-      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      const response = await callLLM({
+        instructions: systemPrompt,
+        messages: [{ role: "user", content: `Extract from this document:\n\n${text}` }],
+        temperature: 0.1,
+        maxTokens: 4000,
+        aiFunction: "reasoning",
+        model: getModel("executionGenerate"),
+      });
+      const jsonMatch = response.text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("LLM did not return valid JSON");
       const parsed = JSON.parse(jsonMatch[0]);
       return { type: "org-chart", people: parsed.people ?? [] };

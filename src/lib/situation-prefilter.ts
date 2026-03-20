@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSON } from "@/lib/json-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -57,12 +57,15 @@ Return ONLY valid JSON matching this format (no markdown, no explanation):
 Keep the signals broad — 1-3 conditions maximum. Use days_past/days_until for time-based patterns.`;
 
   try {
-    const response = await callLLM(
-      [{ role: "user", content: prompt }],
-      { temperature: 0.1, maxTokens: 500, aiFunction: "reasoning" },
-    );
+    const response = await callLLM({
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      maxTokens: 500,
+      aiFunction: "reasoning",
+      model: getModel("contentDetection"),
+    });
 
-    const parsed = extractJSON(response.content);
+    const parsed = extractJSON(response.text);
     if (!parsed || !parsed.entityType) return null;
 
     const preFilter: PreFilter = {
@@ -119,12 +122,15 @@ Return ONLY valid JSON (no markdown):
 Make this filter BROADER than before — it's a coarse filter, not a final decision.`;
 
   try {
-    const response = await callLLM(
-      [{ role: "user", content: prompt }],
-      { temperature: 0.1, maxTokens: 500, aiFunction: "reasoning" },
-    );
+    const response = await callLLM({
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      maxTokens: 500,
+      aiFunction: "reasoning",
+      model: getModel("contentDetection"),
+    });
 
-    const parsed = extractJSON(response.content);
+    const parsed = extractJSON(response.text);
     if (!parsed || !parsed.entityType) return null;
 
     const preFilter: PreFilter = {

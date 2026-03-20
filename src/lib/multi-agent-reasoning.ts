@@ -1,4 +1,4 @@
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import type { ReasoningInput } from "@/lib/reasoning-prompts";
 import type { ContextSectionMeta, EntitySummary } from "@/lib/context-assembly";
 import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
@@ -356,18 +356,18 @@ async function runSpecialists(
 ): Promise<SpecialistFinding[]> {
   const calls = specialists.map(async (spec): Promise<SpecialistFinding> => {
     const { system, user } = spec.buildPrompt(input, companyName);
-    const messages = [
-      { role: "system" as const, content: system },
-      { role: "user" as const, content: user },
-    ];
 
-    const response = await callLLM(messages, {
+    const response = await callLLM({
+      instructions: system,
+      messages: [{ role: "user", content: user }],
       temperature: 0.2,
       maxTokens: 2048,
       aiFunction: "reasoning",
+      model: getModel("situationReasoning"),
+      thinking: true,
     });
 
-    const parsed = extractJSON(response.content);
+    const parsed = extractJSON(response.text);
     if (!parsed) {
       console.warn(`[multi-agent] Failed to parse ${spec.name} response as JSON`);
       return fallbackFinding(spec.domain);
@@ -518,22 +518,23 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
   let parseError = "";
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const messages = [
-      { role: "system" as const, content: systemPrompt },
-      {
-        role: "user" as const,
-        content: attempt === 0
-          ? userPrompt
-          : `${userPrompt}\n\nPREVIOUS ATTEMPT FAILED VALIDATION: ${parseError}\nPlease fix the JSON output to match the required schema exactly.`,
-      },
-    ];
-
-    const response = await callLLM(messages, {
+    const response = await callLLM({
+      instructions: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: attempt === 0
+            ? userPrompt
+            : `${userPrompt}\n\nPREVIOUS ATTEMPT FAILED VALIDATION: ${parseError}\nPlease fix the JSON output to match the required schema exactly.`,
+        },
+      ],
       temperature: 0.2,
       maxTokens: 4096,
       aiFunction: "reasoning",
+      model: getModel("situationReasoning"),
+      thinking: true,
     });
-    rawResponse = response.content;
+    rawResponse = response.text;
 
     const parsed = extractJSON(rawResponse);
     if (!parsed) {

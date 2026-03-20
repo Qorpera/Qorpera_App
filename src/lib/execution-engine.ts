@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { getProvider } from "@/lib/connectors/registry";
 import { decrypt, encrypt } from "@/lib/encryption";
 import { sendNotification, sendNotificationToAdmins } from "@/lib/notification-dispatch";
@@ -347,20 +347,20 @@ async function executeGenerateStep(
     userContent += `\n\nContext:\n${step.inputContext}`;
   }
 
-  const response = await callLLM(
-    [
-      { role: "system", content: "You are executing a step in a business workflow. Complete the task described below using the provided context. Return your output as plain text." },
-      { role: "user", content: userContent },
-    ],
-    { aiFunction: "reasoning", temperature: 0.3 },
-  );
+  const response = await callLLM({
+    instructions: "You are executing a step in a business workflow. Complete the task described below using the provided context. Return your output as plain text.",
+    messages: [{ role: "user", content: userContent }],
+    aiFunction: "reasoning",
+    temperature: 0.3,
+    model: getModel("executionGenerate"),
+  });
 
   await prisma.executionStep.update({
     where: { id: step.id },
     data: {
       status: "completed",
       executedAt: new Date(),
-      outputResult: JSON.stringify({ type: "content", text: response.content, format: "markdown" }),
+      outputResult: JSON.stringify({ type: "content", text: response.text, format: "markdown" }),
     },
   });
 }

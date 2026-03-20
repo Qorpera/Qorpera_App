@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { InsightExtractionOutputSchema } from "@/types/insight-types";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -463,20 +463,23 @@ export async function extractInsights(
     return { created: 0, superseded: 0, skipped: 0 };
   }
 
-  const response = await callLLM(
-    [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildUserPrompt(data) },
-    ],
-    { aiFunction: "reasoning", temperature: 0.3 },
-  );
+  const response = await callLLM({
+    instructions: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: buildUserPrompt(data) }],
+    aiFunction: "reasoning",
+    temperature: 0.3,
+    model: getModel("insightExtraction"),
+    operatorId,
+    webSearch: true,
+    thinking: true,
+  });
 
   // Parse and validate LLM output
   let parsed;
   try {
-    parsed = InsightExtractionOutputSchema.parse(JSON.parse(response.content));
+    parsed = InsightExtractionOutputSchema.parse(JSON.parse(response.text));
   } catch {
-    console.error("Insight extraction: LLM output failed validation", response.content.slice(0, 200));
+    console.error("Insight extraction: LLM output failed validation", response.text.slice(0, 200));
     return { created: 0, superseded: 0, skipped: 0 };
   }
 

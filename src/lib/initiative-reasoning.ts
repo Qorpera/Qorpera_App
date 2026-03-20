@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ensureInternalCapabilities } from "@/lib/internal-capabilities";
@@ -334,19 +334,22 @@ async function callAndValidate(
   let parseError = "";
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const messages = [
-      { role: "system" as const, content: systemPrompt },
-      {
-        role: "user" as const,
-        content: attempt === 0
-          ? userPrompt
-          : `${userPrompt}\n\nPREVIOUS ATTEMPT FAILED VALIDATION: ${parseError}\nPlease fix the JSON output to match the required schema exactly.`,
-      },
-    ];
+    const userContent = attempt === 0
+      ? userPrompt
+      : `${userPrompt}\n\nPREVIOUS ATTEMPT FAILED VALIDATION: ${parseError}\nPlease fix the JSON output to match the required schema exactly.`;
 
     try {
-      const response = await callLLM(messages, { aiFunction: "reasoning", temperature: 0.3, maxTokens: 4096 });
-      rawResponse = response.content;
+      const response = await callLLM({
+        instructions: systemPrompt,
+        messages: [{ role: "user", content: userContent }],
+        aiFunction: "reasoning",
+        temperature: 0.3,
+        maxTokens: 4096,
+        model: getModel("initiativeReasoning"),
+        webSearch: true,
+        thinking: true,
+      });
+      rawResponse = response.text;
 
       const parsed = extractJSON(rawResponse);
       if (!parsed) {

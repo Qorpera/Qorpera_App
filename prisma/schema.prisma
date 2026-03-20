@@ -18,8 +18,9 @@ model Operator {
   passwordHash   String?
   companyName    String?
   industry       String?
-  isTestOperator Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  isTestOperator   Boolean  @default(false)
+  aiResponseStore  Boolean  @default(false)
+  createdAt        DateTime @default(now())
 
   invites           Invite[]
   entityTypes       EntityType[]

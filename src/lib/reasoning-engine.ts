@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { assembleSituationContext } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import { buildReasoningSystemPrompt, buildReasoningUserPrompt, type ReasoningInput } from "@/lib/reasoning-prompts";
@@ -424,17 +424,23 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     let parseError = "";
 
     for (let attempt = 0; attempt < 2; attempt++) {
-      const messages = [
-        { role: "system" as const, content: systemPrompt },
-        { role: "user" as const, content: attempt === 0
-          ? userPrompt
-          : `${userPrompt}\n\nPREVIOUS ATTEMPT FAILED VALIDATION: ${parseError}\nPlease fix the JSON output to match the required schema exactly.`
-        },
-      ];
+      const userContent = attempt === 0
+        ? userPrompt
+        : `${userPrompt}\n\nPREVIOUS ATTEMPT FAILED VALIDATION: ${parseError}\nPlease fix the JSON output to match the required schema exactly.`;
 
       try {
-        const response = await callLLM(messages, { temperature: 0.2, maxTokens: 4096, aiFunction: "reasoning" });
-        rawResponse = response.content;
+        const response = await callLLM({
+          instructions: systemPrompt,
+          messages: [{ role: "user", content: userContent }],
+          temperature: 0.2,
+          maxTokens: 4096,
+          aiFunction: "reasoning",
+          model: getModel("situationReasoning"),
+          operatorId: situation.operatorId,
+          webSearch: true,
+          thinking: true,
+        });
+        rawResponse = response.text;
 
         // 8. Validate response
         const parsed = extractJSON(rawResponse);
@@ -452,6 +458,17 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         }
 
         reasoning = result.data;
+
+        // Label web sources if present
+        if (response.webSources?.length) {
+          reasoning = {
+            ...reasoning,
+            analysis: reasoning.analysis + "\n\n[External web sources were consulted.]",
+          };
+          // Store source URLs in reasoning JSON for audit
+          (reasoning as Record<string, unknown>)._webSources = response.webSources.map(s => s.url);
+        }
+
         break;
       } catch (err) {
         console.error(`[reasoning-engine] LLM call failed for situation ${situationId}:`, err);

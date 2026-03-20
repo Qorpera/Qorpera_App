@@ -1,23 +1,47 @@
+import OpenAI from "openai";
 import { prisma } from "@/lib/db";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Content Block Types ─────────────────────────────────────────────────────
 
 type ContentBlock =
   | { type: "text"; text: string }
   | { type: "image_base64"; mediaType: string; data: string };
 
-export type AIMessage = {
-  role: "system" | "user" | "assistant" | "tool";
+// ── Model Routing ───────────────────────────────────────────────────────────
+
+const MODEL_ROUTES = {
+  situationReasoning: "gpt-5.4",
+  initiativeReasoning: "gpt-5.4",
+  copilot: "gpt-5.4",
+  contentDetection: "gpt-5.4-mini",
+  insightExtraction: "gpt-5.4",
+  executionGenerate: "gpt-5.4",
+  embedding: "text-embedding-3-small",
+} as const;
+
+export type ModelRoute = keyof typeof MODEL_ROUTES;
+
+export function getModel(route: ModelRoute): string {
+  return MODEL_ROUTES[route];
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export type LLMMessage = {
+  role: "user" | "assistant" | "tool";
   content: string | ContentBlock[];
-  // OpenAI tool calling fields
+  // Tool calling fields (for multi-turn tool use in copilot)
   tool_calls?: Array<{
     id: string;
     type: "function";
     function: { name: string; arguments: string };
   }>;
-  tool_call_id?: string;  // for role: "tool" messages
-  name?: string;          // tool name for role: "tool" messages
+  tool_call_id?: string;
+  name?: string;
 };
+
+// Keep backward-compatible alias
+export type AIMessage = LLMMessage | { role: "system"; content: string | ContentBlock[] };
 
 export type AITool = {
   name: string;
@@ -25,25 +49,46 @@ export type AITool = {
   parameters: Record<string, unknown>;
 };
 
-type AIResponse = {
-  content: string;
-  toolCalls?: { id: string; name: string; arguments: Record<string, unknown> }[];
-};
+export type AIFunction = "reasoning" | "copilot" | "embedding" | "orientation";
+
+export interface LLMRequestOptions {
+  operatorId?: string;
+  model?: string;
+  instructions?: string;
+  messages: LLMMessage[];
+  tools?: AITool[];
+  webSearch?: boolean;
+  store?: boolean;
+  responseFormat?: Record<string, unknown>;
+  temperature?: number;
+  maxTokens?: number;
+  thinking?: boolean;
+  aiFunction?: AIFunction;
+}
+
+export interface LLMResponse {
+  text: string;
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  }>;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+  webSources?: Array<{
+    url: string;
+    title: string;
+    snippet: string;
+  }>;
+}
 
 type AIConfig = {
   provider: string;
   apiKey?: string;
   baseUrl?: string;
   model: string;
-};
-
-export type AIFunction = "reasoning" | "copilot" | "embedding" | "orientation";
-
-type CallOptions = {
-  tools?: AITool[];
-  temperature?: number;
-  maxTokens?: number;
-  aiFunction?: AIFunction;
 };
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -63,7 +108,6 @@ export async function getAIConfig(aiFunction?: AIFunction): Promise<AIConfig> {
   });
   const map = new Map(settings.map((s) => [s.key, s.value]));
 
-  // Function-specific keys override generic keys, which override env vars
   const provider =
     (aiFunction && map.get(`ai_${aiFunction}_provider`)) ||
     map.get("ai_provider") ||
@@ -109,21 +153,35 @@ function defaultModelForProvider(provider: string): string {
   }
 }
 
+// ── Resolve store setting ────────────────────────────────────────────────────
+
+async function resolveStoreSetting(options: LLMRequestOptions): Promise<boolean> {
+  if (options.store !== undefined) return options.store;
+  if (!options.operatorId) return false;
+  try {
+    const operator = await prisma.operator.findUnique({
+      where: { id: options.operatorId },
+      select: { aiResponseStore: true },
+    });
+    return operator?.aiResponseStore ?? false;
+  } catch {
+    return false;
+  }
+}
+
 // ── Main Call ─────────────────────────────────────────────────────────────────
 
-export async function callLLM(
-  messages: AIMessage[],
-  options?: CallOptions,
-): Promise<AIResponse> {
-  const config = await getAIConfig(options?.aiFunction);
+export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> {
+  const config = await getAIConfig(options.aiFunction);
+  const model = options.model || config.model;
 
   switch (config.provider) {
     case "openai":
-      return callOpenAI(config, messages, options);
+      return callOpenAIResponses(config, model, options);
     case "anthropic":
-      return callAnthropic(config, messages, options);
+      return callAnthropic(config, model, options);
     case "ollama":
-      return callOllama(config, messages, options);
+      return callOllama(config, model, options);
     default:
       throw new Error(`Unknown AI provider: ${config.provider}`);
   }
@@ -132,169 +190,221 @@ export async function callLLM(
 // ── Streaming ────────────────────────────────────────────────────────────────
 
 export async function* streamLLM(
-  messages: AIMessage[],
-  options?: CallOptions,
+  options: LLMRequestOptions,
 ): AsyncGenerator<string> {
-  const config = await getAIConfig(options?.aiFunction);
+  const config = await getAIConfig(options.aiFunction);
+  const model = options.model || config.model;
 
   switch (config.provider) {
     case "openai":
-      yield* streamOpenAI(config, messages, options);
+      yield* streamOpenAIResponses(config, model, options);
       break;
     case "anthropic":
-      yield* streamAnthropic(config, messages, options);
+      yield* streamAnthropic(config, model, options);
       break;
     case "ollama":
-      yield* streamOllama(config, messages, options);
+      yield* streamOllama(config, model, options);
       break;
     default:
       throw new Error(`Unknown AI provider: ${config.provider}`);
   }
 }
 
-// ── OpenAI ───────────────────────────────────────────────────────────────────
+// ── OpenAI Responses API ─────────────────────────────────────────────────────
 
-function buildOpenAITools(tools?: AITool[]) {
-  if (!tools?.length) return undefined;
-  return tools.map((t) => ({
-    type: "function" as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    },
-  }));
+function getOpenAIClient(config: AIConfig): OpenAI {
+  return new OpenAI({
+    apiKey: config.apiKey ?? "",
+    baseURL: config.baseUrl ?? "https://api.openai.com/v1",
+  });
 }
 
-// Newer OpenAI models use max_completion_tokens; o-series don't support temperature
-function isLegacyOpenAIModel(model: string): boolean {
-  return model.startsWith("gpt-4o") || model.startsWith("gpt-4-");
+function buildResponsesInput(options: LLMRequestOptions): Array<Record<string, unknown>> {
+  const input: Array<Record<string, unknown>> = [];
+
+  for (const msg of options.messages) {
+    if (msg.role === "user") {
+      if (Array.isArray(msg.content)) {
+        const contentBlocks = msg.content.map((block) => {
+          if (block.type === "text") return { type: "input_text", text: block.text };
+          if (block.type === "image_base64") {
+            return { type: "input_image", image_url: `data:${block.mediaType};base64,${block.data}` };
+          }
+          return { type: "input_text", text: "" };
+        });
+        input.push({ role: "user", content: contentBlocks });
+      } else {
+        input.push({ role: "user", content: [{ type: "input_text", text: msg.content }] });
+      }
+    } else if (msg.role === "assistant") {
+      if (msg.tool_calls?.length) {
+        // Assistant text (if any)
+        if (contentToString(msg.content)) {
+          input.push({ role: "assistant", content: [{ type: "output_text", text: contentToString(msg.content) }] });
+        }
+        // Function calls as separate items
+        for (const tc of msg.tool_calls) {
+          input.push({
+            type: "function_call",
+            id: tc.id,
+            call_id: tc.id,
+            name: tc.function.name,
+            arguments: tc.function.arguments,
+          });
+        }
+      } else {
+        input.push({
+          role: "assistant",
+          content: [{ type: "output_text", text: contentToString(msg.content) }],
+        });
+      }
+    } else if (msg.role === "tool") {
+      // Tool results → function_call_output
+      input.push({
+        type: "function_call_output",
+        call_id: msg.tool_call_id ?? "",
+        output: contentToString(msg.content),
+      });
+    }
+  }
+
+  return input;
 }
 
-function isReasoningModel(model: string): boolean {
-  return /^o\d/.test(model);
+function buildResponsesTools(options: LLMRequestOptions): Array<Record<string, unknown>> | undefined {
+  const tools: Array<Record<string, unknown>> = [];
+
+  if (options.webSearch) {
+    tools.push({ type: "web_search_preview" });
+  }
+
+  if (options.tools?.length) {
+    for (const t of options.tools) {
+      tools.push({
+        type: "function",
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      });
+    }
+  }
+
+  return tools.length > 0 ? tools : undefined;
 }
 
-async function callOpenAI(
+async function callOpenAIResponses(
   config: AIConfig,
-  messages: AIMessage[],
-  options?: CallOptions,
-): Promise<AIResponse> {
-  const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
-  const legacy = isLegacyOpenAIModel(config.model);
-  const reasoning = isReasoningModel(config.model);
+  model: string,
+  options: LLMRequestOptions,
+): Promise<LLMResponse> {
+  const client = getOpenAIClient(config);
+  const store = await resolveStoreSetting(options);
 
-  const body: Record<string, unknown> = {
-    model: config.model,
-    messages: messages.map((m) => {
-      if (m.role === "tool") {
-        return { role: "tool", content: contentToString(m.content), tool_call_id: m.tool_call_id };
-      }
-      if (m.role === "assistant" && m.tool_calls) {
-        return { role: "assistant", content: contentToString(m.content) || null, tool_calls: m.tool_calls };
-      }
-      // Multimodal content for OpenAI
-      if (Array.isArray(m.content)) {
-        return {
-          role: m.role,
-          content: m.content.map((block) => {
-            if (block.type === "text") return { type: "text", text: block.text };
-            if (block.type === "image_base64") {
-              return { type: "image_url", image_url: { url: `data:${block.mediaType};base64,${block.data}` } };
-            }
-            return { type: "text", text: "" };
-          }),
-        };
-      }
-      return { role: m.role, content: m.content };
-    }),
-    // Reasoning models don't support temperature
-    ...(!reasoning && options?.temperature !== undefined && { temperature: options.temperature }),
-    // Legacy models use max_tokens, newer models use max_completion_tokens
-    ...(options?.maxTokens !== undefined && (legacy
-      ? { max_tokens: options.maxTokens }
-      : { max_completion_tokens: options.maxTokens })),
+  const params: Record<string, unknown> = {
+    model,
+    input: buildResponsesInput(options),
+    store,
   };
 
-  const tools = buildOpenAITools(options?.tools);
-  if (tools) body.tools = tools;
-
-  const url = `${baseUrl}/chat/completions`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (fetchErr) {
-    throw new Error(`OpenAI unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+  if (options.instructions) {
+    params.instructions = options.instructions;
   }
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI API error ${res.status}: ${text}`);
+  const tools = buildResponsesTools(options);
+  if (tools) params.tools = tools;
+
+  if (options.responseFormat) {
+    params.text = { format: options.responseFormat };
   }
 
-  const data = await res.json();
-  const choice = data.choices?.[0];
-  const message = choice?.message;
+  if (options.thinking) {
+    params.reasoning = { effort: "high" };
+  }
 
-  const toolCalls = message?.tool_calls?.map((tc: { id: string; function: { name: string; arguments: string } }) => ({
-    id: tc.id,
-    name: tc.function.name,
-    arguments: safeParseJSON(tc.function.arguments),
-  }));
+  if (options.temperature !== undefined && !options.thinking) {
+    params.temperature = options.temperature;
+  }
+
+  if (options.maxTokens !== undefined) {
+    params.max_output_tokens = options.maxTokens;
+  }
+
+  const response = await (client.responses as any).create(params);
+
+  // Parse response
+  const text = response.output_text ?? "";
+  const toolCalls: LLMResponse["toolCalls"] = [];
+  const webSources: NonNullable<LLMResponse["webSources"]> = [];
+
+  for (const item of response.output ?? []) {
+    if (item.type === "function_call") {
+      toolCalls.push({
+        id: item.call_id ?? item.id,
+        name: item.name,
+        arguments: safeParseJSON(item.arguments ?? "{}"),
+      });
+    }
+    if (item.type === "web_search_result") {
+      webSources.push({
+        url: item.url ?? "",
+        title: item.title ?? "",
+        snippet: item.snippet ?? "",
+      });
+    }
+  }
 
   return {
-    content: message?.content ?? "",
-    toolCalls: toolCalls?.length ? toolCalls : undefined,
+    text,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    usage: response.usage ? {
+      inputTokens: response.usage.input_tokens ?? 0,
+      outputTokens: response.usage.output_tokens ?? 0,
+    } : undefined,
+    webSources: webSources.length > 0 ? webSources : undefined,
   };
 }
 
-async function* streamOpenAI(
+async function* streamOpenAIResponses(
   config: AIConfig,
-  messages: AIMessage[],
-  options?: CallOptions,
+  model: string,
+  options: LLMRequestOptions,
 ): AsyncGenerator<string> {
-  const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
-  const legacy = isLegacyOpenAIModel(config.model);
-  const reasoning = isReasoningModel(config.model);
+  const client = getOpenAIClient(config);
+  const store = await resolveStoreSetting(options);
 
-  const body: Record<string, unknown> = {
-    model: config.model,
-    messages,
+  const params: Record<string, unknown> = {
+    model,
+    input: buildResponsesInput(options),
     stream: true,
-    ...(!reasoning && options?.temperature !== undefined && { temperature: options.temperature }),
-    ...(options?.maxTokens !== undefined && (legacy
-      ? { max_tokens: options.maxTokens }
-      : { max_completion_tokens: options.maxTokens })),
+    store,
   };
 
-  const url = `${baseUrl}/chat/completions`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (fetchErr) {
-    throw new Error(`OpenAI unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+  if (options.instructions) {
+    params.instructions = options.instructions;
   }
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI stream error ${res.status}: ${text}`);
+  const tools = buildResponsesTools(options);
+  if (tools) params.tools = tools;
+
+  if (options.thinking) {
+    params.reasoning = { effort: "high" };
   }
 
-  yield* parseSSEStream(res);
+  if (options.temperature !== undefined && !options.thinking) {
+    params.temperature = options.temperature;
+  }
+
+  if (options.maxTokens !== undefined) {
+    params.max_output_tokens = options.maxTokens;
+  }
+
+  const stream = await (client.responses as any).create(params);
+
+  for await (const event of stream) {
+    if (event.type === "response.output_text.delta") {
+      yield event.delta;
+    }
+  }
 }
 
 // ── Anthropic ────────────────────────────────────────────────────────────────
@@ -310,16 +420,13 @@ function buildAnthropicTools(tools?: AITool[]) {
 
 async function callAnthropic(
   config: AIConfig,
-  messages: AIMessage[],
-  options?: CallOptions,
-): Promise<AIResponse> {
+  model: string,
+  options: LLMRequestOptions,
+): Promise<LLMResponse> {
   const baseUrl = config.baseUrl ?? "https://api.anthropic.com/v1";
-  const systemMsg = messages.find((m) => m.role === "system");
-  const nonSystemMessages = messages.filter((m) => m.role !== "system");
 
-  const mappedMessages = nonSystemMessages.map((m) => {
+  const mappedMessages = options.messages.map((m) => {
     if (m.role === "tool") {
-      // Anthropic expects tool results as user messages with tool_result content blocks
       return {
         role: "user" as const,
         content: [{
@@ -330,7 +437,6 @@ async function callAnthropic(
       };
     }
     if (m.role === "assistant" && m.tool_calls) {
-      // Anthropic expects tool_use content blocks in assistant messages
       const content: Array<Record<string, unknown>> = [];
       const text = contentToString(m.content);
       if (text) content.push({ type: "text", text });
@@ -344,7 +450,6 @@ async function callAnthropic(
       }
       return { role: "assistant" as const, content };
     }
-    // Multimodal content for Anthropic
     if (Array.isArray(m.content)) {
       return {
         role: m.role,
@@ -364,14 +469,14 @@ async function callAnthropic(
   });
 
   const body: Record<string, unknown> = {
-    model: config.model,
+    model,
     messages: mappedMessages,
-    max_tokens: options?.maxTokens ?? 4096,
-    ...(systemMsg && { system: systemMsg.content }),
-    ...(options?.temperature !== undefined && { temperature: options.temperature }),
+    max_tokens: options.maxTokens ?? 4096,
+    ...(options.instructions && { system: options.instructions }),
+    ...(options.temperature !== undefined && { temperature: options.temperature }),
   };
 
-  const tools = buildAnthropicTools(options?.tools);
+  const tools = buildAnthropicTools(options.tools);
   if (tools) body.tools = tools;
 
   const url = `${baseUrl}/messages`;
@@ -397,7 +502,7 @@ async function callAnthropic(
 
   const data = await res.json();
   let content = "";
-  const toolCalls: { id: string; name: string; arguments: Record<string, unknown> }[] = [];
+  const toolCalls: NonNullable<LLMResponse["toolCalls"]> = [];
 
   for (const block of data.content ?? []) {
     if (block.type === "text") {
@@ -412,27 +517,30 @@ async function callAnthropic(
   }
 
   return {
-    content,
+    text: content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    usage: data.usage ? {
+      inputTokens: data.usage.input_tokens ?? 0,
+      outputTokens: data.usage.output_tokens ?? 0,
+    } : undefined,
   };
 }
 
 async function* streamAnthropic(
   config: AIConfig,
-  messages: AIMessage[],
-  options?: CallOptions,
+  model: string,
+  options: LLMRequestOptions,
 ): AsyncGenerator<string> {
   const baseUrl = config.baseUrl ?? "https://api.anthropic.com/v1";
-  const systemMsg = messages.find((m) => m.role === "system");
-  const nonSystemMessages = messages.filter((m) => m.role !== "system");
+  const nonToolMessages = options.messages.filter((m) => m.role !== "tool" && !m.tool_calls);
 
   const body: Record<string, unknown> = {
-    model: config.model,
-    messages: nonSystemMessages.map((m) => ({ role: m.role, content: m.content })),
-    max_tokens: options?.maxTokens ?? 4096,
+    model,
+    messages: nonToolMessages.map((m) => ({ role: m.role, content: m.content })),
+    max_tokens: options.maxTokens ?? 4096,
     stream: true,
-    ...(systemMsg && { system: systemMsg.content }),
-    ...(options?.temperature !== undefined && { temperature: options.temperature }),
+    ...(options.instructions && { system: options.instructions }),
+    ...(options.temperature !== undefined && { temperature: options.temperature }),
   };
 
   const url = `${baseUrl}/messages`;
@@ -493,47 +601,63 @@ async function* streamAnthropic(
 
 // ── Ollama ───────────────────────────────────────────────────────────────────
 
+function buildOpenAIStyleTools(tools?: AITool[]) {
+  if (!tools?.length) return undefined;
+  return tools.map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
+}
+
 async function callOllama(
   config: AIConfig,
-  messages: AIMessage[],
-  options?: CallOptions,
-): Promise<AIResponse> {
+  model: string,
+  options: LLMRequestOptions,
+): Promise<LLMResponse> {
   const baseUrl = config.baseUrl ?? "http://localhost:11434";
 
+  // Ollama uses Chat Completions format with system messages
+  const ollamaMessages: Array<Record<string, unknown>> = [];
+  if (options.instructions) {
+    ollamaMessages.push({ role: "system", content: options.instructions });
+  }
+  for (const m of options.messages) {
+    if (m.role === "tool") {
+      ollamaMessages.push({ role: "tool", content: contentToString(m.content), tool_call_id: m.tool_call_id });
+    } else if (m.role === "assistant" && m.tool_calls) {
+      ollamaMessages.push({ role: "assistant", content: contentToString(m.content) || "", tool_calls: m.tool_calls });
+    } else if (Array.isArray(m.content)) {
+      const textParts: string[] = [];
+      const images: string[] = [];
+      for (const block of m.content) {
+        if (block.type === "text") textParts.push(block.text);
+        if (block.type === "image_base64") images.push(block.data);
+      }
+      ollamaMessages.push({
+        role: m.role,
+        content: textParts.join("\n"),
+        ...(images.length > 0 && { images }),
+      });
+    } else {
+      ollamaMessages.push({ role: m.role, content: m.content });
+    }
+  }
+
   const body: Record<string, unknown> = {
-    model: config.model,
-    messages: messages.map((m) => {
-      if (m.role === "tool") {
-        return { role: "tool", content: contentToString(m.content), tool_call_id: m.tool_call_id };
-      }
-      if (m.role === "assistant" && m.tool_calls) {
-        return { role: "assistant", content: contentToString(m.content) || "", tool_calls: m.tool_calls };
-      }
-      // Ollama uses an `images` array for vision models
-      if (Array.isArray(m.content)) {
-        const textParts: string[] = [];
-        const images: string[] = [];
-        for (const block of m.content) {
-          if (block.type === "text") textParts.push(block.text);
-          if (block.type === "image_base64") images.push(block.data);
-        }
-        return {
-          role: m.role,
-          content: textParts.join("\n"),
-          ...(images.length > 0 && { images }),
-        };
-      }
-      return { role: m.role, content: m.content };
-    }),
+    model,
+    messages: ollamaMessages,
     stream: false,
     options: {
-      ...(options?.temperature !== undefined && { temperature: options.temperature }),
-      ...(options?.maxTokens !== undefined && { num_predict: options.maxTokens }),
+      ...(options.temperature !== undefined && { temperature: options.temperature }),
+      ...(options.maxTokens !== undefined && { num_predict: options.maxTokens }),
     },
   };
 
-  // Add tools if provided (Ollama supports OpenAI-compatible format)
-  const tools = buildOpenAITools(options?.tools);
+  const tools = buildOpenAIStyleTools(options.tools);
   if (tools) body.tools = tools;
 
   const url = `${baseUrl}/api/chat`;
@@ -556,7 +680,6 @@ async function callOllama(
   const data = await res.json();
   const message = data.message;
 
-  // Parse tool calls (same format as OpenAI)
   const toolCalls = message?.tool_calls?.map((tc: { id?: string; function: { name: string; arguments: string | Record<string, unknown> } }) => ({
     id: tc.id || `call_${Math.random().toString(36).slice(2)}`,
     name: tc.function.name,
@@ -566,25 +689,33 @@ async function callOllama(
   }));
 
   return {
-    content: message?.content ?? "",
+    text: message?.content ?? "",
     toolCalls: toolCalls?.length ? toolCalls : undefined,
   };
 }
 
 async function* streamOllama(
   config: AIConfig,
-  messages: AIMessage[],
-  options?: CallOptions,
+  model: string,
+  options: LLMRequestOptions,
 ): AsyncGenerator<string> {
   const baseUrl = config.baseUrl ?? "http://localhost:11434";
 
+  const ollamaMessages: Array<Record<string, unknown>> = [];
+  if (options.instructions) {
+    ollamaMessages.push({ role: "system", content: options.instructions });
+  }
+  for (const m of options.messages) {
+    ollamaMessages.push({ role: m.role, content: contentToString(m.content) });
+  }
+
   const body: Record<string, unknown> = {
-    model: config.model,
-    messages,
+    model,
+    messages: ollamaMessages,
     stream: true,
     options: {
-      ...(options?.temperature !== undefined && { temperature: options.temperature }),
-      ...(options?.maxTokens !== undefined && { num_predict: options.maxTokens }),
+      ...(options.temperature !== undefined && { temperature: options.temperature }),
+      ...(options.maxTokens !== undefined && { num_predict: options.maxTokens }),
     },
   };
 
@@ -627,43 +758,6 @@ async function* streamOllama(
           if (data.message?.content) {
             yield data.message.content;
           }
-        } catch {
-          // skip malformed lines
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-// ── SSE Helper (OpenAI format) ───────────────────────────────────────────────
-
-async function* parseSSEStream(response: Response): AsyncGenerator<string> {
-  if (!response.body) return;
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const payload = line.slice(6).trim();
-        if (payload === "[DONE]") return;
-
-        try {
-          const data = JSON.parse(payload);
-          const delta = data.choices?.[0]?.delta?.content;
-          if (delta) yield delta;
         } catch {
           // skip malformed lines
         }
