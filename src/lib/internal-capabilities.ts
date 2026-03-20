@@ -56,6 +56,18 @@ export const INTERNAL_CAPABILITIES = [
     sideEffects: ["Creates a RecurringTask that triggers on the given cron schedule"],
   },
   {
+    name: "request_meeting",
+    description: "Request a meeting with company members. Creates meeting request situations for each invitee and waits for all responses before creating calendar events.",
+    inputSchema: {
+      participantUserIds: { type: "array", required: true, description: "User IDs of meeting participants" },
+      suggestedTimes: { type: "array", required: true, description: "Array of { start, end } time slots" },
+      agenda: { type: "string", required: true, description: "Meeting agenda" },
+      topic: { type: "string", required: true, description: "Meeting topic/title" },
+      originContext: { type: "string", required: false, description: "Why this meeting is needed" },
+    },
+    sideEffects: ["Creates meeting request situations for each invitee", "Creates calendar events when all accept"],
+  },
+  {
     name: "create_delegation",
     description: "Delegate work to another AI entity or a human user. Used for cross-department coordination or assigning tasks.",
     inputSchema: {
@@ -111,6 +123,10 @@ export async function executeInternalCapability(
       return executeUpdateGoal(params, operatorId);
     case "create_recurring_task":
       return executeCreateRecurringTask(params, operatorId, planOwnerAiEntityId);
+    case "request_meeting": {
+      const { handleRequestMeeting } = await import("@/lib/meeting-coordination");
+      return handleRequestMeeting(params, operatorId);
+    }
     case "create_delegation":
       return executeCreateDelegation(params, operatorId, planOwnerAiEntityId);
     default:

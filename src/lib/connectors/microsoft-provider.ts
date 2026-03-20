@@ -1270,10 +1270,29 @@ export const microsoftProvider: ConnectorProvider = {
         return await createMicrosoftDocument(accessToken, params);
       case "append_to_document":
         return await appendToMicrosoftDocument(accessToken, params);
+      case "create_calendar_event":
+        return await createMicrosoftCalendarEvent(accessToken, params);
+      case "update_calendar_event":
+        return await updateMicrosoftCalendarEvent(accessToken, params);
       default:
         return { success: false, error: `Unknown action: ${actionId}` };
     }
   },
+
+  writeCapabilities: [
+    {
+      slug: "create_calendar_event",
+      name: "Create Calendar Event",
+      description: "Creates a Microsoft 365 calendar event with attendees",
+      inputSchema: { type: "object", properties: { summary: { type: "string" }, description: { type: "string" }, startDateTime: { type: "string" }, endDateTime: { type: "string" }, attendeeEmails: { type: "array", items: { type: "string" } }, location: { type: "string" } }, required: ["summary", "startDateTime", "endDateTime", "attendeeEmails"] },
+    },
+    {
+      slug: "update_calendar_event",
+      name: "Update Calendar Event",
+      description: "Updates an existing Microsoft 365 calendar event",
+      inputSchema: { type: "object", properties: { eventId: { type: "string" }, fields: { type: "object" } }, required: ["eventId", "fields"] },
+    },
+  ],
 
   async getCapabilities(config) {
     const scopes = config.scopes as string[] || [];
@@ -1352,3 +1371,65 @@ export const microsoftProvider: ConnectorProvider = {
     return [];
   },
 };
+
+// ── Microsoft Calendar write-back ───────────────────────────
+
+async function createMicrosoftCalendarEvent(
+  accessToken: string,
+  params: Record<string, unknown>,
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const body = {
+    subject: params.summary,
+    body: params.description ? { contentType: "text", content: params.description } : undefined,
+    start: { dateTime: params.startDateTime, timeZone: "UTC" },
+    end: { dateTime: params.endDateTime, timeZone: "UTC" },
+    attendees: ((params.attendeeEmails || []) as string[]).map(email => ({
+      emailAddress: { address: email },
+      type: "required",
+    })),
+    location: params.location ? { displayName: params.location } : undefined,
+  };
+
+  const resp = await fetch("https://graph.microsoft.com/v1.0/me/events", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    return { success: false, error: `Create calendar event failed (${resp.status}): ${err}` };
+  }
+  const data = await resp.json();
+  return { success: true, result: { eventId: data.id, platform: "microsoft", attendees: params.attendeeEmails } };
+}
+
+async function updateMicrosoftCalendarEvent(
+  accessToken: string,
+  params: Record<string, unknown>,
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const fields = (params.fields || {}) as Record<string, unknown>;
+  const body: Record<string, unknown> = {};
+  if (fields.summary) body.subject = fields.summary;
+  if (fields.description) body.body = { contentType: "text", content: fields.description };
+  if (fields.startDateTime) body.start = { dateTime: fields.startDateTime, timeZone: "UTC" };
+  if (fields.endDateTime) body.end = { dateTime: fields.endDateTime, timeZone: "UTC" };
+  if (fields.attendeeEmails) body.attendees = (fields.attendeeEmails as string[]).map(email => ({
+    emailAddress: { address: email },
+    type: "required",
+  }));
+  if (fields.location) body.location = { displayName: fields.location };
+
+  const resp = await fetch(`https://graph.microsoft.com/v1.0/me/events/${params.eventId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    return { success: false, error: `Update calendar event failed (${resp.status}): ${err}` };
+  }
+  const data = await resp.json();
+  return { success: true, result: { eventId: data.id, platform: "microsoft" } };
+}

@@ -5,6 +5,7 @@ import { getEntityContext } from "@/lib/entity-resolution";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
 import { advanceStep, resumeAfterSituationResolution } from "@/lib/execution-engine";
+import { handleMeetingRequestResolution } from "@/lib/meeting-coordination";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { completeDelegation } from "@/lib/delegations";
@@ -106,7 +107,7 @@ export async function PATCH(
 
   const situation = await prisma.situation.findFirst({
     where: { id, operatorId },
-    include: { situationType: { select: { scopeEntityId: true } } },
+    include: { situationType: { select: { scopeEntityId: true, slug: true } } },
   });
 
   if (!situation) {
@@ -119,6 +120,22 @@ export async function PATCH(
     const scopeDept = situation.situationType?.scopeEntityId;
     if (scopeDept && !patchVisibleDepts.includes(scopeDept)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+  }
+
+  // Meeting request resolution — custom flow for meeting_request situation type
+  if (situation.situationType?.slug === "meeting_request" && body.meetingDecision) {
+    try {
+      const result = await handleMeetingRequestResolution(id, body.meetingDecision, body.resolutionData || {});
+      if (result.resolved) {
+        // Trigger parent plan resume
+        resumeAfterSituationResolution(id).catch(err =>
+          console.error(`[situation-patch] Resume after meeting resolution failed:`, err),
+        );
+      }
+      return NextResponse.json({ id, meetingDecision: body.meetingDecision, ...result });
+    } catch (err) {
+      return NextResponse.json({ error: String(err) }, { status: 400 });
     }
   }
 

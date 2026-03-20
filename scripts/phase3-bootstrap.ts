@@ -12,6 +12,7 @@
 import { prisma } from "../src/lib/db";
 import { ensureHqAi, ensureDepartmentAi, seedNotificationPreferences } from "../src/lib/ai-entity-helpers";
 import { ensureInternalCapabilities } from "../src/lib/internal-capabilities";
+import { backfillCalendarWriteCapabilities, seedMeetingRequestSituationType, seedRequestMeetingCapability } from "../src/lib/meeting-coordination";
 
 async function main() {
   let hqAiCount = 0;
@@ -63,8 +64,19 @@ async function main() {
     internalCapCount++;
   }
 
+  // 5. Seed meeting coordination for each operator
+  let calCapCount = 0;
+  let meetingTypeCount = 0;
+  for (const op of operators) {
+    const backfilled = await backfillCalendarWriteCapabilities(op.id);
+    calCapCount += backfilled;
+    await seedMeetingRequestSituationType(op.id);
+    meetingTypeCount++;
+    await seedRequestMeetingCapability(op.id);
+  }
+
   console.log(
-    `Created ${hqAiCount} HQ AIs, ${deptAiCount} department AIs, ${notifPrefCount} notification preference sets, bootstrapped internal capabilities for ${internalCapCount} operators`,
+    `Created ${hqAiCount} HQ AIs, ${deptAiCount} department AIs, ${notifPrefCount} notification preference sets, bootstrapped internal capabilities for ${internalCapCount} operators, backfilled ${calCapCount} calendar capabilities, seeded meeting types for ${meetingTypeCount} operators`,
   );
 }
 

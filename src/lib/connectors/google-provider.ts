@@ -1432,10 +1432,29 @@ export const googleProvider: ConnectorProvider = {
         return await createDocument(accessToken, params);
       case "append_to_document":
         return await appendToDocument(accessToken, params);
+      case "create_calendar_event":
+        return await createGoogleCalendarEvent(accessToken, params);
+      case "update_calendar_event":
+        return await updateGoogleCalendarEvent(accessToken, params);
       default:
         return { success: false, error: `Unknown action: ${actionId}` };
     }
   },
+
+  writeCapabilities: [
+    {
+      slug: "create_calendar_event",
+      name: "Create Calendar Event",
+      description: "Creates a Google Calendar event with attendees",
+      inputSchema: { type: "object", properties: { summary: { type: "string" }, description: { type: "string" }, startDateTime: { type: "string" }, endDateTime: { type: "string" }, attendeeEmails: { type: "array", items: { type: "string" } }, location: { type: "string" } }, required: ["summary", "startDateTime", "endDateTime", "attendeeEmails"] },
+    },
+    {
+      slug: "update_calendar_event",
+      name: "Update Calendar Event",
+      description: "Updates an existing Google Calendar event",
+      inputSchema: { type: "object", properties: { eventId: { type: "string" }, fields: { type: "object" } }, required: ["eventId", "fields"] },
+    },
+  ],
 
   async getCapabilities(config) {
     const scopes = config.scopes as string[] || [];
@@ -1518,3 +1537,59 @@ export const googleProvider: ConnectorProvider = {
     return [];
   },
 };
+
+// ── Google Calendar write-back ──────────────────────────────
+
+async function createGoogleCalendarEvent(
+  accessToken: string,
+  params: Record<string, unknown>,
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const body = {
+    summary: params.summary,
+    description: params.description || undefined,
+    start: { dateTime: params.startDateTime },
+    end: { dateTime: params.endDateTime },
+    attendees: ((params.attendeeEmails || []) as string[]).map(email => ({ email })),
+    location: params.location || undefined,
+  };
+
+  const resp = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    return { success: false, error: `Create calendar event failed (${resp.status}): ${err}` };
+  }
+  const data = await resp.json();
+  return { success: true, result: { eventId: data.id, platform: "google", attendees: params.attendeeEmails } };
+}
+
+async function updateGoogleCalendarEvent(
+  accessToken: string,
+  params: Record<string, unknown>,
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const fields = (params.fields || {}) as Record<string, unknown>;
+  const body: Record<string, unknown> = {};
+  if (fields.summary) body.summary = fields.summary;
+  if (fields.description) body.description = fields.description;
+  if (fields.startDateTime) body.start = { dateTime: fields.startDateTime };
+  if (fields.endDateTime) body.end = { dateTime: fields.endDateTime };
+  if (fields.attendeeEmails) body.attendees = (fields.attendeeEmails as string[]).map(email => ({ email }));
+  if (fields.location) body.location = fields.location;
+
+  const resp = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${params.eventId}?sendUpdates=all`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    return { success: false, error: `Update calendar event failed (${resp.status}): ${err}` };
+  }
+  const data = await resp.json();
+  return { success: true, result: { eventId: data.id, platform: "google" } };
+}
