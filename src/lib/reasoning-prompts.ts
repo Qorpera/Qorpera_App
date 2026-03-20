@@ -247,7 +247,7 @@ ${propsStr || "  (no properties)"}`);
       }
       return wsLines.join("\n");
     });
-    sections.push(`WORKSTREAM CONTEXT:\nThis situation is part of the following work streams:\n\n${wsSections.join("\n\n")}`);
+    sections.push(`WORKSTREAM CONTEXT:\nThis situation is part of the following work streams:\n\n${wsSections.join("\n\n")}\n\nIf this situation is related to an active WorkStream, include its ID in your response as "relatedWorkStreamId". This will link the situation to the ongoing project for unified tracking.`);
   }
 
   // DELEGATION SOURCE

@@ -318,6 +318,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         data: updates,
       });
 
+      // Workstream absorption: link situation to related workstream
+      if (reasoning.relatedWorkStreamId) {
+        absorbSituationIntoWorkStream(situationId, reasoning.relatedWorkStreamId, situation.operatorId).catch(err =>
+          console.error(`[reasoning-engine] Workstream absorption failed for ${situationId}:`, err),
+        );
+      }
+
       // For notify/autonomous: auto-advance the first step
       if (resolvedSteps && (effectiveAutonomy === "notify" || effectiveAutonomy === "autonomous")) {
         const plan = await prisma.executionPlan.findFirst({
@@ -575,6 +582,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       data: updates,
     });
 
+    // Workstream absorption: link situation to related workstream
+    if (reasoning.relatedWorkStreamId) {
+      absorbSituationIntoWorkStream(situationId, reasoning.relatedWorkStreamId, situation.operatorId).catch(err =>
+        console.error(`[reasoning-engine] Workstream absorption failed for ${situationId}:`, err),
+      );
+    }
+
     // For notify/autonomous: auto-advance the first step
     if (resolvedSteps && (effectiveAutonomy === "notify" || effectiveAutonomy === "autonomous")) {
       const plan = await prisma.executionPlan.findFirst({
@@ -758,5 +772,26 @@ async function checkPlanAutonomyAutoApprove(
   } catch (err) {
     console.error(`[reasoning-engine] Plan autonomy auto-approve failed for ${situationId}:`, err);
   }
+}
+
+// ── Workstream Absorption ──────────────────────────────────────────────────
+
+async function absorbSituationIntoWorkStream(
+  situationId: string,
+  workStreamId: string,
+  operatorId: string,
+): Promise<void> {
+  // Verify workstream exists and belongs to operator
+  const ws = await prisma.workStream.findFirst({
+    where: { id: workStreamId, operatorId },
+    select: { id: true },
+  });
+  if (!ws) return;
+
+  await prisma.workStreamItem.upsert({
+    where: { workStreamId_itemType_itemId: { workStreamId, itemType: "situation", itemId: situationId } },
+    create: { workStreamId, itemType: "situation", itemId: situationId },
+    update: {},
+  });
 }
 

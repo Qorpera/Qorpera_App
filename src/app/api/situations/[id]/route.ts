@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
-import { advanceStep } from "@/lib/execution-engine";
+import { advanceStep, resumeAfterSituationResolution } from "@/lib/execution-engine";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { completeDelegation } from "@/lib/delegations";
@@ -325,6 +325,13 @@ export async function PATCH(
   // Fire-and-forget: check if insight extraction should run
   if (body.status === "resolved") {
     checkInsightExtractionTrigger(operatorId, situation.assignedUserId).catch(console.error);
+  }
+
+  // Resume parent plan if this situation was spawned by an await_situation step
+  if (body.status === "resolved" || body.status === "closed" || body.status === "dismissed") {
+    resumeAfterSituationResolution(id).catch(err =>
+      console.error(`[situation-patch] Resume after resolution failed for ${id}:`, err),
+    );
   }
 
   return NextResponse.json({ id: updated.id, status: updated.status });

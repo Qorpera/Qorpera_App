@@ -3,7 +3,7 @@ import { z } from "zod";
 const ActionStepSchema = z.object({
   title: z.string(),
   description: z.string(),
-  executionMode: z.enum(["action", "generate", "human_task"]),
+  executionMode: z.enum(["action", "generate", "human_task", "await_situation"]),
   actionCapabilityName: z.string().optional(),  // matches ActionCapability.name
   assignedUserId: z.string().optional(),
   params: z.record(z.any()).optional(),
@@ -26,6 +26,7 @@ export const ReasoningOutputSchema = z.object({
     rationale: z.string(),
     suggestedSteps: z.array(ActionStepSchema),
   }).nullable().optional(),  // null/absent = no escalation
+  relatedWorkStreamId: z.string().nullable().optional(),  // link situation to existing workstream
 });
 
 export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;

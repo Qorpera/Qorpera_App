@@ -12,7 +12,7 @@ import { addBusinessDays } from "@/lib/business-days";
 export type StepDefinition = {
   title: string;
   description: string;
-  executionMode: "action" | "generate" | "human_task";
+  executionMode: "action" | "generate" | "human_task" | "await_situation";
   actionCapabilityId?: string;
   assignedUserId?: string;
   inputContext?: Record<string, unknown>;
@@ -30,7 +30,8 @@ export type StepOutput =
   | { type: "task"; taskId: string; platform: string; assignee: string }
   | { type: "delegation"; delegationId: string; targetType: "ai" | "human"; targetId: string }
   | { type: "follow_up"; followUpId: string; triggerCondition: object; deadline?: string }
-  | { type: "human_completion"; notes: string; attachments?: string[] };
+  | { type: "human_completion"; notes: string; attachments?: string[] }
+  | { type: "situation_resolution"; resolutions: Array<{ situationId: string; resolution: string; resolvedById: string; resolvedAt: string; metadata: Record<string, unknown> }> };
 
 // ── Create Plan ──────────────────────────────────────────────────────────────
 
@@ -146,6 +147,9 @@ export async function executeStep(stepId: string): Promise<void> {
       });
 
       return; // Do NOT advance
+    } else if (step.executionMode === "await_situation") {
+      await executeAwaitSituationStep(step);
+      return; // Do NOT advance — resumes when spawned situation resolves
     }
 
     // 3. Post-execution: advance plan
@@ -428,6 +432,9 @@ export async function advancePlanAfterStep(
 
     // Trigger WorkStream recheck for the plan's source
     triggerPlanWorkStreamRecheck(planId).catch(console.error);
+
+    // Trigger workstream reassessment
+    triggerWorkStreamReassessment(completedPlan).catch(console.error);
   } else {
     // Advance to next step
     await prisma.executionPlan.update({
@@ -618,7 +625,154 @@ export async function amendExecutionPlan(
   });
 }
 
+// ── Await Situation Step ─────────────────────────────────────────────────────
+
+async function executeAwaitSituationStep(
+  step: { id: string; planId: string; inputContext: string | null; plan: { id: string; operatorId: string; sourceType: string; sourceId: string } },
+): Promise<void> {
+  const input = step.inputContext ? JSON.parse(step.inputContext) : {};
+
+  // Resolve situation type from slug
+  const situationType = await prisma.situationType.findFirst({
+    where: { operatorId: step.plan.operatorId, slug: input.situationTypeSlug },
+  });
+  if (!situationType) {
+    throw new Error(`SituationType with slug "${input.situationTypeSlug}" not found`);
+  }
+
+  // Create the spawned situation
+  const situation = await prisma.situation.create({
+    data: {
+      operatorId: step.plan.operatorId,
+      situationTypeId: situationType.id,
+      spawningStepId: step.id,
+      source: "detected",
+      status: "detected",
+      contextSnapshot: input.metadata ? JSON.stringify(input.metadata) : null,
+    },
+  });
+
+  // Inherit workstream from parent plan's source
+  if (input.inheritWorkStream !== false) {
+    const parentItems = await prisma.workStreamItem.findMany({
+      where: { itemType: step.plan.sourceType, itemId: step.plan.sourceId },
+      select: { workStreamId: true },
+    });
+    for (const item of parentItems) {
+      await prisma.workStreamItem.upsert({
+        where: { workStreamId_itemType_itemId: { workStreamId: item.workStreamId, itemType: "situation", itemId: situation.id } },
+        create: { workStreamId: item.workStreamId, itemType: "situation", itemId: situation.id },
+        update: {},
+      });
+    }
+  }
+
+  // Set step to awaiting_situation
+  await prisma.executionStep.update({
+    where: { id: step.id },
+    data: { status: "awaiting_situation" },
+  });
+
+  // Notify target user
+  if (input.targetUserId) {
+    await sendNotification({
+      operatorId: step.plan.operatorId,
+      userId: input.targetUserId,
+      type: "situation_proposed",
+      title: input.title || `New situation: ${situationType.name}`,
+      body: input.description || situationType.description,
+      sourceType: "situation",
+      sourceId: situation.id,
+    });
+  }
+}
+
+// ── Resume After Situation Resolution ────────────────────────────────────────
+
+export async function resumeAfterSituationResolution(situationId: string): Promise<void> {
+  const situation = await prisma.situation.findUnique({
+    where: { id: situationId },
+    select: { id: true, spawningStepId: true, status: true, resolvedAt: true, assignedUserId: true, contextSnapshot: true },
+  });
+
+  if (!situation?.spawningStepId) return;
+
+  const spawningStep = await prisma.executionStep.findUnique({
+    where: { id: situation.spawningStepId },
+    include: { plan: true },
+  });
+  if (!spawningStep || spawningStep.status !== "awaiting_situation") return;
+
+  // Check if ALL situations with this spawningStepId are resolved
+  const unresolvedCount = await prisma.situation.count({
+    where: {
+      spawningStepId: situation.spawningStepId,
+      status: { notIn: ["resolved", "closed", "dismissed"] },
+    },
+  });
+
+  if (unresolvedCount > 0) return; // Still waiting for other situations
+
+  // All resolved — collect resolution outcomes
+  const resolvedSituations = await prisma.situation.findMany({
+    where: { spawningStepId: situation.spawningStepId },
+    select: {
+      id: true,
+      status: true,
+      resolvedAt: true,
+      assignedUserId: true,
+      contextSnapshot: true,
+    },
+  });
+
+  const resolutions = resolvedSituations.map(s => ({
+    situationId: s.id,
+    resolution: s.status,
+    resolvedById: s.assignedUserId || "",
+    resolvedAt: s.resolvedAt?.toISOString() || new Date().toISOString(),
+    metadata: s.contextSnapshot ? JSON.parse(s.contextSnapshot) : {},
+  }));
+
+  // Complete the step with resolution data
+  await prisma.executionStep.update({
+    where: { id: spawningStep.id },
+    data: {
+      status: "completed",
+      executedAt: new Date(),
+      outputResult: JSON.stringify({ type: "situation_resolution", resolutions }),
+    },
+  });
+
+  // Advance the plan
+  await advancePlanAfterStep(
+    spawningStep.id,
+    spawningStep.planId,
+    spawningStep.sequenceOrder,
+    spawningStep.plan.operatorId,
+  );
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function triggerWorkStreamReassessment(
+  plan: { id: string; sourceType: string; sourceId: string },
+): Promise<void> {
+  if (plan.sourceType !== "situation" && plan.sourceType !== "initiative") return;
+
+  const items = await prisma.workStreamItem.findMany({
+    where: { itemType: plan.sourceType, itemId: plan.sourceId },
+    select: { workStreamId: true },
+  });
+
+  if (items.length > 0) {
+    const { reassessWorkStream } = await import("@/lib/workstream-reassessment");
+    for (const item of items) {
+      await reassessWorkStream(item.workStreamId, plan.sourceId, plan.sourceType).catch(err =>
+        console.error("[execution-engine] Workstream reassessment failed:", err),
+      );
+    }
+  }
+}
 
 async function triggerPlanWorkStreamRecheck(planId: string): Promise<void> {
   const plan = await prisma.executionPlan.findUnique({
