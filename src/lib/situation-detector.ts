@@ -4,6 +4,7 @@ import { getEntityContext } from "@/lib/entity-resolution";
 import { assembleSituationContext, type SituationContext } from "@/lib/context-assembly";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { isEntityInScope } from "@/lib/situation-scope";
+import { extractJSONArray } from "@/lib/json-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -585,13 +586,3 @@ function safeParseDetection(str: string): DetectionLogic {
   }
 }
 
-function extractJSONArray(text: string): Array<Record<string, unknown>> | null {
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = fenceMatch ? fenceMatch[1].trim() : text.trim();
-  try {
-    const parsed = JSON.parse(jsonStr);
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
-    return null;
-  }
-}

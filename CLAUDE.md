@@ -91,7 +91,7 @@ Copilot → ai-copilot.ts
 | `src/lib/context-assembly.ts` | Builds full situation context: entity data, activity timeline, communication excerpts, cross-department signals, RAG |
 | `src/lib/policy-evaluator.ts` | Pre/post-reasoning governance: evaluates PolicyRules, determines permitted/blocked actions, effective autonomy |
 | `src/lib/policy-engine.ts` | CRUD operations for PolicyRule records |
-| `src/lib/situation-executor.ts` | Executes approved actions via connector providers |
+| `src/lib/json-helpers.ts` | Shared JSON extraction from LLM responses (extractJSON, extractJSONArray, extractJSONAny) |
 | `src/lib/situation-prefilter.ts` | LLM-generated structured pre-filters for natural language situation types |
 | `src/lib/situation-audit.ts` | Audit loop: compares pre-filter vs LLM detection accuracy, regenerates pre-filters |
 | `src/lib/situation-cron.ts` | Starts detection + audit cron intervals (registered in instrumentation.ts) |

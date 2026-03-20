@@ -4,6 +4,7 @@ import { callLLM } from "@/lib/ai-provider";
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ensureInternalCapabilities } from "@/lib/internal-capabilities";
+import { extractJSON } from "@/lib/json-helpers";
 
 // ── Scheduled Evaluation ─────────────────────────────────────────────────────
 
@@ -370,17 +371,6 @@ async function callAndValidate(
 
   console.warn(`[initiative-reasoning] Validation failed: ${parseError}`);
   return null;
-}
-
-function extractJSON(text: string): Record<string, unknown> | null {
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = fenceMatch ? fenceMatch[1].trim() : text.trim();
-  try {
-    const parsed = JSON.parse(jsonStr);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 // ── Initiative Creation ─────────────────────────────────────────────────────

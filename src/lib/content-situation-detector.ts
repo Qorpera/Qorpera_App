@@ -3,6 +3,7 @@ import { callLLM } from "@/lib/ai-provider";
 import { resolveEntity } from "@/lib/entity-resolution";
 import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
+import { extractJSONArray } from "@/lib/json-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,19 +96,6 @@ export async function ensureActionRequiredType(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function extractJSONArray(
-  text: string,
-): Array<Record<string, unknown>> | null {
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = fenceMatch ? fenceMatch[1].trim() : text.trim();
-  try {
-    const parsed = JSON.parse(jsonStr);
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
-    return null;
-  }
-}
 
 export function isEligibleCommunication(item: {
   sourceType: string;

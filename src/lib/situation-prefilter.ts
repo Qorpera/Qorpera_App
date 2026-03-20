@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { callLLM } from "@/lib/ai-provider";
+import { extractJSON } from "@/lib/json-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -157,13 +158,3 @@ function safeParseJSON(str: string): DetectionLogic {
   }
 }
 
-function extractJSON(text: string): Record<string, unknown> | null {
-  // Try to extract JSON from LLM response (may have markdown fences)
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = fenceMatch ? fenceMatch[1].trim() : text.trim();
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    return null;
-  }
-}

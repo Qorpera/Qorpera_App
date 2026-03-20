@@ -48,7 +48,7 @@ Every file in this directory is shared infrastructure used by multiple API route
 | `situation-audit.ts` | Audit loop — compares pre-filter accuracy vs LLM ground truth, regenerates inaccurate pre-filters |
 | `situation-cron.ts` | Starts 5-minute detection interval + audit interval via setInterval with globalThis HMR guard |
 | `situation-detector.ts` | Cron-triggered detection — structured/natural/hybrid modes, property evaluation, LLM confirmation, fires reasoning |
-| `situation-executor.ts` | Executes approved situation actions via connector providers (decrypts config, calls provider action) |
+| `json-helpers.ts` | Shared JSON extraction from LLM responses — extractJSON (object), extractJSONArray (array), extractJSONAny (any value) |
 | `situation-prefilter.ts` | LLM-generated structured pre-filters for natural language situation types (reduces LLM calls) |
 | `situation-resolver.ts` | Auto-resolves open situations when contradicting events arrive (e.g. invoice paid resolves overdue situation) |
 | `situation-scope.ts` | Department scope check — determines if an entity falls within a situation type's department boundary |

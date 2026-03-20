@@ -2,6 +2,7 @@ import { callLLM } from "@/lib/ai-provider";
 import type { ReasoningInput } from "@/lib/reasoning-prompts";
 import type { ContextSectionMeta, EntitySummary } from "@/lib/context-assembly";
 import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
+import { extractJSON } from "@/lib/json-helpers";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -332,19 +333,6 @@ CRITICAL: Reference specific playbook excerpts, policy rules, and prior situatio
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function extractJSON(text: string): Record<string, unknown> | null {
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = fenceMatch ? fenceMatch[1].trim() : text.trim();
-  try {
-    const parsed = JSON.parse(jsonStr);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? parsed
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 function fallbackFinding(domain: string): SpecialistFinding {
   return {

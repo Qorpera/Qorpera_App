@@ -3,6 +3,7 @@ import { callLLM } from "@/lib/ai-provider";
 import { createExecutionPlan, advanceStep, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { CronExpressionParser } from "cron-parser";
+import { extractJSONAny } from "@/lib/json-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -172,7 +173,7 @@ The plan should accomplish the task using the available actions and current cont
   );
 
   // Parse response
-  const parsed = extractJSON(response.content);
+  const parsed = extractJSONAny(response.content);
   if (!parsed) {
     throw new Error("Could not parse JSON from LLM response");
   }
@@ -308,12 +309,3 @@ export async function resumeRecurringTask(taskId: string) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function extractJSON(text: string): unknown | null {
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = fenceMatch ? fenceMatch[1].trim() : text.trim();
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    return null;
-  }
-}

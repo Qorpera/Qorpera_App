@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { callLLM } from "@/lib/ai-provider";
 import { regeneratePreFilter } from "@/lib/situation-prefilter";
+import { extractJSONArray } from "@/lib/json-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -180,13 +181,3 @@ function safeParseJSON(str: string): DetectionLogic {
   }
 }
 
-function extractJSONArray(text: string): Array<Record<string, unknown>> | null {
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = fenceMatch ? fenceMatch[1].trim() : text.trim();
-  try {
-    const parsed = JSON.parse(jsonStr);
-    return Array.isArray(parsed) ? parsed : [parsed];
-  } catch {
-    return null;
-  }
-}

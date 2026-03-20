@@ -8,6 +8,7 @@ import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
 import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
+import { extractJSON } from "@/lib/json-helpers";
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -743,16 +744,3 @@ async function checkPlanAutonomyAutoApprove(
   }
 }
 
-function extractJSON(text: string): Record<string, unknown> | null {
-  // Strip markdown fences
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const jsonStr = fenceMatch ? fenceMatch[1].trim() : text.trim();
-  try {
-    const parsed = JSON.parse(jsonStr);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? parsed
-      : null;
-  } catch {
-    return null;
-  }
-}
