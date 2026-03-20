@@ -112,7 +112,7 @@ Respond with JSON:
       messages: [{ role: "user", content: contextLines.join("\n") }],
       aiFunction: "reasoning",
       temperature: 0.2,
-      model: getModel("reasoning"),
+      model: getModel("situationReasoning"),
     });
 
     const result = extractJSON(response.text) || { action: "wait", reason: "Could not parse AI response" };
