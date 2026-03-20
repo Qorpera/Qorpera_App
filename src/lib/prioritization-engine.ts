@@ -113,7 +113,7 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
   }
 
   // ── Load source data once ────────────────────────────────────────────
-  let sourceSituation: { triggerEntityId: string | null; situationType: { detectionLogic: string } } | null = null;
+  let sourceSituation: { triggerEntityId: string | null; spawningStepId: string | null; situationType: { slug: string; detectionLogic: string } } | null = null;
   let sourceInitiative: { goal: { priority: number } } | null = null;
 
   if (plan.sourceType === "situation") {
@@ -121,7 +121,8 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
       where: { executionPlanId: plan.id },
       select: {
         triggerEntityId: true,
-        situationType: { select: { detectionLogic: true } },
+        spawningStepId: true,
+        situationType: { select: { slug: true, detectionLogic: true } },
       },
     });
   } else if (plan.sourceType === "initiative") {
@@ -254,13 +255,28 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
   staleness = Math.min(100, staleness);
 
   // ── Final score ─────────────────────────────────────────────────────────
-  const score = Math.round(
+  let score = Math.round(
     urgency * 0.30 +
     impact * 0.30 +
     dependencies * 0.20 +
     staleness * 0.15 +
     staleness * 0.05, // placeholder for future signals
   );
+
+  // ── Spawned situation priority inheritance ──────────────────────────────
+  if (sourceSituation?.spawningStepId) {
+    const spawningStep = await prisma.executionStep.findUnique({
+      where: { id: sourceSituation.spawningStepId },
+      select: { plan: { select: { priorityScore: true } } },
+    });
+    const parentScore = spawningStep?.plan?.priorityScore ?? 0;
+
+    if (sourceSituation.situationType.slug === "meeting_request") {
+      score = Math.max(score, parentScore, 75);
+    } else {
+      score = Math.max(score, parentScore);
+    }
+  }
 
   return {
     score,

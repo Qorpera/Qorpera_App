@@ -70,6 +70,18 @@ export interface ConnectorProvider {
   getCapabilities(config: ConnectorConfig): Promise<ConnectorCapability[]>;
 
   /**
+   * Static write-back capability declarations.
+   * Registered as ActionCapabilities with writeBackStatus='pending' on connector creation.
+   * Admin must enable each capability before it can execute.
+   */
+  writeCapabilities?: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }>;
+
+  /**
    * Discover what entity types exist in the external system.
    * Stubbed for Day 2 — full implementation on Day 3.
    */

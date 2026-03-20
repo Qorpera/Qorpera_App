@@ -3,6 +3,8 @@ import { getSessionUser } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { encrypt } from "@/lib/encryption";
+import { registerConnectorCapabilities } from "@/lib/connectors/capability-registration";
+import { getProvider } from "@/lib/connectors/registry";
 
 const APP_BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -122,6 +124,7 @@ export async function GET(req: NextRequest) {
     where: { operatorId, userId: user.id, provider: "google" },
   });
 
+  let connectorId: string;
   if (existing) {
     await prisma.sourceConnector.update({
       where: { id: existing.id },
@@ -132,8 +135,9 @@ export async function GET(req: NextRequest) {
         name: emailAddress ? `Google (${emailAddress})` : "Google",
       },
     });
+    connectorId = existing.id;
   } else {
-    await prisma.sourceConnector.create({
+    const newConnector = await prisma.sourceConnector.create({
       data: {
         operatorId,
         userId: user.id,
@@ -143,6 +147,15 @@ export async function GET(req: NextRequest) {
         config: encrypt(JSON.stringify(config)),
       },
     });
+    connectorId = newConnector.id;
+  }
+
+  // Register write-back capabilities
+  const capProvider = getProvider("google");
+  if (capProvider) {
+    registerConnectorCapabilities(connectorId, operatorId, capProvider).catch((err) =>
+      console.error("[google-oauth] Failed to register write capabilities:", err),
+    );
   }
 
   return NextResponse.redirect(

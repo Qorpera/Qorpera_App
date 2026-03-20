@@ -194,6 +194,29 @@ async function executeActionStep(
     throw new Error("ActionCapability not found or disabled");
   }
 
+  // writeBackStatus gate: only connector-backed capabilities with writeBackStatus
+  if (capability.connectorId && capability.writeBackStatus !== "enabled") {
+    const errorPayload = JSON.stringify({
+      code: "WRITEBACK_NOT_ENABLED",
+      capabilitySlug: capability.slug || capability.name,
+      connectorType: capability.connectorId,
+      message: `Write-back for ${capability.name} has not been enabled. An admin can enable this in Settings → Connections.`,
+    });
+    await prisma.executionStep.update({
+      where: { id: step.id },
+      data: { status: "failed", errorMessage: errorPayload },
+    });
+    await sendNotificationToAdmins({
+      operatorId: step.plan.operatorId,
+      type: "system_alert",
+      title: `Write-back not enabled: ${capability.name}`,
+      body: `Write-back for ${capability.name} has not been enabled. An admin can enable this in Settings → Connections.`,
+      sourceType: "execution",
+      sourceId: step.planId,
+    });
+    return;
+  }
+
   // Internal capability (no connector) — execute directly
   if (!capability.connectorId) {
     // Resolve the AI entity that owns this plan

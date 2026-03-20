@@ -385,6 +385,7 @@ model Situation {
   resolvedAt      DateTime?
   executionPlanId String?  @unique
   delegationId    String?  @unique
+  spawningStepId  String?  // ExecutionStep.id that spawned this situation (not FK — avoids circular deps)
   createdAt       DateTime @default(now())
 
   operator      Operator       @relation(fields: [operatorId], references: [id])
@@ -444,12 +445,15 @@ model ActionCapability {
   id           String  @id @default(cuid())
   operatorId   String
   connectorId  String?
+  slug         String?  // write capability identifier (from provider.writeCapabilities)
   name         String   // "send_email", "create_invoice", "update_crm_field"
   description  String
   inputSchema  String?  // JSON schema
   sideEffects  String?  // JSON - what happens when this runs
   reversible   Boolean  @default(false)
   enabled      Boolean  @default(true)
+  writeBackStatus   String    @default("pending") // "pending" | "enabled" | "disabled"
+  nudgeDismissedAt  DateTime?
 
   operator  Operator         @relation(fields: [operatorId], references: [id])
   connector SourceConnector? @relation(fields: [connectorId], references: [id])
@@ -704,7 +708,7 @@ model ExecutionStep {
   assignedUserId        String?
   inputContext          String?   // JSON
   outputResult          String?   // JSON — typed StepOutput
-  status                String    @default("pending") // pending, awaiting_approval, approved, executing, completed, failed, skipped, amended
+  status                String    @default("pending") // pending, awaiting_approval, approved, executing, completed, failed, skipped, amended, awaiting_situation
   approvedAt            DateTime?
   approvedById          String?
   executedAt            DateTime?

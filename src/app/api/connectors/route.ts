@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider, listProviders } from "@/lib/connectors/registry";
 import { encrypt, decrypt } from "@/lib/encryption";
+import { registerConnectorCapabilities } from "@/lib/connectors/capability-registration";
 
 export async function GET() {
   const su = await getSessionUser();
@@ -97,6 +98,11 @@ export async function POST(req: NextRequest) {
       config: config ? encrypt(JSON.stringify(config)) : null,
     },
   });
+
+  // Register write-back capabilities (fire-and-forget)
+  registerConnectorCapabilities(connector.id, operatorId, provider).catch((err) =>
+    console.error("[connectors] Failed to register write capabilities:", err),
+  );
 
   const { config: _config, ...connectorResponse } = connector;
   return NextResponse.json(connectorResponse, { status: 201 });

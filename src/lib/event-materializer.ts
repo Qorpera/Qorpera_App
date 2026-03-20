@@ -212,6 +212,41 @@ const EVENT_MATERIALIZERS: Record<string, EventMaterializerRule> = {
       externalId: String(p.id),
     }),
   },
+  "ticket.synced": {
+    entityTypeSlug: "ticket",
+    extractDisplayName: (p) => p.subject || `Ticket #${p.number || p.id}`,
+    extractProperties: (p) => ({
+      number: p.number ? String(p.number) : undefined,
+      subject: p.subject,
+      status: p.status,
+      priority: p.priority,
+      channel: p.channel,
+      assignee: p.assignee,
+      "created-date": p.created_date || p.createdDate,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
+  "conversation.synced": {
+    entityTypeSlug: "conversation",
+    extractDisplayName: (p) => p.subject || `Conversation ${p.id}`,
+    extractProperties: (p) => ({
+      subject: p.subject,
+      status: p.status,
+      channel: p.channel,
+      assignee: p.assignee,
+      "message-count": p.message_count != null ? String(p.message_count) : undefined,
+      "created-date": p.created_date || p.createdDate,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
   "row.synced": {
     entityTypeSlug: "record",
     extractDisplayName: (p) =>

@@ -240,6 +240,39 @@ export const HARDCODED_TYPE_DEFS: Record<string, HardcodedTypeDef> = {
       { slug: "end-date", name: "End Date", dataType: "DATE" },
     ],
   },
+  ticket: {
+    slug: "ticket",
+    name: "Ticket",
+    description: "A support or service ticket",
+    icon: "ticket",
+    color: "#ef4444",
+    defaultCategory: "digital",
+    properties: [
+      { slug: "number", name: "Number", dataType: "STRING" },
+      { slug: "subject", name: "Subject", dataType: "STRING" },
+      { slug: "status", name: "Status", dataType: "STRING" },
+      { slug: "priority", name: "Priority", dataType: "STRING" },
+      { slug: "channel", name: "Channel", dataType: "STRING" },
+      { slug: "assignee", name: "Assignee", dataType: "STRING" },
+      { slug: "created-date", name: "Created Date", dataType: "DATE" },
+    ],
+  },
+  conversation: {
+    slug: "conversation",
+    name: "Conversation",
+    description: "A customer or internal conversation",
+    icon: "message-circle",
+    color: "#14b8a6",
+    defaultCategory: "digital",
+    properties: [
+      { slug: "subject", name: "Subject", dataType: "STRING" },
+      { slug: "status", name: "Status", dataType: "STRING" },
+      { slug: "channel", name: "Channel", dataType: "STRING" },
+      { slug: "assignee", name: "Assignee", dataType: "STRING" },
+      { slug: "message-count", name: "Message Count", dataType: "NUMBER" },
+      { slug: "created-date", name: "Created Date", dataType: "DATE" },
+    ],
+  },
 };
 
 // Category priority for merge hierarchy

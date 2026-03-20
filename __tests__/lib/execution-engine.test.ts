@@ -132,7 +132,7 @@ describe("executeStep — action mode", () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.actionCapability.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
-      connectorId: "conn1", inputSchema: null,
+      connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
     (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{"access_token":"t"}',
@@ -165,7 +165,7 @@ describe("executeStep — action mode", () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.actionCapability.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
-      connectorId: "conn1", inputSchema: null,
+      connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
     // Capability's connector reveals provider
     (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>)
@@ -196,7 +196,7 @@ describe("executeStep — action mode", () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.actionCapability.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
-      connectorId: "conn1", inputSchema: null,
+      connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
     (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{}',
@@ -224,7 +224,7 @@ describe("executeStep — action mode", () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.actionCapability.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
-      connectorId: "conn1", inputSchema: null,
+      connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
     (prisma.situation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       triggerEntityId: "ent1",
@@ -254,7 +254,7 @@ describe("executeStep — action mode", () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.actionCapability.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
-      connectorId: "conn1", inputSchema: null,
+      connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
     (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{}',
@@ -278,7 +278,7 @@ describe("executeStep — action mode", () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.actionCapability.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
-      connectorId: "conn1", inputSchema: null,
+      connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
     (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{}',
