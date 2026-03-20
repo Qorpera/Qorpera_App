@@ -44,6 +44,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/ai-provider", () => ({
   callLLM: vi.fn(),
   streamLLM: vi.fn(),
+  getModel: (route: string) => `mock-${route}`,
 }));
 
 vi.mock("@/lib/connectors/registry", () => ({
@@ -239,7 +240,7 @@ describe("Group 2: Initiative + Escalation", () => {
     p.initiative.create.mockResolvedValue({ id: "init1" });
 
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({
-      content: JSON.stringify({
+      text: JSON.stringify({
         analysis: "Department has high overdue rate. Automation would reduce manual effort.",
         proposals: [{
           goalId: "goal1",
@@ -379,7 +380,7 @@ describe("Group 5: Recurring Tasks + Follow-Ups", () => {
     setupTransaction();
 
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({
-      content: JSON.stringify([
+      text: JSON.stringify([
         { title: "Check overdue", description: "Check", executionMode: "generate" },
         { title: "Send alerts", description: "Alert", executionMode: "action", actionCapabilityName: "send_email" },
       ]),

@@ -26,6 +26,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/ai-provider", () => ({
   callLLM: vi.fn(),
   streamLLM: vi.fn(),
+  getModel: (route: string) => `mock-${route}`,
 }));
 
 vi.mock("@/lib/entity-resolution", () => ({

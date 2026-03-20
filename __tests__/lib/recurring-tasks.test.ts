@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/ai-provider", () => ({
   callLLM: vi.fn(),
+  getModel: (route: string) => `mock-${route}`,
 }));
 
 vi.mock("@/lib/notification-dispatch", () => ({
@@ -70,7 +71,7 @@ describe("processRecurringTasks", () => {
     (prisma.operationalInsight.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.policyRule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({
-      content: JSON.stringify([{ title: "Step 1", description: "Do thing", executionMode: "generate" }]),
+      text: JSON.stringify([{ title: "Step 1", description: "Do thing", executionMode: "generate" }]),
     });
 
     const result = await processRecurringTasks();
@@ -102,7 +103,7 @@ describe("processRecurringTasks", () => {
     (prisma.operationalInsight.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.policyRule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({
-      content: JSON.stringify([{ title: "Step", description: "D", executionMode: "generate" }]),
+      text: JSON.stringify([{ title: "Step", description: "D", executionMode: "generate" }]),
     });
 
     const result = await processRecurringTasks();
@@ -128,16 +129,16 @@ describe("executeRecurringTask", () => {
     (prisma.operationalInsight.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.policyRule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({
-      content: JSON.stringify([{ title: "Draft", description: "Draft digest", executionMode: "generate" }]),
+      text: JSON.stringify([{ title: "Draft", description: "Draft digest", executionMode: "generate" }]),
     });
 
     await processRecurringTasks();
 
     expect(callLLM).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ role: "system", content: expect.stringContaining("Generate weekly digest") }),
-      ]),
-      expect.objectContaining({ aiFunction: "reasoning" }),
+      expect.objectContaining({
+        instructions: expect.stringContaining("Generate weekly digest"),
+        aiFunction: "reasoning",
+      }),
     );
   });
 
@@ -149,7 +150,7 @@ describe("executeRecurringTask", () => {
     (prisma.operationalInsight.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.policyRule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({
-      content: JSON.stringify([
+      text: JSON.stringify([
         { title: "S1", description: "D1", executionMode: "generate" },
         { title: "S2", description: "D2", executionMode: "human_task" },
       ]),
@@ -174,7 +175,7 @@ describe("executeRecurringTask", () => {
     (prisma.operationalInsight.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.policyRule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({
-      content: JSON.stringify([{ title: "S", description: "D", executionMode: "generate" }]),
+      text: JSON.stringify([{ title: "S", description: "D", executionMode: "generate" }]),
     });
     (prisma.executionPlan.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       steps: [{ id: "step1" }],
@@ -193,7 +194,7 @@ describe("executeRecurringTask", () => {
     (prisma.operationalInsight.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (prisma.policyRule.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({
-      content: JSON.stringify([{ title: "S", description: "D", executionMode: "generate" }]),
+      text: JSON.stringify([{ title: "S", description: "D", executionMode: "generate" }]),
     });
 
     await processRecurringTasks();

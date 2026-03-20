@@ -1,6 +1,7 @@
 vi.mock("@/lib/db", () => ({ prisma: {} }));
 vi.mock("@/lib/ai-provider", () => ({
   callLLM: vi.fn(),
+  getModel: (route: string) => `mock-${route}`,
 }));
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -186,10 +187,10 @@ describe("ReasoningOutputSchema validation", () => {
 describe("runMultiAgentReasoning — specialist execution", () => {
   it("calls LLM 4 times — 3 specialists + 1 coordinator", async () => {
     mockCallLLM
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validCoordinatorResponse });
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validCoordinatorResponse });
 
     const sections = [{ section: "test", itemCount: 1, tokenEstimate: 15000 }];
 
@@ -204,9 +205,9 @@ describe("runMultiAgentReasoning — specialist execution", () => {
   it("handles specialist failure gracefully — fallback finding", async () => {
     mockCallLLM
       .mockRejectedValueOnce(new Error("API timeout"))
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validCoordinatorResponse });
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validCoordinatorResponse });
 
     const sections = [{ section: "test", itemCount: 1, tokenEstimate: 15000 }];
     const result = await runMultiAgentReasoning(minimalInput, sections);
@@ -219,10 +220,10 @@ describe("runMultiAgentReasoning — specialist execution", () => {
 
   it("passes editInstruction and priorFeedback to coordinator", async () => {
     mockCallLLM
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validCoordinatorResponse });
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validCoordinatorResponse });
 
     const sections = [{ section: "test", itemCount: 1, tokenEstimate: 15000 }];
 
@@ -235,18 +236,18 @@ describe("runMultiAgentReasoning — specialist execution", () => {
     );
 
     const coordinatorCall = mockCallLLM.mock.calls[3];
-    const coordinatorUserPrompt = coordinatorCall[0][1].content;
+    const coordinatorUserPrompt = coordinatorCall[0].messages[0].content;
     expect(coordinatorUserPrompt).toContain("Change the email tone to be more formal");
     expect(coordinatorUserPrompt).toContain("Previous feedback: be more concise");
   });
 
   it("handles invalid coordinator JSON — returns fallback", async () => {
     mockCallLLM
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: validSpecialistResponse })
-      .mockResolvedValueOnce({ content: "This is not JSON at all" })
-      .mockResolvedValueOnce({ content: "Still not JSON" });
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: validSpecialistResponse })
+      .mockResolvedValueOnce({ text: "This is not JSON at all" })
+      .mockResolvedValueOnce({ text: "Still not JSON" });
 
     const sections = [{ section: "test", itemCount: 1, tokenEstimate: 15000 }];
     const result = await runMultiAgentReasoning(minimalInput, sections);

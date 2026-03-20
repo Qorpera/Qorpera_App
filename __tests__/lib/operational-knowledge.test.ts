@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({ prisma: {} }));
-vi.mock("@/lib/ai-provider", () => ({ callLLM: vi.fn() }));
+vi.mock("@/lib/ai-provider", () => ({ callLLM: vi.fn(), getModel: (route: string) => `mock-${route}` }));
 vi.mock("@/lib/knowledge-transfer", () => ({ evaluateInsightPromotion: vi.fn() }));
 
 import { prisma } from "@/lib/db";
@@ -102,7 +102,7 @@ function makeLLMInsight(overrides: Record<string, unknown> = {}) {
 }
 
 function makeLLMResponse(insights: unknown[]) {
-  return { content: JSON.stringify({ insights }) };
+  return { text: JSON.stringify({ insights }) };
 }
 
 function makeResolvedSituation(id: string, typeId: string, typeName: string, capId: string | null = null, overrides: Record<string, unknown> = {}) {

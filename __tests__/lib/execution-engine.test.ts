@@ -21,6 +21,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/ai-provider", () => ({
   callLLM: vi.fn(),
+  getModel: (route: string) => `mock-${route}`,
 }));
 
 vi.mock("@/lib/connectors/registry", () => ({
@@ -317,7 +318,7 @@ describe("executeStep — generate mode", () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       { title: "Gather data", outputResult: JSON.stringify({ type: "data", payload: { revenue: 100 }, description: "gather" }) },
     ]);
-    (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({ content: "# Q1 Report\nRevenue: $100" });
+    (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({ text: "# Q1 Report\nRevenue: $100" });
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
     (prisma.executionStep.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -325,11 +326,11 @@ describe("executeStep — generate mode", () => {
     await executeStep("step2");
 
     expect(callLLM).toHaveBeenCalledOnce();
-    const [messages, options] = (callLLM as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(messages[0].role).toBe("system");
-    expect(messages[1].content).toContain("quarterly review report");
-    expect(messages[1].content).toContain("Prior step results");
-    expect(options.temperature).toBe(0.3);
+    const [callOpts] = (callLLM as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(callOpts.instructions).toBeDefined();
+    expect(callOpts.messages[0].content).toContain("quarterly review report");
+    expect(callOpts.messages[0].content).toContain("Prior step results");
+    expect(callOpts.temperature).toBe(0.3);
 
     const updateCall = (prisma.executionStep.update as ReturnType<typeof vi.fn>).mock.calls[0];
     const output = JSON.parse(updateCall[0].data.outputResult);
@@ -413,7 +414,7 @@ describe("executeStep — last step completes plan", () => {
     };
     (prisma.executionStep.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(step);
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({ content: "Summary" });
+    (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({ text: "Summary" });
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
     (prisma.executionStep.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null); // no next step
     (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -452,7 +453,7 @@ describe("advanceStep", () => {
       .mockResolvedValueOnce({ ...stepBase, status: "approved" }); // executeStep load
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({ content: "Done" });
+    (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({ text: "Done" });
     (prisma.executionStep.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 

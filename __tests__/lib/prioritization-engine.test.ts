@@ -16,6 +16,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/ai-provider", () => ({
   callLLM: vi.fn(),
+  getModel: (route: string) => `mock-${route}`,
 }));
 
 import { prisma } from "@/lib/db";

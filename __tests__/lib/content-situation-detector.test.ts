@@ -24,6 +24,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/ai-provider", () => ({
   callLLM: vi.fn(),
+  getModel: (route: string) => `mock-${route}`,
 }));
 
 vi.mock("@/lib/entity-resolution", () => ({
@@ -171,7 +172,7 @@ describe("evaluateContentForSituations", () => {
     setupStandardMocks();
 
     mockCallLLM.mockResolvedValue({
-      content: JSON.stringify([
+      text: JSON.stringify([
         {
           messageIndex: 0,
           actionRequired: true,
@@ -208,7 +209,7 @@ describe("evaluateContentForSituations", () => {
     setupStandardMocks();
 
     mockCallLLM.mockResolvedValue({
-      content: JSON.stringify([
+      text: JSON.stringify([
         {
           messageIndex: 0,
           actionRequired: false,
@@ -265,7 +266,7 @@ describe("evaluateContentForSituations", () => {
     });
 
     mockCallLLM.mockResolvedValue({
-      content: JSON.stringify([
+      text: JSON.stringify([
         {
           messageIndex: 0,
           actionRequired: true,
@@ -317,7 +318,7 @@ describe("evaluateContentForSituations", () => {
     ]);
 
     mockCallLLM.mockResolvedValue({
-      content: JSON.stringify([
+      text: JSON.stringify([
         {
           messageIndex: 0,
           actionRequired: true,
@@ -369,7 +370,7 @@ describe("evaluateContentForSituations", () => {
     setupStandardMocks();
 
     mockCallLLM.mockResolvedValue({
-      content: JSON.stringify([
+      text: JSON.stringify([
         {
           messageIndex: 0,
           actionRequired: true,
