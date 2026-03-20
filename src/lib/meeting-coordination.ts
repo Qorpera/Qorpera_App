@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { sendNotification, sendNotificationToAdmins } from "@/lib/notification-dispatch";
+import { sendNotification } from "@/lib/notification-dispatch";
 import { getProvider } from "@/lib/connectors/registry";
 import { decrypt } from "@/lib/encryption";
 import type { StepOutput } from "@/lib/execution-engine";
