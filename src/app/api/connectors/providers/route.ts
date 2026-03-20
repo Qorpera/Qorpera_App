@@ -24,6 +24,8 @@ export async function GET() {
     "meta-ads": () => !!(process.env.META_APP_ID && process.env.META_APP_SECRET),
     pipedrive: () => !!(process.env.PIPEDRIVE_CLIENT_ID && process.env.PIPEDRIVE_CLIENT_SECRET),
     salesforce: () => !!(process.env.SALESFORCE_CLIENT_ID && process.env.SALESFORCE_CLIENT_SECRET),
+    intercom: () => !!(process.env.INTERCOM_CLIENT_ID && process.env.INTERCOM_CLIENT_SECRET),
+    zendesk: () => !!(process.env.ZENDESK_CLIENT_ID && process.env.ZENDESK_CLIENT_SECRET),
   };
 
   const result = providers.map((p) => ({

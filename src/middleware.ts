@@ -10,6 +10,8 @@ const PUBLIC_PATHS = [
   "/api/auth/stripe/callback",
   "/api/auth/pipedrive/callback",
   "/api/auth/salesforce/callback",
+  "/api/auth/intercom/callback",
+  "/api/auth/zendesk/callback",
   "/api/connectors/google/callback",
   "/api/connectors/google-ads/callback",
   "/api/connectors/shopify/callback",
