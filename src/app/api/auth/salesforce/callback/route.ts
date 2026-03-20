@@ -87,19 +87,38 @@ export async function GET(req: NextRequest) {
     token_expiry: new Date(Date.now() + 7200 * 1000).toISOString(), // ~2h
   };
 
-  const connector = await prisma.sourceConnector.create({
-    data: {
-      operatorId,
-      provider: "salesforce",
-      name: "Salesforce",
-      status: "active",
-      config: encrypt(JSON.stringify(config)),
-    },
+  // Upsert: if operator already has a Salesforce connector, update it; otherwise create
+  const existing = await prisma.sourceConnector.findFirst({
+    where: { operatorId, provider: "salesforce" },
   });
+
+  let connectorId: string;
+  if (existing) {
+    await prisma.sourceConnector.update({
+      where: { id: existing.id },
+      data: {
+        config: encrypt(JSON.stringify(config)),
+        status: "active",
+        consecutiveFailures: 0,
+      },
+    });
+    connectorId = existing.id;
+  } else {
+    const newConnector = await prisma.sourceConnector.create({
+      data: {
+        operatorId,
+        provider: "salesforce",
+        name: "Salesforce",
+        status: "active",
+        config: encrypt(JSON.stringify(config)),
+      },
+    });
+    connectorId = newConnector.id;
+  }
 
   const capProvider = getProvider("salesforce");
   if (capProvider) {
-    registerConnectorCapabilities(connector.id, operatorId, capProvider).catch((err) =>
+    registerConnectorCapabilities(connectorId, operatorId, capProvider).catch((err) =>
       console.error("[salesforce-oauth] Failed to register write capabilities:", err),
     );
   }

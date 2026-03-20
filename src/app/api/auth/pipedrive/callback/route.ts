@@ -86,19 +86,38 @@ export async function GET(req: NextRequest) {
     token_expiry: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
   };
 
-  const connector = await prisma.sourceConnector.create({
-    data: {
-      operatorId,
-      provider: "pipedrive",
-      name: "Pipedrive CRM",
-      status: "active",
-      config: encrypt(JSON.stringify(config)),
-    },
+  // Upsert: if operator already has a Pipedrive connector, update it; otherwise create
+  const existing = await prisma.sourceConnector.findFirst({
+    where: { operatorId, provider: "pipedrive" },
   });
+
+  let connectorId: string;
+  if (existing) {
+    await prisma.sourceConnector.update({
+      where: { id: existing.id },
+      data: {
+        config: encrypt(JSON.stringify(config)),
+        status: "active",
+        consecutiveFailures: 0,
+      },
+    });
+    connectorId = existing.id;
+  } else {
+    const newConnector = await prisma.sourceConnector.create({
+      data: {
+        operatorId,
+        provider: "pipedrive",
+        name: "Pipedrive CRM",
+        status: "active",
+        config: encrypt(JSON.stringify(config)),
+      },
+    });
+    connectorId = newConnector.id;
+  }
 
   const capProvider = getProvider("pipedrive");
   if (capProvider) {
-    registerConnectorCapabilities(connector.id, operatorId, capProvider).catch((err) =>
+    registerConnectorCapabilities(connectorId, operatorId, capProvider).catch((err) =>
       console.error("[pipedrive-oauth] Failed to register write capabilities:", err),
     );
   }

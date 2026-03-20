@@ -76,11 +76,11 @@ async function* soqlQuery(
   let url: string | null = `${instanceUrl}/services/data/v59.0/query?q=${encodeURIComponent(query)}`;
 
   while (url) {
-    const resp = await fetch(url, {
+    const resp: Response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!resp.ok) break;
-    const data = await resp.json();
+    const data: any = await resp.json();
 
     for (const record of data.records || []) {
       yield record;
