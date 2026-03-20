@@ -21,6 +21,7 @@ export const ReasoningOutputSchema = z.object({
   actionPlan: z.array(ActionStepSchema).nullable(),  // null = no action, array = ordered steps (can be length 1)
   confidence: z.number().min(0).max(1),
   missingContext: z.array(z.string()).nullable(),
+  webSources: z.array(z.string()).optional(),  // URLs from web search results consulted during reasoning
   escalation: z.object({
     rationale: z.string(),
     suggestedSteps: z.array(ActionStepSchema),

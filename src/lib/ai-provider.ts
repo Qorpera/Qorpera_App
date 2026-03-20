@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { ResponseCreateParamsNonStreaming, ResponseCreateParamsStreaming } from "openai/resources/responses/responses";
 import { prisma } from "@/lib/db";
 
 // ── Content Block Types ─────────────────────────────────────────────────────
@@ -212,11 +213,20 @@ export async function* streamLLM(
 
 // ── OpenAI Responses API ─────────────────────────────────────────────────────
 
+const clientCache = new Map<string, OpenAI>();
+
 function getOpenAIClient(config: AIConfig): OpenAI {
-  return new OpenAI({
-    apiKey: config.apiKey ?? "",
-    baseURL: config.baseUrl ?? "https://api.openai.com/v1",
-  });
+  if (!config.apiKey) {
+    throw new Error("OpenAI API key is not configured. Set AI_API_KEY in environment variables or AppSettings.");
+  }
+  const baseURL = config.baseUrl ?? "https://api.openai.com/v1";
+  const cacheKey = `${config.apiKey}:${baseURL}`;
+  let client = clientCache.get(cacheKey);
+  if (!client) {
+    client = new OpenAI({ apiKey: config.apiKey, baseURL });
+    clientCache.set(cacheKey, client);
+  }
+  return client;
 }
 
 function buildResponsesInput(options: LLMRequestOptions): Array<Record<string, unknown>> {
@@ -275,7 +285,7 @@ function buildResponsesTools(options: LLMRequestOptions): Array<Record<string, u
   const tools: Array<Record<string, unknown>> = [];
 
   if (options.webSearch) {
-    tools.push({ type: "web_search_preview" });
+    tools.push({ type: "web_search" });
   }
 
   if (options.tools?.length) {
@@ -300,36 +310,29 @@ async function callOpenAIResponses(
   const client = getOpenAIClient(config);
   const store = await resolveStoreSetting(options);
 
-  const params: Record<string, unknown> = {
+  const responsesTools = buildResponsesTools(options);
+
+  const response = await client.responses.create({
     model,
-    input: buildResponsesInput(options),
+    input: buildResponsesInput(options) as unknown as ResponseCreateParamsNonStreaming["input"],
     store,
-  };
-
-  if (options.instructions) {
-    params.instructions = options.instructions;
-  }
-
-  const tools = buildResponsesTools(options);
-  if (tools) params.tools = tools;
-
-  if (options.responseFormat) {
-    params.text = { format: options.responseFormat };
-  }
-
-  if (options.thinking) {
-    params.reasoning = { effort: "high" };
-  }
-
-  if (options.temperature !== undefined && !options.thinking) {
-    params.temperature = options.temperature;
-  }
-
-  if (options.maxTokens !== undefined) {
-    params.max_output_tokens = options.maxTokens;
-  }
-
-  const response = await (client.responses as any).create(params);
+    ...(options.instructions && { instructions: options.instructions }),
+    ...(responsesTools && { tools: responsesTools as unknown as ResponseCreateParamsNonStreaming["tools"] }),
+    // CONSTRAINT: thinking: true (reasoning.effort) and text.format.json_schema
+    // may be incompatible depending on the model. Currently no callers combine both.
+    // Reasoning callers rely on prompt instructions + extractJSON() for structured output.
+    // If a future caller needs both, test against the target model first.
+    ...(options.responseFormat && { text: { format: options.responseFormat } as unknown as ResponseCreateParamsNonStreaming["text"] }),
+    ...(options.thinking && { reasoning: { effort: "high" as const } }),
+    // Reasoning models (thinking: true) do not support the temperature parameter.
+    // The Responses API will reject requests that include both reasoning.effort and temperature.
+    // Callers that set temperature for determinism (e.g., multi-agent specialists) should be aware
+    // that thinking mode provides its own consistency through chain-of-thought, not temperature control.
+    ...(options.temperature !== undefined && !options.thinking && { temperature: options.temperature }),
+    ...(options.maxTokens !== undefined && { max_output_tokens: options.maxTokens }),
+    // Include web search sources in output when web search is enabled
+    ...(options.webSearch && { include: ["web_search_call.action.sources" as const] }),
+  });
 
   // Parse response
   const text = response.output_text ?? "";
@@ -344,12 +347,18 @@ async function callOpenAIResponses(
         arguments: safeParseJSON(item.arguments ?? "{}"),
       });
     }
-    if (item.type === "web_search_result") {
-      webSources.push({
-        url: item.url ?? "",
-        title: item.title ?? "",
-        snippet: item.snippet ?? "",
-      });
+    // Extract web search sources from web_search_call items
+    if (item.type === "web_search_call" && item.status === "completed") {
+      const action = item.action;
+      if (action.type === "search" && action.sources) {
+        for (const source of action.sources) {
+          webSources.push({
+            url: source.url,
+            title: "",
+            snippet: "",
+          });
+        }
+      }
     }
   }
 
@@ -372,33 +381,19 @@ async function* streamOpenAIResponses(
   const client = getOpenAIClient(config);
   const store = await resolveStoreSetting(options);
 
-  const params: Record<string, unknown> = {
+  const responsesTools = buildResponsesTools(options);
+
+  const stream = await client.responses.create({
     model,
-    input: buildResponsesInput(options),
+    input: buildResponsesInput(options) as unknown as ResponseCreateParamsStreaming["input"],
     stream: true,
     store,
-  };
-
-  if (options.instructions) {
-    params.instructions = options.instructions;
-  }
-
-  const tools = buildResponsesTools(options);
-  if (tools) params.tools = tools;
-
-  if (options.thinking) {
-    params.reasoning = { effort: "high" };
-  }
-
-  if (options.temperature !== undefined && !options.thinking) {
-    params.temperature = options.temperature;
-  }
-
-  if (options.maxTokens !== undefined) {
-    params.max_output_tokens = options.maxTokens;
-  }
-
-  const stream = await (client.responses as any).create(params);
+    ...(options.instructions && { instructions: options.instructions }),
+    ...(responsesTools && { tools: responsesTools as unknown as ResponseCreateParamsStreaming["tools"] }),
+    ...(options.thinking && { reasoning: { effort: "high" as const } }),
+    ...(options.temperature !== undefined && !options.thinking && { temperature: options.temperature }),
+    ...(options.maxTokens !== undefined && { max_output_tokens: options.maxTokens }),
+  });
 
   for await (const event of stream) {
     if (event.type === "response.output_text.delta") {

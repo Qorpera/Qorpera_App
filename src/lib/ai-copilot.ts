@@ -2465,9 +2465,9 @@ export async function chat(
   const allowedToolNames = new Set(tools.map(t => t.name));
 
   // Build LLM messages — system prompt goes to instructions, not messages
-  const llmHistory: LLMMessage[] = (history as LLMMessage[]).filter(
-    (m) => m.role !== "system" as string,
-  );
+  const llmHistory: LLMMessage[] = history
+    .filter((m): m is AIMessage & { role: "user" | "assistant" | "tool" } => m.role !== "system")
+    .map((m) => ({ ...m, role: m.role as "user" | "assistant" | "tool" }));
   const initialMessages: LLMMessage[] = [
     ...llmHistory,
     { role: "user", content: userMessage },

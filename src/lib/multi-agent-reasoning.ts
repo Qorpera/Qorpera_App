@@ -357,6 +357,9 @@ async function runSpecialists(
   const calls = specialists.map(async (spec): Promise<SpecialistFinding> => {
     const { system, user } = spec.buildPrompt(input, companyName);
 
+    // Note: temperature is silently dropped when thinking: true is set,
+    // because reasoning models don't support the temperature parameter.
+    // Determinism comes from the reasoning chain, not temperature control.
     const response = await callLLM({
       instructions: system,
       messages: [{ role: "user", content: user }],

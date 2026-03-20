@@ -460,13 +460,12 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         reasoning = result.data;
 
         // Label web sources if present
-        if (response.webSources?.length) {
+        if (response.webSources && response.webSources.length > 0) {
           reasoning = {
             ...reasoning,
             analysis: reasoning.analysis + "\n\n[External web sources were consulted.]",
+            webSources: response.webSources.map(s => s.url),
           };
-          // Store source URLs in reasoning JSON for audit
-          (reasoning as Record<string, unknown>)._webSources = response.webSources.map(s => s.url);
         }
 
         break;
