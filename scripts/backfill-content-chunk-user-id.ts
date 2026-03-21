@@ -144,13 +144,11 @@ async function main() {
           select: { id: true },
         });
         updated++;
-      } else if (!providers || !SOURCE_TYPE_TO_PROVIDER[chunk.sourceType]) {
+      } else {
         unresolvable++;
         console.warn(
           `[backfill] Unresolvable: chunkId=${chunk.id}, sourceType=${chunk.sourceType}, sourceId=${chunk.sourceId}`
         );
-      } else {
-        skipped++;
       }
 
       if (processed % LOG_INTERVAL === 0) {

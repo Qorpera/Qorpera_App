@@ -30,7 +30,7 @@ export async function ingestContent(
 ): Promise<{ chunksCreated: number }> {
   const { operatorId, userId, sourceType, sourceId, content, connectorId, entityId, departmentIds, metadata } = input;
 
-  if (!userId) {
+  if (!userId && sourceType !== "uploaded_doc") {
     console.warn(`[content-pipeline] ContentChunk created without userId — sourceType: ${sourceType}, sourceId: ${sourceId}`);
   }
 
