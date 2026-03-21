@@ -774,7 +774,7 @@ export default function CopilotPage() {
                 {copilotBudget.remainingCents <= 0 ? (
                   <div className="text-[12px] text-amber-400/80 flex items-center gap-2">
                     Free copilot limit reached.{" "}
-                    <a href="/api/billing/activate" className="underline text-purple-400">Activate billing</a>{" "}
+                    <a href="/settings?tab=billing" className="underline text-purple-400">Activate billing</a>{" "}
                     for unlimited access.
                   </div>
                 ) : (

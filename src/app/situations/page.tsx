@@ -338,7 +338,7 @@ export default function SituationsPage() {
             </span>
           </div>
           <a
-            href={billingStatus === "past_due" ? "/settings/billing" : "/api/billing/activate"}
+            href="/settings?tab=billing"
             className="rounded-full text-[12px] font-medium px-3 py-1"
             style={{ background: "#8b5cf6", color: "#fff" }}
           >

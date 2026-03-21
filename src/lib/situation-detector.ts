@@ -573,7 +573,7 @@ async function createDetectedSituation(
   return situation;
 }
 
-async function trackFreeDetection(operatorId: string): Promise<void> {
+export async function trackFreeDetection(operatorId: string): Promise<void> {
   const op = await prisma.operator.findUnique({
     where: { id: operatorId },
     select: { billingStatus: true, freeDetectionStartedAt: true, freeDetectionSituationCount: true },

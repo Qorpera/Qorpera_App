@@ -419,6 +419,11 @@ async function handleActionRequired(
     },
   }).catch(() => {});
 
+  // Free tier tracking (fire-and-forget)
+  import("@/lib/situation-detector")
+    .then((m) => m.trackFreeDetection(operatorId))
+    .catch(console.error);
+
   // Fire-and-forget reasoning
   reasonAboutSituation(situation.id).catch((err) =>
     console.error("[content-detection] Reasoning error:", err),
