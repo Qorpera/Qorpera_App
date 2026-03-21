@@ -84,23 +84,6 @@ async function getEarliestSignalDate(
   return earliest?.occurredAt ?? null;
 }
 
-function buildAbsenceDescription(
-  userName: string,
-  patterns: AbsenceSignal[],
-): string {
-  const lines = patterns.map((p) => {
-    switch (p.signalType) {
-      case "email_silence":
-        return `Email volume dropped ${p.dropPercent.toFixed(0)}% (baseline: ${p.baseline.toFixed(1)}/day, recent: ${p.current.toFixed(1)}/day)`;
-      case "meeting_dropout":
-        return `Meeting attendance dropped ${p.dropPercent.toFixed(0)}% (baseline: ${p.baseline.toFixed(1)}/week, recent: ${p.current.toFixed(1)}/week)`;
-      case "engagement_decline":
-        return `Overall engagement dropped ${p.dropPercent.toFixed(0)}% across all activity types`;
-    }
-  });
-  return `Activity change detected for ${userName}:\n${lines.join("\n")}`;
-}
-
 // ── Absence Pattern Detection ───────────────────────────
 
 async function detectEmailSilence(
@@ -233,6 +216,20 @@ export async function computeAndStoreStructuredSignals(
   entityId: string,
 ): Promise<number> {
   const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+
+  // Dedup: skip if computed signals already exist for this entity today
+  const existing = await prisma.activitySignal.count({
+    where: {
+      operatorId,
+      actorEntityId: entityId,
+      signalType: "computed",
+      occurredAt: { gte: todayStart },
+    },
+  });
+  if (existing > 0) return 0;
+
   let stored = 0;
 
   // 1. email_response_time — average hours to first reply (approximate from sent/received pairs)
@@ -402,12 +399,6 @@ export async function detectAbsenceForUser(
 
   // Find or create the "Engagement Risk" SituationType
   const engagementRiskType = await getOrCreateEngagementRiskType(operatorId);
-
-  // Resolve department for the user's entity
-  const entity = await prisma.entity.findUnique({
-    where: { id: user.entityId },
-    select: { parentDepartmentId: true },
-  });
 
   // Create situation
   await prisma.situation.create({

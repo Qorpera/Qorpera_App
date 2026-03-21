@@ -100,9 +100,6 @@ describe("Email silence detection", () => {
     mockPrisma.situationType.findFirst.mockResolvedValue(null);
     mockPrisma.situationType.create.mockResolvedValue({ id: "st-engagement" });
 
-    mockPrisma.entity.findUnique.mockResolvedValue({
-      parentDepartmentId: "dept-1",
-    });
 
     const result = await detectAbsenceForUser("op-1", mockUser);
 
@@ -144,7 +141,6 @@ describe("Meeting dropout detection", () => {
     mockPrisma.situation.findFirst.mockResolvedValue(null);
     mockPrisma.situationType.findFirst.mockResolvedValue(null);
     mockPrisma.situationType.create.mockResolvedValue({ id: "st-engagement" });
-    mockPrisma.entity.findUnique.mockResolvedValue({ parentDepartmentId: "dept-1" });
 
     const result = await detectAbsenceForUser("op-1", mockUser);
 
@@ -181,7 +177,6 @@ describe("Engagement decline detection", () => {
     mockPrisma.situation.findFirst.mockResolvedValue(null);
     mockPrisma.situationType.findFirst.mockResolvedValue(null);
     mockPrisma.situationType.create.mockResolvedValue({ id: "st-engagement" });
-    mockPrisma.entity.findUnique.mockResolvedValue({ parentDepartmentId: "dept-1" });
 
     const result = await detectAbsenceForUser("op-1", mockUser);
 
@@ -273,7 +268,6 @@ describe("SituationType auto-creation", () => {
     mockPrisma.situation.findFirst.mockResolvedValue(null);
     mockPrisma.situationType.findFirst.mockResolvedValue(null); // doesn't exist
     mockPrisma.situationType.create.mockResolvedValue({ id: "st-new" });
-    mockPrisma.entity.findUnique.mockResolvedValue({ parentDepartmentId: "dept-1" });
 
     await detectAbsenceForUser("op-1", mockUser);
 
@@ -302,7 +296,6 @@ describe("SituationType auto-creation", () => {
 
     mockPrisma.situation.findFirst.mockResolvedValue(null);
     mockPrisma.situationType.findFirst.mockResolvedValue({ id: "st-existing" });
-    mockPrisma.entity.findUnique.mockResolvedValue({ parentDepartmentId: "dept-1" });
 
     await detectAbsenceForUser("op-1", mockUser);
 
@@ -337,7 +330,6 @@ describe("SituationType detectedCount", () => {
 
     mockPrisma.situation.findFirst.mockResolvedValue(null);
     mockPrisma.situationType.findFirst.mockResolvedValue({ id: "st-1" });
-    mockPrisma.entity.findUnique.mockResolvedValue({ parentDepartmentId: "dept-1" });
 
     await detectAbsenceForUser("op-1", mockUser);
 
@@ -354,7 +346,10 @@ describe("SituationType detectedCount", () => {
 
 describe("Structured signal storage", () => {
   it("stores 4 computed ActivitySignal records", async () => {
-    mockPrisma.activitySignal.count.mockResolvedValue(5);
+    // First count call is dedup check (should return 0), rest return 5
+    mockPrisma.activitySignal.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValue(5);
 
     const stored = await computeAndStoreStructuredSignals(
       "op-1",
@@ -384,7 +379,9 @@ describe("Structured signal storage", () => {
   });
 
   it("includes correct metadata structure", async () => {
-    mockPrisma.activitySignal.count.mockResolvedValue(10);
+    mockPrisma.activitySignal.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValue(10);
 
     await computeAndStoreStructuredSignals("op-1", "user-1", "entity-1");
 
