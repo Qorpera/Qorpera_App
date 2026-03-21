@@ -298,6 +298,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         modelId: maModelString,
         promptVersion: REASONING_PROMPT_VERSION,
         reasoningDurationMs: maDurationMs,
+        apiCostCents: multiAgentResult.totalApiCostCents,
       };
 
       // Store proposedAction as the full plan for backward-compatible UI display

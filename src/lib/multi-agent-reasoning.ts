@@ -26,6 +26,7 @@ export interface MultiAgentResult {
   findings: SpecialistFinding[];
   coordinatorReasoning: ReasoningOutput;
   routingReason: string;
+  totalApiCostCents: number;
 }
 
 // ── Token Estimation ─────────────────────────────────────────────────────────
@@ -353,8 +354,8 @@ function fallbackFinding(domain: string): SpecialistFinding {
 async function runSpecialists(
   input: ReasoningInput,
   companyName?: string,
-): Promise<SpecialistFinding[]> {
-  const calls = specialists.map(async (spec): Promise<SpecialistFinding> => {
+): Promise<{ findings: SpecialistFinding[]; apiCostCents: number }> {
+  const calls = specialists.map(async (spec): Promise<{ finding: SpecialistFinding; costCents: number }> => {
     const { system, user } = spec.buildPrompt(input, companyName);
 
     // Note: temperature is silently dropped when thinking: true is set,
@@ -373,31 +374,40 @@ async function runSpecialists(
     const parsed = extractJSON(response.text);
     if (!parsed) {
       console.warn(`[multi-agent] Failed to parse ${spec.name} response as JSON`);
-      return fallbackFinding(spec.domain);
+      return { finding: fallbackFinding(spec.domain), costCents: response.apiCostCents };
     }
 
     // Validate required fields loosely — LLMs may produce slight variations
     const finding = parsed as Record<string, unknown>;
     return {
-      domain: spec.domain,
-      summary: typeof finding.summary === "string" ? finding.summary : "No summary provided",
-      keyFindings: Array.isArray(finding.keyFindings) ? finding.keyFindings.map(String) : [],
-      riskFactors: Array.isArray(finding.riskFactors) ? finding.riskFactors.map(String) : [],
-      opportunities: Array.isArray(finding.opportunities) ? finding.opportunities.map(String) : [],
-      recommendedActions: Array.isArray(finding.recommendedActions) ? finding.recommendedActions.map(String) : [],
-      evidenceCited: Array.isArray(finding.evidenceCited) ? finding.evidenceCited.map(String) : [],
-      confidenceLevel: typeof finding.confidenceLevel === "number" ? finding.confidenceLevel : 0.5,
-      gapsIdentified: Array.isArray(finding.gapsIdentified) ? finding.gapsIdentified.map(String) : [],
+      finding: {
+        domain: spec.domain,
+        summary: typeof finding.summary === "string" ? finding.summary : "No summary provided",
+        keyFindings: Array.isArray(finding.keyFindings) ? finding.keyFindings.map(String) : [],
+        riskFactors: Array.isArray(finding.riskFactors) ? finding.riskFactors.map(String) : [],
+        opportunities: Array.isArray(finding.opportunities) ? finding.opportunities.map(String) : [],
+        recommendedActions: Array.isArray(finding.recommendedActions) ? finding.recommendedActions.map(String) : [],
+        evidenceCited: Array.isArray(finding.evidenceCited) ? finding.evidenceCited.map(String) : [],
+        confidenceLevel: typeof finding.confidenceLevel === "number" ? finding.confidenceLevel : 0.5,
+        gapsIdentified: Array.isArray(finding.gapsIdentified) ? finding.gapsIdentified.map(String) : [],
+      },
+      costCents: response.apiCostCents,
     };
   });
 
   const results = await Promise.allSettled(calls);
+  let apiCostCents = 0;
 
-  return results.map((r, i) => {
-    if (r.status === "fulfilled") return r.value;
+  const findings = results.map((r, i) => {
+    if (r.status === "fulfilled") {
+      apiCostCents += r.value.costCents;
+      return r.value.finding;
+    }
     console.warn(`[multi-agent] ${specialists[i].name} failed:`, r.reason);
     return fallbackFinding(specialists[i].domain);
   });
+
+  return { findings, apiCostCents };
 }
 
 // ── Coordinator Synthesis ────────────────────────────────────────────────────
@@ -408,7 +418,7 @@ async function coordinatorSynthesize(
   companyName?: string,
   editInstruction?: string | null,
   priorFeedbackLines?: string[] | null,
-): Promise<ReasoningOutput> {
+): Promise<{ reasoning: ReasoningOutput; apiCostCents: number }> {
   const systemPrompt = `You are the coordinating AI operations agent for ${companyName || "this company"}.
 
 You have received analysis from three specialist agents who each examined a different dimension of a business situation. Your job is to synthesize their findings into a single coherent decision.
@@ -519,6 +529,7 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
   // 2-attempt retry with validation (same pattern as single-pass)
   let rawResponse = "";
   let parseError = "";
+  let coordinatorCostCents = 0;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const response = await callLLM({
@@ -538,6 +549,7 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
       thinking: true,
     });
     rawResponse = response.text;
+    coordinatorCostCents += response.apiCostCents;
 
     const parsed = extractJSON(rawResponse);
     if (!parsed) {
@@ -553,18 +565,21 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
       break;
     }
 
-    return result.data;
+    return { reasoning: result.data, apiCostCents: coordinatorCostCents };
   }
 
   // Fallback if coordinator fails
   console.warn(`[multi-agent] Coordinator synthesis failed: ${parseError}`);
   return {
-    analysis: `Multi-agent coordinator failed to produce valid output. Raw: ${rawResponse.slice(0, 500)}`,
-    evidenceSummary: "Coordinator synthesis failed — specialist findings were collected but could not be synthesized.",
-    consideredActions: [],
-    actionPlan: null,
-    confidence: 0,
-    missingContext: ["Coordinator synthesis failed — manual review required"],
+    reasoning: {
+      analysis: `Multi-agent coordinator failed to produce valid output. Raw: ${rawResponse.slice(0, 500)}`,
+      evidenceSummary: "Coordinator synthesis failed — specialist findings were collected but could not be synthesized.",
+      consideredActions: [],
+      actionPlan: null,
+      confidence: 0,
+      missingContext: ["Coordinator synthesis failed — manual review required"],
+    },
+    apiCostCents: coordinatorCostCents,
   };
 }
 
@@ -577,11 +592,12 @@ export async function runMultiAgentReasoning(
   editInstruction?: string | null,
   priorFeedbackLines?: string[] | null,
 ): Promise<MultiAgentResult> {
-  const findings = await runSpecialists(input, companyName);
-  const coordinatorReasoning = await coordinatorSynthesize(input, findings, companyName, editInstruction, priorFeedbackLines);
+  const specialistResult = await runSpecialists(input, companyName);
+  const coordinatorResult = await coordinatorSynthesize(input, specialistResult.findings, companyName, editInstruction, priorFeedbackLines);
   return {
-    findings,
-    coordinatorReasoning,
+    findings: specialistResult.findings,
+    coordinatorReasoning: coordinatorResult.reasoning,
     routingReason: `Context estimated at ${estimateContextTokens(contextSections)} tokens (threshold: ${MULTI_AGENT_TOKEN_THRESHOLD})`,
+    totalApiCostCents: specialistResult.apiCostCents + coordinatorResult.apiCostCents,
   };
 }

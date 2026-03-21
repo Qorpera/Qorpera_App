@@ -54,3 +54,6 @@ ALTER TABLE "AppSetting"
   ADD CONSTRAINT "AppSetting_operatorId_fkey"
   FOREIGN KEY ("operatorId") REFERENCES "Operator"("id")
   ON DELETE SET NULL ON UPDATE CASCADE;
+
+--    Step g: Partial unique index to prevent duplicate global keys (NULL operatorId)
+CREATE UNIQUE INDEX "AppSetting_key_global_unique" ON "AppSetting"("key") WHERE "operatorId" IS NULL;
