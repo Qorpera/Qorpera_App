@@ -402,6 +402,10 @@ model SituationType {
   llmConfirmCount     Int       @default(0)
   auditMissCount      Int       @default(0)
   lastAuditAt         DateTime?
+  detectedCount   Int @default(0)
+  confirmedCount  Int @default(0)
+  dismissedCount  Int @default(0)
+  promptVersion   Int @default(1)
   createdAt      DateTime @default(now())
 
   operator   Operator    @relation(fields: [operatorId], references: [id])
@@ -762,6 +766,7 @@ model ExecutionPlan {
   promptVersion      Int?      // reasoning prompt version at time of plan creation
   totalStepExecutions Int      @default(0) // counter incremented on every step execution attempt
   maxStepExecutions   Int      @default(15) // hard ceiling; plan fails if exceeded
+  modifiedBeforeApproval  Boolean @default(false)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -793,6 +798,8 @@ model ExecutionStep {
   errorMessage          String?
   originalDescription   String?   // preserved when amended
   apiCostCents          Int?      // Actual API cost for this step's LLM call
+  retryCount            Int       @default(0)
+  lastError             String?
   createdAt             DateTime  @default(now())
 
   plan     ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
