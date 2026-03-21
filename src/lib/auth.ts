@@ -88,6 +88,13 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   }
 
   const { user } = session;
+
+  // Block suspended users (pending GDPR deletion)
+  if (user.accountSuspended) {
+    await prisma.session.delete({ where: { id: session.id } }).catch(() => {});
+    return null;
+  }
+
   const isSuperadmin = user.role === "superadmin";
   let operatorId = user.operatorId;
   let actingAsOperator = false;

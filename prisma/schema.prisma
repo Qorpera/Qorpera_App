@@ -84,6 +84,10 @@ model Operator {
   operationalInsights OperationalInsight[]
   priorityOverrides   PriorityOverride[]
   appSettings         AppSetting[]
+
+  // Deletion lifecycle (GDPR)
+  deletionRequestedAt  DateTime?
+  deletionScheduledFor DateTime?
 }
 
 model User {
