@@ -15,9 +15,18 @@ vi.mock("@/lib/db", () => ({
     },
     situationType: {
       upsert: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     notification: {
       create: vi.fn(),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
+    user: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    notificationPreference: {
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     operator: {
       findUnique: vi.fn(),

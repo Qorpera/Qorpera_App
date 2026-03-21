@@ -697,6 +697,8 @@ model PersonalAutonomy {
   totalProposed         Int      @default(0)
   totalApproved         Int      @default(0)
   approvalRate          Float    @default(0)
+  promotedAt            DateTime?
+  promotedById          String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

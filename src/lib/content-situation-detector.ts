@@ -4,6 +4,7 @@ import { resolveEntity } from "@/lib/entity-resolution";
 import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { extractJSONArray } from "@/lib/json-helpers";
+import { checkConfirmationRate } from "@/lib/confirmation-rate";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -423,6 +424,13 @@ async function handleActionRequired(
   import("@/lib/situation-detector")
     .then((m) => m.trackFreeDetection(operatorId))
     .catch(console.error);
+
+  // Increment detectedCount on the SituationType
+  await prisma.situationType.update({
+    where: { id: situationTypeId },
+    data: { detectedCount: { increment: 1 } },
+  }).catch(() => {});
+  checkConfirmationRate(situationTypeId).catch(console.error);
 
   // Fire-and-forget reasoning
   reasonAboutSituation(situation.id).catch((err) =>

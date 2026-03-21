@@ -5,6 +5,7 @@ import { assembleSituationContext, type SituationContext } from "@/lib/context-a
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { isEntityInScope } from "@/lib/situation-scope";
 import { extractJSONArray } from "@/lib/json-helpers";
+import { checkConfirmationRate } from "@/lib/confirmation-rate";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -575,6 +576,15 @@ async function createDetectedSituation(
 
   // Free tier tracking: set start date and increment counter
   trackFreeDetection(operatorId).catch(console.error);
+
+  // Increment detectedCount on the SituationType
+  await prisma.situationType.update({
+    where: { id: situationType.id },
+    data: { detectedCount: { increment: 1 } },
+  }).catch(() => {});
+
+  // Check confirmation rate degradation
+  checkConfirmationRate(situationType.id).catch(console.error);
 
   return situation;
 }

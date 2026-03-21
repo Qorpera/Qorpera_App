@@ -189,6 +189,7 @@ export async function PATCH(
             totalProposed: newProposed,
             consecutiveApprovals: 0,
             approvalRate: newProposed > 0 ? st.totalApproved / newProposed : 0,
+            dismissedCount: { increment: 1 },
           },
         }).catch(() => {});
       }
@@ -240,6 +241,7 @@ export async function PATCH(
             totalApproved: newApproved,
             consecutiveApprovals: st.consecutiveApprovals + 1,
             approvalRate: newProposed > 0 ? newApproved / newProposed : 0,
+            confirmedCount: { increment: 1 },
           },
         }).catch(() => {});
       }

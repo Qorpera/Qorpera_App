@@ -278,6 +278,7 @@ export default function LearningPage() {
               expandedType={expandedType}
               typeDetail={typeDetail}
               onExpandType={expandType}
+              isAdmin={isAdmin}
             />
 
             {/* Panel 4: Feedback Impact */}
@@ -518,6 +519,7 @@ function SituationTypesPanel({
   expandedType,
   typeDetail,
   onExpandType,
+  isAdmin,
 }: {
   situationTypes: Array<{
     id: string;
@@ -530,6 +532,7 @@ function SituationTypesPanel({
   expandedType: string | null;
   typeDetail: TypeDetail | null;
   onExpandType: (id: string) => void;
+  isAdmin: boolean;
 }) {
   if (situationTypes.length === 0) {
     return (
@@ -557,6 +560,7 @@ function SituationTypesPanel({
             isExpanded={expandedType === st.id}
             detail={expandedType === st.id ? typeDetail : null}
             onToggle={() => onExpandType(st.id)}
+            isAdmin={isAdmin}
           />
         ))}
       </div>
@@ -569,6 +573,7 @@ function SituationTypeCard({
   isExpanded,
   detail,
   onToggle,
+  isAdmin,
 }: {
   st: {
     id: string;
@@ -580,6 +585,7 @@ function SituationTypeCard({
   isExpanded: boolean;
   detail: TypeDetail | null;
   onToggle: () => void;
+  isAdmin: boolean;
 }) {
   const autonomyColor = AUTONOMY_COLORS[st.autonomyLevel] ?? AUTONOMY_COLORS.supervised;
 
@@ -726,11 +732,55 @@ function SituationTypeCard({
               ) : (
                 <p className="text-xs text-white/20">No feedback yet for this type.</p>
               )}
+
+              {/* Admin promote button */}
+              {isAdmin && st.autonomyLevel !== "autonomous" && (
+                <PromoteButton situationTypeId={st.id} currentLevel={st.autonomyLevel} />
+              )}
             </>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function PromoteButton({
+  situationTypeId,
+  currentLevel,
+}: {
+  situationTypeId: string;
+  currentLevel: string;
+}) {
+  const [promoting, setPromoting] = useState(false);
+  const nextLevel = currentLevel === "supervised" ? "notify" : "autonomous";
+  const label = currentLevel === "supervised" ? "Promote to Notify" : "Promote to Act";
+
+  async function handlePromote() {
+    if (!confirm(`This will change autonomy to "${nextLevel}" for this situation type. Are you sure?`)) return;
+    setPromoting(true);
+    try {
+      const res = await fetch(`/api/situation-types/${situationTypeId}/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: nextLevel }),
+      });
+      if (res.ok) {
+        window.location.reload();
+      }
+    } finally {
+      setPromoting(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handlePromote}
+      disabled={promoting}
+      className="mt-2 text-xs px-3 py-1.5 rounded border border-purple-500/30 text-purple-300 hover:bg-purple-500/10 transition-colors disabled:opacity-50"
+    >
+      {promoting ? "Promoting..." : label}
+    </button>
   );
 }
 
