@@ -510,7 +510,7 @@ function SettingsPageInner() {
     { key: "notifications", label: "Notifications" },
     { key: "connections", label: "Connections", adminOnly: true },
     { key: "team", label: "Team", adminOnly: true },
-    { key: "billing", label: "Billing", adminOnly: true },
+    { key: "billing", label: "Billing" },
     { key: "merges", label: "Entity Merges", adminOnly: true },
     { key: "governance", label: "AI Governance", adminOnly: true },
   ];
@@ -1711,17 +1711,44 @@ function formatMergeDate(isoString: string): string {
 
 // ── Billing Tab ─────────────────────────────────────────────────────────────
 
-function BillingTab() {
-  const [status, setStatus] = useState<{
+type UsageData = {
+  operator: {
     billingStatus: string;
     billingStartedAt: string | null;
-    copilot: { budgetCents: number; usedCents: number; remainingCents: number };
-    detection: { situationCount: number; situationCap: number };
-  } | null>(null);
+    orchestrationFeeMultiplier: number;
+    freeCopilotBudgetCents: number;
+    freeCopilotUsedCents: number;
+    freeDetectionSituationCount: number;
+    freeDetectionStartedAt: string | null;
+  };
+  currentPeriod: {
+    start: string;
+    end: string;
+    situationsByAutonomy: Record<string, { count: number; totalCents: number }>;
+    copilotMessageCount: number;
+    copilotCostCents: number;
+    totalBilledCents: number;
+    projectedMonthEndCents: number;
+  };
+  departments: Array<{ name: string; count: number; totalCents: number }>;
+  historicalMonths: Array<{ month: string; supervised: number; notify: number; autonomous: number; situationCount: number }>;
+};
+
+type PaymentMethod = { brand: string; last4: string; expMonth: number; expYear: number } | null;
+type InvoiceItem = { id: string; date: number; amount: number; currency: string; status: string | null; pdfUrl: string | null; hostedUrl: string | null };
+
+function BillingTab() {
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(null);
+  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
   const [activating, setActivating] = useState(false);
+  const { user } = useUser();
+  const isAdmin = user?.role === "admin" || user?.role === "superadmin";
 
   useEffect(() => {
-    fetch("/api/billing/status").then(r => r.ok ? r.json() : null).then(setStatus).catch(() => {});
+    fetch("/api/billing/usage").then((r) => (r.ok ? r.json() : null)).then(setUsage).catch(() => {});
+    fetch("/api/billing/payment-method").then((r) => (r.ok ? r.json() : null)).then((d) => setPaymentMethod(d?.paymentMethod ?? null)).catch(() => {});
+    fetch("/api/billing/invoices").then((r) => (r.ok ? r.json() : null)).then((d) => setInvoices(d?.invoices ?? [])).catch(() => {});
   }, []);
 
   const handleActivate = async () => {
@@ -1729,88 +1756,242 @@ function BillingTab() {
     try {
       const res = await fetch("/api/billing/activate", { method: "POST" });
       const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else if (data.activated) {
-        window.location.reload();
-      }
-    } catch {
-      setActivating(false);
-    }
+      if (data.url) window.location.href = data.url;
+      else if (data.activated) window.location.reload();
+    } catch { setActivating(false); }
   };
 
-  if (!status) return <div className="text-white/30 text-sm p-6">Loading...</div>;
+  const handleUpdatePayment = async () => {
+    const res = await fetch("/api/billing/update-payment-method", { method: "POST" });
+    const data = await res.json();
+    if (data.url) window.location.href = data.url;
+  };
+
+  const cents = (v: number) => `$${(v / 100).toFixed(2)}`;
+
+  if (!usage) return <div className="text-white/30 text-sm p-6">Loading billing data...</div>;
+
+  const op = usage.operator;
+  const period = usage.currentPeriod;
+  const isFree = op.billingStatus === "free";
+  const isPastDue = op.billingStatus === "past_due";
+  const isCancelled = op.billingStatus === "cancelled";
+  const isActive = op.billingStatus === "active";
+  const isDiscount = op.orchestrationFeeMultiplier < 1.0;
+
+  // Discount end date
+  let discountEndDate = "";
+  if (isDiscount && op.billingStartedAt) {
+    const d = new Date(op.billingStartedAt);
+    d.setDate(d.getDate() + 30);
+    discountEndDate = d.toLocaleDateString();
+  }
 
   return (
     <div className="space-y-5">
-      {status.billingStatus === "free" && (
+      {/* ── Status Banners ── */}
+      {isPastDue && (
+        <div className="wf-soft p-5" style={{ border: "1px solid rgba(245, 158, 11, 0.3)", background: "rgba(245, 158, 11, 0.05)" }}>
+          <div className="text-[15px] font-semibold text-amber-400 mb-1">Payment Failed</div>
+          <div className="text-[13px] text-white/50 mb-3">Your last payment didn&apos;t go through. AI operations are paused until resolved.</div>
+          {isAdmin && <button onClick={handleUpdatePayment} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#f59e0b", color: "#000" }}>Update Payment Method</button>}
+        </div>
+      )}
+
+      {isCancelled && (
+        <div className="wf-soft p-5" style={{ border: "1px solid rgba(239, 68, 68, 0.3)", background: "rgba(239, 68, 68, 0.05)" }}>
+          <div className="text-[15px] font-semibold text-red-400 mb-1">Subscription Cancelled</div>
+          <div className="text-[13px] text-white/50 mb-3">Your subscription has been cancelled. AI operations are paused.</div>
+          {isAdmin && <button onClick={handleActivate} disabled={activating} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#8b5cf6", color: "#fff" }}>{activating ? "Redirecting..." : "Reactivate"}</button>}
+        </div>
+      )}
+
+      {/* ── Free Plan Card ── */}
+      {isFree && (
         <div className="wf-soft p-6 space-y-4" style={{ border: "1px solid rgba(139, 92, 246, 0.3)", background: "rgba(139, 92, 246, 0.05)" }}>
-          <div className="text-[15px] font-semibold text-white/90">Qorpera Free Plan</div>
-          <div className="text-[13px] text-white/50 space-y-1">
-            <div>Copilot: ${(status.copilot.usedCents / 100).toFixed(2)} / ${(status.copilot.budgetCents / 100).toFixed(2)} used</div>
-            <div>Situations detected: {status.detection.situationCount} / {status.detection.situationCap}</div>
+          <div>
+            <div className="text-[15px] font-semibold text-white/90 mb-1">Qorpera Free Plan</div>
+            <div className="text-[13px] text-white/50">You&apos;re exploring Qorpera with limited access. Activate billing to unlock full AI operations.</div>
           </div>
-          <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden" style={{ maxWidth: 300 }}>
-            <div
-              className="h-full rounded-full bg-purple-500/60 transition-all"
-              style={{ width: `${Math.min(100, (status.detection.situationCount / status.detection.situationCap) * 100)}%` }}
-            />
+          {isAdmin && <button onClick={handleActivate} disabled={activating} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#8b5cf6", color: "#fff" }}>{activating ? "Redirecting..." : "Activate Billing"}</button>}
+
+          <div className="pt-3 space-y-3" style={{ borderTop: "1px solid rgba(139, 92, 246, 0.15)" }}>
+            <div className="text-[13px] font-medium text-white/70">Free Usage</div>
+            <div className="space-y-2">
+              <div>
+                <div className="flex justify-between text-[12px] text-white/40 mb-1"><span>Copilot</span><span>{cents(op.freeCopilotUsedCents)} / {cents(op.freeCopilotBudgetCents)}</span></div>
+                <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-purple-500/60 transition-all" style={{ width: `${Math.min(100, (op.freeCopilotUsedCents / op.freeCopilotBudgetCents) * 100)}%` }} /></div>
+              </div>
+              <div>
+                <div className="flex justify-between text-[12px] text-white/40 mb-1"><span>Situations detected</span><span>{op.freeDetectionSituationCount} / 50</span></div>
+                <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-purple-500/60 transition-all" style={{ width: `${Math.min(100, (op.freeDetectionSituationCount / 50) * 100)}%` }} /></div>
+              </div>
+              {op.freeDetectionStartedAt && (() => {
+                const daysUsed = Math.floor((Date.now() - new Date(op.freeDetectionStartedAt).getTime()) / (1000 * 60 * 60 * 24));
+                const daysLeft = Math.max(0, 30 - daysUsed);
+                return <div className="text-[12px] text-white/30">Detection time remaining: {daysLeft} days</div>;
+              })()}
+            </div>
           </div>
-          <button
-            onClick={handleActivate}
-            disabled={activating}
-            className="rounded-lg text-[13px] font-medium px-5 py-2 transition"
-            style={{ background: "#8b5cf6", color: "#fff" }}
-          >
-            {activating ? "Redirecting..." : "Activate Billing"}
-          </button>
+
+          {op.freeDetectionSituationCount > 0 && (
+            <div className="pt-3" style={{ borderTop: "1px solid rgba(139, 92, 246, 0.15)" }}>
+              <div className="text-[13px] text-white/50">{op.freeDetectionSituationCount} situations detected — 0 handled.</div>
+              <a href="/situations" className="text-[13px] text-purple-400 hover:underline mt-1 inline-block">See what Qorpera found &rarr;</a>
+            </div>
+          )}
         </div>
       )}
 
-      {status.billingStatus === "past_due" && (
-        <div className="wf-soft p-6 space-y-3" style={{ border: "1px solid rgba(245, 158, 11, 0.3)", background: "rgba(245, 158, 11, 0.05)" }}>
-          <div className="text-[15px] font-semibold text-amber-400">Payment Update Required</div>
-          <div className="text-[13px] text-white/50">Your latest payment could not be processed. AI actions are paused until payment is updated.</div>
-          <button
-            onClick={async () => {
-              const res = await fetch("/api/billing/update-payment-method", { method: "POST" });
-              const data = await res.json();
-              if (data.url) window.location.href = data.url;
-            }}
-            className="rounded-lg text-[13px] font-medium px-5 py-2 transition"
-            style={{ background: "#f59e0b", color: "#000" }}
-          >
-            Update Payment Method
-          </button>
-        </div>
-      )}
+      {/* ── Active: Current Period Summary ── */}
+      {(isActive || isPastDue) && (
+        <>
+          <div className="wf-soft p-5">
+            <div className="text-[14px] font-semibold text-white/80 mb-4">
+              Current Billing Period ({new Date(period.start).toLocaleDateString(undefined, { month: "short", day: "numeric" })} – {new Date(period.end).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })})
+            </div>
+            <div className="grid grid-cols-4 gap-3 mb-4">
+              {(["supervised", "notify", "autonomous"] as const).map((level) => {
+                const d = period.situationsByAutonomy[level] ?? { count: 0, totalCents: 0 };
+                const colors = { supervised: "text-blue-400", notify: "text-amber-400", autonomous: "text-emerald-400" };
+                const labels = { supervised: "Observe", notify: "Propose", autonomous: "Act" };
+                return (
+                  <div key={level} className="rounded-lg p-3 bg-white/[0.03] border border-white/[0.06]">
+                    <div className={`text-[11px] font-medium ${colors[level]} mb-1`}>{labels[level]}</div>
+                    <div className="text-[18px] font-semibold text-white/90">{d.count}</div>
+                    <div className="text-[11px] text-white/30">{cents(d.totalCents)}</div>
+                  </div>
+                );
+              })}
+              <div className="rounded-lg p-3 bg-white/[0.03] border border-white/[0.06]">
+                <div className="text-[11px] font-medium text-white/50 mb-1">Total</div>
+                <div className="text-[18px] font-semibold text-white/90">{Object.values(period.situationsByAutonomy).reduce((s, a) => s + a.count, 0)}</div>
+                <div className="text-[11px] text-white/30">{cents(period.totalBilledCents)}</div>
+              </div>
+            </div>
 
-      {status.billingStatus === "cancelled" && (
-        <div className="wf-soft p-6 space-y-3" style={{ border: "1px solid rgba(239, 68, 68, 0.3)", background: "rgba(239, 68, 68, 0.05)" }}>
-          <div className="text-[15px] font-semibold text-red-400">Subscription Cancelled</div>
-          <div className="text-[13px] text-white/50">Your subscription has been cancelled. AI capabilities are limited to the free tier.</div>
-          <button
-            onClick={handleActivate}
-            disabled={activating}
-            className="rounded-lg text-[13px] font-medium px-5 py-2 transition"
-            style={{ background: "#8b5cf6", color: "#fff" }}
-          >
-            {activating ? "Redirecting..." : "Reactivate"}
-          </button>
-        </div>
-      )}
+            <div className="flex items-center gap-6 text-[13px] text-white/50 mb-3">
+              <span>Copilot: {period.copilotMessageCount} messages ({cents(period.copilotCostCents)})</span>
+              <span>Total: {cents(period.totalBilledCents + period.copilotCostCents)}</span>
+              <span className="text-white/30">Projected: ~{cents(period.projectedMonthEndCents)}</span>
+            </div>
 
-      {status.billingStatus === "active" && (
-        <div className="wf-soft p-6 space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="text-[15px] font-semibold text-white/90">Active Plan</div>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">Active</span>
+            {isDiscount && (
+              <div className="text-[12px] text-purple-300/70 bg-purple-500/[0.08] rounded-md px-3 py-2">
+                Month-1 learning discount active — you&apos;re paying {Math.round(op.orchestrationFeeMultiplier * 100)}% of standard rates.
+                {discountEndDate && <span className="text-white/30"> Standard rates apply from {discountEndDate}.</span>}
+              </div>
+            )}
           </div>
-          <div className="text-[13px] text-white/50">
-            {status.billingStartedAt && `Billing since ${new Date(status.billingStartedAt).toLocaleDateString()}`}
+
+          {/* ── Department Breakdown ── */}
+          {usage.departments.length > 0 && (
+            <div className="wf-soft p-5">
+              <div className="text-[14px] font-semibold text-white/80 mb-3">Usage by Department</div>
+              <table className="w-full text-[13px]">
+                <thead><tr className="text-white/30 text-left"><th className="pb-2 font-medium">Department</th><th className="pb-2 font-medium text-right">Situations</th><th className="pb-2 font-medium text-right">Cost</th></tr></thead>
+                <tbody>
+                  {usage.departments.map((dept) => (
+                    <tr key={dept.name} className="border-t border-white/[0.04]">
+                      <td className="py-2 text-white/60">{dept.name}</td>
+                      <td className="py-2 text-right text-white/40">{dept.count}</td>
+                      <td className="py-2 text-right text-white/60">{cents(dept.totalCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ── Monthly Spend History ── */}
+          {usage.historicalMonths.length > 0 && (
+            <div className="wf-soft p-5">
+              <div className="text-[14px] font-semibold text-white/80 mb-3">Monthly Spend History</div>
+              <BillingChart data={usage.historicalMonths} />
+            </div>
+          )}
+
+          {/* ── Rate Table (if discount) ── */}
+          {isDiscount && (
+            <div className="wf-soft p-5">
+              <div className="text-[14px] font-semibold text-white/80 mb-3">Orchestration Rates</div>
+              <table className="w-full text-[13px]">
+                <thead><tr className="text-white/30 text-left"><th className="pb-2 font-medium">Level</th><th className="pb-2 font-medium text-right">Standard</th><th className="pb-2 font-medium text-right">Your Rate</th></tr></thead>
+                <tbody>
+                  {[{ level: "Observe", std: 100, mult: 1.0 }, { level: "Propose", std: 200, mult: 2.0 }, { level: "Act", std: 300, mult: 3.0 }].map((r) => (
+                    <tr key={r.level} className="border-t border-white/[0.04]">
+                      <td className="py-2 text-white/60">{r.level}</td>
+                      <td className="py-2 text-right text-white/30">{r.std}%</td>
+                      <td className="py-2 text-right text-purple-300">{Math.round(r.mult * op.orchestrationFeeMultiplier * 100)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ── Payment Method ── */}
+          <div className="wf-soft p-5">
+            <div className="text-[14px] font-semibold text-white/80 mb-3">Payment Method</div>
+            {paymentMethod ? (
+              <div className="flex items-center justify-between">
+                <div className="text-[13px] text-white/60">{paymentMethod.brand.charAt(0).toUpperCase() + paymentMethod.brand.slice(1)} ending in {paymentMethod.last4} &middot; Expires {paymentMethod.expMonth}/{paymentMethod.expYear}</div>
+                {isAdmin && <button onClick={handleUpdatePayment} className="text-[12px] text-purple-400 hover:underline">Update</button>}
+              </div>
+            ) : (
+              <div className="text-[13px] text-white/30">No payment method on file</div>
+            )}
           </div>
-        </div>
+
+          {/* ── Invoices ── */}
+          {invoices.length > 0 && (
+            <div className="wf-soft p-5">
+              <div className="text-[14px] font-semibold text-white/80 mb-3">Invoices</div>
+              <div className="space-y-0">
+                {invoices.map((inv) => {
+                  const statusColor = inv.status === "paid" ? "text-emerald-400 bg-emerald-500/15" : inv.status === "open" ? "text-amber-400 bg-amber-500/15" : "text-red-400 bg-red-500/15";
+                  return (
+                    <div key={inv.id} className="flex items-center justify-between py-2 border-t border-white/[0.04] first:border-0 text-[13px]">
+                      <span className="text-white/50">{new Date(inv.date * 1000).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</span>
+                      <span className="text-white/70">{cents(inv.amount)}</span>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full ${statusColor}`}>{inv.status ?? "unknown"}</span>
+                      <div className="flex gap-2">
+                        {inv.hostedUrl && <a href={inv.hostedUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-purple-400 hover:underline">View</a>}
+                        {inv.pdfUrl && <a href={inv.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-white/30 hover:underline">PDF</a>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
+    </div>
+  );
+}
+
+function BillingChart({ data }: { data: Array<{ month: string; supervised: number; notify: number; autonomous: number }> }) {
+  const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } = require("recharts");
+  const chartData = data.map((d) => ({
+    month: d.month.replace(/^\d{4}-0?/, "").replace("1", "Jan").replace("2", "Feb").replace("3", "Mar").replace("4", "Apr").replace("5", "May").replace("6", "Jun").replace("7", "Jul").replace("8", "Aug").replace("9", "Sep"),
+    Observe: d.supervised / 100,
+    Propose: d.notify / 100,
+    Act: d.autonomous / 100,
+  }));
+
+  return (
+    <div style={{ width: "100%", height: 200 }}>
+      <ResponsiveContainer>
+        <BarChart data={chartData}>
+          <XAxis dataKey="month" tick={{ fill: "#555", fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "#555", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} />
+          <Tooltip contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, fontSize: 12, color: "#ccc" }} />
+          <Bar dataKey="Observe" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+          <Bar dataKey="Propose" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
+          <Bar dataKey="Act" stackId="a" fill="#22c55e" radius={[2, 2, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
