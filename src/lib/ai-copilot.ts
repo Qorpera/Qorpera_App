@@ -1434,7 +1434,8 @@ export async function executeTool(
 
       try {
         const { retrieveRelevantContext } = await import("@/lib/rag/retriever");
-        const results = await retrieveRelevantContext(query, operatorId, searchDeptIds, 5);
+        const results = await retrieveRelevantContext(query, operatorId, searchDeptIds, 5,
+          userId ? { userId, skipUserFilter: false } : undefined);
 
         if (results.length === 0) return "No relevant documents found for this query.";
 
@@ -1474,11 +1475,11 @@ export async function executeTool(
           sourceTypes: ["email"],
           limit,
           departmentIds: searchDeptIds.length > 0 ? searchDeptIds : undefined,
+          userId: userId ?? undefined,
+          skipUserFilter: false,
         });
 
         if (results.length === 0) return "No emails found matching this query.";
-
-        // TODO: When multiple users connect Google, add per-user email privacy filtering
         return results
           .map((r) => {
             const m = r.metadata || {};
@@ -1524,6 +1525,8 @@ export async function executeTool(
           limit,
           departmentIds: docDeptIds.length > 0 ? docDeptIds : undefined,
           includeParentContext: true,
+          userId: userId ?? undefined,
+          skipUserFilter: false,
         });
 
         if (results.length === 0) return "No documents found matching this query.";
@@ -1578,6 +1581,8 @@ export async function executeTool(
           sourceTypes: ["slack_message", "teams_message"],
           limit,
           departmentIds: msgDeptIds.length > 0 ? msgDeptIds : undefined,
+          userId: userId ?? undefined,
+          skipUserFilter: false,
         });
 
         if (results.length === 0) return "No messages found matching this query.";

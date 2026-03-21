@@ -117,8 +117,11 @@ export async function processDocument(
     }
 
     // Step 2: Delegate to universal content pipeline
+    // Note: InternalDocument does not track uploadedById — userId will be null.
+    // The backfill script can resolve ownership from context.
     const result = await ingestContent({
       operatorId: doc.operatorId,
+      userId: null,
       sourceType: "uploaded_doc",
       sourceId: documentId,
       content: text,

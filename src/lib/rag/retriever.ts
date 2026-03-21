@@ -43,6 +43,8 @@ export async function retrieveRelevantChunks(
     departmentIds?: string[];
     minScore?: number;
     includeParentContext?: boolean;
+    userId?: string;
+    skipUserFilter?: boolean;
   },
 ): Promise<ContentChunkResult[]> {
   const limit = options?.limit ?? 5;
@@ -79,6 +81,14 @@ export async function retrieveRelevantChunks(
     nextIdx += resolvedEntityIds.length;
   }
 
+  // Per-user content privacy filter: returns user's own chunks + null-userId chunks (defensive)
+  let userFilter = "";
+  if (!options?.skipUserFilter && options?.userId) {
+    userFilter = `AND ("userId" = $${nextIdx} OR "userId" IS NULL)`;
+    params.push(options.userId);
+    nextIdx += 1;
+  }
+
   const limitParamIdx = nextIdx;
   params.push(limit);
 
@@ -91,6 +101,7 @@ export async function retrieveRelevantChunks(
       AND embedding IS NOT NULL
       ${sourceTypeFilter}
       ${entityFilter}
+      ${userFilter}
     ORDER BY embedding <=> $1::vector
     LIMIT $${limitParamIdx}
   `;
@@ -214,6 +225,7 @@ export async function retrieveRelevantContext(
   operatorId: string,
   departmentIds: string[],
   topK: number = 8,
+  userFilter?: { userId: string; skipUserFilter?: boolean },
 ): Promise<RAGResult[]> {
   const [queryEmbedding] = await embedChunks([query]);
   if (!queryEmbedding) return [];
@@ -222,6 +234,8 @@ export async function retrieveRelevantContext(
     limit: topK,
     departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
     minScore: 0.3,
+    userId: userFilter?.userId,
+    skipUserFilter: userFilter?.skipUserFilter,
   });
 
   // Map to legacy RAGResult format

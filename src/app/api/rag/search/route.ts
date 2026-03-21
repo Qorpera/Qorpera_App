@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     operatorId,
     scopedDeptIds,
     5,
+    { userId: su.user.id, skipUserFilter: false },
   );
 
   return NextResponse.json({ results });

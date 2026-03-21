@@ -506,12 +506,14 @@ async function loadCommunicationContext(
     ];
 
     // Primary: entity-scoped results (trigger entity + related entities)
+    // Reasoning needs full department context for situation analysis, not user-scoped content
     const entityResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
       limit,
       sourceTypes,
       entityIds: participantIds,
       departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
       minScore: 0.3,
+      skipUserFilter: true,
     });
 
     // Secondary: broader departmental results without entity filter
@@ -522,6 +524,7 @@ async function loadCommunicationContext(
         sourceTypes,
         departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
         minScore: 0.3,
+        skipUserFilter: true,
       });
       // Merge, preferring entity-matched, dedup by id
       const seenIds = new Set(entityResults.map((r) => r.id));
@@ -714,11 +717,13 @@ export async function assembleSituationContext(
     if (departmentIds.length > 0) {
       const [ragEmbedding] = await embedChunks([ragQuery]);
       if (ragEmbedding) {
+        // Reasoning needs full department context for situation analysis, not user-scoped content
         const ragResults = await retrieveRelevantChunks(operatorId, ragEmbedding, {
           limit: 8,
           departmentIds,
           minScore: 0.3,
           includeParentContext: true,
+          skipUserFilter: true,
         });
         departmentKnowledge = ragResults.map((r) => ({
           documentName: (r.metadata?.fileName as string) ?? "Unknown",

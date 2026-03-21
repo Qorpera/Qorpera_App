@@ -15,6 +15,7 @@ import { embedChunks } from "@/lib/rag/embedder";
 
 type ContentInput = {
   operatorId: string;
+  userId?: string | null;
   sourceType: string;
   sourceId: string;
   content: string;
@@ -27,7 +28,11 @@ type ContentInput = {
 export async function ingestContent(
   input: ContentInput,
 ): Promise<{ chunksCreated: number }> {
-  const { operatorId, sourceType, sourceId, content, connectorId, entityId, departmentIds, metadata } = input;
+  const { operatorId, userId, sourceType, sourceId, content, connectorId, entityId, departmentIds, metadata } = input;
+
+  if (!userId) {
+    console.warn(`[content-pipeline] ContentChunk created without userId — sourceType: ${sourceType}, sourceId: ${sourceId}`);
+  }
 
   // 1. Chunk the content
   const chunks = chunkDocument(content);
@@ -106,6 +111,7 @@ export async function ingestContent(
       data: {
         operatorId,
         connectorId: connectorId ?? null,
+        userId: userId ?? null,
         sourceType,
         sourceId,
         entityId: entityId ?? null,

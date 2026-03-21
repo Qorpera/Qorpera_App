@@ -128,6 +128,7 @@ export async function runConnectorSync(
             );
             await ingestContent({
               operatorId,
+              userId: connector.userId ?? null,
               connectorId: connector.id,
               sourceType: item.data.sourceType,
               sourceId: item.data.sourceId,

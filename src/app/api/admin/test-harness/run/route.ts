@@ -159,6 +159,7 @@ export async function POST(req: NextRequest) {
 
           const result = await ingestContent({
             operatorId,
+            userId: null,
             sourceType: "email",
             sourceId,
             content:

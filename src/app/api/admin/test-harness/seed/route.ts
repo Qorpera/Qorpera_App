@@ -154,6 +154,7 @@ export async function POST(req: NextRequest) {
     for (const item of contentItems) {
       const result = await ingestContent({
         operatorId,
+        userId: null,
         sourceType: item.sourceType,
         sourceId: item.sourceId,
         content: item.content,
