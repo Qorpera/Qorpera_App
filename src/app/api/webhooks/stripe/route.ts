@@ -33,6 +33,13 @@ export async function POST(req: NextRequest) {
       const operatorId = session.metadata?.operatorId;
       if (!operatorId) break;
 
+      // Idempotency: skip if operator already has an active subscription
+      const existingOp = await prisma.operator.findUnique({
+        where: { id: operatorId },
+        select: { stripeSubscriptionId: true },
+      });
+      if (existingOp?.stripeSubscriptionId) break;
+
       // Create metered subscription with both price items
       const subscription = await stripe!.subscriptions.create({
         customer: session.customer as string,
