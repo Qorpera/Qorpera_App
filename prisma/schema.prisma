@@ -405,7 +405,7 @@ model SituationType {
   detectedCount   Int @default(0)
   confirmedCount  Int @default(0)
   dismissedCount  Int @default(0)
-  promptVersion   Int @default(1)
+  promptVersion   Int @default(1) // Reserved for post-launch reasoning prompt optimization canary system
   createdAt      DateTime @default(now())
 
   operator   Operator    @relation(fields: [operatorId], references: [id])

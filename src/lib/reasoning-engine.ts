@@ -10,9 +10,10 @@ import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-typ
 import { captureApiError } from "@/lib/api-error";
 import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 import { extractJSON } from "@/lib/json-helpers";
+import { parseCitedSections } from "@/lib/reasoning/citation-parser";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
-export const REASONING_PROMPT_VERSION = 1;
+export const REASONING_PROMPT_VERSION = 2; // Day 16: quote-then-analyze + anti-sycophancy + devil's advocate
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -568,12 +569,24 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     // 10. Store reasoning + model tracking
     const reasoningDurationMs = Math.round(performance.now() - reasoningStartTime);
     const planTracking = { modelId: modelString, promptVersion: REASONING_PROMPT_VERSION };
+
+    // Parse cited context sections from reasoning text
+    const citedSections = parseCitedSections(rawResponse);
+    const contextMeta = context.contextSections.map((s) => ({
+      ...s,
+      citedInReasoning: citedSections.includes(s.section),
+    }));
+
     const updates: Record<string, unknown> = {
       reasoning: JSON.stringify(reasoning),
       modelId: modelString,
       promptVersion: REASONING_PROMPT_VERSION,
       reasoningDurationMs,
       apiCostCents: reasoningApiCostCents,
+      contextSnapshot: JSON.stringify({
+        ...(situation.contextSnapshot ? JSON.parse(situation.contextSnapshot as string) : {}),
+        contextMeta,
+      }),
     };
 
     // Store proposedAction as the full plan for backward-compatible UI display

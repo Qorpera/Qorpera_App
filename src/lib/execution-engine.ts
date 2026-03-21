@@ -978,7 +978,7 @@ export async function amendExecutionPlan(
 
   await prisma.executionPlan.update({
     where: { id: planId },
-    data: { status: "amended" },
+    data: { status: "amended", modifiedBeforeApproval: true },
   });
 
   await sendNotificationToAdmins({

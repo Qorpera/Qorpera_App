@@ -7,6 +7,7 @@ import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { loadContextForCopilot, getContextRoleInstruction } from "@/lib/copilot-context-loaders";
 import { canMemberAccessWorkStream } from "@/lib/workstreams";
 import { captureApiError } from "@/lib/api-error";
+import { rateLimit, rateLimitResponse } from "@/lib/rate-limiter";
 
 export async function POST(req: NextRequest) {
   const su = await getSessionUser();
@@ -144,6 +145,12 @@ export async function POST(req: NextRequest) {
         headers: { "Content-Type": "application/json" },
       });
     }
+  }
+
+  // Per-user rate limit (in addition to IP-based global limit from middleware)
+  const userRateCheck = await rateLimit(`copilot:user:${user.id}`, "copilot");
+  if (!userRateCheck.success) {
+    return rateLimitResponse(userRateCheck.reset);
   }
 
   const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo, user.id, contextInfo);
