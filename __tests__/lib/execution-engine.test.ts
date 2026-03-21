@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/db", () => ({
   prisma: {
     $transaction: vi.fn(),
-    executionPlan: { create: vi.fn(), update: vi.fn() },
+    executionPlan: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
     executionStep: { create: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     actionCapability: { findUnique: vi.fn() },
     sourceConnector: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },

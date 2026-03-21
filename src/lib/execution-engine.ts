@@ -6,6 +6,8 @@ import { sendNotification, sendNotificationToAdmins } from "@/lib/notification-d
 import { evaluateActionPolicies } from "@/lib/policy-evaluator";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { addBusinessDays } from "@/lib/business-days";
+import { classifyError, extractErrorMessage, sanitizeErrorMessage } from "@/lib/execution/error-classification";
+import { captureApiError } from "@/lib/api-error";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -213,29 +215,319 @@ export async function executeStep(stepId: string): Promise<void> {
     // 3. Post-execution: advance plan
     await advancePlanAfterStep(step.id, step.planId, step.sequenceOrder, step.plan.operatorId);
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : "Unknown error";
-
-    // Load step to get plan context for notification
+    // Load step fresh for error handling (may have been modified during execution)
     const failedStep = await prisma.executionStep.findUnique({
       where: { id: stepId },
       include: { plan: true },
     });
+    if (!failedStep) return;
 
+    const errorClass = classifyError(err, failedStep.executionMode);
+    const rawMessage = extractErrorMessage(err);
+    const message = sanitizeErrorMessage(rawMessage);
+
+    switch (errorClass) {
+      case "transient":
+        await handleTransientError(failedStep, err, message);
+        break;
+      case "permanent":
+        await handlePermanentError(failedStep, message);
+        break;
+      case "catastrophic":
+        await handleCatastrophicError(failedStep, err, message);
+        break;
+    }
+  }
+}
+
+// ── Error Handlers ──────────────────────────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const MAX_RETRIES = 3;
+const BACKOFF_MS = [1000, 4000, 16000]; // exponential: 1s, 4s, 16s
+
+type StepWithPlan = {
+  id: string;
+  planId: string;
+  sequenceOrder: number;
+  title: string;
+  description: string;
+  executionMode: string;
+  retryCount: number;
+  plan: { id: string; operatorId: string; sourceType: string; sourceId: string };
+};
+
+async function handleTransientError(
+  step: StepWithPlan,
+  error: unknown,
+  message: string,
+): Promise<void> {
+  const newRetryCount = step.retryCount + 1;
+
+  if (newRetryCount <= MAX_RETRIES) {
     await prisma.executionStep.update({
-      where: { id: stepId },
-      data: { status: "failed", errorMessage: errorMsg },
-    }).catch(() => {});
+      where: { id: step.id },
+      data: {
+        retryCount: newRetryCount,
+        lastError: `Transient (attempt ${newRetryCount}/${MAX_RETRIES}): ${message}`,
+      },
+    });
 
-    if (failedStep) {
+    await sleep(BACKOFF_MS[newRetryCount - 1]);
+
+    // Check emergency stop before retrying
+    const op = await prisma.operator.findUnique({
+      where: { id: step.plan.operatorId },
+      select: { aiPaused: true },
+    });
+    if (op?.aiPaused) {
+      await prisma.executionStep.update({
+        where: { id: step.id },
+        data: { status: "failed", lastError: `Halted: operator AI paused during retry` },
+      });
+      return;
+    }
+
+    // Retry — re-enter executeStep with fresh data
+    const freshStep = await prisma.executionStep.findUnique({
+      where: { id: step.id },
+      select: { status: true },
+    });
+    if (freshStep && freshStep.status !== "failed") {
+      await executeStep(step.id);
+    }
+  } else {
+    // Exhausted retries — escalate to permanent
+    await handlePermanentError(
+      step,
+      `Transient error exhausted ${MAX_RETRIES} retries: ${message}`,
+    );
+  }
+}
+
+async function handlePermanentError(
+  step: StepWithPlan,
+  message: string,
+): Promise<void> {
+  await prisma.executionStep.update({
+    where: { id: step.id },
+    data: { status: "failed", lastError: `Permanent: ${message}`, errorMessage: message },
+  });
+
+  // Load plan with remaining steps for amendment context
+  const plan = await prisma.executionPlan.findUnique({
+    where: { id: step.planId },
+    include: {
+      steps: { orderBy: { sequenceOrder: "asc" } },
+    },
+  });
+
+  if (plan) {
+    await amendPlanFromError(plan, {
+      failedStepId: step.id,
+      failedStepDescription: step.description,
+      errorMessage: message,
+      errorClass: "permanent",
+    });
+  }
+}
+
+async function handleCatastrophicError(
+  step: StepWithPlan,
+  error: unknown,
+  message: string,
+): Promise<void> {
+  await prisma.executionStep.update({
+    where: { id: step.id },
+    data: { status: "failed", lastError: `Catastrophic: ${message}`, errorMessage: message },
+  });
+
+  await prisma.executionPlan.update({
+    where: { id: step.planId },
+    data: { status: "failed" },
+  });
+
+  // Notify all admins
+  const admins = await prisma.user.findMany({
+    where: {
+      operatorId: step.plan.operatorId,
+      role: "admin",
+      accountSuspended: false,
+    },
+    select: { id: true },
+  });
+
+  for (const admin of admins) {
+    await sendNotification({
+      operatorId: step.plan.operatorId,
+      userId: admin.id,
+      type: "system_alert",
+      title: "AI execution halted — action required",
+      body: `Plan for step "${step.title}" has been halted due to a critical error: ${message}. This may indicate a disconnected integration or revoked access. Please check your connections in Settings.`,
+      sourceType: "execution",
+      sourceId: step.planId,
+    });
+  }
+
+  captureApiError(error instanceof Error ? error : new Error(message), {
+    operatorId: step.plan.operatorId,
+    planId: step.planId,
+    stepId: step.id,
+    errorClass: "catastrophic",
+  });
+}
+
+// ── Error-Triggered Plan Amendment ──────────────────────────────────────────
+
+export interface AmendmentContext {
+  failedStepId: string;
+  failedStepDescription: string;
+  errorMessage: string;
+  errorClass: "permanent" | "transient";
+}
+
+async function amendPlanFromError(
+  plan: { id: string; operatorId: string; steps: Array<{ id: string; sequenceOrder: number; title: string; description: string; status: string }> },
+  context: AmendmentContext,
+): Promise<void> {
+  const remainingSteps = plan.steps.filter(
+    (s) => s.status === "pending" || s.status === "awaiting_approval",
+  );
+
+  if (remainingSteps.length === 0) {
+    // No steps to amend — just fail the plan
+    await prisma.executionPlan.update({
+      where: { id: plan.id },
+      data: { status: "failed" },
+    });
+    await sendNotificationToAdmins({
+      operatorId: plan.operatorId,
+      type: "system_alert",
+      title: "Plan failed — no remaining steps to amend",
+      body: `Step "${context.failedStepDescription}" failed: ${context.errorMessage}`,
+      sourceType: "execution",
+      sourceId: plan.id,
+    });
+    return;
+  }
+
+  // Use LLM to re-reason remaining steps with failure context
+  try {
+    const prompt = buildAmendmentPrompt(plan, context, remainingSteps);
+
+    const response = await callLLM({
+      operatorId: plan.operatorId,
+      aiFunction: "reasoning",
+      instructions:
+        "You are an execution plan advisor. A step in an execution plan has failed. Propose amendments to remaining steps to achieve the original goal, or recommend escalation if the goal cannot be achieved.",
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    // Parse LLM response for amendments
+    const amendments = parseAmendmentResponse(response.text, remainingSteps);
+
+    if (amendments.length > 0) {
+      await amendExecutionPlan(plan.id, amendments);
+      await prisma.executionPlan.update({
+        where: { id: plan.id },
+        data: { modifiedBeforeApproval: true },
+      });
+    } else {
+      // LLM recommended escalation
+      await prisma.executionPlan.update({
+        where: { id: plan.id },
+        data: { status: "failed" },
+      });
       await sendNotificationToAdmins({
-        operatorId: failedStep.plan.operatorId,
+        operatorId: plan.operatorId,
         type: "system_alert",
-        title: `Step failed: ${failedStep.title}`,
-        body: `Error: ${errorMsg}`,
+        title: "Plan requires human intervention",
+        body: `Step failed: ${context.errorMessage}. AI could not determine alternative steps.`,
         sourceType: "execution",
-        sourceId: failedStep.planId,
+        sourceId: plan.id,
       });
     }
+  } catch (amendErr) {
+    // Amendment reasoning itself failed — fail the plan
+    console.error("[execution-engine] Amendment reasoning failed:", amendErr);
+    await prisma.executionPlan.update({
+      where: { id: plan.id },
+      data: { status: "failed" },
+    });
+    await sendNotificationToAdmins({
+      operatorId: plan.operatorId,
+      type: "system_alert",
+      title: `Step failed: ${context.failedStepDescription}`,
+      body: `Error: ${context.errorMessage}. Amendment reasoning also failed.`,
+      sourceType: "execution",
+      sourceId: plan.id,
+    });
+  }
+}
+
+function buildAmendmentPrompt(
+  plan: { id: string; steps: Array<{ sequenceOrder: number; title: string; description: string; status: string }> },
+  context: AmendmentContext,
+  remainingSteps: Array<{ sequenceOrder: number; title: string; description: string }>,
+): string {
+  const completedSteps = plan.steps
+    .filter((s) => s.status === "completed")
+    .map((s) => `  ${s.sequenceOrder}. [DONE] ${s.title}`)
+    .join("\n");
+
+  const remaining = remainingSteps
+    .map((s) => `  ${s.sequenceOrder}. ${s.title}: ${s.description}`)
+    .join("\n");
+
+  return `A step in the execution plan has failed.
+
+FAILED STEP: ${context.failedStepDescription}
+ERROR: ${context.errorMessage}
+ERROR CLASS: ${context.errorClass}
+
+COMPLETED STEPS:
+${completedSteps || "  (none)"}
+
+REMAINING STEPS TO AMEND:
+${remaining}
+
+Propose alternative descriptions for the remaining steps to achieve the original goal while accounting for the failure. If the goal cannot be achieved without the failed step, respond with "ESCALATE" on a single line.
+
+Respond in JSON format:
+[{ "sequenceOrder": <number>, "newTitle": "<optional new title>", "newDescription": "<amended description>" }, ...]`;
+}
+
+function parseAmendmentResponse(
+  response: string,
+  remainingSteps: Array<{ sequenceOrder: number }>,
+): PlanAmendment[] {
+  const trimmed = response.trim();
+  if (trimmed.toUpperCase().includes("ESCALATE")) return [];
+
+  try {
+    // Extract JSON array from response
+    const jsonMatch = trimmed.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+
+    const parsed = JSON.parse(jsonMatch[0]) as Array<{
+      sequenceOrder: number;
+      newTitle?: string;
+      newDescription: string;
+    }>;
+
+    const validOrders = new Set(remainingSteps.map((s) => s.sequenceOrder));
+    return parsed
+      .filter((a) => validOrders.has(a.sequenceOrder) && a.newDescription)
+      .map((a) => ({
+        stepSequenceOrder: a.sequenceOrder,
+        newDescription: a.newDescription,
+        newTitle: a.newTitle,
+      }));
+  } catch {
+    return [];
   }
 }
 
