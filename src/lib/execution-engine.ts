@@ -391,6 +391,20 @@ async function executeActionStep(
     ? { ...inputContext.params, priorOutputs }
     : { ...inputContext, priorOutputs };
 
+  // EU AI Act Article 50: flag AI-generated content for email/Slack actions
+  // Auto-executed steps (no approvedById) are AI-generated; user-approved are not
+  const isAiGenerated = !(step as any).approvedById;
+  if (["send_email", "reply_to_thread", "send_slack_message"].includes(capability.name)) {
+    params.isAiGenerated = isAiGenerated;
+    if (isAiGenerated) {
+      const operator = await prisma.operator.findUnique({
+        where: { id: step.plan.operatorId },
+        select: { companyName: true, displayName: true },
+      });
+      params._operatorName = operator?.companyName || operator?.displayName || undefined;
+    }
+  }
+
   // Execute action
   const config = decryptConfig(connector.config || "{}") as Record<string, any>;
   const result = await provider.executeAction(config, capability.name, params);

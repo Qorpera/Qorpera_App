@@ -954,8 +954,16 @@ async function sendOutlookEmail(
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const to = input.to as string;
   const subject = input.subject as string;
-  const body = input.body as string;
+  let body = input.body as string;
   const cc = input.cc as string | undefined;
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+  const operatorName = input._operatorName as string | undefined;
+
+  // EU AI Act Article 50: disclose AI-generated content
+  if (isAiGenerated) {
+    const org = operatorName || "the organization";
+    body += `\n\n---\nThis message was drafted with AI assistance by ${org}'s operational AI (Qorpera).`;
+  }
 
   const toRecipients = to.split(",").map((addr) => ({
     emailAddress: { address: addr.trim() },

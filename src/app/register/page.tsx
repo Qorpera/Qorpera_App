@@ -16,6 +16,7 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [registrationClosed, setRegistrationClosed] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [tosAccepted, setTosAccepted] = useState(false);
 
   useEffect(() => {
     fetch("/api/auth/registration-status")
@@ -137,11 +138,26 @@ export default function RegisterPage() {
             <p className="text-sm text-red-400 text-center">{error}</p>
           )}
 
+          <label className="flex items-start gap-2.5 text-sm text-white/60 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={tosAccepted}
+              onChange={(e) => setTosAccepted(e.target.checked)}
+              className="mt-0.5 accent-purple-500"
+            />
+            <span>
+              I agree to the{" "}
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 underline">Terms of Service</a>
+              {" "}and{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 underline">Privacy Policy</a>
+            </span>
+          </label>
+
           <Button
             variant="primary"
             size="lg"
             type="submit"
-            disabled={loading || !companyName || !name || !email || password.length < 8}
+            disabled={loading || !companyName || !name || !email || password.length < 8 || !tosAccepted}
             className="w-full"
           >
             {loading ? "Creating..." : "Create Account"}
@@ -157,6 +173,13 @@ export default function RegisterPage() {
           </a>
         </p>
         )}
+      </div>
+      <div className="text-center text-xs text-white/30 pb-8">
+        <a href="/terms" className="hover:text-white/50">Terms</a>
+        {" · "}
+        <a href="/privacy" className="hover:text-white/50">Privacy</a>
+        {" · "}
+        <a href="/dpa" className="hover:text-white/50">DPA</a>
       </div>
     </div>
   );

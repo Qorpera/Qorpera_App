@@ -143,6 +143,13 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
           {!collapsed && (
             <div className="px-5 py-3 border-t border-[#1e1e1e]">
               <p className="text-[10px] text-[#444]">Qorpera Desktop v0.1.0</p>
+              <div className="text-[10px] text-[#444] mt-1">
+                <a href="/terms" className="hover:text-[#666]">Terms</a>
+                {" · "}
+                <a href="/privacy" className="hover:text-[#666]">Privacy</a>
+                {" · "}
+                <a href="/dpa" className="hover:text-[#666]">DPA</a>
+              </div>
             </div>
           )}
         </aside>

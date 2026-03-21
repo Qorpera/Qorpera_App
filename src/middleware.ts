@@ -26,6 +26,9 @@ const PUBLIC_PATHS = [
   "/api/health",
   "/login",
   "/register",
+  "/terms",
+  "/privacy",
+  "/dpa",
   "/invite",
 ];
 

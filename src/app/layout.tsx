@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, EB_Garamond } from "next/font/google";
 import { UserProvider } from "@/components/user-provider";
+import { CookieConsent } from "@/components/cookie-consent";
 import "./globals.css";
 
 const inter = Inter({
@@ -29,6 +30,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${ebGaramond.variable}`}>
       <body className="antialiased">
         <UserProvider>{children}</UserProvider>
+        <CookieConsent />
       </body>
     </html>
   );

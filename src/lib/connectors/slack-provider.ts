@@ -450,7 +450,13 @@ async function sendSlackMessage(
   params: Record<string, unknown>
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const channel = params.channel as string;
-  const text = params.text as string;
+  let text = params.text as string;
+  const isAiGenerated = params.isAiGenerated as boolean | undefined;
+
+  // EU AI Act Article 50: disclose AI-generated content
+  if (isAiGenerated) {
+    text = `🤖 [AI] ${text}`;
+  }
 
   const resp = await fetch("https://slack.com/api/chat.postMessage", {
     method: "POST",

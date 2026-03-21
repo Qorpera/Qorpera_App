@@ -141,6 +141,13 @@ export default function LoginPage() {
           </a>
         </p>
       </div>
+      <div className="text-center text-xs text-white/30 pb-8">
+        <a href="/terms" className="hover:text-white/50">Terms</a>
+        {" · "}
+        <a href="/privacy" className="hover:text-white/50">Privacy</a>
+        {" · "}
+        <a href="/dpa" className="hover:text-white/50">DPA</a>
+      </div>
     </div>
   );
 }
