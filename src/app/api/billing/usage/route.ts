@@ -109,46 +109,37 @@ export async function GET() {
     _count: true,
   });
 
-  // --- Historical months (last 12) ---
-  const historicalMonths: Array<{
-    month: string;
-    supervised: number;
-    notify: number;
-    autonomous: number;
-    situationCount: number;
-  }> = [];
+  // --- Historical months (last 12) — single query, group in memory ---
+  const historyStart = startOfMonth(subMonths(now, 11));
+  const allHistorical = await prisma.situation.findMany({
+    where: {
+      operatorId,
+      billedAt: { gte: historyStart, lte: periodEnd },
+      billedCents: { not: null },
+    },
+    select: {
+      billedAt: true,
+      billedCents: true,
+      situationType: { select: { autonomyLevel: true } },
+    },
+  });
 
-  for (let i = 11; i >= 0; i--) {
-    const mStart = startOfMonth(subMonths(now, i));
-    const mEnd = endOfMonth(subMonths(now, i));
-
-    const monthSituations = await prisma.situation.findMany({
-      where: {
-        operatorId,
-        billedAt: { gte: mStart, lte: mEnd },
-        billedCents: { not: null },
-      },
-      select: {
-        billedCents: true,
-        situationType: { select: { autonomyLevel: true } },
-      },
-    });
-
-    if (monthSituations.length > 0) {
-      const byLevel = { supervised: 0, notify: 0, autonomous: 0 };
-      for (const s of monthSituations) {
-        const level = s.situationType.autonomyLevel as keyof typeof byLevel;
-        if (byLevel[level] !== undefined) {
-          byLevel[level] += s.billedCents ?? 0;
-        }
-      }
-      historicalMonths.push({
-        month: formatMonth(mStart),
-        ...byLevel,
-        situationCount: monthSituations.length,
-      });
+  const monthBuckets = new Map<string, { supervised: number; notify: number; autonomous: number; situationCount: number }>();
+  for (const s of allHistorical) {
+    if (!s.billedAt) continue;
+    const key = formatMonth(s.billedAt);
+    const bucket = monthBuckets.get(key) ?? { supervised: 0, notify: 0, autonomous: 0, situationCount: 0 };
+    const level = s.situationType.autonomyLevel;
+    if (level === "supervised" || level === "notify" || level === "autonomous") {
+      bucket[level] += s.billedCents ?? 0;
     }
+    bucket.situationCount++;
+    monthBuckets.set(key, bucket);
   }
+
+  const historicalMonths = [...monthBuckets.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, data]) => ({ month, ...data }));
 
   // --- Projection ---
   const daysInMonth = getDaysInMonth(now);

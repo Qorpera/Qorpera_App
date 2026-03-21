@@ -164,11 +164,16 @@ export async function POST(req: NextRequest) {
         });
 
         // Increment free copilot budget usage (for non-active operators)
+        // Uses atomic increment; post-check catches concurrent overshoot
         if (costCents > 0 && copilotOperator && copilotOperator.billingStatus !== "active") {
-          await prisma.operator.update({
+          const updated = await prisma.operator.update({
             where: { id: operatorId },
             data: { freeCopilotUsedCents: { increment: costCents } },
+            select: { freeCopilotUsedCents: true, freeCopilotBudgetCents: true },
           });
+          if (updated.freeCopilotUsedCents > updated.freeCopilotBudgetCents) {
+            console.log(`[copilot] Free budget exceeded for operator ${operatorId}: ${updated.freeCopilotUsedCents}/${updated.freeCopilotBudgetCents} cents`);
+          }
         }
 
         // Emit billing event (fire-and-forget)
