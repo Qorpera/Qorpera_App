@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { sendNotification } from "@/lib/notification-dispatch";
 import { getProvider } from "@/lib/connectors/registry";
-import { decrypt } from "@/lib/encryption";
+import { decryptConfig } from "@/lib/config-encryption";
 import type { StepOutput } from "@/lib/execution-engine";
 
 const MAX_COUNTER_ROUNDS = 3;
@@ -276,7 +276,7 @@ export async function createCalendarEventsForMeeting(
     }
 
     try {
-      const config = JSON.parse(decrypt(connector.config || "{}"));
+      const config = decryptConfig(connector.config || "{}") as Record<string, any>;
       const result = await provider.executeAction(config, "create_calendar_event", {
         summary: meetingDetails.topic,
         description: meetingDetails.agenda,

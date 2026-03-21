@@ -63,10 +63,14 @@ model User {
   name         String
   passwordHash String
   role         String   @default("member") // "superadmin" | "admin" | "member"
-  entityId     String?  @unique // FK to Entity — the base entity this user represents in the org chart
-  entity       Entity?  @relation(fields: [entityId], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  entityId         String?   @unique // FK to Entity — the base entity this user represents in the org chart
+  entity           Entity?   @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  emailVerified    Boolean   @default(false)
+  emailVerifiedAt  DateTime?
+  lastDigestSentAt DateTime?
+  digestEnabled    Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   sessions       Session[]
   scopes         UserScope[]
@@ -75,6 +79,7 @@ model User {
   aiEntity       Entity?  @relation("AiEntity")
   notificationPreferences NotificationPreference[]
   priorityOverrides PriorityOverride[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([operatorId])
   @@index([entityId])
@@ -382,6 +387,11 @@ model Situation {
   feedbackCategory String?  // "detection_wrong", "action_wrong", "timing_wrong", "missing_context"
   editInstruction  String?  // freeform text from Edit & Approve flow
 
+  // LLM tracking
+  modelId            String?   // LLM model string used for reasoning (e.g., "gpt-4o", "claude-sonnet-4-20250514")
+  promptVersion      Int?      // reasoning prompt version number at time of reasoning
+  reasoningDurationMs Int?     // wall-clock time of the reasoning LLM call in milliseconds
+
   resolvedAt      DateTime?
   executionPlanId String?  @unique
   delegationId    String?  @unique
@@ -682,10 +692,14 @@ model ExecutionPlan {
   currentStepOrder Int      @default(1)
   approvedAt      DateTime?
   approvedById    String?
-  completedAt     DateTime?
-  priorityScore   Float?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  completedAt        DateTime?
+  priorityScore      Float?
+  modelId            String?   // LLM model string used for plan reasoning
+  promptVersion      Int?      // reasoning prompt version at time of plan creation
+  totalStepExecutions Int      @default(0) // counter incremented on every step execution attempt
+  maxStepExecutions   Int      @default(15) // hard ceiling; plan fails if exceeded
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   operator   Operator        @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   steps      ExecutionStep[]
@@ -884,4 +898,17 @@ model PriorityOverride {
   operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   executionPlan   ExecutionPlan @relation(fields: [executionPlanId], references: [id], onDelete: Cascade)
   createdBy       User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([token])
+  @@index([userId])
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider, listProviders } from "@/lib/connectors/registry";
-import { encrypt, decrypt } from "@/lib/encryption";
+import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
 import { registerConnectorCapabilities } from "@/lib/connectors/capability-registration";
 
 export async function GET() {
@@ -28,7 +28,7 @@ export async function GET() {
     let spreadsheetCount = 0;
     if (c.provider === "google-sheets" && c.config) {
       try {
-        const parsed = JSON.parse(decrypt(c.config));
+        const parsed = decryptConfig(c.config) as Record<string, any>;
         spreadsheetCount = (parsed.spreadsheet_ids || []).length;
       } catch { /* ignore */ }
     }
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
       provider: providerId,
       name: name || provider.name,
       status: config ? "active" : "pending",
-      config: config ? encrypt(JSON.stringify(config)) : null,
+      config: config ? encryptConfig(config) : null,
     },
   });
 

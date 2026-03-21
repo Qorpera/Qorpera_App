@@ -10,6 +10,9 @@ import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-typ
 import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 import { extractJSON } from "@/lib/json-helpers";
 
+/** Increment this whenever the reasoning system/user prompt changes meaningfully. */
+export const REASONING_PROMPT_VERSION = 1;
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export async function reasonAboutSituation(situationId: string): Promise<void> {
@@ -220,6 +223,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     if (shouldUseMultiAgent(context.contextSections)) {
       console.log(`[reasoning-engine] Multi-agent path activated for situation ${situationId} (${context.contextSections.reduce((s, c) => s + c.tokenEstimate, 0)} estimated tokens)`);
 
+      const maStartTime = performance.now();
+      const maModelString = getModel("situationReasoning");
       const multiAgentResult = await runMultiAgentReasoning(
         reasoningInput,
         context.contextSections,
@@ -279,7 +284,9 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         }
       }
 
-      // Store reasoning with multi-agent metadata
+      // Store reasoning with multi-agent metadata + model tracking
+      const maDurationMs = Math.round(performance.now() - maStartTime);
+      const maPlanTracking = { modelId: maModelString, promptVersion: REASONING_PROMPT_VERSION };
       const updates: Record<string, unknown> = {
         reasoning: JSON.stringify({
           ...reasoning,
@@ -288,6 +295,9 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
             specialistFindings: multiAgentResult.findings,
           },
         }),
+        modelId: maModelString,
+        promptVersion: REASONING_PROMPT_VERSION,
+        reasoningDurationMs: maDurationMs,
       };
 
       // Store proposedAction as the full plan for backward-compatible UI display
@@ -299,16 +309,16 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       if (reasoning.actionPlan === null || !resolvedSteps) {
         updates.status = "proposed";
       } else if (effectiveAutonomy === "supervised") {
-        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, maPlanTracking);
         updates.executionPlanId = planId;
         updates.status = "proposed";
       } else if (effectiveAutonomy === "notify") {
-        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, maPlanTracking);
         updates.executionPlanId = planId;
         updates.status = "executing";
       } else {
         // autonomous
-        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, maPlanTracking);
         updates.executionPlanId = planId;
         updates.status = "executing";
       }
@@ -426,6 +436,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }
 
     // 7. Call LLM
+    const reasoningStartTime = performance.now();
+    const modelString = getModel("situationReasoning");
     let reasoning: ReasoningOutput | null = null;
     let rawResponse = "";
     let parseError = "";
@@ -442,7 +454,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           temperature: 0.2,
           maxTokens: 4096,
           aiFunction: "reasoning",
-          model: getModel("situationReasoning"),
+          model: modelString,
           operatorId: situation.operatorId,
           webSearch: true,
           thinking: true,
@@ -549,9 +561,14 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       }
     }
 
-    // 10. Store reasoning
+    // 10. Store reasoning + model tracking
+    const reasoningDurationMs = Math.round(performance.now() - reasoningStartTime);
+    const planTracking = { modelId: modelString, promptVersion: REASONING_PROMPT_VERSION };
     const updates: Record<string, unknown> = {
       reasoning: JSON.stringify(reasoning),
+      modelId: modelString,
+      promptVersion: REASONING_PROMPT_VERSION,
+      reasoningDurationMs,
     };
 
     // Store proposedAction as the full plan for backward-compatible UI display
@@ -563,16 +580,16 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     if (reasoning.actionPlan === null || !resolvedSteps) {
       updates.status = "proposed";
     } else if (effectiveAutonomy === "supervised") {
-      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "proposed";
     } else if (effectiveAutonomy === "notify") {
-      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "executing";
     } else {
       // autonomous
-      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps);
+      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "executing";
     }

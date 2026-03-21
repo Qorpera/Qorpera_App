@@ -7,7 +7,7 @@ import { getBusinessContext, formatBusinessContext } from "@/lib/business-contex
 import { buildOrientationSystemPrompt, buildDepartmentDataContext } from "@/lib/orientation-prompts";
 import { generatePreFilter } from "@/lib/situation-prefilter";
 import { getProvider } from "@/lib/connectors/registry";
-import { decrypt, encrypt } from "@/lib/encryption";
+import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { canAccessEntity } from "@/lib/user-scope";
 import { getWorkStreamContext, canMemberAccessWorkStream } from "@/lib/workstreams";
@@ -658,13 +658,13 @@ export async function executeTool(
       const provider = getProvider(connector.provider);
       if (!provider?.executeAction) return `Provider "${connector.provider}" does not support actions.`;
 
-      const config = JSON.parse(decrypt(connector.config || "{}"));
+      const config = decryptConfig(connector.config || "{}") as Record<string, any>;
       const result = await provider.executeAction(config, actionName, actionParams);
 
       // Persist config in case tokens were refreshed
       await prisma.sourceConnector.update({
         where: { id: connector.id },
-        data: { config: encrypt(JSON.stringify(config)) },
+        data: { config: encryptConfig(config) },
       });
 
       if (result.success) {

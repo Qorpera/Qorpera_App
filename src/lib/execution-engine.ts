@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { getProvider } from "@/lib/connectors/registry";
-import { decrypt, encrypt } from "@/lib/encryption";
+import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
 import { sendNotification, sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { evaluateActionPolicies } from "@/lib/policy-evaluator";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
@@ -40,6 +40,7 @@ export async function createExecutionPlan(
   sourceType: "situation" | "initiative" | "recurring" | "delegation",
   sourceId: string,
   steps: StepDefinition[],
+  tracking?: { modelId?: string; promptVersion?: number },
 ): Promise<string> {
   const planId = await prisma.$transaction(async (tx) => {
     const plan = await tx.executionPlan.create({
@@ -49,6 +50,8 @@ export async function createExecutionPlan(
         sourceId,
         status: "pending",
         currentStepOrder: 1,
+        modelId: tracking?.modelId,
+        promptVersion: tracking?.promptVersion,
       },
     });
 
@@ -99,6 +102,45 @@ export async function executeStep(stepId: string): Promise<void> {
       where: { planId: step.planId, status: "completed", sequenceOrder: { lt: step.sequenceOrder } },
       orderBy: { sequenceOrder: "asc" },
     });
+
+    // 1b. Loop breaker — increment counter and check ceiling
+    const updatedPlan = await prisma.executionPlan.update({
+      where: { id: step.plan.id },
+      data: { totalStepExecutions: { increment: 1 } },
+      select: { id: true, totalStepExecutions: true, maxStepExecutions: true, operatorId: true, sourceType: true, sourceId: true },
+    });
+
+    if (updatedPlan.totalStepExecutions > updatedPlan.maxStepExecutions) {
+      await prisma.executionPlan.update({
+        where: { id: step.plan.id },
+        data: { status: "failed" },
+      });
+
+      await sendNotificationToAdmins({
+        operatorId: updatedPlan.operatorId,
+        type: "plan_failed",
+        title: "Execution plan stopped",
+        body: `Execution plan was stopped: exceeded maximum of ${updatedPlan.maxStepExecutions} step executions. This usually indicates a retry loop. Source: ${updatedPlan.sourceType} ${updatedPlan.sourceId}`,
+        linkUrl: `/execution-plans/${step.plan.id}`,
+        emailContext: {
+          planTitle: step.plan.sourceType + " plan",
+          failureReason: `Exceeded maximum step execution limit (${updatedPlan.maxStepExecutions}). The plan may have been stuck in a retry or amendment loop.`,
+          source: updatedPlan.sourceType,
+          viewUrl: `${process.env.NEXT_PUBLIC_APP_URL || ""}/execution-plans/${step.plan.id}`,
+          isLoopBreaker: true,
+        },
+      });
+
+      // Revert source situation to proposed so a human can review
+      if (updatedPlan.sourceType === "situation" && updatedPlan.sourceId) {
+        await prisma.situation.update({
+          where: { id: updatedPlan.sourceId },
+          data: { status: "proposed" },
+        });
+      }
+
+      return; // Stop execution
+    }
 
     // 2. Branch on executionMode
     if (step.executionMode === "action") {
@@ -333,13 +375,13 @@ async function executeActionStep(
     : { ...inputContext, priorOutputs };
 
   // Execute action
-  const config = JSON.parse(decrypt(connector.config || "{}"));
+  const config = decryptConfig(connector.config || "{}") as Record<string, any>;
   const result = await provider.executeAction(config, capability.name, params);
 
   // Persist refreshed config
   await prisma.sourceConnector.update({
     where: { id: connector.id },
-    data: { config: encrypt(JSON.stringify(config)) },
+    data: { config: encryptConfig(config) },
   }).catch(() => {});
 
   if (!result.success) {

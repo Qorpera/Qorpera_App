@@ -1,0 +1,68 @@
+import { Text } from "@react-email/components";
+import * as React from "react";
+
+import { BaseLayout } from "./base-layout";
+import { Button } from "./components/Button";
+import { Section } from "./components/Section";
+
+interface PasswordResetEmailProps {
+  resetUrl: string;
+  expiresInMinutes: number;
+}
+
+export function PasswordResetEmail({
+  resetUrl,
+  expiresInMinutes,
+}: PasswordResetEmailProps) {
+  return (
+    <BaseLayout previewText="Reset your password">
+      <Section>
+        <Text style={heading}>Reset your password</Text>
+        <Text style={paragraph}>
+          We received a request to reset your password. Click the button below
+          to choose a new one.
+        </Text>
+      </Section>
+      <Section>
+        <Button href={resetUrl}>Reset Password</Button>
+      </Section>
+      <Section>
+        <Text style={warning}>
+          This link will expire in {expiresInMinutes}{" "}
+          {expiresInMinutes === 1 ? "minute" : "minutes"}.
+        </Text>
+        <Text style={muted}>
+          If you didn't request this, you can safely ignore this email.
+        </Text>
+      </Section>
+    </BaseLayout>
+  );
+}
+
+const heading: React.CSSProperties = {
+  fontSize: "20px",
+  fontWeight: 600,
+  color: "#0a0a0a",
+  margin: "0 0 12px",
+};
+
+const paragraph: React.CSSProperties = {
+  fontSize: "14px",
+  lineHeight: "24px",
+  color: "#333333",
+  margin: "0 0 12px",
+};
+
+const warning: React.CSSProperties = {
+  fontSize: "13px",
+  lineHeight: "20px",
+  color: "#b45309",
+  margin: "0 0 8px",
+};
+
+const muted: React.CSSProperties = {
+  fontSize: "13px",
+  lineHeight: "20px",
+  color: "#888888",
+  margin: "0",
+};

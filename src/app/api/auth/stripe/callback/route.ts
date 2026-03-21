@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
-import { encrypt } from "@/lib/encryption";
+import { encryptConfig } from "@/lib/config-encryption";
 import { registerConnectorCapabilities } from "@/lib/connectors/capability-registration";
 import { getProvider } from "@/lib/connectors/registry";
 
@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
       provider: "stripe",
       name: "Stripe",
       status: "active",
-      config: encrypt(JSON.stringify(config)),
+      config: encryptConfig(config),
     },
   });
 

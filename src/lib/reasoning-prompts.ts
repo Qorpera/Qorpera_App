@@ -9,6 +9,9 @@ import type {
 } from "@/lib/context-assembly";
 import type { PermittedAction, BlockedAction } from "@/lib/policy-evaluator";
 
+/** Increment this whenever plan reasoning prompts change meaningfully. */
+export const PLAN_REASONING_PROMPT_VERSION = 1;
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface ReasoningInput {

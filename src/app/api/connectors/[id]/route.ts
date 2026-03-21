@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
-import { decrypt, encrypt } from "@/lib/encryption";
+import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 
 export async function GET(
   _req: NextRequest,
@@ -27,7 +27,7 @@ export async function GET(
   // Strip sensitive fields from config for the response
   let safeConfig: Record<string, unknown> = {};
   if (connector.config) {
-    const parsed = JSON.parse(decrypt(connector.config));
+    const parsed = decryptConfig(connector.config) as Record<string, any>;
     safeConfig = {
       spreadsheet_id: parsed.spreadsheet_id || "",
       spreadsheet_ids: parsed.spreadsheet_ids || [],
@@ -61,7 +61,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const existingConfig = connector.config ? JSON.parse(decrypt(connector.config)) : {};
+  const existingConfig = (connector.config ? decryptConfig(connector.config) : {}) as Record<string, any>;
   const updates: Record<string, unknown> = {};
 
   if (body.name !== undefined) updates.name = body.name;
@@ -70,19 +70,19 @@ export async function PATCH(
   // Merge config fields (spreadsheet_id, spreadsheet_ids, spreadsheets) without overwriting tokens
   if (body.spreadsheet_id !== undefined) {
     existingConfig.spreadsheet_id = body.spreadsheet_id;
-    updates.config = encrypt(JSON.stringify(existingConfig));
+    updates.config = encryptConfig(existingConfig);
   }
   if (body.spreadsheet_ids !== undefined && Array.isArray(body.spreadsheet_ids)) {
     existingConfig.spreadsheet_ids = body.spreadsheet_ids;
     existingConfig.spreadsheet_id = body.spreadsheet_ids[0] || "";
-    updates.config = encrypt(JSON.stringify(existingConfig));
+    updates.config = encryptConfig(existingConfig);
   }
   if (body.spreadsheets !== undefined && Array.isArray(body.spreadsheets)) {
     existingConfig.spreadsheets = body.spreadsheets;
     const selectedIds = body.spreadsheets.filter((s: { selected?: boolean }) => s.selected !== false).map((s: { id: string }) => s.id);
     existingConfig.spreadsheet_ids = selectedIds;
     existingConfig.spreadsheet_id = selectedIds[0] || "";
-    updates.config = encrypt(JSON.stringify(existingConfig));
+    updates.config = encryptConfig(existingConfig);
   }
 
   // If finalizing from pending → active, test the connection
@@ -117,7 +117,7 @@ export async function PATCH(
   }
 
   if (!updates.config && body.spreadsheet_id !== undefined) {
-    updates.config = encrypt(JSON.stringify(existingConfig));
+    updates.config = encryptConfig(existingConfig);
   }
 
   const updated = await prisma.sourceConnector.update({
@@ -128,7 +128,7 @@ export async function PATCH(
   // Strip sensitive config from response
   let safeConfig: Record<string, unknown> = {};
   if (updated.config) {
-    const parsed = JSON.parse(decrypt(updated.config));
+    const parsed = decryptConfig(updated.config) as Record<string, any>;
     safeConfig = {
       spreadsheet_id: parsed.spreadsheet_id || "",
       spreadsheet_ids: parsed.spreadsheet_ids || [],

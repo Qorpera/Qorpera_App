@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
-
-// Notification types: delegation_received, delegation_completed, delegation_failed,
-// system_alert, step_ready, follow_up_reminder, follow_up_triggered
+import { getDefaultChannel } from "@/lib/notification-defaults";
+import { sendEmail } from "@/lib/email";
+import { renderNotificationEmail } from "@/emails/template-registry";
 
 type SendNotificationParams = {
   operatorId: string;
@@ -12,10 +12,18 @@ type SendNotificationParams = {
   sourceType?: string;
   sourceId?: string;
   linkUrl?: string;
+  emailContext?: Record<string, any>;
 };
 
 export async function sendNotification(params: SendNotificationParams): Promise<void> {
   try {
+    // Load user once — needed for role-based default and email dispatch
+    const user = await prisma.user.findUnique({
+      where: { id: params.userId },
+      select: { role: true, email: true },
+    });
+
+    // Look up user preference for this notification type
     const pref = await prisma.notificationPreference.findUnique({
       where: {
         userId_notificationType: {
@@ -25,13 +33,13 @@ export async function sendNotification(params: SendNotificationParams): Promise<
       },
     });
 
-    const channel = pref?.channel ?? "in_app";
+    // If no explicit preference, fall back to type-based default
+    const effectiveChannel = pref?.channel
+      || getDefaultChannel(params.type as any);
 
-    if (channel === "none") return;
+    if (effectiveChannel === "none") return;
 
-    // "in_app", "both", or "email" — all create in-app notification for now
-    // TODO: Day 12 — queue transactional email via Resend for "email" and "both" channels.
-    // For now, fall through to in_app so notifications are never silently dropped.
+    // Create in-app notification for in_app, email, and both channels
     await prisma.notification.create({
       data: {
         operatorId: params.operatorId,
@@ -42,6 +50,48 @@ export async function sendNotification(params: SendNotificationParams): Promise<
         sourceId: params.sourceId,
       },
     });
+
+    // Send email for "email" and "both" channels
+    if (effectiveChannel === "email" || effectiveChannel === "both") {
+      try {
+        if (user?.email) {
+          // Build template props from emailContext or fall back to generic
+          const templateProps = params.emailContext
+            ? { ...params.emailContext, viewUrl: params.linkUrl }
+            : { content: params.body, viewUrl: params.linkUrl };
+
+          // Load operator name for subject line context
+          const operator = await prisma.operator.findUnique({
+            where: { id: params.operatorId },
+            select: { displayName: true },
+          });
+
+          const emailResult = await renderNotificationEmail(
+            params.type,
+            templateProps,
+            operator?.displayName ?? "Qorpera"
+          );
+
+          if (emailResult) {
+            const result = await sendEmail({
+              to: user.email,
+              subject: emailResult.subject,
+              html: emailResult.html,
+            });
+
+            if (!result.success) {
+              console.error(
+                `[notification-dispatch] Email send failed for ${params.type}:`,
+                result.error
+              );
+            }
+          }
+        }
+      } catch (emailErr) {
+        // Email failures must not crash the notification flow
+        console.error("[notification-dispatch] Email dispatch error:", emailErr);
+      }
+    }
   } catch (err) {
     console.error("sendNotification failed:", err);
   }

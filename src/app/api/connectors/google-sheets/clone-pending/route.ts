@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { decrypt, encrypt } from "@/lib/encryption";
+import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 
 export async function POST() {
   const su = await getSessionUser();
@@ -22,7 +22,7 @@ export async function POST() {
     );
   }
 
-  const config = JSON.parse(decrypt(source.config));
+  const config = decryptConfig(source.config) as Record<string, any>;
 
   const connector = await prisma.sourceConnector.create({
     data: {
@@ -30,12 +30,12 @@ export async function POST() {
       provider: "google-sheets",
       name: "",
       status: "pending",
-      config: encrypt(JSON.stringify({
+      config: encryptConfig({
         access_token: config.access_token,
         refresh_token: config.refresh_token,
         token_expiry: config.token_expiry,
         spreadsheet_id: "",
-      })),
+      }),
     },
   });
 

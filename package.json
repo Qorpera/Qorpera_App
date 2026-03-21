@@ -26,6 +26,8 @@
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
+    "@react-email/components": "^1.0.10",
+    "@react-email/render": "^2.0.4",
     "bcryptjs": "^3.0.3",
     "cron-parser": "^5.5.0",
     "docx": "^9.6.1",
@@ -38,6 +40,7 @@
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.0",
+    "resend": "^6.9.4",
     "xlsx": "^0.18.5",
     "zod": "^3.24.3"
   },

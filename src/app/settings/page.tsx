@@ -8,8 +8,9 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/components/user-provider";
+import { NotificationPreferences } from "@/components/settings/notification-preferences";
 
-type Tab = "ai" | "connections" | "team" | "merges" | "governance";
+type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications";
 
 type ConnectorItem = {
   id: string;
@@ -103,7 +104,7 @@ function SettingsPageInner() {
   const stripeParam = searchParams.get("stripe");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "notifications" ? "notifications" : "ai"
   );
 
   // AI state
@@ -506,6 +507,7 @@ function SettingsPageInner() {
 
   const allTabs: { key: Tab; label: string; adminOnly?: boolean }[] = [
     { key: "ai", label: "AI Configuration" },
+    { key: "notifications", label: "Notifications" },
     { key: "connections", label: "Connections", adminOnly: true },
     { key: "team", label: "Team", adminOnly: true },
     { key: "merges", label: "Entity Merges", adminOnly: true },
@@ -768,6 +770,11 @@ function SettingsPageInner() {
           </div>
           );
         })()}
+
+        {/* Notifications Tab */}
+        {activeTab === "notifications" && (
+          <NotificationPreferences />
+        )}
 
         {/* Connections Tab — Read-only overview */}
         {activeTab === "connections" && (

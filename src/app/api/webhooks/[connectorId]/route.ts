@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { getValidStripeToken } from "@/lib/connectors/stripe-auth";
 import { materializeEvent } from "@/lib/event-materializer";
 import { checkForSituationResolution } from "@/lib/situation-resolver";
-import { decrypt, encrypt } from "@/lib/encryption";
+import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 import { checkRateLimit } from "@/lib/rate-limiter";
 
 // Webhooks are intentionally unauthenticated by session — they come from external
@@ -62,7 +62,7 @@ export async function POST(
   }
 
   // Verify authenticity by fetching the event from Stripe's API
-  const config = connector.config ? JSON.parse(decrypt(connector.config)) : {};
+  const config = (connector.config ? decryptConfig(connector.config) : {}) as Record<string, any>;
   const originalToken = config.access_token;
   let verifiedEvent: any;
   try {
@@ -72,7 +72,7 @@ export async function POST(
     if (config.access_token !== originalToken) {
       await prisma.sourceConnector.update({
         where: { id: connectorId },
-        data: { config: encrypt(JSON.stringify(config)) },
+        data: { config: encryptConfig(config as Record<string, unknown>) },
       });
     }
 

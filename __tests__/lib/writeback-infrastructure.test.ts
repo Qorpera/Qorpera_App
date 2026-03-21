@@ -86,6 +86,11 @@ beforeEach(() => {
   (prisma.userScope.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
   (prisma.followUp.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "fu1" });
   (prisma.followUp.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+  // Loop breaker — under ceiling
+  (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+    id: "plan1", totalStepExecutions: 1, maxStepExecutions: 15,
+    operatorId: "op1", sourceType: "situation", sourceId: "sit1",
+  });
 });
 
 // ── 1. ActionCapability registration ────────────────────────────────────────

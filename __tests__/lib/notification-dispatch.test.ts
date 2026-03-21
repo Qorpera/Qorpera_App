@@ -4,8 +4,20 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     notificationPreference: { findUnique: vi.fn() },
     notification: { create: vi.fn() },
-    user: { findMany: vi.fn() },
+    user: { findUnique: vi.fn(), findMany: vi.fn() },
+    operator: { findUnique: vi.fn() },
   },
+}));
+
+vi.mock("@/lib/email", () => ({
+  sendEmail: vi.fn().mockResolvedValue({ success: true }),
+}));
+
+vi.mock("@/emails/template-registry", () => ({
+  renderNotificationEmail: vi.fn().mockResolvedValue({
+    subject: "[Qorpera] Test",
+    html: "<html>test</html>",
+  }),
 }));
 
 import { prisma } from "@/lib/db";
@@ -28,8 +40,13 @@ const baseParams = {
   sourceId: "sit1",
 };
 
+const mockUserFindUnique = prisma.user.findUnique as ReturnType<typeof vi.fn>;
+const mockOperatorFindUnique = (prisma as any).operator.findUnique as ReturnType<typeof vi.fn>;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockUserFindUnique.mockResolvedValue({ id: "user1", email: "test@example.com", role: "member" });
+  mockOperatorFindUnique.mockResolvedValue({ name: "Test Co" });
 });
 
 describe("sendNotification", () => {
@@ -68,7 +85,7 @@ describe("sendNotification", () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it("defaults to in_app when no preference found", async () => {
+  it("defaults to type-based channel when no preference found", async () => {
     mockPref.mockResolvedValue(null);
     mockCreate.mockResolvedValue({ id: "n1" });
 

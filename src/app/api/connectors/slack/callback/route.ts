@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
-import { encrypt } from "@/lib/encryption";
+import { encryptConfig } from "@/lib/config-encryption";
 import { registerConnectorCapabilities } from "@/lib/connectors/capability-registration";
 import { getProvider } from "@/lib/connectors/registry";
 
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
     await prisma.sourceConnector.update({
       where: { id: existing.id },
       data: {
-        config: encrypt(JSON.stringify(config)),
+        config: encryptConfig(config),
         status: "active",
         consecutiveFailures: 0,
         name: `Slack (${teamName})`,
@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
         provider: "slack",
         name: `Slack (${teamName})`,
         status: "active",
-        config: encrypt(JSON.stringify(config)),
+        config: encryptConfig(config),
       },
     });
     connectorId = newConnector.id;

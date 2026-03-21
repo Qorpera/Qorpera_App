@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
 import { materializeUnprocessed } from "@/lib/event-materializer";
-import { decrypt, encrypt } from "@/lib/encryption";
+import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
 import { ingestContent } from "@/lib/content-pipeline";
 import { ingestActivity, resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import {
@@ -60,7 +60,7 @@ export async function runConnectorSync(
     };
   }
 
-  const config = connector.config ? JSON.parse(decrypt(connector.config)) : {};
+  const config = (connector.config ? decryptConfig(connector.config) : {}) as Record<string, any>;
   config._operatorId = operatorId; // Available to providers that need it (e.g. Gmail entity creation)
   let syncStatus: "success" | "partial" | "failed" = "success";
 
@@ -163,7 +163,7 @@ export async function runConnectorSync(
   await prisma.sourceConnector.update({
     where: { id: connectorId },
     data: {
-      config: encrypt(JSON.stringify(config)),
+      config: encryptConfig(config),
       lastSyncAt: new Date(),
       status: syncStatus === "failed" ? "error" : "active",
     },

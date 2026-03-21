@@ -75,6 +75,11 @@ beforeEach(() => {
   // Default: followUp mocks
   (prisma.followUp.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "fu1" });
   (prisma.followUp.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+  // Default: loop breaker — under ceiling
+  (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+    id: "plan1", totalStepExecutions: 1, maxStepExecutions: 15,
+    operatorId: "op1", sourceType: "situation", sourceId: "sit1",
+  });
 });
 
 // ── createExecutionPlan ──────────────────────────────────────────────────────
@@ -378,9 +383,10 @@ describe("executeStep — human_task mode", () => {
       sourceId: "plan1",
     });
 
-    // Plan should NOT be advanced — no findFirst for next step
+    // Plan should NOT be advanced — no findFirst for next step, no status update
     expect(prisma.executionStep.findFirst).not.toHaveBeenCalled();
-    expect(prisma.executionPlan.update).not.toHaveBeenCalled();
+    const statusUpdates = (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mock.calls.filter((c: any) => c[0]?.data?.status);
+    expect(statusUpdates).toHaveLength(0);
 
     // FollowUp auto-created with 3 business day timeout
     expect(prisma.followUp.create).toHaveBeenCalledWith({
@@ -417,14 +423,19 @@ describe("executeStep — last step completes plan", () => {
     (callLLM as ReturnType<typeof vi.fn>).mockResolvedValue({ text: "Summary" });
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
     (prisma.executionStep.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null); // no next step
-    (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    // First call = loop breaker increment, subsequent calls = other updates
+    (prisma.executionPlan.update as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: "plan1", totalStepExecutions: 1, maxStepExecutions: 15, operatorId: "op1", sourceType: "situation", sourceId: "sit1" })
+      .mockResolvedValue({});
 
     await executeStep("step2");
 
-    // Plan completed
-    const planUpdate = (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(planUpdate[0].data.status).toBe("completed");
-    expect(planUpdate[0].data.completedAt).toBeInstanceOf(Date);
+    // Plan completed (second update call, after loop breaker increment)
+    const allPlanUpdates = (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mock.calls;
+    const statusUpdate = allPlanUpdates.find((c: any) => c[0]?.data?.status);
+    expect(statusUpdate).toBeDefined();
+    expect(statusUpdate![0].data.status).toBe("completed");
+    expect(statusUpdate![0].data.completedAt).toBeInstanceOf(Date);
 
     // Completion notification
     expect(sendNotificationToAdmins).toHaveBeenCalledWith(

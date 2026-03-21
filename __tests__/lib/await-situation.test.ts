@@ -65,6 +65,11 @@ beforeEach(() => {
   (prisma.followUp.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
   (prisma.workStreamItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
   (prisma.workStreamItem.upsert as ReturnType<typeof vi.fn>).mockResolvedValue({});
+  // Loop breaker — under ceiling
+  (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mockResolvedValue({
+    id: "plan1", totalStepExecutions: 1, maxStepExecutions: 15,
+    operatorId: "op1", sourceType: "situation", sourceId: "sit1",
+  });
 });
 
 const basePlan = { id: "plan1", operatorId: "op1", sourceType: "situation", sourceId: "parent-sit-1" };
@@ -135,9 +140,12 @@ describe("await_situation step", () => {
 
     await executeStep("step1");
 
-    // advancePlanAfterStep should NOT be called (no findFirst for next step, no plan update)
+    // advancePlanAfterStep should NOT be called (no findFirst for next step, no plan status update)
     expect(prisma.executionStep.findFirst).not.toHaveBeenCalled();
-    expect(prisma.executionPlan.update).not.toHaveBeenCalled();
+    // Only the loop breaker increment call should exist — no status change
+    const updateCalls = (prisma.executionPlan.update as ReturnType<typeof vi.fn>).mock.calls;
+    const statusUpdateCalls = updateCalls.filter((c: any) => c[0]?.data?.status);
+    expect(statusUpdateCalls).toHaveLength(0);
   });
 
   it("workStreamId inherited from parent", async () => {
