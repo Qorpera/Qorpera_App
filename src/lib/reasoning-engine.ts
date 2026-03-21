@@ -605,11 +605,21 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "executing";
+      // Auto-execution counts as confirmed — system had pre-earned trust
+      await prisma.situationType.update({
+        where: { id: situation.situationTypeId },
+        data: { confirmedCount: { increment: 1 } },
+      }).catch(() => {});
     } else {
       // autonomous
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "executing";
+      // Auto-execution counts as confirmed — system had pre-earned trust
+      await prisma.situationType.update({
+        where: { id: situation.situationTypeId },
+        data: { confirmedCount: { increment: 1 } },
+      }).catch(() => {});
     }
 
     await prisma.situation.update({
