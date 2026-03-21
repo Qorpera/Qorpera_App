@@ -287,8 +287,8 @@ async function getDynamicRules(connectorId: string): Promise<MaterializerMapping
   const cached = dynRuleCache.get(connectorId);
   if (cached && cached.expiresAt > now) return cached.rules;
 
-  const connector = await prisma.sourceConnector.findUnique({
-    where: { id: connectorId },
+  const connector = await prisma.sourceConnector.findFirst({
+    where: { id: connectorId, deletedAt: null },
     select: { materializerConfig: true },
   });
 

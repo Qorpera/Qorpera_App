@@ -98,11 +98,17 @@ export async function executeStep(stepId: string): Promise<void> {
     });
     if (!step) throw new Error("Step not found");
 
-    // 1a. Billing gate — pause execution if operator billing is not active
+    // 1a. Emergency stop — checked fresh every step, not cached from plan creation
     const stepOperator = await prisma.operator.findUnique({
       where: { id: step.plan.operatorId },
-      select: { billingStatus: true },
+      select: { aiPaused: true, billingStatus: true },
     });
+    if (stepOperator?.aiPaused) {
+      console.log(`[execution-engine] Skipping step ${stepId} — AI paused by administrator`);
+      return;
+    }
+
+    // 1a2. Billing gate — pause execution if operator billing is not active
     if (stepOperator && stepOperator.billingStatus !== "active") {
       console.log(`[execution-engine] Skipping step ${stepId} — operator billing status: ${stepOperator.billingStatus}`);
       return;
@@ -252,8 +258,8 @@ async function executeActionStep(
 
   // writeBackStatus gate: only connector-backed capabilities with writeBackStatus
   if (capability.connectorId && capability.writeBackStatus !== "enabled") {
-    const connectorForType = await prisma.sourceConnector.findUnique({
-      where: { id: capability.connectorId },
+    const connectorForType = await prisma.sourceConnector.findFirst({
+      where: { id: capability.connectorId, deletedAt: null },
       select: { provider: true },
     });
     const errorPayload = JSON.stringify({
@@ -337,13 +343,14 @@ async function executeActionStep(
   let connectorId: string | null = null;
   if (step.assignedUserId && capability.connectorId) {
     // Find the provider from the capability's connector, then find the user's connector for that provider
-    const capConnector = await prisma.sourceConnector.findUnique({
-      where: { id: capability.connectorId },
+    const capConnector = await prisma.sourceConnector.findFirst({
+      where: { id: capability.connectorId, deletedAt: null },
       select: { provider: true },
     });
     if (capConnector) {
       const userConnector = await prisma.sourceConnector.findFirst({
         where: {
+          deletedAt: null,
           operatorId: step.plan.operatorId,
           provider: capConnector.provider,
           userId: step.assignedUserId,
@@ -362,8 +369,8 @@ async function executeActionStep(
     throw new Error("No connector available for action");
   }
 
-  const connector = await prisma.sourceConnector.findUnique({
-    where: { id: connectorId },
+  const connector = await prisma.sourceConnector.findFirst({
+    where: { id: connectorId, deletedAt: null },
   });
   if (!connector) {
     throw new Error(`Connector not found: ${connectorId}`);

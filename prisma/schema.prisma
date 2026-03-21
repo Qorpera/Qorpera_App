@@ -46,6 +46,12 @@ model Operator {
   freeDetectionStartedAt     DateTime?
   freeDetectionSituationCount Int      @default(0)
 
+  // Emergency stop
+  aiPaused        Boolean   @default(false)
+  aiPausedAt      DateTime?
+  aiPausedById    String?
+  aiPausedReason  String?
+
   invites           Invite[]
   entityTypes       EntityType[]
   entities          Entity[]
@@ -288,6 +294,15 @@ model SourceConnector {
   lastSyncAt          DateTime?
   consecutiveFailures Int      @default(0)
   createdAt           DateTime @default(now())
+
+  // Soft delete
+  deletedAt     DateTime?
+  deletedById   String?
+
+  // Health tracking
+  healthStatus        String    @default("healthy")  // healthy | degraded | error | disconnected
+  lastHealthCheck     DateTime?
+  lastError           String?
 
   materializerConfig String?  // JSON: dynamic materializer rules from ontology inference
 

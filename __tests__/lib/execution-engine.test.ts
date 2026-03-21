@@ -142,7 +142,7 @@ describe("executeStep — action mode", () => {
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
       connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{"access_token":"t"}',
     });
     const mockExecuteAction = vi.fn().mockResolvedValue({
@@ -176,7 +176,7 @@ describe("executeStep — action mode", () => {
       connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
     // Capability's connector reveals provider
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>)
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce({ id: "conn1", provider: "google" })  // capability lookup
       .mockResolvedValueOnce({ id: "conn-user1", provider: "google", config: '{}' });  // final connector load
     // User's connector found
@@ -195,7 +195,7 @@ describe("executeStep — action mode", () => {
 
     // Should have looked for user's connector via findFirst
     expect(prisma.sourceConnector.findFirst).toHaveBeenCalledWith({
-      where: { operatorId: "op1", provider: "google", userId: "user1", status: "active" },
+      where: { deletedAt: null, operatorId: "op1", provider: "google", userId: "user1", status: "active" },
     });
   });
 
@@ -206,7 +206,7 @@ describe("executeStep — action mode", () => {
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
       connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{}',
     });
     (getProvider as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -219,8 +219,12 @@ describe("executeStep — action mode", () => {
 
     await executeStep("step1");
 
-    // Should NOT have tried findFirst for a user connector
-    expect(prisma.sourceConnector.findFirst).not.toHaveBeenCalled();
+    // Should NOT have searched for a user-specific connector (no userId in any findFirst where clause)
+    const findFirstCalls = (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mock.calls;
+    const userConnectorSearch = findFirstCalls.find(
+      (c: any[]) => c[0]?.where?.userId
+    );
+    expect(userConnectorSearch).toBeUndefined();
   });
 
   it("governance blocks — step fails with policy error", async () => {
@@ -264,7 +268,7 @@ describe("executeStep — action mode", () => {
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
       connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{}',
     });
     (getProvider as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -288,7 +292,7 @@ describe("executeStep — action mode", () => {
       id: "cap1", name: "send_email", description: "Send email", enabled: true,
       connectorId: "conn1", inputSchema: null, writeBackStatus: "enabled",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{}',
     });
     (getProvider as ReturnType<typeof vi.fn>).mockReturnValue({

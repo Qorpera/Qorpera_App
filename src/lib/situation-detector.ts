@@ -74,11 +74,17 @@ export async function detectSituations(operatorId: string): Promise<DetectionRes
   const start = Date.now();
   const results: DetectionResult[] = [];
 
-  // Detection cap check for free/past_due operators
+  // Emergency stop — highest priority gate, checked before anything else
   const detOperator = await prisma.operator.findUnique({
     where: { id: operatorId },
-    select: { billingStatus: true, freeDetectionStartedAt: true, freeDetectionSituationCount: true },
+    select: { aiPaused: true, billingStatus: true, freeDetectionStartedAt: true, freeDetectionSituationCount: true },
   });
+  if (detOperator?.aiPaused) {
+    console.log(`[situation-detector] Skipping operator ${operatorId} — AI paused`);
+    return results;
+  }
+
+  // Detection cap check for free/past_due operators
   if (detOperator) {
     const { checkDetectionCap } = await import("@/lib/billing-gate");
     const cap = checkDetectionCap(detOperator);

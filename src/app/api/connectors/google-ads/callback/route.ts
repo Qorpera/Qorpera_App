@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { encryptConfig } from "@/lib/config-encryption";
 import { registerConnectorCapabilities } from "@/lib/connectors/capability-registration";
 import { getProvider } from "@/lib/connectors/registry";
+import { ACTIVE_CONNECTOR } from "@/lib/connector-filters";
 
 const APP_BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -108,7 +109,7 @@ export async function GET(req: NextRequest) {
 
   // Upsert: if operator already has a Google Ads connector, update it
   const existing = await prisma.sourceConnector.findFirst({
-    where: { operatorId, provider: "google-ads" },
+    where: { operatorId, provider: "google-ads", ...ACTIVE_CONNECTOR },
   });
 
   let connectorId: string;
@@ -119,6 +120,9 @@ export async function GET(req: NextRequest) {
         config: encryptConfig(config),
         status: "active",
         consecutiveFailures: 0,
+        healthStatus: "healthy",
+        lastError: null,
+        lastHealthCheck: new Date(),
         name: emailAddress ? `Google Ads (${emailAddress})` : "Google Ads",
       },
     });

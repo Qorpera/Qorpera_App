@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
 
         // Verify connector belongs to operator
         const connector = await prisma.sourceConnector.findFirst({
-          where: { id: connectorId, operatorId },
+          where: { id: connectorId, operatorId, deletedAt: null },
           select: { id: true },
         });
         if (!connector) {

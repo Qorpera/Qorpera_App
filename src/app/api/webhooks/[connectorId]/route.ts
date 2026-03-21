@@ -35,8 +35,8 @@ export async function POST(
   }
 
   // Look up the connector — must exist and be active
-  const connector = await prisma.sourceConnector.findUnique({
-    where: { id: connectorId },
+  const connector = await prisma.sourceConnector.findFirst({
+    where: { id: connectorId, deletedAt: null },
   });
 
   if (!connector || connector.provider !== "stripe") {

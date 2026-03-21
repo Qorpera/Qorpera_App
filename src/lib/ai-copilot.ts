@@ -651,7 +651,7 @@ export async function executeTool(
       if (!capability.connectorId) return "No connector linked to this action.";
 
       const connector = await prisma.sourceConnector.findFirst({
-        where: { id: capability.connectorId, operatorId },
+        where: { id: capability.connectorId, operatorId, deletedAt: null },
       });
       if (!connector) return "Connector not found for this action.";
 

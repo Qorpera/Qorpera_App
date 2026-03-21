@@ -1,3 +1,5 @@
+import { withSentryConfig } from "@sentry/nextjs";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -7,4 +9,14 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+const sentryConfig = process.env.SENTRY_AUTH_TOKEN
+  ? withSentryConfig(nextConfig, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      silent: true,
+      hideSourceMaps: true,
+      disableLogger: true,
+    })
+  : nextConfig;
+
+export default sentryConfig;

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getProvider, listProviders } from "@/lib/connectors/registry";
 import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
 import { registerConnectorCapabilities } from "@/lib/connectors/capability-registration";
+import { ACTIVE_CONNECTOR } from "@/lib/connector-filters";
 
 export async function GET() {
   const su = await getSessionUser();
@@ -11,7 +12,7 @@ export async function GET() {
   const { operatorId } = su;
 
   const connectors = await prisma.sourceConnector.findMany({
-    where: { operatorId },
+    where: { ...ACTIVE_CONNECTOR, operatorId },
     include: {
       syncLogs: {
         orderBy: { createdAt: "desc" },
@@ -40,6 +41,9 @@ export async function GET() {
       status: c.status,
       userId: c.userId,
       lastSyncAt: c.lastSyncAt?.toISOString() ?? null,
+      healthStatus: c.healthStatus,
+      lastError: c.lastError,
+      consecutiveFailures: c.consecutiveFailures,
       spreadsheetCount,
       lastSyncResult: c.syncLogs[0]
         ? {

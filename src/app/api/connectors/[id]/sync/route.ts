@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { runConnectorSync } from "@/lib/connector-sync";
+import { ACTIVE_CONNECTOR } from "@/lib/connector-filters";
 
 export async function POST(
   _req: NextRequest,
@@ -15,7 +16,7 @@ export async function POST(
 
   // Verify connector belongs to this operator
   const connector = await prisma.sourceConnector.findFirst({
-    where: { id, operatorId },
+    where: { ...ACTIVE_CONNECTOR, id, operatorId },
   });
 
   if (!connector) {

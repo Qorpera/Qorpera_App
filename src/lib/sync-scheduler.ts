@@ -44,7 +44,7 @@ function decrementRunning(operatorId: string): void {
 async function tick() {
   try {
     const connectors = await prisma.sourceConnector.findMany({
-      where: { status: "active" },
+      where: { status: "active", deletedAt: null },
       select: {
         id: true,
         operatorId: true,
@@ -100,15 +100,9 @@ async function syncConnector(
       `${result.activitiesIngested} activities in ${result.durationMs}ms`,
     );
 
-    // Reset failure counter on success
-    if (result.status !== "failed") {
-      await prisma.sourceConnector.update({
-        where: { id: connectorId },
-        data: { consecutiveFailures: 0 },
-      });
-    } else {
-      await handleFailure(operatorId, connectorId, provider, result.errors.join("; "));
-    }
+    // Health tracking (consecutiveFailures, healthStatus) is now handled inside
+    // runConnectorSync — the scheduler only handles errors that bypass the sync
+    // (timeouts, uncaught exceptions). No-op here for normal sync results.
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     if (errMsg.includes("exceeded 5 minutes")) {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
+import { ACTIVE_CONNECTOR } from "@/lib/connector-filters";
 
 export async function POST() {
   const su = await getSessionUser();
@@ -11,7 +12,7 @@ export async function POST() {
 
   // Find an existing active google-sheets connector to clone tokens from
   const source = await prisma.sourceConnector.findFirst({
-    where: { operatorId, provider: "google-sheets", status: "active" },
+    where: { operatorId, provider: "google-sheets", status: "active", ...ACTIVE_CONNECTOR },
     orderBy: { createdAt: "desc" },
   });
 

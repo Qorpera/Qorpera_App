@@ -104,6 +104,14 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     }
   }
 
+  // Enrich Sentry scope with user context (never breaks auth)
+  try {
+    const { setSentryContext } = await import("@/lib/sentry-context");
+    setSentryContext({ id: user.id, operatorId, role: user.role, email: user.email });
+  } catch {
+    // Sentry not available, ignore
+  }
+
   return { user, operatorId, isSuperadmin, actingAsOperator };
 }
 

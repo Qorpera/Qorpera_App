@@ -815,7 +815,7 @@ export async function assembleSituationContext(
 
   // Step 5c: Load active connectors for draft payload provider resolution
   const activeConnectors = await prisma.sourceConnector.findMany({
-    where: { operatorId, status: "active" },
+    where: { operatorId, status: "active", deletedAt: null },
     select: { provider: true, name: true, userId: true },
   });
 

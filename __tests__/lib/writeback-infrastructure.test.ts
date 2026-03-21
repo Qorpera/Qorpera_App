@@ -177,7 +177,7 @@ describe("writeBackStatus gate", () => {
       id: "cap1", name: "send_email", slug: "send_email", description: "Send email",
       enabled: true, connectorId: "conn1", writeBackStatus: "pending",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google",
     });
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -200,7 +200,7 @@ describe("writeBackStatus gate", () => {
       id: "cap1", name: "send_email", slug: "send_email", description: "Send email",
       enabled: true, connectorId: "conn1", writeBackStatus: "disabled",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google",
     });
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -230,7 +230,7 @@ describe("writeBackStatus gate", () => {
       id: "cap1", name: "send_email", slug: "send_email", description: "Send email",
       enabled: true, connectorId: "conn1", writeBackStatus: "enabled",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{"access_token":"t"}',
     });
     const mockExecuteAction = vi.fn().mockResolvedValue({
@@ -279,7 +279,7 @@ describe("executeAction routing", () => {
       id: "cap1", name: "send_email", slug: "send_email", description: "Send email",
       enabled: true, connectorId: "conn1", writeBackStatus: "enabled",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{"access_token":"tok"}',
     });
     const mockExecuteAction = vi.fn().mockResolvedValue({
@@ -307,7 +307,7 @@ describe("executeAction routing", () => {
       id: "cap1", name: "send_email", slug: "send_email", description: "Send email",
       enabled: true, connectorId: "conn1", writeBackStatus: "enabled",
     });
-    (prisma.sourceConnector.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (prisma.sourceConnector.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "conn1", provider: "google", config: '{}',
     });
     (getProvider as ReturnType<typeof vi.fn>).mockReturnValue({

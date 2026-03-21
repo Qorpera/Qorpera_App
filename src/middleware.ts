@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit } from "@/lib/rate-limiter";
 
 const PUBLIC_PATHS = [
   "/api/auth/login",
@@ -30,7 +31,7 @@ const PUBLIC_PATHS = [
 
 const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Allow Next.js internals and static assets
@@ -53,6 +54,31 @@ export function middleware(req: NextRequest) {
       if (originUrl.host !== host) {
         return new NextResponse("CSRF validation failed", { status: 403 });
       }
+    }
+  }
+
+  // Rate limiting for API routes
+  if (pathname.startsWith("/api/")) {
+    const tier = pathname.startsWith("/api/auth/") ? "auth" as const
+      : pathname.startsWith("/api/billing/") ? "billing" as const
+      : pathname.startsWith("/api/copilot/") ? "copilot" as const
+      : "global" as const;
+
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    const result = await rateLimit(ip, tier);
+
+    if (!result.success) {
+      const retryAfter = String(Math.max(1, Math.ceil((result.reset - Date.now()) / 1000)));
+      return addSecurityHeaders(new NextResponse(
+        JSON.stringify({ error: "Too many requests", retryAfter }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": retryAfter,
+          },
+        },
+      ));
     }
   }
 
@@ -82,7 +108,7 @@ function addSecurityHeaders(response: NextResponse): NextResponse {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    "connect-src 'self' https://api.openai.com https://api.anthropic.com",
+    "connect-src 'self' https://api.openai.com https://api.anthropic.com https://*.ingest.sentry.io",
     "frame-ancestors 'none'",
   ].join('; '));
 

@@ -9,6 +9,21 @@ import {
   isEligibleCommunication,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
+import { captureApiError } from "@/lib/api-error";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
+
+// ── Retry helpers ────────────────────────────────────────────────────────────
+
+function isTransientError(error: any): boolean {
+  if (error.code === "ECONNRESET" || error.code === "ETIMEDOUT" || error.code === "ENOTFOUND") return true;
+  const status = error.status || error.statusCode || error.response?.status;
+  return [429, 500, 502, 503, 504].includes(status);
+}
+
+function isAuthError(error: any): boolean {
+  const status = error.status || error.statusCode || error.response?.status;
+  return status === 401 || status === 403;
+}
 
 type SyncResult = {
   status: "success" | "partial" | "failed";
@@ -32,7 +47,7 @@ export async function runConnectorSync(
   let activitiesIngested = 0;
 
   const connector = await prisma.sourceConnector.findFirst({
-    where: { id: connectorId, operatorId },
+    where: { id: connectorId, operatorId, deletedAt: null },
   });
 
   if (!connector) {
@@ -69,7 +84,22 @@ export async function runConnectorSync(
   try {
     const since = connector.lastSyncAt ?? undefined;
 
-    for await (const item of provider.sync(config, since)) {
+    // Sync with retry for transient errors
+    const p = provider; // non-null assertion for generator scope
+    async function* syncWithRetry() {
+      try {
+        yield* p.sync(config, since);
+      } catch (error) {
+        if (isTransientError(error)) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          yield* p.sync(config, since);
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    for await (const item of syncWithRetry()) {
       switch (item.kind) {
         case "event": {
           try {
@@ -152,22 +182,94 @@ export async function runConnectorSync(
         .catch((err) => console.error("[content-detection] Error:", err));
     }
   } catch (err) {
+    captureApiError(err, { route: "connector-sync", operatorId, connectorId });
     const errMsg = err instanceof Error ? err.message : String(err);
     errors.push(errMsg);
     syncStatus = eventsCreated > 0 ? "partial" : "failed";
+
+    // Detect auth errors → mark as disconnected and skip generic health update
+    if (isAuthError(err)) {
+      await prisma.sourceConnector.update({
+        where: { id: connectorId },
+        data: {
+          config: encryptConfig(config),
+          lastSyncAt: new Date(),
+          healthStatus: "disconnected",
+          lastHealthCheck: new Date(),
+          lastError: "Authentication expired or revoked. Please reconnect this integration.",
+          consecutiveFailures: { increment: 1 },
+          status: "disconnected",
+        },
+      });
+
+      sendNotificationToAdmins({
+        operatorId,
+        type: "system_alert",
+        title: `Connector "${connector.name || connector.provider}" disconnected`,
+        body: `Authentication has expired or been revoked. Please reconnect this integration.`,
+        sourceType: "connector",
+        sourceId: connectorId,
+        linkUrl: "/settings?tab=connections",
+        emailContext: {
+          alertTitle: "Connector Disconnected",
+          alertBody: `The ${connector.name || connector.provider} connector has been disconnected because authentication expired or was revoked. Please reconnect it from Settings.`,
+          viewUrl: `${process.env.NEXT_PUBLIC_APP_URL || ""}/settings?tab=connections`,
+        },
+      }).catch(console.error);
+
+      // Log sync and return early — auth errors are fully handled above
+      const durationMs = Date.now() - start;
+      await prisma.syncLog.create({
+        data: { connectorId, status: "failed", eventsCreated, eventsSkipped, errors: JSON.stringify(errors), durationMs },
+      });
+      return { status: "failed" as const, eventsCreated, eventsSkipped, contentIngested, activitiesIngested, errors, durationMs };
+    }
   }
 
   const durationMs = Date.now() - start;
 
-  // Persist updated tokens (may have been refreshed during sync)
-  await prisma.sourceConnector.update({
+  // Persist updated tokens + health status (may have been refreshed during sync)
+  const healthData = syncStatus === "failed"
+    ? {
+        healthStatus: (connector.consecutiveFailures + 1 >= 3) ? "error" : "degraded",
+        consecutiveFailures: { increment: 1 },
+        lastError: errors[0]?.substring(0, 500) ?? null,
+      }
+    : {
+        healthStatus: "healthy",
+        consecutiveFailures: 0,
+        lastError: null,
+      };
+
+  const updatedConnector = await prisma.sourceConnector.update({
     where: { id: connectorId },
     data: {
       config: encryptConfig(config),
       lastSyncAt: new Date(),
+      lastHealthCheck: new Date(),
       status: syncStatus === "failed" ? "error" : "active",
+      ...healthData,
     },
+    select: { healthStatus: true, consecutiveFailures: true },
   });
+
+  // Notify admins when transitioning to error status
+  if (updatedConnector.healthStatus === "error" && connector.healthStatus !== "error") {
+    sendNotificationToAdmins({
+      operatorId,
+      type: "system_alert",
+      title: `Connector "${connector.name || connector.provider}" needs attention`,
+      body: `${connector.name || connector.provider} has failed ${updatedConnector.consecutiveFailures} consecutive syncs. Last error: ${errors[0]?.substring(0, 200) ?? "Unknown"}`,
+      sourceType: "connector",
+      sourceId: connectorId,
+      linkUrl: "/settings?tab=connections",
+      emailContext: {
+        alertTitle: "Connector Sync Failures",
+        alertBody: `The ${connector.name || connector.provider} connector has failed ${updatedConnector.consecutiveFailures} consecutive syncs and needs attention.`,
+        viewUrl: `${process.env.NEXT_PUBLIC_APP_URL || ""}/settings?tab=connections`,
+      },
+    }).catch(console.error);
+  }
 
   // Log the sync
   await prisma.syncLog.create({

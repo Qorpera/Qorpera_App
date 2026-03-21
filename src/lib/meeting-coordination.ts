@@ -221,6 +221,7 @@ export async function createCalendarEventsForMeeting(
     // Find their calendar connector (Google or Microsoft)
     const connector = await prisma.sourceConnector.findFirst({
       where: {
+        deletedAt: null,
         operatorId,
         userId: participant.id,
         provider: { in: ["google", "microsoft"] },
@@ -303,7 +304,7 @@ export async function createCalendarEventsForMeeting(
 export async function backfillCalendarWriteCapabilities(operatorId: string): Promise<number> {
   let count = 0;
   const connectors = await prisma.sourceConnector.findMany({
-    where: { operatorId, provider: { in: ["google", "microsoft"] }, status: "active" },
+    where: { operatorId, provider: { in: ["google", "microsoft"] }, status: "active", deletedAt: null },
   });
 
   for (const connector of connectors) {

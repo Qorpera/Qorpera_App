@@ -1,22 +1,20 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { redis } from '@/lib/rate-limiter';
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const health: Record<string, unknown> = {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    version: process.env.npm_package_version || '0.1.0',
-  };
+  const checks: Record<string, string> = {};
+  let status: 'ok' | 'degraded' = 'ok';
 
   // Check database connectivity
   try {
     await prisma.$queryRaw`SELECT 1`;
-    health.database = 'connected';
+    checks.database = 'ok';
   } catch {
-    health.status = 'degraded';
-    health.database = 'disconnected';
+    status = 'degraded';
+    checks.database = 'disconnected';
   }
 
   // Check document storage
@@ -24,12 +22,33 @@ export async function GET() {
   try {
     const fs = await import('fs');
     fs.accessSync(storagePath, fs.constants.W_OK);
-    health.storage = 'writable';
+    checks.storage = 'ok';
   } catch {
-    health.status = 'degraded';
-    health.storage = 'not writable';
+    checks.storage = 'not writable';
   }
 
-  const statusCode = health.status === 'ok' ? 200 : 503;
-  return NextResponse.json(health, { status: statusCode });
+  // Check Redis
+  if (redis) {
+    try {
+      await redis.ping();
+      checks.redis = 'ok';
+    } catch {
+      checks.redis = 'degraded';
+    }
+  } else {
+    checks.redis = 'not_configured';
+  }
+
+  // Check Sentry
+  checks.sentry = process.env.NEXT_PUBLIC_SENTRY_DSN ? 'configured' : 'not_configured';
+
+  // Only database being down makes health fail (503)
+  const statusCode = checks.database === 'ok' ? 200 : 503;
+
+  return NextResponse.json({
+    status: checks.database === 'ok' ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version || '0.1.0',
+    checks,
+  }, { status: statusCode });
 }

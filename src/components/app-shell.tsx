@@ -22,6 +22,33 @@ function CollapseChevron({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function AiPausedBanner() {
+  const { isAdmin } = useUser();
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/settings/emergency-stop")
+      .then((r) => r.json())
+      .then((data) => setPaused(!!data.paused))
+      .catch(() => {});
+  }, []);
+
+  if (!paused) return null;
+
+  return (
+    <div className="bg-red-500/15 border-b border-red-500/20 px-4 py-1.5 flex items-center justify-between flex-shrink-0">
+      <span className="text-xs text-red-300">
+        <span className="mr-1">⚠️</span> AI activity is paused.
+      </span>
+      {isAdmin && (
+        <a href="/settings" className="text-xs text-red-400 hover:text-red-300 font-medium">
+          Go to Settings to resume
+        </a>
+      )}
+    </div>
+  );
+}
+
 function SuperadminBanner() {
   const router = useRouter();
   const { isSuperadmin, actingAsOperator } = useUser();
@@ -124,6 +151,8 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Superadmin banner */}
           <SuperadminBanner />
+          {/* AI paused banner */}
+          <AiPausedBanner />
           {/* Top bar */}
           <div className="flex items-center justify-end gap-3 px-5 py-2 border-b border-white/[0.04] flex-shrink-0">
             {topBarContent}

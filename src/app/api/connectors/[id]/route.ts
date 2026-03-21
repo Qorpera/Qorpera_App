@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
+import { ACTIVE_CONNECTOR } from "@/lib/connector-filters";
 
 export async function GET(
   _req: NextRequest,
@@ -14,7 +15,7 @@ export async function GET(
   const { id } = await params;
 
   const connector = await prisma.sourceConnector.findFirst({
-    where: { id, operatorId },
+    where: { ...ACTIVE_CONNECTOR, id, operatorId },
     include: {
       syncLogs: { orderBy: { createdAt: "desc" }, take: 5 },
     },
@@ -54,7 +55,7 @@ export async function PATCH(
   const body = await req.json();
 
   const connector = await prisma.sourceConnector.findFirst({
-    where: { id, operatorId },
+    where: { ...ACTIVE_CONNECTOR, id, operatorId },
   });
 
   if (!connector) {
@@ -150,7 +151,7 @@ export async function DELETE(
   const { id } = await params;
 
   const connector = await prisma.sourceConnector.findFirst({
-    where: { id, operatorId },
+    where: { ...ACTIVE_CONNECTOR, id, operatorId },
   });
 
   if (!connector) {
@@ -163,19 +164,14 @@ export async function DELETE(
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  // Delete related data, then the connector — atomic transaction
-  await prisma.$transaction(async (tx) => {
-    await tx.contentChunk.deleteMany({ where: { connectorId: id } });
-    await tx.activitySignal.deleteMany({ where: { connectorId: id } });
-    // SituationEvent references Event — clear junction rows before deleting events
-    const eventIds = (await tx.event.findMany({ where: { connectorId: id }, select: { id: true } })).map(e => e.id);
-    if (eventIds.length > 0) {
-      await tx.situationEvent.deleteMany({ where: { eventId: { in: eventIds } } });
-    }
-    await tx.event.deleteMany({ where: { connectorId: id } });
-    await tx.syncLog.deleteMany({ where: { connectorId: id } });
-    await tx.actionCapability.deleteMany({ where: { connectorId: id } });
-    await tx.sourceConnector.delete({ where: { id } });
+  // Soft-delete: mark as deleted, preserve historical data
+  await prisma.sourceConnector.update({
+    where: { id },
+    data: {
+      deletedAt: new Date(),
+      deletedById: su.user.id,
+      healthStatus: "disconnected",
+    },
   });
 
   return NextResponse.json({ deleted: true });

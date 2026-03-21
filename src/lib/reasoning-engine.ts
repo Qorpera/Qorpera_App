@@ -7,6 +7,7 @@ import { getBusinessContext, formatBusinessContext } from "@/lib/business-contex
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
+import { captureApiError } from "@/lib/api-error";
 import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 import { extractJSON } from "@/lib/json-helpers";
 
@@ -697,6 +698,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
 
   } catch (err) {
     console.error(`[reasoning-engine] Error reasoning about situation ${situationId}:`, err);
+    captureApiError(err, { route: "reasoning-engine", situationId });
     // Reset to detected so it can be retried
     await prisma.situation.update({
       where: { id: situationId },

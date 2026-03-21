@@ -20,6 +20,8 @@ type ConnectorItem = {
   status: string;
   lastSyncAt: string | null;
   spreadsheetCount?: number;
+  healthStatus?: string;
+  lastError?: string | null;
   lastSyncResult?: {
     eventsCreated: number;
     status: string;
@@ -218,6 +220,14 @@ function SettingsPageInner() {
   const [govSettingsSaving, setGovSettingsSaving] = useState(false);
   const [govLoading, setGovLoading] = useState(false);
 
+  // Emergency stop state
+  type EmergencyStopState = { paused: boolean; pausedAt?: string; pausedBy?: { name: string; email: string }; reason?: string };
+  const [emergencyStop, setEmergencyStop] = useState<EmergencyStopState>({ paused: false });
+  const [emergencyStopLoading, setEmergencyStopLoading] = useState(true);
+  const [emergencyStopConfirm, setEmergencyStopConfirm] = useState(false);
+  const [emergencyStopReason, setEmergencyStopReason] = useState("");
+  const [emergencyStopSaving, setEmergencyStopSaving] = useState(false);
+
   // Load team data
   const loadTeamData = useCallback(async () => {
     setTeamLoading(true);
@@ -237,6 +247,39 @@ function SettingsPageInner() {
   useEffect(() => {
     if (activeTab === "team") loadTeamData();
   }, [activeTab, loadTeamData]);
+
+  // Load emergency stop state on mount
+  useEffect(() => {
+    fetch("/api/settings/emergency-stop")
+      .then((r) => r.json())
+      .then((data) => setEmergencyStop(data))
+      .catch(() => {})
+      .finally(() => setEmergencyStopLoading(false));
+  }, []);
+
+  const toggleEmergencyStop = async (paused: boolean) => {
+    setEmergencyStopSaving(true);
+    try {
+      const res = await fetch("/api/settings/emergency-stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paused, reason: paused ? emergencyStopReason : undefined }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEmergencyStop(data);
+        setEmergencyStopConfirm(false);
+        setEmergencyStopReason("");
+        toast(paused ? "AI activity paused" : "AI activity resumed", paused ? "info" : "success");
+      } else {
+        const err = await res.json().catch(() => null);
+        toast(err?.error || "Failed to update", "error");
+      }
+    } catch {
+      toast("Network error", "error");
+    }
+    setEmergencyStopSaving(false);
+  };
 
   // Load merge data
   const loadMergeData = useCallback(async (page = 1) => {
@@ -537,6 +580,97 @@ function SettingsPageInner() {
     <AppShell>
       <div className="p-8 max-w-3xl mx-auto space-y-6">
         <h1 className="text-2xl font-semibold text-white/90">Settings</h1>
+
+        {/* Emergency AI Pause */}
+        {!emergencyStopLoading && (
+          <>
+            {emergencyStop.paused ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-5 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-full bg-red-500/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-medium text-red-300">AI Activity Paused</h3>
+                    <p className="text-xs text-white/50 mt-1">
+                      Paused {emergencyStop.pausedAt ? new Date(emergencyStop.pausedAt).toLocaleString() : ""}{emergencyStop.pausedBy ? ` by ${emergencyStop.pausedBy.name}` : ""}
+                      {emergencyStop.reason ? `. Reason: ${emergencyStop.reason}` : ""}
+                    </p>
+                  </div>
+                  {isAdmin && (
+                    emergencyStopConfirm ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setEmergencyStopConfirm(false)}
+                          className="px-3 py-1.5 text-xs text-white/50 hover:text-white/70 transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          disabled={emergencyStopSaving}
+                          onClick={() => toggleEmergencyStop(false)}
+                          className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition disabled:opacity-50"
+                        >
+                          {emergencyStopSaving ? "Resuming..." : "Confirm Resume"}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setEmergencyStopConfirm(true)}
+                        className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition"
+                      >
+                        Resume AI Activity
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+            ) : isAdmin ? (
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-medium text-white/70">Emergency AI Pause</h3>
+                    <p className="text-xs text-white/40 mt-0.5">Immediately stop all AI detection, reasoning, and autonomous actions.</p>
+                  </div>
+                  {emergencyStopConfirm ? (
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder="Reason (optional)"
+                        value={emergencyStopReason}
+                        onChange={(e) => setEmergencyStopReason(e.target.value)}
+                        className="w-56 px-3 py-1.5 text-xs bg-white/[0.05] border border-white/[0.08] rounded-md text-white placeholder:text-white/30"
+                      />
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          onClick={() => { setEmergencyStopConfirm(false); setEmergencyStopReason(""); }}
+                          className="px-3 py-1.5 text-xs text-white/50 hover:text-white/70 transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          disabled={emergencyStopSaving}
+                          onClick={() => toggleEmergencyStop(true)}
+                          className="px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 text-white rounded-md transition disabled:opacity-50"
+                        >
+                          {emergencyStopSaving ? "Pausing..." : "Confirm Pause"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setEmergencyStopConfirm(true)}
+                      className="px-3 py-1.5 text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-md transition flex items-center gap-1.5"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5" /></svg>
+                      Pause All AI Activity
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
 
         {/* Tab bar */}
         <div className="flex gap-1 bg-white/[0.03] rounded-lg p-1 w-fit">
@@ -869,6 +1003,15 @@ function SettingsPageInner() {
                               : c.name || c.providerName}
                           </span>
                           {statusBadge(c.status)}
+                          {/* Health dot */}
+                          {c.healthStatus && (
+                            <span className={`w-2 h-2 rounded-full ${
+                              c.healthStatus === "healthy" ? "bg-emerald-400"
+                              : c.healthStatus === "degraded" ? "bg-amber-400"
+                              : c.healthStatus === "error" ? "bg-red-400"
+                              : "bg-white/30"
+                            }`} title={`Health: ${c.healthStatus}`} />
+                          )}
                         </div>
                         <div className="text-xs text-white/35">
                           {c.providerName}
@@ -884,6 +1027,12 @@ function SettingsPageInner() {
                               {" "}
                               &middot; {c.lastSyncResult.eventsCreated} events
                             </>
+                          )}
+                          {c.lastError && (
+                            <span className="text-red-400/70" title={c.lastError}>
+                              {" "}
+                              &middot; {c.lastError.length > 60 ? c.lastError.slice(0, 60) + "..." : c.lastError}
+                            </span>
                           )}
                         </div>
                       </div>

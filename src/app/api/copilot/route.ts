@@ -6,6 +6,7 @@ import type { AIMessage } from "@/lib/ai-provider";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { loadContextForCopilot, getContextRoleInstruction } from "@/lib/copilot-context-loaders";
 import { canMemberAccessWorkStream } from "@/lib/workstreams";
+import { captureApiError } from "@/lib/api-error";
 
 export async function POST(req: NextRequest) {
   const su = await getSessionUser();
@@ -118,11 +119,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Copilot budget check for free users
+  // Emergency stop — checked before billing gate
   const copilotOperator = await prisma.operator.findUnique({
     where: { id: operatorId },
-    select: { billingStatus: true, freeCopilotUsedCents: true, freeCopilotBudgetCents: true },
+    select: { aiPaused: true, billingStatus: true, freeCopilotUsedCents: true, freeCopilotBudgetCents: true },
   });
+  if (copilotOperator?.aiPaused) {
+    const pauseMessage = "AI operations are currently paused by your administrator. You can still view existing situations and data, but new AI responses are temporarily disabled.";
+    return new Response(pauseMessage, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
+    });
+  }
+
+  // Copilot budget check for free users
   if (copilotOperator) {
     const { checkCopilotBudget } = await import("@/lib/billing-gate");
     const budgetCheck = checkCopilotBudget(copilotOperator);
@@ -183,7 +195,8 @@ export async function POST(req: NextRequest) {
             .catch(console.error);
         }
       }
-    } catch {
+    } catch (err) {
+      captureApiError(err, { route: "copilot", userId: user.id, operatorId });
       // Don't let persistence errors break the response
     }
   })();

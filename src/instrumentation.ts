@@ -1,4 +1,9 @@
 export async function register() {
+  // Sentry server-side init (works for both nodejs and edge runtimes)
+  if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
+    await import("../sentry.server.config");
+  }
+
   if (process.env.NEXT_RUNTIME === "nodejs") {
     // Validate environment variables before anything else
     const { validateEnv } = await import("@/lib/env-validation");

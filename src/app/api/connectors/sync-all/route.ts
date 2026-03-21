@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { runConnectorSync } from "@/lib/connector-sync";
+import { captureApiError } from "@/lib/api-error";
 
 export async function POST() {
   try {
@@ -12,6 +13,7 @@ export async function POST() {
 
     const connectors = await prisma.sourceConnector.findMany({
       where: {
+        deletedAt: null,
         operatorId,
         status: "active",
       },
@@ -50,6 +52,7 @@ export async function POST() {
     return NextResponse.json({ synced, errors });
   } catch (err) {
     console.error("[sync-all] Error:", err);
+    captureApiError(err, { route: "sync-all" });
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Batch sync failed" },
       { status: 500 }
