@@ -74,6 +74,20 @@ export async function detectSituations(operatorId: string): Promise<DetectionRes
   const start = Date.now();
   const results: DetectionResult[] = [];
 
+  // Detection cap check for free/past_due operators
+  const detOperator = await prisma.operator.findUnique({
+    where: { id: operatorId },
+    select: { billingStatus: true, freeDetectionStartedAt: true, freeDetectionSituationCount: true },
+  });
+  if (detOperator) {
+    const { checkDetectionCap } = await import("@/lib/billing-gate");
+    const cap = checkDetectionCap(detOperator);
+    if (!cap.allowed) {
+      console.log(`[situation-detector] Skipping operator ${operatorId}: ${cap.reason}`);
+      return results;
+    }
+  }
+
   const situationTypes = await prisma.situationType.findMany({
     where: { operatorId, enabled: true },
   });
@@ -553,7 +567,43 @@ async function createDetectedSituation(
     },
   }).catch(() => {});
 
+  // Free tier tracking: set start date and increment counter
+  trackFreeDetection(operatorId).catch(console.error);
+
   return situation;
+}
+
+async function trackFreeDetection(operatorId: string): Promise<void> {
+  const op = await prisma.operator.findUnique({
+    where: { id: operatorId },
+    select: { billingStatus: true, freeDetectionStartedAt: true, freeDetectionSituationCount: true },
+  });
+  if (!op || op.billingStatus === "active") return;
+
+  const updates: Record<string, unknown> = {
+    freeDetectionSituationCount: { increment: 1 },
+  };
+  if (!op.freeDetectionStartedAt) {
+    updates.freeDetectionStartedAt = new Date();
+  }
+
+  await prisma.operator.update({
+    where: { id: operatorId },
+    data: updates,
+  });
+
+  // Check if cap hit — notify admins
+  if (op.freeDetectionSituationCount + 1 >= 50) {
+    const { sendNotificationToAdmins } = await import("@/lib/notification-dispatch");
+    await sendNotificationToAdmins({
+      operatorId,
+      type: "system_alert",
+      title: "Free detection limit reached",
+      body: "Qorpera has detected 50 situations in your organization. Activate billing to continue detection and start acting on situations.",
+      sourceType: "operator",
+      sourceId: operatorId,
+    }).catch(console.error);
+  }
 }
 
 function calculateSeverity(context: SituationContext): number {

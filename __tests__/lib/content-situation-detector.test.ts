@@ -19,6 +19,9 @@ vi.mock("@/lib/db", () => ({
     notification: {
       create: vi.fn(),
     },
+    operator: {
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -136,6 +139,8 @@ function setupStandardMocks() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Billing gate: operator must be active for detection to proceed
+  (prisma as any).operator.findUnique.mockResolvedValue({ billingStatus: "active", freeDetectionStartedAt: null, freeDetectionSituationCount: 0 });
 });
 
 describe("isEligibleCommunication", () => {

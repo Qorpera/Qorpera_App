@@ -218,6 +218,8 @@ export default function SituationsPage() {
   const [feedbackCategory, setFeedbackCategory] = useState("");
   const [outcomeValue, setOutcomeValue] = useState("");
   const [outcomeNote, setOutcomeNote] = useState("");
+  const [billingStatus, setBillingStatus] = useState<string>("active");
+  const [detectionCount, setDetectionCount] = useState(0);
 
   // ── Fetch situations ────────────────────────────────────────────────────
 
@@ -233,6 +235,15 @@ export default function SituationsPage() {
   }, []);
 
   useEffect(() => { fetchSituations(); }, [fetchSituations]);
+
+  useEffect(() => {
+    fetch("/api/billing/status").then(r => r.ok ? r.json() : null).then(data => {
+      if (data) {
+        setBillingStatus(data.billingStatus);
+        setDetectionCount(data.detection?.situationCount ?? 0);
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(fetchSituations, 15000);
@@ -317,6 +328,24 @@ export default function SituationsPage() {
 
   return (
     <AppShell pendingApprovals={pendingCount}>
+      {billingStatus !== "active" && (
+        <div className="px-4 py-3 flex items-center justify-between" style={{ background: "rgba(139, 92, 246, 0.08)", borderBottom: "1px solid rgba(139, 92, 246, 0.2)" }}>
+          <div>
+            <span style={{ fontSize: 13, color: "#c4b5fd", fontWeight: 500 }}>
+              {billingStatus === "past_due"
+                ? "Payment needs updating. Situation actions are paused."
+                : `You're viewing Qorpera's AI detections. ${detectionCount}/50 free situations detected.`}
+            </span>
+          </div>
+          <a
+            href={billingStatus === "past_due" ? "/settings/billing" : "/api/billing/activate"}
+            className="rounded-full text-[12px] font-medium px-3 py-1"
+            style={{ background: "#8b5cf6", color: "#fff" }}
+          >
+            {billingStatus === "past_due" ? "Update payment" : "Activate billing"}
+          </a>
+        </div>
+      )}
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Left: situation list ── */}
@@ -409,6 +438,7 @@ export default function SituationsPage() {
                   setOutcomeValue={setOutcomeValue}
                   outcomeNote={outcomeNote}
                   setOutcomeNote={setOutcomeNote}
+                  billingStatus={billingStatus}
                 />
               </div>
               <ContextualChat
@@ -573,6 +603,7 @@ function DetailPane({
   feedbackCategory, setFeedbackCategory,
   outcomeValue, setOutcomeValue,
   outcomeNote, setOutcomeNote,
+  billingStatus,
 }: {
   situation: SituationItem;
   detail: SituationDetail | null;
@@ -588,6 +619,7 @@ function DetailPane({
   setOutcomeValue: (v: string) => void;
   outcomeNote: string;
   setOutcomeNote: (n: string) => void;
+  billingStatus: string;
 }) {
   const [showEvidence, setShowEvidence] = useState(false);
   const [editingDraft, setEditingDraft] = useState(false);
@@ -652,7 +684,7 @@ function DetailPane({
 
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
-  const canAct = s.status === "detected" || s.status === "proposed";
+  const canAct = (s.status === "detected" || s.status === "proposed") && billingStatus === "active";
   const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
   const actionPlan = reasoning?.actionPlan ?? (Array.isArray(detail?.proposedAction) ? detail!.proposedAction as ActionStep[] : null);
   const sev = severityBadge(s);

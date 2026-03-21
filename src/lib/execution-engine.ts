@@ -98,6 +98,16 @@ export async function executeStep(stepId: string): Promise<void> {
     });
     if (!step) throw new Error("Step not found");
 
+    // 1a. Billing gate — pause execution if operator billing is not active
+    const stepOperator = await prisma.operator.findUnique({
+      where: { id: step.plan.operatorId },
+      select: { billingStatus: true },
+    });
+    if (stepOperator && stepOperator.billingStatus !== "active") {
+      console.log(`[execution-engine] Skipping step ${stepId} — operator billing status: ${stepOperator.billingStatus}`);
+      return;
+    }
+
     const priorSteps = await prisma.executionStep.findMany({
       where: { planId: step.planId, status: "completed", sequenceOrder: { lt: step.sequenceOrder } },
       orderBy: { sequenceOrder: "asc" },

@@ -18,6 +18,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Only admins can invite users" }, { status: 403 });
   }
 
+  // Billing gate: free users cannot invite team members
+  const operator = await prisma.operator.findUnique({
+    where: { id: su.operatorId },
+    select: { billingStatus: true },
+  });
+  if (operator) {
+    const { checkBillingGate } = await import("@/lib/billing-gate");
+    const gate = checkBillingGate(operator);
+    if (!gate.allowed) {
+      return NextResponse.json({ error: gate.reason, code: gate.code }, { status: 403 });
+    }
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = InviteSchema.safeParse(body);
   if (!parsed.success) {

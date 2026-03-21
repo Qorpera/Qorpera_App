@@ -118,6 +118,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Copilot budget check for free users
+  const copilotOperator = await prisma.operator.findUnique({
+    where: { id: operatorId },
+    select: { billingStatus: true, freeCopilotUsedCents: true, freeCopilotBudgetCents: true },
+  });
+  if (copilotOperator) {
+    const { checkCopilotBudget } = await import("@/lib/billing-gate");
+    const budgetCheck = checkCopilotBudget(copilotOperator);
+    if (!budgetCheck.allowed) {
+      return new Response(JSON.stringify({ error: budgetCheck.reason, code: budgetCheck.code, budgetExhausted: true }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
   const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo, user.id, contextInfo);
 
   // Tee the stream: one for the HTTP response, one to capture for persistence
@@ -146,6 +162,14 @@ export async function POST(req: NextRequest) {
             apiCostCents: costCents || null,
           },
         });
+
+        // Increment free copilot budget usage (for non-active operators)
+        if (costCents > 0 && copilotOperator && copilotOperator.billingStatus !== "active") {
+          await prisma.operator.update({
+            where: { id: operatorId },
+            data: { freeCopilotUsedCents: { increment: costCents } },
+          });
+        }
 
         // Emit billing event (fire-and-forget)
         if (costCents > 0) {

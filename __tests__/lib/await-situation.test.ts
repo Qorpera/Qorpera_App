@@ -21,6 +21,7 @@ vi.mock("@/lib/db", () => ({
     workStream: { findUnique: vi.fn(), update: vi.fn() },
     propertyValue: { findMany: vi.fn() },
     priorityOverride: { delete: vi.fn() },
+    operator: { findUnique: vi.fn() },
   },
 }));
 
@@ -61,6 +62,8 @@ beforeEach(() => {
   (prisma.user.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "admin1" });
   (prisma.userScope.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
   (prisma.userScope.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  // Billing gate: operator must be active for execution to proceed
+  ((prisma as any).operator.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ billingStatus: "active" });
   (prisma.followUp.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "fu1" });
   (prisma.followUp.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
   (prisma.workStreamItem.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);

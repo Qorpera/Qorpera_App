@@ -87,11 +87,13 @@ beforeEach(() => {
   });
 
   mockPrisma.situation.update.mockResolvedValue({});
+
   mockPrisma.notification.create.mockResolvedValue({ id: "notif1" });
   mockPrisma.user.findUnique.mockResolvedValue({ id: "admin1", email: "admin@co.com", role: "admin" });
   mockPrisma.user.findMany.mockResolvedValue([{ id: "admin1" }]);
   mockPrisma.notificationPreference.findUnique.mockResolvedValue(null);
-  mockPrisma.operator.findUnique.mockResolvedValue({ displayName: "Test Co" });
+  // Billing gate + notification dispatch both read operator
+  mockPrisma.operator.findUnique.mockResolvedValue({ displayName: "Test Co", billingStatus: "active" });
 });
 
 describe("loop breaker", () => {

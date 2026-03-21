@@ -143,6 +143,9 @@ export default function CopilotPage() {
   const [orientationMode, setOrientationMode] = useState<OrientationMode>(null);
   const [completingOrientation, setCompletingOrientation] = useState(false);
 
+  // Billing state
+  const [copilotBudget, setCopilotBudget] = useState<{ remainingCents: number; budgetCents: number; billingStatus: string } | null>(null);
+
   // Sessions sidebar state
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>("default");
@@ -311,6 +314,17 @@ export default function CopilotPage() {
 
       setInitializing(false);
       fetchSessions();
+
+      // Fetch billing budget
+      fetch("/api/billing/status").then(r => r.ok ? r.json() : null).then(data => {
+        if (data) {
+          setCopilotBudget({
+            remainingCents: data.copilot.remainingCents,
+            budgetCents: data.copilot.budgetCents,
+            billingStatus: data.billingStatus,
+          });
+        }
+      }).catch(() => {});
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -755,6 +769,21 @@ export default function CopilotPage() {
 
           {/* Input area */}
           <div className="border-t border-white/[0.06] px-6 py-4 bg-[rgba(8,12,16,0.4)]">
+            {copilotBudget && copilotBudget.billingStatus !== "active" && (
+              <div className="max-w-[720px] mx-auto mb-2">
+                {copilotBudget.remainingCents <= 0 ? (
+                  <div className="text-[12px] text-amber-400/80 flex items-center gap-2">
+                    Free copilot limit reached.{" "}
+                    <a href="/api/billing/activate" className="underline text-purple-400">Activate billing</a>{" "}
+                    for unlimited access.
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-white/30">
+                    Free tier &middot; ~${(copilotBudget.remainingCents / 100).toFixed(2)} remaining
+                  </div>
+                )}
+              </div>
+            )}
             <div className="max-w-[720px] mx-auto flex items-end gap-3">
               <textarea
                 ref={inputRef}
@@ -762,14 +791,16 @@ export default function CopilotPage() {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  isOrientation
-                    ? "Tell me about your business..."
-                    : "Ask anything..."
+                  copilotBudget && copilotBudget.billingStatus !== "active" && copilotBudget.remainingCents <= 0
+                    ? "Free copilot limit reached"
+                    : isOrientation
+                      ? "Tell me about your business..."
+                      : "Ask anything..."
                 }
                 rows={1}
                 className="flex-1 resize-none px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/25 focus:outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/15 text-sm leading-relaxed"
                 style={{ maxHeight: 200 }}
-                disabled={streaming || initializing}
+                disabled={streaming || initializing || (copilotBudget?.billingStatus !== "active" && (copilotBudget?.remainingCents ?? 1) <= 0)}
               />
               <button
                 onClick={handleSend}

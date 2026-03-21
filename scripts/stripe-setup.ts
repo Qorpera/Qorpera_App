@@ -14,7 +14,7 @@ if (!key) {
   process.exit(1);
 }
 
-const stripe = new Stripe(key, { apiVersion: "2025-04-30.basil", typescript: true });
+const stripe = new Stripe(key, { typescript: true });
 
 async function main() {
   console.log("Setting up Stripe billing resources...\n");

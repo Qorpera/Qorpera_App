@@ -443,6 +443,20 @@ export async function evaluateContentForSituations(
     items = items.slice(0, MAX_BATCH_SIZE);
   }
 
+  // Detection cap check for free/past_due operators
+  const cdOperator = await prisma.operator.findUnique({
+    where: { id: operatorId },
+    select: { billingStatus: true, freeDetectionStartedAt: true, freeDetectionSituationCount: true },
+  });
+  if (cdOperator) {
+    const { checkDetectionCap } = await import("@/lib/billing-gate");
+    const cap = checkDetectionCap(cdOperator);
+    if (!cap.allowed) {
+      console.log(`[content-detection] Skipping operator ${operatorId}: ${cap.reason}`);
+      return;
+    }
+  }
+
   // Step 1: Resolve actors
   const actorMap = await resolveActors(operatorId, items);
   if (actorMap.size === 0) return;

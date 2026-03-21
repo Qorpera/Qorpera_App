@@ -123,6 +123,21 @@ export async function PATCH(
     }
   }
 
+  // Billing gate: block status changes and edit instructions for non-active operators
+  if (body.status !== undefined || body.editInstruction || body.meetingDecision) {
+    const operator = await prisma.operator.findUnique({
+      where: { id: operatorId },
+      select: { billingStatus: true },
+    });
+    if (operator) {
+      const { checkBillingGate } = await import("@/lib/billing-gate");
+      const gate = checkBillingGate(operator);
+      if (!gate.allowed) {
+        return NextResponse.json({ error: gate.reason, code: gate.code }, { status: 403 });
+      }
+    }
+  }
+
   // Meeting request resolution — custom flow for meeting_request situation type
   if (situation.situationType?.slug === "meeting_request" && body.meetingDecision) {
     try {

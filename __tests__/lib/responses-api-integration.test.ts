@@ -92,6 +92,7 @@ describe("Responses API integration — caller configuration", () => {
       upsert: vi.fn().mockResolvedValue({ id: "st1" }),
     };
     mockPrisma.notification = { create: vi.fn().mockResolvedValue({}) };
+    mockPrisma.operator = { findUnique: vi.fn().mockResolvedValue({ billingStatus: "active", freeDetectionStartedAt: null, freeDetectionSituationCount: 0 }) };
 
     mockCallLLM.mockResolvedValue({
       text: JSON.stringify([{

@@ -10,7 +10,7 @@ import { useSearchParams } from "next/navigation";
 import { useUser } from "@/components/user-provider";
 import { NotificationPreferences } from "@/components/settings/notification-preferences";
 
-type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications";
+type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing";
 
 type ConnectorItem = {
   id: string;
@@ -104,7 +104,7 @@ function SettingsPageInner() {
   const stripeParam = searchParams.get("stripe");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "notifications" ? "notifications" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "notifications" ? "notifications" : tabParam === "billing" ? "billing" : "ai"
   );
 
   // AI state
@@ -510,6 +510,7 @@ function SettingsPageInner() {
     { key: "notifications", label: "Notifications" },
     { key: "connections", label: "Connections", adminOnly: true },
     { key: "team", label: "Team", adminOnly: true },
+    { key: "billing", label: "Billing", adminOnly: true },
     { key: "merges", label: "Entity Merges", adminOnly: true },
     { key: "governance", label: "AI Governance", adminOnly: true },
   ];
@@ -770,6 +771,9 @@ function SettingsPageInner() {
           </div>
           );
         })()}
+
+        {/* Billing Tab */}
+        {activeTab === "billing" && <BillingTab />}
 
         {/* Notifications Tab */}
         {activeTab === "notifications" && (
@@ -1703,4 +1707,110 @@ function formatMergeDate(isoString: string): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 30) return `${diffDays}d ago`;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// ── Billing Tab ─────────────────────────────────────────────────────────────
+
+function BillingTab() {
+  const [status, setStatus] = useState<{
+    billingStatus: string;
+    billingStartedAt: string | null;
+    copilot: { budgetCents: number; usedCents: number; remainingCents: number };
+    detection: { situationCount: number; situationCap: number };
+  } | null>(null);
+  const [activating, setActivating] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/billing/status").then(r => r.ok ? r.json() : null).then(setStatus).catch(() => {});
+  }, []);
+
+  const handleActivate = async () => {
+    setActivating(true);
+    try {
+      const res = await fetch("/api/billing/activate", { method: "POST" });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else if (data.activated) {
+        window.location.reload();
+      }
+    } catch {
+      setActivating(false);
+    }
+  };
+
+  if (!status) return <div className="text-white/30 text-sm p-6">Loading...</div>;
+
+  return (
+    <div className="space-y-5">
+      {status.billingStatus === "free" && (
+        <div className="wf-soft p-6 space-y-4" style={{ border: "1px solid rgba(139, 92, 246, 0.3)", background: "rgba(139, 92, 246, 0.05)" }}>
+          <div className="text-[15px] font-semibold text-white/90">Qorpera Free Plan</div>
+          <div className="text-[13px] text-white/50 space-y-1">
+            <div>Copilot: ${(status.copilot.usedCents / 100).toFixed(2)} / ${(status.copilot.budgetCents / 100).toFixed(2)} used</div>
+            <div>Situations detected: {status.detection.situationCount} / {status.detection.situationCap}</div>
+          </div>
+          <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden" style={{ maxWidth: 300 }}>
+            <div
+              className="h-full rounded-full bg-purple-500/60 transition-all"
+              style={{ width: `${Math.min(100, (status.detection.situationCount / status.detection.situationCap) * 100)}%` }}
+            />
+          </div>
+          <button
+            onClick={handleActivate}
+            disabled={activating}
+            className="rounded-lg text-[13px] font-medium px-5 py-2 transition"
+            style={{ background: "#8b5cf6", color: "#fff" }}
+          >
+            {activating ? "Redirecting..." : "Activate Billing"}
+          </button>
+        </div>
+      )}
+
+      {status.billingStatus === "past_due" && (
+        <div className="wf-soft p-6 space-y-3" style={{ border: "1px solid rgba(245, 158, 11, 0.3)", background: "rgba(245, 158, 11, 0.05)" }}>
+          <div className="text-[15px] font-semibold text-amber-400">Payment Update Required</div>
+          <div className="text-[13px] text-white/50">Your latest payment could not be processed. AI actions are paused until payment is updated.</div>
+          <button
+            onClick={async () => {
+              const res = await fetch("/api/billing/update-payment-method", { method: "POST" });
+              const data = await res.json();
+              if (data.url) window.location.href = data.url;
+            }}
+            className="rounded-lg text-[13px] font-medium px-5 py-2 transition"
+            style={{ background: "#f59e0b", color: "#000" }}
+          >
+            Update Payment Method
+          </button>
+        </div>
+      )}
+
+      {status.billingStatus === "cancelled" && (
+        <div className="wf-soft p-6 space-y-3" style={{ border: "1px solid rgba(239, 68, 68, 0.3)", background: "rgba(239, 68, 68, 0.05)" }}>
+          <div className="text-[15px] font-semibold text-red-400">Subscription Cancelled</div>
+          <div className="text-[13px] text-white/50">Your subscription has been cancelled. AI capabilities are limited to the free tier.</div>
+          <button
+            onClick={handleActivate}
+            disabled={activating}
+            className="rounded-lg text-[13px] font-medium px-5 py-2 transition"
+            style={{ background: "#8b5cf6", color: "#fff" }}
+          >
+            {activating ? "Redirecting..." : "Reactivate"}
+          </button>
+        </div>
+      )}
+
+      {status.billingStatus === "active" && (
+        <div className="wf-soft p-6 space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="text-[15px] font-semibold text-white/90">Active Plan</div>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">Active</span>
+          </div>
+          <div className="text-[13px] text-white/50">
+            {status.billingStartedAt && `Billing since ${new Date(status.billingStartedAt).toLocaleDateString()}`}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
