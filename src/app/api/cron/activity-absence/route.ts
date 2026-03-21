@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
       where: {
         operatorId: operator.id,
         accountSuspended: false,
+        role: { not: "superadmin" },
         entityId: { not: null },
       },
       select: {

@@ -584,7 +584,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       reasoningDurationMs,
       apiCostCents: reasoningApiCostCents,
       contextSnapshot: JSON.stringify({
-        ...(situation.contextSnapshot ? JSON.parse(situation.contextSnapshot as string) : {}),
+        ...(() => { try { return situation.contextSnapshot ? JSON.parse(situation.contextSnapshot as string) : {}; } catch { return {}; } })(),
         contextMeta,
       }),
     };
