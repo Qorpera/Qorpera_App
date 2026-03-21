@@ -117,6 +117,11 @@ async function deleteUser(userId: string, operatorId: string) {
   }
 
   // Step 2: Delete personal data (order matters for FK constraints)
+  // Null out delegation references to this user
+  await prisma.delegation.updateMany({
+    where: { toUserId: userId },
+    data: { toUserId: null },
+  });
   await prisma.contentChunk.deleteMany({ where: { userId } });
   await prisma.copilotMessage.deleteMany({ where: { userId } });
 
@@ -133,6 +138,19 @@ async function deleteUser(userId: string, operatorId: string) {
   await prisma.session.deleteMany({ where: { userId } });
   await prisma.passwordResetToken.deleteMany({ where: { userId } });
   await prisma.userScope.deleteMany({ where: { userId } });
+
+  // Delete user's personal connectors + their sync logs (SyncLog has no cascade)
+  const userConnectors = await prisma.sourceConnector.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+  if (userConnectors.length > 0) {
+    const connectorIds = userConnectors.map((c) => c.id);
+    await prisma.syncLog.deleteMany({ where: { connectorId: { in: connectorIds } } });
+    await prisma.contentChunk.deleteMany({ where: { connectorId: { in: connectorIds } } });
+    await prisma.event.deleteMany({ where: { connectorId: { in: connectorIds } } });
+    await prisma.sourceConnector.deleteMany({ where: { userId } });
+  }
 
   // Delete personal AI entity (cascades EntityProperty/PropertyValue)
   if (aiEntityId) {

@@ -93,6 +93,7 @@ vi.mock("@/lib/db", () => ({
     delegation: {
       findUnique: vi.fn().mockResolvedValue(null),
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     followUp: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     recurringTask: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
