@@ -137,6 +137,24 @@ export async function POST(req: NextRequest) {
     return { user, operator };
   });
 
+  // Create Stripe customer (outside transaction — registration succeeds even if Stripe fails)
+  try {
+    const { stripe, isStripeEnabled } = await import("@/lib/stripe");
+    if (isStripeEnabled()) {
+      const customer = await stripe!.customers.create({
+        email: result.user.email,
+        name: result.operator.companyName || result.operator.displayName,
+        metadata: { operatorId: result.operator.id, userId: result.user.id },
+      });
+      await prisma.operator.update({
+        where: { id: result.operator.id },
+        data: { stripeCustomerId: customer.id },
+      });
+    }
+  } catch (err) {
+    console.warn("[register] Stripe customer creation failed (will retry on billing activation):", err);
+  }
+
   // Create session + set cookie
   const { token, expiresAt } = await createSession(result.user.id);
   await setSessionCookie(token, expiresAt);

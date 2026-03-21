@@ -351,5 +351,12 @@ export async function PATCH(
     );
   }
 
+  // Emit billing event for resolved/closed situations (fire-and-forget)
+  if (body.status === "resolved" || body.status === "closed") {
+    import("@/lib/billing-events")
+      .then((m) => m.emitSituationBillingEvent(id))
+      .catch(console.error);
+  }
+
   return NextResponse.json({ id: updated.id, status: updated.status });
 }

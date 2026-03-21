@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
         fullText += decoder.decode(value, { stream: true });
       }
       if (fullText.trim()) {
+        const costCents = stream.totalApiCostCents || 0;
         await prisma.copilotMessage.create({
           data: {
             operatorId,
@@ -142,9 +143,16 @@ export async function POST(req: NextRequest) {
             sessionId,
             role: "assistant",
             content: fullText,
-            apiCostCents: stream.totalApiCostCents || null,
+            apiCostCents: costCents || null,
           },
         });
+
+        // Emit billing event (fire-and-forget)
+        if (costCents > 0) {
+          import("@/lib/billing-events")
+            .then((m) => m.emitCopilotBillingEvent({ apiCostCents: costCents, operatorId }))
+            .catch(console.error);
+        }
       }
     } catch {
       // Don't let persistence errors break the response

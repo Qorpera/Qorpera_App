@@ -62,6 +62,11 @@ export async function checkForSituationResolution(
           sourceId: situation.id,
         },
       });
+
+      // Emit billing event (fire-and-forget)
+      import("@/lib/billing-events")
+        .then((m) => m.emitSituationBillingEvent(situation.id))
+        .catch(console.error);
     }
   }
 }
