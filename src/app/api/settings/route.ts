@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
-// AppSetting is global (no operatorId) — superadmin only
+// AppSetting global settings (operatorId = null) — superadmin only
 export async function GET() {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (su.user.role !== "superadmin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const settings = await prisma.appSetting.findMany();
+  const settings = await prisma.appSetting.findMany({
+    where: { operatorId: null },
+  });
   const map = Object.fromEntries(settings.map((s) => [s.key, s.value]));
   return NextResponse.json(map);
 }
@@ -53,11 +55,19 @@ export async function PUT(req: NextRequest) {
     }
   }
   for (const [key, value] of Object.entries(body)) {
-    await prisma.appSetting.upsert({
-      where: { key },
-      create: { key, value },
-      update: { value },
+    const existing = await prisma.appSetting.findFirst({
+      where: { key, operatorId: null },
     });
+    if (existing) {
+      await prisma.appSetting.update({
+        where: { id: existing.id },
+        data: { value },
+      });
+    } else {
+      await prisma.appSetting.create({
+        data: { key, value },
+      });
+    }
   }
   return NextResponse.json({ ok: true });
 }

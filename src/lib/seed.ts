@@ -20,11 +20,12 @@ async function main() {
     ["setup_completed", "false"],
   ];
   for (const [key, value] of defaults) {
-    await prisma.appSetting.upsert({
-      where: { key },
-      create: { key, value },
-      update: {},
+    const existing = await prisma.appSetting.findFirst({
+      where: { key, operatorId: null },
     });
+    if (!existing) {
+      await prisma.appSetting.create({ data: { key, value } });
+    }
   }
 
   console.log("Seed complete.");

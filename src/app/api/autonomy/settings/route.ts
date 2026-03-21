@@ -6,7 +6,7 @@ import { DEFAULT_THRESHOLDS, getThresholds } from "@/lib/autonomy-graduation";
 export async function GET() {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const thresholds = await getThresholds();
+  const thresholds = await getThresholds(su.operatorId);
   return NextResponse.json(thresholds);
 }
 
@@ -20,14 +20,22 @@ export async function PUT(req: NextRequest) {
 
   for (const key of validKeys) {
     if (body[key] !== undefined) {
-      await prisma.appSetting.upsert({
-        where: { key },
-        update: { value: String(body[key]) },
-        create: { key, value: String(body[key]) },
+      const existing = await prisma.appSetting.findFirst({
+        where: { key, operatorId: su.operatorId },
       });
+      if (existing) {
+        await prisma.appSetting.update({
+          where: { id: existing.id },
+          data: { value: String(body[key]) },
+        });
+      } else {
+        await prisma.appSetting.create({
+          data: { key, value: String(body[key]), operatorId: su.operatorId },
+        });
+      }
     }
   }
 
-  const thresholds = await getThresholds();
+  const thresholds = await getThresholds(su.operatorId);
   return NextResponse.json(thresholds);
 }

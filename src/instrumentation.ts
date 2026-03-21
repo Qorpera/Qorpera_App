@@ -84,7 +84,7 @@ async function seedAISettingsFromEnv() {
     }
 
     for (const { key, value } of seeds) {
-      const existing = await prisma.appSetting.findUnique({ where: { key } });
+      const existing = await prisma.appSetting.findFirst({ where: { key, operatorId: null } });
       if (!existing) {
         await prisma.appSetting.create({ data: { key, value } });
         console.log(`[SEED] AppSetting "${key}" seeded from env`);

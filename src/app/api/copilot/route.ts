@@ -136,7 +136,14 @@ export async function POST(req: NextRequest) {
       }
       if (fullText.trim()) {
         await prisma.copilotMessage.create({
-          data: { operatorId, userId: user.id, sessionId, role: "assistant", content: fullText },
+          data: {
+            operatorId,
+            userId: user.id,
+            sessionId,
+            role: "assistant",
+            content: fullText,
+            apiCostCents: stream.totalApiCostCents || null,
+          },
         });
       }
     } catch {

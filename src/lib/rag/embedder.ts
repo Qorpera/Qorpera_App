@@ -34,6 +34,7 @@ export async function getEmbeddingConfig(): Promise<EmbeddingConfig> {
           "ai_base_url",
         ],
       },
+      operatorId: null,
     },
   });
   const map = new Map(settings.map((s) => [s.key, s.value]));

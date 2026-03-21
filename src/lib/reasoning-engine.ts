@@ -441,6 +441,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     let reasoning: ReasoningOutput | null = null;
     let rawResponse = "";
     let parseError = "";
+    let reasoningApiCostCents = 0;
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const userContent = attempt === 0
@@ -460,6 +461,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           thinking: true,
         });
         rawResponse = response.text;
+        reasoningApiCostCents += response.apiCostCents;
 
         // 8. Validate response
         const parsed = extractJSON(rawResponse);
@@ -569,6 +571,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       modelId: modelString,
       promptVersion: REASONING_PROMPT_VERSION,
       reasoningDurationMs,
+      apiCostCents: reasoningApiCostCents,
     };
 
     // Store proposedAction as the full plan for backward-compatible UI display

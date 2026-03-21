@@ -7,12 +7,18 @@ const DEFAULT_THRESHOLDS = {
   graduation_notify_to_autonomous_rate: 0.95,
 };
 
-async function getThresholds() {
+async function getThresholds(operatorId?: string) {
   const keys = Object.keys(DEFAULT_THRESHOLDS);
-  const settings = await prisma.appSetting.findMany({
-    where: { key: { in: keys } },
-  });
-  const map = new Map(settings.map((s) => [s.key, s.value]));
+  let map: Map<string, string>;
+  if (operatorId) {
+    const { getOperatorSettings } = await import("@/lib/operator-settings");
+    map = await getOperatorSettings(operatorId, keys);
+  } else {
+    const settings = await prisma.appSetting.findMany({
+      where: { key: { in: keys }, operatorId: null },
+    });
+    map = new Map(settings.map((s) => [s.key, s.value]));
+  }
 
   return {
     supervisedToNotifyConsecutive: parseFloat(
@@ -42,7 +48,7 @@ export async function checkGraduation(situationTypeId: string): Promise<void> {
   });
   if (!st) return;
 
-  const thresholds = await getThresholds();
+  const thresholds = await getThresholds(st.operatorId);
 
   let nextLevel: string | null = null;
 
@@ -111,7 +117,7 @@ export async function checkPersonalGraduation(personalAutonomyId: string): Promi
   });
   if (!pa) return;
 
-  const thresholds = await getThresholds();
+  const thresholds = await getThresholds(pa.operatorId);
   let nextLevel: string | null = null;
 
   if (

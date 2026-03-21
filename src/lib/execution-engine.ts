@@ -434,6 +434,7 @@ async function executeGenerateStep(
       status: "completed",
       executedAt: new Date(),
       outputResult: JSON.stringify({ type: "content", text: response.text, format: "markdown" }),
+      apiCostCents: response.apiCostCents,
     },
   });
 }

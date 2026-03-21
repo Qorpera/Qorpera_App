@@ -28,8 +28,8 @@ beforeEach(() => {
 
   // Default: OpenAI provider configured
   mockPrisma.appSetting = { findMany: vi.fn().mockResolvedValue([
-    { key: "ai_provider", value: "openai" },
-    { key: "ai_api_key", value: "test-key-123" },
+    { key: "ai_provider", value: "openai", operatorId: null },
+    { key: "ai_api_key", value: "test-key-123", operatorId: null },
   ]) };
 
   mockPrisma.operator = { findUnique: vi.fn().mockResolvedValue({ aiResponseStore: false }) };

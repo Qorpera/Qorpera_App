@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ResponseCreateParamsNonStreaming, ResponseCreateParamsStreaming } from "openai/resources/responses/responses";
 import { prisma } from "@/lib/db";
+import { calculateCallCostCents } from "@/lib/model-pricing";
 
 // ── Content Block Types ─────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ export interface LLMResponse {
     inputTokens: number;
     outputTokens: number;
   };
+  apiCostCents: number;
   webSources?: Array<{
     url: string;
     title: string;
@@ -94,7 +96,7 @@ type AIConfig = {
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-export async function getAIConfig(aiFunction?: AIFunction): Promise<AIConfig> {
+export async function getAIConfig(aiFunction?: AIFunction, operatorId?: string): Promise<AIConfig> {
   const keysToFetch = ["ai_provider", "ai_api_key", "ai_base_url", "ai_model"];
   if (aiFunction) {
     keysToFetch.push(
@@ -104,10 +106,16 @@ export async function getAIConfig(aiFunction?: AIFunction): Promise<AIConfig> {
     );
   }
 
-  const settings = await prisma.appSetting.findMany({
-    where: { key: { in: keysToFetch } },
-  });
-  const map = new Map(settings.map((s) => [s.key, s.value]));
+  let map: Map<string, string>;
+  if (operatorId) {
+    const { getOperatorSettings } = await import("@/lib/operator-settings");
+    map = await getOperatorSettings(operatorId, keysToFetch);
+  } else {
+    const settings = await prisma.appSetting.findMany({
+      where: { key: { in: keysToFetch }, operatorId: null },
+    });
+    map = new Map(settings.map((s) => [s.key, s.value]));
+  }
 
   const provider =
     (aiFunction && map.get(`ai_${aiFunction}_provider`)) ||
@@ -173,7 +181,7 @@ async function resolveStoreSetting(options: LLMRequestOptions): Promise<boolean>
 // ── Main Call ─────────────────────────────────────────────────────────────────
 
 export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> {
-  const config = await getAIConfig(options.aiFunction);
+  const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
 
   switch (config.provider) {
@@ -193,7 +201,7 @@ export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> 
 export async function* streamLLM(
   options: LLMRequestOptions,
 ): AsyncGenerator<string> {
-  const config = await getAIConfig(options.aiFunction);
+  const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
 
   switch (config.provider) {
@@ -362,13 +370,16 @@ async function callOpenAIResponses(
     }
   }
 
+  const usage = response.usage ? {
+    inputTokens: response.usage.input_tokens ?? 0,
+    outputTokens: response.usage.output_tokens ?? 0,
+  } : undefined;
+
   return {
     text,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    usage: response.usage ? {
-      inputTokens: response.usage.input_tokens ?? 0,
-      outputTokens: response.usage.output_tokens ?? 0,
-    } : undefined,
+    usage,
+    apiCostCents: usage ? calculateCallCostCents(model, usage) : 0,
     webSources: webSources.length > 0 ? webSources : undefined,
   };
 }
@@ -511,13 +522,16 @@ async function callAnthropic(
     }
   }
 
+  const usage = data.usage ? {
+    inputTokens: data.usage.input_tokens ?? 0,
+    outputTokens: data.usage.output_tokens ?? 0,
+  } : undefined;
+
   return {
     text: content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    usage: data.usage ? {
-      inputTokens: data.usage.input_tokens ?? 0,
-      outputTokens: data.usage.output_tokens ?? 0,
-    } : undefined,
+    usage,
+    apiCostCents: usage ? calculateCallCostCents(model, usage) : 0,
   };
 }
 
@@ -686,6 +700,7 @@ async function callOllama(
   return {
     text: message?.content ?? "",
     toolCalls: toolCalls?.length ? toolCalls : undefined,
+    apiCostCents: 0,
   };
 }
 

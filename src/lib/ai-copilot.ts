@@ -2441,7 +2441,7 @@ export async function chat(
   scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" },
   userId?: string,
   contextInfo?: { contextType: string; contextText: string } | null,
-): Promise<ReadableStream> {
+): Promise<ReadableStream & { totalApiCostCents: number }> {
   // Build system prompt — orientation-aware or normal
   let systemPrompt: string;
   if (orientation) {
@@ -2473,7 +2473,9 @@ export async function chat(
     { role: "user", content: userMessage },
   ];
 
-  return new ReadableStream({
+  const costTracker = { totalApiCostCents: 0 };
+
+  const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
 
@@ -2496,6 +2498,8 @@ export async function chat(
             webSearch: true,
             thinking: true,
           });
+
+          costTracker.totalApiCostCents += response.apiCostCents;
 
           if (!response.toolCalls?.length) {
             if (response.text) {
@@ -2572,4 +2576,6 @@ export async function chat(
       }
     },
   });
+
+  return Object.assign(stream, { get totalApiCostCents() { return costTracker.totalApiCostCents; } });
 }
