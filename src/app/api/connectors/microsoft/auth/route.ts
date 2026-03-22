@@ -45,9 +45,12 @@ export async function GET(req: NextRequest) {
     scope: [
       "Mail.Read",
       "Mail.Send",
-      "Files.ReadWrite",
+      "Mail.ReadWrite",
+      "Files.ReadWrite.All",
       "Calendars.Read",
       "ChannelMessage.Read.All",
+      "ChannelMessage.Send",
+      "Channel.ReadBasic.All",
       "User.Read",
       "offline_access",
     ].join(" "),

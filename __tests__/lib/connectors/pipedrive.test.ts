@@ -264,7 +264,7 @@ describe("Pipedrive write-back", () => {
 
   test("writeCapabilities are declared", () => {
     expect(pipedriveProvider.writeCapabilities).toBeDefined();
-    expect(pipedriveProvider.writeCapabilities!.length).toBe(3);
+    expect(pipedriveProvider.writeCapabilities!.length).toBe(11);
     const slugs = pipedriveProvider.writeCapabilities!.map(c => c.slug);
     expect(slugs).toContain("update_deal_stage");
     expect(slugs).toContain("create_note");

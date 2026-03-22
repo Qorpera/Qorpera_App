@@ -1214,6 +1214,692 @@ async function appendToMicrosoftDocument(
   return { success: true, result: { fileId } };
 }
 
+// ── OneDrive write-back helpers ──────────────────────────────
+
+async function uploadFileOneDrive(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const name = input.name as string;
+  if (!name) return { success: false, error: "name is required" };
+  const content = input.content as string;
+  if (!content) return { success: false, error: "content is required (base64)" };
+  const folderId = input.folderId as string | undefined;
+
+  const fileBuffer = Buffer.from(content, "base64");
+  if (fileBuffer.length > 10 * 1024 * 1024) {
+    return { success: false, error: "File size exceeds 10MB limit" };
+  }
+
+  const parentPath = folderId
+    ? `/me/drive/items/${encodeURIComponent(folderId)}:/${encodeURIComponent(name)}:/content`
+    : `/me/drive/root:/${encodeURIComponent(name)}:/content`;
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0${parentPath}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: fileBuffer,
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Upload file failed: ${resp.status} ${errText}` };
+  }
+
+  const file = await resp.json();
+  return { success: true, result: { fileId: file.id, webUrl: file.webUrl, name: file.name } };
+}
+
+async function createFolderOneDrive(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const name = input.name as string;
+  if (!name) return { success: false, error: "name is required" };
+  const parentFolderId = input.parentFolderId as string | undefined;
+
+  const parentPath = parentFolderId
+    ? `/me/drive/items/${encodeURIComponent(parentFolderId)}/children`
+    : "/me/drive/root/children";
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0${parentPath}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name,
+        folder: {},
+        "@microsoft.graph.conflictBehavior": "rename",
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Create folder failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { folderId: data.id, name: data.name, webUrl: data.webUrl } };
+}
+
+async function shareFileOneDrive(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const fileId = input.fileId as string;
+  if (!fileId) return { success: false, error: "fileId is required" };
+  const email = input.email as string;
+  if (!email) return { success: false, error: "email is required" };
+  const role = input.role as string;
+  if (!role || !["read", "write"].includes(role)) {
+    return { success: false, error: "role must be 'read' or 'write'" };
+  }
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}/invite`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        recipients: [{ email }],
+        roles: [role],
+        requireSignIn: true,
+        sendInvitation: true,
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Share file failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { fileId, email, role, permissionId: data.value?.[0]?.id } };
+}
+
+async function moveFileOneDrive(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const fileId = input.fileId as string;
+  if (!fileId) return { success: false, error: "fileId is required" };
+  const targetFolderId = input.targetFolderId as string;
+  if (!targetFolderId) return { success: false, error: "targetFolderId is required" };
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        parentReference: { id: targetFolderId },
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Move file failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { fileId, targetFolderId } };
+}
+
+async function copyFileOneDrive(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const fileId = input.fileId as string;
+  if (!fileId) return { success: false, error: "fileId is required" };
+  const newName = input.newName as string;
+  if (!newName) return { success: false, error: "newName is required" };
+  const folderId = input.folderId as string | undefined;
+
+  const body: Record<string, unknown> = { name: newName };
+  if (folderId) body.parentReference = { id: folderId };
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}/copy`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  // copy returns 202 Accepted with Location header for async operation
+  if (!resp.ok && resp.status !== 202) {
+    const errText = await resp.text();
+    return { success: false, error: `Copy file failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { fileId, newName, copyInProgress: true } };
+}
+
+// ── Outlook extended write-back helpers ─────────────────────
+
+async function replyOutlookEmail(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const messageId = input.messageId as string;
+  if (!messageId) return { success: false, error: "messageId is required" };
+  let body = input.body as string;
+  if (!body) return { success: false, error: "body is required" };
+  const replyAll = input.replyAll as boolean | undefined;
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+  const operatorName = input._operatorName as string | undefined;
+
+  if (isAiGenerated) {
+    const org = operatorName || "the organization";
+    body += `\n\n---\nThis message was drafted with AI assistance by ${org}'s operational AI (Qorpera).`;
+  }
+
+  const endpoint = replyAll ? "replyAll" : "reply";
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/${endpoint}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ comment: body }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Outlook reply failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { messageId, replied: true, replyAll: !!replyAll } };
+}
+
+async function forwardOutlookEmail(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const messageId = input.messageId as string;
+  if (!messageId) return { success: false, error: "messageId is required" };
+  const to = input.to as string;
+  if (!to) return { success: false, error: "to is required" };
+  let comment = (input.comment as string) || "";
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+  const operatorName = input._operatorName as string | undefined;
+
+  if (isAiGenerated) {
+    const org = operatorName || "the organization";
+    comment += `\n\n---\nThis message was drafted with AI assistance by ${org}'s operational AI (Qorpera).`;
+  }
+
+  const toRecipients = to.split(",").map((addr) => ({
+    emailAddress: { address: addr.trim() },
+  }));
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/forward`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ comment, toRecipients }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Outlook forward failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { messageId, forwarded: true } };
+}
+
+async function createOutlookDraft(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const to = input.to as string;
+  if (!to) return { success: false, error: "to is required" };
+  const subject = input.subject as string;
+  if (!subject) return { success: false, error: "subject is required" };
+  const body = input.body as string;
+  if (!body) return { success: false, error: "body is required" };
+
+  const toRecipients = to.split(",").map((addr) => ({
+    emailAddress: { address: addr.trim() },
+  }));
+
+  const resp = await fetch(
+    "https://graph.microsoft.com/v1.0/me/messages",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        subject,
+        body: { contentType: "html", content: body },
+        toRecipients,
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Create draft failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { draftId: data.id, webLink: data.webLink } };
+}
+
+async function sendOutlookWithAttachment(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const to = input.to as string;
+  if (!to) return { success: false, error: "to is required" };
+  const subject = input.subject as string;
+  if (!subject) return { success: false, error: "subject is required" };
+  let body = input.body as string;
+  if (!body) return { success: false, error: "body is required" };
+  const attachments = input.attachments as Array<{ name: string; mimeType: string; content: string }>;
+  if (!attachments || attachments.length === 0) return { success: false, error: "attachments is required" };
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+  const operatorName = input._operatorName as string | undefined;
+
+  // Validate attachment sizes (3MB per file inline limit)
+  for (const att of attachments) {
+    const size = Buffer.from(att.content, "base64").length;
+    if (size > 3 * 1024 * 1024) {
+      return { success: false, error: `Attachment "${att.name}" exceeds 3MB inline limit` };
+    }
+  }
+
+  if (isAiGenerated) {
+    const org = operatorName || "the organization";
+    body += `\n\n---\nThis message was drafted with AI assistance by ${org}'s operational AI (Qorpera).`;
+  }
+
+  const toRecipients = to.split(",").map((addr) => ({
+    emailAddress: { address: addr.trim() },
+  }));
+
+  // Step 1: Create draft
+  const draftResp = await fetch(
+    "https://graph.microsoft.com/v1.0/me/messages",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        subject,
+        body: { contentType: "Text", content: body },
+        toRecipients,
+      }),
+    }
+  );
+
+  if (!draftResp.ok) {
+    const errText = await draftResp.text();
+    return { success: false, error: `Create draft failed: ${draftResp.status} ${errText}` };
+  }
+
+  const draft = await draftResp.json();
+  const draftId = draft.id;
+
+  // Step 2: Attach files
+  for (const att of attachments) {
+    const attResp = await fetch(
+      `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(draftId)}/attachments`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: att.name,
+          contentType: att.mimeType,
+          contentBytes: att.content,
+        }),
+      }
+    );
+
+    if (!attResp.ok) {
+      const errText = await attResp.text();
+      return { success: false, error: `Attach file "${att.name}" failed: ${attResp.status} ${errText}` };
+    }
+  }
+
+  // Step 3: Send
+  const sendResp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(draftId)}/send`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!sendResp.ok) {
+    const errText = await sendResp.text();
+    return { success: false, error: `Send with attachment failed: ${sendResp.status} ${errText}` };
+  }
+
+  return { success: true, result: { sent: true, attachmentCount: attachments.length } };
+}
+
+async function archiveOutlookMessage(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const messageId = input.messageId as string;
+  if (!messageId) return { success: false, error: "messageId is required" };
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/move`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ destinationId: "archive" }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Archive failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { messageId, archived: true } };
+}
+
+async function flagOutlookMessage(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const messageId = input.messageId as string;
+  if (!messageId) return { success: false, error: "messageId is required" };
+  const flagStatus = input.flagStatus as string;
+  if (!flagStatus || !["flagged", "complete", "notFlagged"].includes(flagStatus)) {
+    return { success: false, error: "flagStatus must be 'flagged', 'complete', or 'notFlagged'" };
+  }
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ flag: { flagStatus } }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Flag message failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { messageId, flagStatus } };
+}
+
+async function markOutlookRead(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const messageId = input.messageId as string;
+  if (!messageId) return { success: false, error: "messageId is required" };
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ isRead: true }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Mark read failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { messageId, read: true } };
+}
+
+// ── Teams write-back helpers ────────────────────────────────
+
+async function sendTeamsChannelMessage(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const teamId = input.teamId as string;
+  if (!teamId) return { success: false, error: "teamId is required" };
+  const channelId = input.channelId as string;
+  if (!channelId) return { success: false, error: "channelId is required" };
+  let body = input.body as string;
+  if (!body) return { success: false, error: "body is required" };
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+
+  if (isAiGenerated) {
+    body = `🤖 [AI] ${body}`;
+  }
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        body: { content: body, contentType: "html" },
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Send channel message failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { messageId: data.id, teamId, channelId } };
+}
+
+async function replyToTeamsThread(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const teamId = input.teamId as string;
+  if (!teamId) return { success: false, error: "teamId is required" };
+  const channelId = input.channelId as string;
+  if (!channelId) return { success: false, error: "channelId is required" };
+  const messageId = input.messageId as string;
+  if (!messageId) return { success: false, error: "messageId is required" };
+  let body = input.body as string;
+  if (!body) return { success: false, error: "body is required" };
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+
+  if (isAiGenerated) {
+    body = `🤖 [AI] ${body}`;
+  }
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/replies`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        body: { content: body, contentType: "html" },
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Reply to thread failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { replyId: data.id, teamId, channelId, messageId } };
+}
+
+// ── Excel write-back helpers ────────────────────────────────
+
+async function writeExcelCells(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const workbookId = input.workbookId as string;
+  if (!workbookId) return { success: false, error: "workbookId is required" };
+  const sheetName = input.sheetName as string;
+  if (!sheetName) return { success: false, error: "sheetName is required" };
+  const range = input.range as string;
+  if (!range) return { success: false, error: "range is required" };
+  const values = input.values as string[][];
+  if (!values) return { success: false, error: "values is required" };
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(range)}')`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ values }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Write cells failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { address: data.address, rowCount: data.rowCount, columnCount: data.columnCount } };
+}
+
+async function appendExcelRows(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const workbookId = input.workbookId as string;
+  if (!workbookId) return { success: false, error: "workbookId is required" };
+  const sheetName = input.sheetName as string;
+  if (!sheetName) return { success: false, error: "sheetName is required" };
+  const rows = input.rows as string[][];
+  if (!rows) return { success: false, error: "rows is required" };
+
+  // Find the used range to determine the next empty row
+  const usedResp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/usedRange`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  let startRow = 1;
+  if (usedResp.ok) {
+    const usedData = await usedResp.json();
+    startRow = (usedData.rowCount || 0) + 1;
+  }
+
+  // Build range address: A{startRow}:{lastCol}{endRow}
+  const numCols = rows[0]?.length || 1;
+  const lastCol = String.fromCharCode(64 + Math.min(numCols, 26)); // A-Z
+  const endRow = startRow + rows.length - 1;
+  const range = `A${startRow}:${lastCol}${endRow}`;
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(range)}')`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ values: rows }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Append rows failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { address: data.address, rowCount: data.rowCount } };
+}
+
+async function createExcelWorksheet(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const workbookId = input.workbookId as string;
+  if (!workbookId) return { success: false, error: "workbookId is required" };
+  const name = input.name as string;
+  if (!name) return { success: false, error: "name is required" };
+
+  const resp = await fetch(
+    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Create worksheet failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { worksheetId: data.id, name: data.name } };
+}
+
 // ── Provider ────────────────────────────────────────────────
 
 export const microsoftProvider: ConnectorProvider = {
@@ -1266,18 +1952,57 @@ export const microsoftProvider: ConnectorProvider = {
     const accessToken = await getMicrosoftAccessToken(config);
 
     switch (actionId) {
+      // Outlook
       case "send_email":
         return await sendOutlookEmail(accessToken, params);
       case "reply_to_thread":
         return await replyToOutlookThread(accessToken, params);
-      case "create_spreadsheet":
-        return await createMicrosoftSpreadsheet(accessToken, params);
-      case "update_spreadsheet_cells":
-        return await updateMicrosoftSpreadsheetCells(accessToken, params);
+      case "reply_email":
+        return await replyOutlookEmail(accessToken, params);
+      case "forward_email":
+        return await forwardOutlookEmail(accessToken, params);
+      case "create_draft":
+        return await createOutlookDraft(accessToken, params);
+      case "send_with_attachment":
+        return await sendOutlookWithAttachment(accessToken, params);
+      case "archive":
+        return await archiveOutlookMessage(accessToken, params);
+      case "flag_message":
+        return await flagOutlookMessage(accessToken, params);
+      case "mark_read":
+        return await markOutlookRead(accessToken, params);
+      // OneDrive
       case "create_document":
         return await createMicrosoftDocument(accessToken, params);
       case "append_to_document":
         return await appendToMicrosoftDocument(accessToken, params);
+      case "create_spreadsheet":
+        return await createMicrosoftSpreadsheet(accessToken, params);
+      case "update_spreadsheet_cells":
+        return await updateMicrosoftSpreadsheetCells(accessToken, params);
+      case "upload_file":
+        return await uploadFileOneDrive(accessToken, params);
+      case "create_folder":
+        return await createFolderOneDrive(accessToken, params);
+      case "share_file":
+        return await shareFileOneDrive(accessToken, params);
+      case "move_file":
+        return await moveFileOneDrive(accessToken, params);
+      case "copy_file":
+        return await copyFileOneDrive(accessToken, params);
+      // Teams
+      case "send_channel_message":
+        return await sendTeamsChannelMessage(accessToken, params);
+      case "reply_to_teams_thread":
+        return await replyToTeamsThread(accessToken, params);
+      // Excel
+      case "write_cells":
+        return await writeExcelCells(accessToken, params);
+      case "append_rows":
+        return await appendExcelRows(accessToken, params);
+      case "create_worksheet":
+        return await createExcelWorksheet(accessToken, params);
+      // Calendar
       case "create_calendar_event":
         return await createMicrosoftCalendarEvent(accessToken, params);
       case "update_calendar_event":
@@ -1288,88 +2013,84 @@ export const microsoftProvider: ConnectorProvider = {
   },
 
   writeCapabilities: [
-    {
-      slug: "create_calendar_event",
-      name: "Create Calendar Event",
-      description: "Creates a Microsoft 365 calendar event with attendees",
-      inputSchema: { type: "object", properties: { summary: { type: "string" }, description: { type: "string" }, startDateTime: { type: "string" }, endDateTime: { type: "string" }, attendeeEmails: { type: "array", items: { type: "string" } }, location: { type: "string" } }, required: ["summary", "startDateTime", "endDateTime", "attendeeEmails"] },
-    },
-    {
-      slug: "update_calendar_event",
-      name: "Update Calendar Event",
-      description: "Updates an existing Microsoft 365 calendar event",
-      inputSchema: { type: "object", properties: { eventId: { type: "string" }, fields: { type: "object" } }, required: ["eventId", "fields"] },
-    },
+    // OneDrive
+    { slug: "create_document", name: "Create Document", description: "Create a new Word document on OneDrive", inputSchema: { type: "object", properties: { title: { type: "string" }, content: { type: "string" }, folderId: { type: "string" } }, required: ["title"] } },
+    { slug: "create_spreadsheet", name: "Create Spreadsheet", description: "Create a new Excel spreadsheet on OneDrive", inputSchema: { type: "object", properties: { title: { type: "string" }, sheetName: { type: "string" }, initialData: { type: "array" } }, required: ["title"] } },
+    { slug: "upload_file", name: "Upload File", description: "Upload a file to OneDrive (max 10MB)", inputSchema: { type: "object", properties: { name: { type: "string" }, content: { type: "string" }, folderId: { type: "string" } }, required: ["name", "content"] } },
+    { slug: "create_folder", name: "Create Folder", description: "Create a new folder on OneDrive", inputSchema: { type: "object", properties: { name: { type: "string" }, parentFolderId: { type: "string" } }, required: ["name"] } },
+    { slug: "share_file", name: "Share File", description: "Share a OneDrive file with a user", inputSchema: { type: "object", properties: { fileId: { type: "string" }, email: { type: "string" }, role: { type: "string", enum: ["read", "write"] } }, required: ["fileId", "email", "role"] } },
+    { slug: "move_file", name: "Move File", description: "Move a file to a different folder on OneDrive", inputSchema: { type: "object", properties: { fileId: { type: "string" }, targetFolderId: { type: "string" } }, required: ["fileId", "targetFolderId"] } },
+    { slug: "copy_file", name: "Copy File", description: "Copy a file on OneDrive", inputSchema: { type: "object", properties: { fileId: { type: "string" }, newName: { type: "string" }, folderId: { type: "string" } }, required: ["fileId", "newName"] } },
+    // Outlook
+    { slug: "reply_email", name: "Reply to Email", description: "Reply to an Outlook email", inputSchema: { type: "object", properties: { messageId: { type: "string" }, body: { type: "string" }, replyAll: { type: "boolean" } }, required: ["messageId", "body"] } },
+    { slug: "forward_email", name: "Forward Email", description: "Forward an Outlook email", inputSchema: { type: "object", properties: { messageId: { type: "string" }, to: { type: "string" }, comment: { type: "string" } }, required: ["messageId", "to"] } },
+    { slug: "create_draft", name: "Create Draft", description: "Create a draft email in Outlook", inputSchema: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["to", "subject", "body"] } },
+    { slug: "send_with_attachment", name: "Send with Attachment", description: "Send an Outlook email with attachments (max 3MB per file)", inputSchema: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, attachments: { type: "array" } }, required: ["to", "subject", "body", "attachments"] } },
+    { slug: "archive", name: "Archive Message", description: "Archive an Outlook message", inputSchema: { type: "object", properties: { messageId: { type: "string" } }, required: ["messageId"] } },
+    { slug: "flag_message", name: "Flag Message", description: "Flag or unflag an Outlook message", inputSchema: { type: "object", properties: { messageId: { type: "string" }, flagStatus: { type: "string", enum: ["flagged", "complete", "notFlagged"] } }, required: ["messageId", "flagStatus"] } },
+    { slug: "mark_read", name: "Mark as Read", description: "Mark an Outlook message as read", inputSchema: { type: "object", properties: { messageId: { type: "string" } }, required: ["messageId"] } },
+    // Teams
+    { slug: "send_channel_message", name: "Send Channel Message", description: "Send a message to a Teams channel", inputSchema: { type: "object", properties: { teamId: { type: "string" }, channelId: { type: "string" }, body: { type: "string" } }, required: ["teamId", "channelId", "body"] } },
+    { slug: "reply_to_teams_thread", name: "Reply to Teams Thread", description: "Reply to a Teams channel message thread", inputSchema: { type: "object", properties: { teamId: { type: "string" }, channelId: { type: "string" }, messageId: { type: "string" }, body: { type: "string" } }, required: ["teamId", "channelId", "messageId", "body"] } },
+    // Excel
+    { slug: "write_cells", name: "Write Cells", description: "Write values to cells in an Excel workbook", inputSchema: { type: "object", properties: { workbookId: { type: "string" }, sheetName: { type: "string" }, range: { type: "string" }, values: { type: "array" } }, required: ["workbookId", "sheetName", "range", "values"] } },
+    { slug: "append_rows", name: "Append Rows", description: "Append rows to an Excel worksheet", inputSchema: { type: "object", properties: { workbookId: { type: "string" }, sheetName: { type: "string" }, rows: { type: "array" } }, required: ["workbookId", "sheetName", "rows"] } },
+    { slug: "create_worksheet", name: "Create Worksheet", description: "Add a new worksheet to an Excel workbook", inputSchema: { type: "object", properties: { workbookId: { type: "string" }, name: { type: "string" } }, required: ["workbookId", "name"] } },
+    // Calendar
+    { slug: "create_calendar_event", name: "Create Calendar Event", description: "Creates a Microsoft 365 calendar event with attendees", inputSchema: { type: "object", properties: { summary: { type: "string" }, description: { type: "string" }, startDateTime: { type: "string" }, endDateTime: { type: "string" }, attendeeEmails: { type: "array", items: { type: "string" } }, location: { type: "string" } }, required: ["summary", "startDateTime", "endDateTime", "attendeeEmails"] } },
+    { slug: "update_calendar_event", name: "Update Calendar Event", description: "Updates an existing Microsoft 365 calendar event", inputSchema: { type: "object", properties: { eventId: { type: "string" }, fields: { type: "object" } }, required: ["eventId", "fields"] } },
   ],
 
   async getCapabilities(config) {
     const scopes = config.scopes as string[] || [];
     const caps: { name: string; description: string; inputSchema: Record<string, unknown>; sideEffects: string[] }[] = [];
 
+    // Outlook send capabilities
     if (scopes.some((s) => s.includes("Mail.Send"))) {
-      caps.push({
-        name: "send_email",
-        description: "Send an email via Outlook on behalf of the user",
-        inputSchema: {
-          to: { type: "string", required: true, description: "Recipient email address(es), comma-separated" },
-          subject: { type: "string", required: true, description: "Email subject line" },
-          body: { type: "string", required: true, description: "Email body text (plain text)" },
-          cc: { type: "string", required: false, description: "CC recipients, comma-separated" },
-        },
-        sideEffects: ["Sends an email from the user's Outlook account"],
-      });
-      caps.push({
-        name: "reply_to_thread",
-        description: "Reply to an existing email via Outlook",
-        inputSchema: {
-          messageId: { type: "string", required: true, description: "Outlook message ID to reply to" },
-          body: { type: "string", required: true, description: "Reply body text (plain text)" },
-        },
-        sideEffects: ["Sends a reply email from the user's Outlook account"],
-      });
+      caps.push(
+        { name: "send_email", description: "Send an email via Outlook", inputSchema: { to: { type: "string", required: true }, subject: { type: "string", required: true }, body: { type: "string", required: true }, cc: { type: "string", required: false } }, sideEffects: ["Sends an email from the user's Outlook account"] },
+        { name: "reply_to_thread", description: "Reply to an existing email via Outlook", inputSchema: { messageId: { type: "string", required: true }, body: { type: "string", required: true } }, sideEffects: ["Sends a reply email from the user's Outlook account"] },
+        { name: "reply_email", description: "Reply to a specific Outlook email", inputSchema: { messageId: { type: "string", required: true }, body: { type: "string", required: true }, replyAll: { type: "boolean", required: false } }, sideEffects: ["Sends a reply from the user's Outlook"] },
+        { name: "forward_email", description: "Forward an Outlook email", inputSchema: { messageId: { type: "string", required: true }, to: { type: "string", required: true }, comment: { type: "string", required: false } }, sideEffects: ["Forwards an email from the user's Outlook"] },
+        { name: "create_draft", description: "Create a draft email in Outlook", inputSchema: { to: { type: "string", required: true }, subject: { type: "string", required: true }, body: { type: "string", required: true } }, sideEffects: ["Creates a draft in the user's Outlook"] },
+        { name: "send_with_attachment", description: "Send an email with attachments (max 3MB per file)", inputSchema: { to: { type: "string", required: true }, subject: { type: "string", required: true }, body: { type: "string", required: true }, attachments: { type: "array", required: true } }, sideEffects: ["Sends an email with attachments from the user's Outlook"] },
+      );
     }
 
-    // Document capabilities (Files.ReadWrite scope)
+    // Outlook modify capabilities (Mail.ReadWrite)
+    if (scopes.some((s) => s.includes("Mail.ReadWrite"))) {
+      caps.push(
+        { name: "archive", description: "Archive an Outlook message", inputSchema: { messageId: { type: "string", required: true } }, sideEffects: ["Moves the message to archive"] },
+        { name: "flag_message", description: "Flag or unflag an Outlook message", inputSchema: { messageId: { type: "string", required: true }, flagStatus: { type: "string", required: true } }, sideEffects: ["Changes the flag status of the message"] },
+        { name: "mark_read", description: "Mark an Outlook message as read", inputSchema: { messageId: { type: "string", required: true } }, sideEffects: ["Marks the message as read"] },
+      );
+    }
+
+    // OneDrive capabilities (Files.ReadWrite)
     if (scopes.some((s) => s.includes("Files.ReadWrite"))) {
-      caps.push({
-        name: "create_spreadsheet",
-        description: "Create a new Excel spreadsheet on OneDrive, optionally with initial data",
-        inputSchema: {
-          title: { type: "string", required: true, description: "Spreadsheet title" },
-          sheetName: { type: "string", required: false, description: "First sheet name (default: Sheet1)" },
-          initialData: { type: "array", required: false, description: "2D array of initial cell values" },
-        },
-        sideEffects: ["Creates a new .xlsx file on the user's OneDrive"],
-      });
-      caps.push({
-        name: "update_spreadsheet_cells",
-        description: "Update cells in an existing Excel spreadsheet on OneDrive",
-        inputSchema: {
-          fileId: { type: "string", required: true, description: "OneDrive file ID" },
-          range: { type: "string", required: true, description: "A1 notation range, e.g. 'A1:C10'" },
-          values: { type: "array", required: true, description: "2D array of cell values" },
-          sheetName: { type: "string", required: false, description: "Worksheet name (default: Sheet1)" },
-        },
-        sideEffects: ["Modifies cells in an existing Excel spreadsheet"],
-      });
-      caps.push({
-        name: "create_document",
-        description: "Create a new Word document on OneDrive with optional initial content",
-        inputSchema: {
-          title: { type: "string", required: true, description: "Document title" },
-          content: { type: "string", required: false, description: "Initial text content" },
-        },
-        sideEffects: ["Creates a new .docx file on the user's OneDrive"],
-      });
-      caps.push({
-        name: "append_to_document",
-        description: "Append text content to an existing Word document on OneDrive",
-        inputSchema: {
-          fileId: { type: "string", required: true, description: "OneDrive file ID" },
-          content: { type: "string", required: true, description: "Text to append to the document" },
-        },
-        sideEffects: ["Appends content to an existing Word document"],
-      });
+      caps.push(
+        { name: "create_document", description: "Create a new Word document on OneDrive", inputSchema: { title: { type: "string", required: true }, content: { type: "string", required: false } }, sideEffects: ["Creates a .docx file on OneDrive"] },
+        { name: "append_to_document", description: "Append text to an existing Word document", inputSchema: { fileId: { type: "string", required: true }, content: { type: "string", required: true } }, sideEffects: ["Appends content to a Word document"] },
+        { name: "create_spreadsheet", description: "Create a new Excel spreadsheet on OneDrive", inputSchema: { title: { type: "string", required: true }, sheetName: { type: "string", required: false }, initialData: { type: "array", required: false } }, sideEffects: ["Creates a .xlsx file on OneDrive"] },
+        { name: "update_spreadsheet_cells", description: "Update cells in an Excel spreadsheet", inputSchema: { fileId: { type: "string", required: true }, range: { type: "string", required: true }, values: { type: "array", required: true }, sheetName: { type: "string", required: false } }, sideEffects: ["Modifies cells in an Excel spreadsheet"] },
+        { name: "upload_file", description: "Upload a file to OneDrive (max 10MB)", inputSchema: { name: { type: "string", required: true }, content: { type: "string", required: true }, folderId: { type: "string", required: false } }, sideEffects: ["Uploads a file to OneDrive"] },
+        { name: "create_folder", description: "Create a folder on OneDrive", inputSchema: { name: { type: "string", required: true }, parentFolderId: { type: "string", required: false } }, sideEffects: ["Creates a folder on OneDrive"] },
+        { name: "share_file", description: "Share a OneDrive file", inputSchema: { fileId: { type: "string", required: true }, email: { type: "string", required: true }, role: { type: "string", required: true } }, sideEffects: ["Shares a file and sends an invitation"] },
+        { name: "move_file", description: "Move a file on OneDrive", inputSchema: { fileId: { type: "string", required: true }, targetFolderId: { type: "string", required: true } }, sideEffects: ["Moves a file between folders"] },
+        { name: "copy_file", description: "Copy a file on OneDrive", inputSchema: { fileId: { type: "string", required: true }, newName: { type: "string", required: true }, folderId: { type: "string", required: false } }, sideEffects: ["Creates a copy of the file"] },
+        // Excel (also requires Files.ReadWrite)
+        { name: "write_cells", description: "Write values to cells in an Excel workbook", inputSchema: { workbookId: { type: "string", required: true }, sheetName: { type: "string", required: true }, range: { type: "string", required: true }, values: { type: "array", required: true } }, sideEffects: ["Writes values to cells in an Excel workbook"] },
+        { name: "append_rows", description: "Append rows to an Excel worksheet", inputSchema: { workbookId: { type: "string", required: true }, sheetName: { type: "string", required: true }, rows: { type: "array", required: true } }, sideEffects: ["Appends rows to an Excel worksheet"] },
+        { name: "create_worksheet", description: "Add a new worksheet to an Excel workbook", inputSchema: { workbookId: { type: "string", required: true }, name: { type: "string", required: true } }, sideEffects: ["Adds a new worksheet to the workbook"] },
+      );
+    }
+
+    // Teams capabilities
+    if (scopes.some((s) => s.includes("ChannelMessage.Send"))) {
+      caps.push(
+        { name: "send_channel_message", description: "Send a message to a Teams channel", inputSchema: { teamId: { type: "string", required: true }, channelId: { type: "string", required: true }, body: { type: "string", required: true } }, sideEffects: ["Sends a message to a Teams channel"] },
+        { name: "reply_to_teams_thread", description: "Reply to a Teams channel message thread", inputSchema: { teamId: { type: "string", required: true }, channelId: { type: "string", required: true }, messageId: { type: "string", required: true }, body: { type: "string", required: true } }, sideEffects: ["Replies to a Teams channel thread"] },
+      );
     }
 
     return caps;

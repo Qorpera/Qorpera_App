@@ -12,9 +12,12 @@ const APP_BASE = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const REQUESTED_SCOPES = [
   "Mail.Read",
   "Mail.Send",
-  "Files.ReadWrite",
+  "Mail.ReadWrite",
+  "Files.ReadWrite.All",
   "Calendars.Read",
   "ChannelMessage.Read.All",
+  "ChannelMessage.Send",
+  "Channel.ReadBasic.All",
   "User.Read",
   "offline_access",
 ];

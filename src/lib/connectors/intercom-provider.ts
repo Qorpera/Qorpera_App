@@ -55,6 +55,54 @@ export const intercomProvider: ConnectorProvider = {
       description: "Tags an Intercom conversation",
       inputSchema: { type: "object", properties: { conversationId: { type: "string" }, tagName: { type: "string" } }, required: ["conversationId", "tagName"] },
     },
+    {
+      slug: "assign_conversation",
+      name: "Assign Conversation",
+      description: "Assigns an Intercom conversation to another admin or team",
+      inputSchema: { type: "object", properties: { conversationId: { type: "string" }, assigneeId: { type: "string" }, assigneeType: { type: "string", enum: ["admin", "team"] } }, required: ["conversationId", "assigneeId"] },
+    },
+    {
+      slug: "close_conversation",
+      name: "Close Conversation",
+      description: "Closes an Intercom conversation",
+      inputSchema: { type: "object", properties: { conversationId: { type: "string" }, body: { type: "string" } }, required: ["conversationId"] },
+    },
+    {
+      slug: "snooze_conversation",
+      name: "Snooze Conversation",
+      description: "Snoozes an Intercom conversation until a specified time",
+      inputSchema: { type: "object", properties: { conversationId: { type: "string" }, snoozedUntil: { type: "string" } }, required: ["conversationId", "snoozedUntil"] },
+    },
+    {
+      slug: "open_conversation",
+      name: "Open Conversation",
+      description: "Re-opens a closed or snoozed Intercom conversation",
+      inputSchema: { type: "object", properties: { conversationId: { type: "string" } }, required: ["conversationId"] },
+    },
+    {
+      slug: "create_contact",
+      name: "Create Contact",
+      description: "Creates a new contact in Intercom, or returns existing if email matches",
+      inputSchema: { type: "object", properties: { email: { type: "string" }, name: { type: "string" }, role: { type: "string", enum: ["user", "lead"] } }, required: ["email"] },
+    },
+    {
+      slug: "update_contact",
+      name: "Update Contact",
+      description: "Updates fields on an existing Intercom contact",
+      inputSchema: { type: "object", properties: { contactId: { type: "string" }, fields: { type: "object" } }, required: ["contactId", "fields"] },
+    },
+    {
+      slug: "create_note_on_contact",
+      name: "Create Note on Contact",
+      description: "Adds a note to an Intercom contact",
+      inputSchema: { type: "object", properties: { contactId: { type: "string" }, body: { type: "string" } }, required: ["contactId", "body"] },
+    },
+    {
+      slug: "tag_contact",
+      name: "Tag Contact",
+      description: "Tags an Intercom contact, creating the tag if it does not exist",
+      inputSchema: { type: "object", properties: { contactId: { type: "string" }, tagName: { type: "string" } }, required: ["contactId", "tagName"] },
+    },
   ],
 
   async testConnection(config) {
@@ -241,6 +289,151 @@ export const intercomProvider: ConnectorProvider = {
           return { success: true, result: { tagId: tag.id, tagName: params.tagName } };
         }
 
+        case "assign_conversation": {
+          if (!params.conversationId) return { success: false, error: "conversationId is required" };
+          if (!params.assigneeId) return { success: false, error: "assigneeId is required" };
+          const resp = await intercomRequest(config, "POST", `/conversations/${params.conversationId}/parts`, {
+            message_type: "assignment",
+            type: (params.assigneeType as string) || "admin",
+            admin_id: adminId,
+            assignee_id: params.assigneeId,
+            body: "",
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Assign failed (${resp.status}): ${err}` };
+          }
+          const data = await resp.json();
+          return { success: true, result: data };
+        }
+
+        case "close_conversation": {
+          if (!params.conversationId) return { success: false, error: "conversationId is required" };
+          const resp = await intercomRequest(config, "POST", `/conversations/${params.conversationId}/parts`, {
+            message_type: "close",
+            type: "admin",
+            admin_id: adminId,
+            body: (params.body as string) || "",
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Close failed (${resp.status}): ${err}` };
+          }
+          const data = await resp.json();
+          return { success: true, result: data };
+        }
+
+        case "snooze_conversation": {
+          if (!params.conversationId) return { success: false, error: "conversationId is required" };
+          if (!params.snoozedUntil) return { success: false, error: "snoozedUntil is required" };
+          const snoozedUntil = Math.floor(new Date(params.snoozedUntil as string).getTime() / 1000);
+          const resp = await intercomRequest(config, "POST", `/conversations/${params.conversationId}/parts`, {
+            message_type: "snoze",
+            type: "admin",
+            admin_id: adminId,
+            snoozed_until: snoozedUntil,
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Snooze failed (${resp.status}): ${err}` };
+          }
+          const data = await resp.json();
+          return { success: true, result: data };
+        }
+
+        case "open_conversation": {
+          if (!params.conversationId) return { success: false, error: "conversationId is required" };
+          const resp = await intercomRequest(config, "POST", `/conversations/${params.conversationId}/parts`, {
+            message_type: "open",
+            type: "admin",
+            admin_id: adminId,
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Open failed (${resp.status}): ${err}` };
+          }
+          const data = await resp.json();
+          return { success: true, result: data };
+        }
+
+        case "create_contact": {
+          if (!params.email) return { success: false, error: "email is required" };
+          // Check for existing contact by email
+          const searchResp = await intercomRequest(config, "POST", "/contacts/search", {
+            query: { field: "email", operator: "=", value: params.email },
+          });
+          if (searchResp.ok) {
+            const searchData: any = await searchResp.json();
+            if (searchData.data?.length > 0) {
+              return { success: true, result: searchData.data[0] };
+            }
+          }
+          // Create new contact
+          const createBody: Record<string, unknown> = {
+            email: params.email,
+            role: (params.role as string) || "user",
+          };
+          if (params.name) createBody.name = params.name;
+          const resp = await intercomRequest(config, "POST", "/contacts", createBody);
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Create contact failed (${resp.status}): ${err}` };
+          }
+          const data = await resp.json();
+          return { success: true, result: data };
+        }
+
+        case "update_contact": {
+          if (!params.contactId) return { success: false, error: "contactId is required" };
+          if (!params.fields) return { success: false, error: "fields is required" };
+          const fields = params.fields as Record<string, unknown> | undefined;
+          if (!fields || typeof fields !== "object") {
+            return { success: false, error: "fields must be an object" };
+          }
+          const allowed = ["name", "email", "phone", "custom_attributes"];
+          const updateBody: Record<string, unknown> = {};
+          for (const key of allowed) {
+            if (key in fields) updateBody[key] = fields[key];
+          }
+          const resp = await intercomRequest(config, "PUT", `/contacts/${params.contactId}`, updateBody);
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Update contact failed (${resp.status}): ${err}` };
+          }
+          const data = await resp.json();
+          return { success: true, result: data };
+        }
+
+        case "create_note_on_contact": {
+          if (!params.contactId) return { success: false, error: "contactId is required" };
+          if (!params.body) return { success: false, error: "body is required" };
+          const resp = await intercomRequest(config, "POST", `/contacts/${params.contactId}/notes`, {
+            body: params.body,
+            admin_id: adminId,
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Create note failed (${resp.status}): ${err}` };
+          }
+          const data = await resp.json();
+          return { success: true, result: data };
+        }
+
+        case "tag_contact": {
+          if (!params.contactId) return { success: false, error: "contactId is required" };
+          if (!params.tagName) return { success: false, error: "tagName is required" };
+          const resp = await intercomRequest(config, "POST", "/tags", {
+            name: params.tagName,
+            users: [{ id: params.contactId }],
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Tag contact failed (${resp.status}): ${err}` };
+          }
+          const data = await resp.json();
+          return { success: true, result: data };
+        }
+
         default:
           return { success: false, error: `Unknown action: ${action}` };
       }
@@ -268,6 +461,54 @@ export const intercomProvider: ConnectorProvider = {
         description: "Tag a conversation in Intercom",
         inputSchema: { conversationId: "string", tagName: "string" },
         sideEffects: ["Tag applied to conversation in Intercom"],
+      },
+      {
+        name: "assign_conversation",
+        description: "Assign an Intercom conversation to another admin or team",
+        inputSchema: { conversationId: "string", assigneeId: "string", assigneeType: "string" },
+        sideEffects: ["Conversation reassigned in Intercom"],
+      },
+      {
+        name: "close_conversation",
+        description: "Close an Intercom conversation",
+        inputSchema: { conversationId: "string", body: "string" },
+        sideEffects: ["Conversation closed in Intercom"],
+      },
+      {
+        name: "snooze_conversation",
+        description: "Snooze an Intercom conversation until a specified time",
+        inputSchema: { conversationId: "string", snoozedUntil: "string" },
+        sideEffects: ["Conversation snoozed in Intercom"],
+      },
+      {
+        name: "open_conversation",
+        description: "Re-open a closed or snoozed Intercom conversation",
+        inputSchema: { conversationId: "string" },
+        sideEffects: ["Conversation re-opened in Intercom"],
+      },
+      {
+        name: "create_contact",
+        description: "Create a new contact in Intercom or return existing if email matches",
+        inputSchema: { email: "string", name: "string", role: "string" },
+        sideEffects: ["Contact created in Intercom"],
+      },
+      {
+        name: "update_contact",
+        description: "Update fields on an existing Intercom contact",
+        inputSchema: { contactId: "string", fields: "object" },
+        sideEffects: ["Contact updated in Intercom"],
+      },
+      {
+        name: "create_note_on_contact",
+        description: "Add a note to an Intercom contact",
+        inputSchema: { contactId: "string", body: "string" },
+        sideEffects: ["Note added to contact in Intercom"],
+      },
+      {
+        name: "tag_contact",
+        description: "Tag an Intercom contact, creating the tag if needed",
+        inputSchema: { contactId: "string", tagName: "string" },
+        sideEffects: ["Tag applied to contact in Intercom"],
       },
     ];
   },

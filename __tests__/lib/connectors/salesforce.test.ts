@@ -316,7 +316,7 @@ describe("Salesforce write-back", () => {
 
   test("writeCapabilities are declared", () => {
     expect(salesforceProvider.writeCapabilities).toBeDefined();
-    expect(salesforceProvider.writeCapabilities!.length).toBe(4);
+    expect(salesforceProvider.writeCapabilities!.length).toBe(10);
     const slugs = salesforceProvider.writeCapabilities!.map(c => c.slug);
     expect(slugs).toContain("update_opportunity");
     expect(slugs).toContain("create_task");

@@ -42,6 +42,26 @@ const OBJECT_PROPERTIES: Record<string, string[]> = {
   ],
 };
 
+async function associateObjects(
+  token: string,
+  fromType: string,
+  fromId: string,
+  toType: string,
+  toIds: string[],
+  typeId: number
+): Promise<void> {
+  for (const toId of toIds) {
+    await hubspotFetch(
+      token,
+      `/crm/v4/objects/${fromType}/${fromId}/associations/${toType}/${toId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify([{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: typeId }]),
+      }
+    );
+  }
+}
+
 // ── Provider Implementation ──────────────────────────────
 
 export const hubspotProvider: ConnectorProvider = {
@@ -50,6 +70,75 @@ export const hubspotProvider: ConnectorProvider = {
 
   configSchema: [
     { key: "oauth", label: "HubSpot Account", type: "oauth", required: true },
+  ],
+
+  writeCapabilities: [
+    {
+      slug: "update_contact",
+      name: "Update Contact",
+      description: "Update properties on a HubSpot contact",
+      inputSchema: { contactId: "string", properties: "object" },
+    },
+    {
+      slug: "create_note",
+      name: "Create Note",
+      description: "Add a note to a HubSpot contact or company record",
+      inputSchema: { objectType: "string", objectId: "string", body: "string" },
+    },
+    {
+      slug: "update_deal_stage",
+      name: "Update Deal Stage",
+      description: "Change the pipeline stage of a HubSpot deal",
+      inputSchema: { dealId: "string", stage: "string" },
+    },
+    {
+      slug: "send_email",
+      name: "Send Email",
+      description: "Log or send an email through HubSpot",
+      inputSchema: { to: "string", subject: "string", body: "string", contactId: "string" },
+    },
+    {
+      slug: "create_contact",
+      name: "Create Contact",
+      description: "Create a new contact in HubSpot (checks for existing by email first)",
+      inputSchema: { email: "string", firstName: "string?", lastName: "string?", properties: "object?" },
+    },
+    {
+      slug: "create_deal",
+      name: "Create Deal",
+      description: "Create a new deal in HubSpot and optionally associate with contacts",
+      inputSchema: { name: "string", stage: "string", amount: "string?", pipeline: "string?", associatedContactIds: "string[]?" },
+    },
+    {
+      slug: "create_task",
+      name: "Create Task",
+      description: "Create a task in HubSpot and optionally associate with contacts or deals",
+      inputSchema: { subject: "string", body: "string?", dueDate: "string?", ownerId: "string?", associatedContactIds: "string[]?", associatedDealIds: "string[]?" },
+    },
+    {
+      slug: "complete_task",
+      name: "Complete Task",
+      description: "Mark a HubSpot task as completed",
+      inputSchema: { taskId: "string" },
+    },
+    {
+      slug: "log_activity",
+      name: "Log Activity",
+      description: "Log a call, email, meeting, or note activity in HubSpot",
+      inputSchema: { type: "string", body: "string", associatedContactIds: "string[]?", associatedDealIds: "string[]?" },
+    },
+    {
+      slug: "add_note",
+      name: "Add Note",
+      description: "Add a note to HubSpot and associate with contacts or deals",
+      inputSchema: { body: "string", associatedContactIds: "string[]?", associatedDealIds: "string[]?" },
+    },
+    {
+      slug: "create_ticket",
+      name: "Create Ticket",
+      description: "Create a support ticket in HubSpot",
+      inputSchema: { subject: "string", description: "string?", priority: "string?", pipeline: "string?", stage: "string?" },
+    },
   ],
 
   async testConnection(config) {
@@ -270,6 +359,48 @@ export const hubspotProvider: ConnectorProvider = {
         inputSchema: { to: "string", subject: "string", body: "string", contactId: "string" },
         sideEffects: ["Email sent to recipient", "Email logged on contact timeline in HubSpot"],
       },
+      {
+        name: "create_contact",
+        description: "Create a new contact in HubSpot (checks for existing by email first)",
+        inputSchema: { email: "string", firstName: "string?", lastName: "string?", properties: "object?" },
+        sideEffects: ["New contact record created in HubSpot CRM"],
+      },
+      {
+        name: "create_deal",
+        description: "Create a new deal in HubSpot and optionally associate with contacts",
+        inputSchema: { name: "string", stage: "string", amount: "string?", pipeline: "string?", associatedContactIds: "string[]?" },
+        sideEffects: ["New deal created in HubSpot pipeline", "Deal associated with contacts"],
+      },
+      {
+        name: "create_task",
+        description: "Create a task in HubSpot and optionally associate with contacts or deals",
+        inputSchema: { subject: "string", body: "string?", dueDate: "string?", ownerId: "string?", associatedContactIds: "string[]?", associatedDealIds: "string[]?" },
+        sideEffects: ["New task created in HubSpot", "Task associated with contacts/deals"],
+      },
+      {
+        name: "complete_task",
+        description: "Mark a HubSpot task as completed",
+        inputSchema: { taskId: "string" },
+        sideEffects: ["Task status changed to COMPLETED in HubSpot"],
+      },
+      {
+        name: "log_activity",
+        description: "Log a call, email, meeting, or note activity in HubSpot",
+        inputSchema: { type: "string", body: "string", associatedContactIds: "string[]?", associatedDealIds: "string[]?" },
+        sideEffects: ["Activity logged on timeline in HubSpot"],
+      },
+      {
+        name: "add_note",
+        description: "Add a note to HubSpot and associate with contacts or deals",
+        inputSchema: { body: "string", associatedContactIds: "string[]?", associatedDealIds: "string[]?" },
+        sideEffects: ["Note created and associated with records in HubSpot"],
+      },
+      {
+        name: "create_ticket",
+        description: "Create a support ticket in HubSpot",
+        inputSchema: { subject: "string", description: "string?", priority: "string?", pipeline: "string?", stage: "string?" },
+        sideEffects: ["New ticket created in HubSpot service pipeline"],
+      },
     ];
   },
 
@@ -379,6 +510,277 @@ export const hubspotProvider: ConnectorProvider = {
             );
           }
           return { success: true, result: email };
+        }
+
+        case "create_contact": {
+          if (!params.email) {
+            return { success: false, error: "Missing required field: email" };
+          }
+
+          // Check for existing contact by email
+          const searchResp = await hubspotFetch(token, "/crm/v3/objects/contacts/search", {
+            method: "POST",
+            body: JSON.stringify({
+              filterGroups: [{
+                filters: [{
+                  propertyName: "email",
+                  operator: "EQ",
+                  value: params.email as string,
+                }],
+              }],
+            }),
+          });
+          if (searchResp.ok) {
+            const searchData = await searchResp.json();
+            if (searchData.total > 0) {
+              return {
+                success: false,
+                error: `Contact with email ${params.email} already exists (ID: ${searchData.results[0].id})`,
+              };
+            }
+          }
+
+          const contactProps: Record<string, unknown> = {
+            email: params.email,
+            ...(params.firstName ? { firstname: params.firstName } : {}),
+            ...(params.lastName ? { lastname: params.lastName } : {}),
+            ...(params.properties && typeof params.properties === "object" ? params.properties as Record<string, unknown> : {}),
+          };
+
+          const createContactResp = await hubspotFetch(token, "/crm/v3/objects/contacts", {
+            method: "POST",
+            body: JSON.stringify({ properties: contactProps }),
+          });
+          if (!createContactResp.ok) {
+            const err = await createContactResp.text();
+            return { success: false, error: `Create contact failed (${createContactResp.status}): ${err}` };
+          }
+          return { success: true, result: await createContactResp.json() };
+        }
+
+        case "create_deal": {
+          if (!params.name) {
+            return { success: false, error: "Missing required field: name" };
+          }
+          if (!params.stage) {
+            return { success: false, error: "Missing required field: stage" };
+          }
+
+          const dealProps: Record<string, unknown> = {
+            dealname: params.name,
+            dealstage: params.stage,
+            ...(params.amount ? { amount: params.amount } : {}),
+            ...(params.pipeline ? { pipeline: params.pipeline } : {}),
+          };
+
+          const createDealResp = await hubspotFetch(token, "/crm/v3/objects/deals", {
+            method: "POST",
+            body: JSON.stringify({ properties: dealProps }),
+          });
+          if (!createDealResp.ok) {
+            const err = await createDealResp.text();
+            return { success: false, error: `Create deal failed (${createDealResp.status}): ${err}` };
+          }
+          const deal = await createDealResp.json();
+
+          // Associate with contacts
+          const dealContactIds = params.associatedContactIds as string[] | undefined;
+          if (dealContactIds?.length) {
+            await associateObjects(token, "deals", deal.id, "contacts", dealContactIds, 3);
+          }
+
+          return { success: true, result: deal };
+        }
+
+        case "create_task": {
+          if (!params.subject) {
+            return { success: false, error: "Missing required field: subject" };
+          }
+
+          const taskProps: Record<string, unknown> = {
+            hs_task_subject: params.subject,
+            hs_task_status: "NOT_STARTED",
+            hs_timestamp: Date.now().toString(),
+            ...(params.body ? { hs_task_body: params.body } : {}),
+            ...(params.dueDate ? { hs_task_due_date: params.dueDate } : {}),
+            ...(params.ownerId ? { hubspot_owner_id: params.ownerId } : {}),
+          };
+
+          const createTaskResp = await hubspotFetch(token, "/crm/v3/objects/tasks", {
+            method: "POST",
+            body: JSON.stringify({ properties: taskProps }),
+          });
+          if (!createTaskResp.ok) {
+            const err = await createTaskResp.text();
+            return { success: false, error: `Create task failed (${createTaskResp.status}): ${err}` };
+          }
+          const task = await createTaskResp.json();
+
+          // Associate with contacts
+          const taskContactIds = params.associatedContactIds as string[] | undefined;
+          if (taskContactIds?.length) {
+            await associateObjects(token, "tasks", task.id, "contacts", taskContactIds, 204);
+          }
+
+          // Associate with deals
+          const taskDealIds = params.associatedDealIds as string[] | undefined;
+          if (taskDealIds?.length) {
+            await associateObjects(token, "tasks", task.id, "deals", taskDealIds, 216);
+          }
+
+          return { success: true, result: task };
+        }
+
+        case "complete_task": {
+          if (!params.taskId) {
+            return { success: false, error: "Missing required field: taskId" };
+          }
+
+          const completeResp = await hubspotFetch(
+            token,
+            `/crm/v3/objects/tasks/${params.taskId}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({ properties: { hs_task_status: "COMPLETED" } }),
+            }
+          );
+          if (!completeResp.ok) {
+            const err = await completeResp.text();
+            return { success: false, error: `Complete task failed (${completeResp.status}): ${err}` };
+          }
+          return { success: true, result: await completeResp.json() };
+        }
+
+        case "log_activity": {
+          if (!params.type) {
+            return { success: false, error: "Missing required field: type" };
+          }
+          if (!params.body) {
+            return { success: false, error: "Missing required field: body" };
+          }
+
+          const actType = params.type as string;
+          const validTypes = ["call", "email", "meeting", "note"] as const;
+          if (!validTypes.includes(actType as any)) {
+            return { success: false, error: `Invalid activity type: ${actType}. Must be one of: call, email, meeting, note` };
+          }
+
+          const typeToEndpoint: Record<string, string> = {
+            call: "calls",
+            email: "emails",
+            meeting: "meetings",
+            note: "notes",
+          };
+          const typeToBodyProp: Record<string, string> = {
+            call: "hs_call_body",
+            email: "hs_email_text",
+            meeting: "hs_meeting_body",
+            note: "hs_note_body",
+          };
+          // Association type IDs: <type>_to_contact / <type>_to_deal
+          const typeToContactAssoc: Record<string, number> = {
+            call: 194,
+            email: 198,
+            meeting: 200,
+            note: 202,
+          };
+          const typeToDealAssoc: Record<string, number> = {
+            call: 206,
+            email: 210,
+            meeting: 212,
+            note: 214,
+          };
+
+          const endpoint = typeToEndpoint[actType];
+          const bodyProp = typeToBodyProp[actType];
+
+          const activityResp = await hubspotFetch(token, `/crm/v3/objects/${endpoint}`, {
+            method: "POST",
+            body: JSON.stringify({
+              properties: {
+                [bodyProp]: params.body as string,
+                hs_timestamp: Date.now().toString(),
+              },
+            }),
+          });
+          if (!activityResp.ok) {
+            const err = await activityResp.text();
+            return { success: false, error: `Log ${actType} failed (${activityResp.status}): ${err}` };
+          }
+          const activity = await activityResp.json();
+
+          // Associate with contacts
+          const actContactIds = params.associatedContactIds as string[] | undefined;
+          if (actContactIds?.length) {
+            await associateObjects(token, endpoint, activity.id, "contacts", actContactIds, typeToContactAssoc[actType]);
+          }
+
+          // Associate with deals
+          const actDealIds = params.associatedDealIds as string[] | undefined;
+          if (actDealIds?.length) {
+            await associateObjects(token, endpoint, activity.id, "deals", actDealIds, typeToDealAssoc[actType]);
+          }
+
+          return { success: true, result: activity };
+        }
+
+        case "add_note": {
+          if (!params.body) {
+            return { success: false, error: "Missing required field: body" };
+          }
+
+          const addNoteResp = await hubspotFetch(token, "/crm/v3/objects/notes", {
+            method: "POST",
+            body: JSON.stringify({
+              properties: {
+                hs_note_body: params.body as string,
+                hs_timestamp: Date.now().toString(),
+              },
+            }),
+          });
+          if (!addNoteResp.ok) {
+            const err = await addNoteResp.text();
+            return { success: false, error: `Add note failed (${addNoteResp.status}): ${err}` };
+          }
+          const addedNote = await addNoteResp.json();
+
+          // Associate with contacts
+          const noteContactIds = params.associatedContactIds as string[] | undefined;
+          if (noteContactIds?.length) {
+            await associateObjects(token, "notes", addedNote.id, "contacts", noteContactIds, 202);
+          }
+
+          // Associate with deals
+          const noteDealIds = params.associatedDealIds as string[] | undefined;
+          if (noteDealIds?.length) {
+            await associateObjects(token, "notes", addedNote.id, "deals", noteDealIds, 214);
+          }
+
+          return { success: true, result: addedNote };
+        }
+
+        case "create_ticket": {
+          if (!params.subject) {
+            return { success: false, error: "Missing required field: subject" };
+          }
+
+          const ticketProps: Record<string, unknown> = {
+            subject: params.subject,
+            ...(params.description ? { hs_ticket_description: params.description } : {}),
+            ...(params.priority ? { hs_ticket_priority: params.priority } : {}),
+            ...(params.pipeline ? { hs_pipeline: params.pipeline } : {}),
+            ...(params.stage ? { hs_pipeline_stage: params.stage } : {}),
+          };
+
+          const createTicketResp = await hubspotFetch(token, "/crm/v3/objects/tickets", {
+            method: "POST",
+            body: JSON.stringify({ properties: ticketProps }),
+          });
+          if (!createTicketResp.ok) {
+            const err = await createTicketResp.text();
+            return { success: false, error: `Create ticket failed (${createTicketResp.status}): ${err}` };
+          }
+          return { success: true, result: await createTicketResp.json() };
         }
 
         default:

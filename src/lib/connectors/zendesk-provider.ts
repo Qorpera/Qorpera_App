@@ -97,6 +97,54 @@ export const zendeskProvider: ConnectorProvider = {
       description: "Adds a private internal note to a Zendesk ticket",
       inputSchema: { type: "object", properties: { ticketId: { type: "string" }, body: { type: "string" } }, required: ["ticketId", "body"] },
     },
+    {
+      slug: "create_ticket",
+      name: "Create Ticket",
+      description: "Creates a new Zendesk support ticket",
+      inputSchema: { type: "object", properties: { subject: { type: "string" }, description: { type: "string" }, priority: { type: "string", enum: ["low", "normal", "high", "urgent"] }, type: { type: "string", enum: ["problem", "incident", "question", "task"] }, requesterId: { type: "string" }, assigneeId: { type: "string" }, tags: { type: "array", items: { type: "string" } } }, required: ["subject", "description"] },
+    },
+    {
+      slug: "assign_ticket",
+      name: "Assign Ticket",
+      description: "Assigns a Zendesk ticket to an agent",
+      inputSchema: { type: "object", properties: { ticketId: { type: "string" }, assigneeId: { type: "string" } }, required: ["ticketId", "assigneeId"] },
+    },
+    {
+      slug: "close_ticket",
+      name: "Close Ticket",
+      description: "Closes a solved Zendesk ticket",
+      inputSchema: { type: "object", properties: { ticketId: { type: "string" } }, required: ["ticketId"] },
+    },
+    {
+      slug: "set_ticket_priority",
+      name: "Set Ticket Priority",
+      description: "Sets the priority level of a Zendesk ticket",
+      inputSchema: { type: "object", properties: { ticketId: { type: "string" }, priority: { type: "string", enum: ["low", "normal", "high", "urgent"] } }, required: ["ticketId", "priority"] },
+    },
+    {
+      slug: "add_tags",
+      name: "Add Tags",
+      description: "Adds tags to a Zendesk ticket",
+      inputSchema: { type: "object", properties: { ticketId: { type: "string" }, tags: { type: "array", items: { type: "string" } } }, required: ["ticketId", "tags"] },
+    },
+    {
+      slug: "remove_tags",
+      name: "Remove Tags",
+      description: "Removes tags from a Zendesk ticket",
+      inputSchema: { type: "object", properties: { ticketId: { type: "string" }, tags: { type: "array", items: { type: "string" } } }, required: ["ticketId", "tags"] },
+    },
+    {
+      slug: "merge_tickets",
+      name: "Merge Tickets",
+      description: "Merges one or more source tickets into a target ticket",
+      inputSchema: { type: "object", properties: { targetTicketId: { type: "string" }, sourceTicketIds: { type: "array", items: { type: "string" } }, targetComment: { type: "string" }, sourceComment: { type: "string" } }, required: ["targetTicketId", "sourceTicketIds"] },
+    },
+    {
+      slug: "update_ticket_type",
+      name: "Update Ticket Type",
+      description: "Changes the type of a Zendesk ticket",
+      inputSchema: { type: "object", properties: { ticketId: { type: "string" }, type: { type: "string", enum: ["problem", "incident", "question", "task"] } }, required: ["ticketId", "type"] },
+    },
   ],
 
   async testConnection(config) {
@@ -244,6 +292,108 @@ export const zendeskProvider: ConnectorProvider = {
           return { success: true, result: result.data };
         }
 
+        case "create_ticket": {
+          if (!params.subject) return { success: false, error: "subject is required" };
+          if (!params.description) return { success: false, error: "description is required" };
+          const ticket: Record<string, unknown> = {
+            subject: params.subject,
+            comment: { body: params.description },
+          };
+          if (params.priority) ticket.priority = params.priority;
+          if (params.type) ticket.type = params.type;
+          if (params.requesterId) ticket.requester_id = params.requesterId;
+          if (params.assigneeId) ticket.assignee_id = params.assigneeId;
+          if (params.tags) ticket.tags = params.tags;
+          const result = await zendeskRequest(config, "POST", "/api/v2/tickets.json", { ticket });
+          if (!result.ok) return { success: false, error: `Create ticket failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "assign_ticket": {
+          if (!params.ticketId) return { success: false, error: "ticketId is required" };
+          if (!params.assigneeId) return { success: false, error: "assigneeId is required" };
+          const result = await zendeskRequest(config, "PUT", `/api/v2/tickets/${params.ticketId}.json`, {
+            ticket: { assignee_id: params.assigneeId },
+          });
+          if (!result.ok) return { success: false, error: `Assign ticket failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "close_ticket": {
+          if (!params.ticketId) return { success: false, error: "ticketId is required" };
+          // Zendesk only allows closing solved tickets — fetch current status first
+          const check = await zendeskRequest(config, "GET", `/api/v2/tickets/${params.ticketId}.json`);
+          if (!check.ok) return { success: false, error: `Failed to fetch ticket (${check.status}): ${check.error}` };
+          const currentStatus = check.data?.ticket?.status;
+          if (currentStatus !== "solved") {
+            return { success: false, error: `Cannot close ticket — current status is "${currentStatus}". Only solved tickets can be closed.` };
+          }
+          const result = await zendeskRequest(config, "PUT", `/api/v2/tickets/${params.ticketId}.json`, {
+            ticket: { status: "closed" },
+          });
+          if (!result.ok) return { success: false, error: `Close ticket failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "set_ticket_priority": {
+          if (!params.ticketId) return { success: false, error: "ticketId is required" };
+          const validPriorities = ["low", "normal", "high", "urgent"];
+          if (!validPriorities.includes(String(params.priority))) {
+            return { success: false, error: `Invalid priority "${params.priority}". Must be one of: ${validPriorities.join(", ")}` };
+          }
+          const result = await zendeskRequest(config, "PUT", `/api/v2/tickets/${params.ticketId}.json`, {
+            ticket: { priority: params.priority },
+          });
+          if (!result.ok) return { success: false, error: `Set priority failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "add_tags": {
+          if (!params.ticketId) return { success: false, error: "ticketId is required" };
+          if (!params.tags) return { success: false, error: "tags is required" };
+          const result = await zendeskRequest(config, "PUT", `/api/v2/tickets/${params.ticketId}/tags.json`, {
+            tags: params.tags,
+          });
+          if (!result.ok) return { success: false, error: `Add tags failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "remove_tags": {
+          if (!params.ticketId) return { success: false, error: "ticketId is required" };
+          if (!params.tags) return { success: false, error: "tags is required" };
+          const result = await zendeskRequest(config, "DELETE", `/api/v2/tickets/${params.ticketId}/tags.json`, {
+            tags: params.tags,
+          });
+          if (!result.ok) return { success: false, error: `Remove tags failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "merge_tickets": {
+          if (!params.targetTicketId) return { success: false, error: "targetTicketId is required" };
+          if (!params.sourceTicketIds) return { success: false, error: "sourceTicketIds is required" };
+          const body: Record<string, unknown> = {
+            ids: params.sourceTicketIds,
+          };
+          if (params.targetComment) body.target_comment = params.targetComment;
+          if (params.sourceComment) body.source_comment = params.sourceComment;
+          const result = await zendeskRequest(config, "POST", `/api/v2/tickets/${params.targetTicketId}/merge.json`, body);
+          if (!result.ok) return { success: false, error: `Merge tickets failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "update_ticket_type": {
+          if (!params.ticketId) return { success: false, error: "ticketId is required" };
+          const validTypes = ["problem", "incident", "question", "task"];
+          if (!validTypes.includes(String(params.type))) {
+            return { success: false, error: `Invalid type "${params.type}". Must be one of: ${validTypes.join(", ")}` };
+          }
+          const result = await zendeskRequest(config, "PUT", `/api/v2/tickets/${params.ticketId}.json`, {
+            ticket: { type: params.type },
+          });
+          if (!result.ok) return { success: false, error: `Update ticket type failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
         default:
           return { success: false, error: `Unknown action: ${action}` };
       }
@@ -271,6 +421,54 @@ export const zendeskProvider: ConnectorProvider = {
         description: "Add a private note to a Zendesk ticket",
         inputSchema: { ticketId: "string", body: "string" },
         sideEffects: ["Internal note added to ticket"],
+      },
+      {
+        name: "create_ticket",
+        description: "Create a new Zendesk support ticket",
+        inputSchema: { subject: "string", description: "string", priority: "string?", type: "string?", requesterId: "string?", assigneeId: "string?", tags: "string[]?" },
+        sideEffects: ["New ticket created in Zendesk"],
+      },
+      {
+        name: "assign_ticket",
+        description: "Assign a Zendesk ticket to an agent",
+        inputSchema: { ticketId: "string", assigneeId: "string" },
+        sideEffects: ["Ticket assignee changed in Zendesk"],
+      },
+      {
+        name: "close_ticket",
+        description: "Close a solved Zendesk ticket",
+        inputSchema: { ticketId: "string" },
+        sideEffects: ["Ticket closed in Zendesk"],
+      },
+      {
+        name: "set_ticket_priority",
+        description: "Set the priority of a Zendesk ticket",
+        inputSchema: { ticketId: "string", priority: "string" },
+        sideEffects: ["Ticket priority changed in Zendesk"],
+      },
+      {
+        name: "add_tags",
+        description: "Add tags to a Zendesk ticket",
+        inputSchema: { ticketId: "string", tags: "string[]" },
+        sideEffects: ["Tags added to ticket in Zendesk"],
+      },
+      {
+        name: "remove_tags",
+        description: "Remove tags from a Zendesk ticket",
+        inputSchema: { ticketId: "string", tags: "string[]" },
+        sideEffects: ["Tags removed from ticket in Zendesk"],
+      },
+      {
+        name: "merge_tickets",
+        description: "Merge source tickets into a target ticket",
+        inputSchema: { targetTicketId: "string", sourceTicketIds: "string[]", targetComment: "string?", sourceComment: "string?" },
+        sideEffects: ["Source tickets merged into target ticket in Zendesk"],
+      },
+      {
+        name: "update_ticket_type",
+        description: "Change the type of a Zendesk ticket",
+        inputSchema: { ticketId: "string", type: "string" },
+        sideEffects: ["Ticket type changed in Zendesk"],
       },
     ];
   },

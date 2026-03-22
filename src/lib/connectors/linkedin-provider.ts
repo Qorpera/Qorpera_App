@@ -127,8 +127,72 @@ export const linkedinProvider: ConnectorProvider = {
     }
   },
 
+  writeCapabilities: [
+    { slug: "create_post", name: "Create Post", description: "Publish a post to a LinkedIn organization page", inputSchema: { type: "object", properties: { text: { type: "string" }, visibility: { type: "string", enum: ["PUBLIC", "CONNECTIONS"] } }, required: ["text", "visibility"] } },
+    { slug: "delete_post", name: "Delete Post", description: "Delete a post from LinkedIn", inputSchema: { type: "object", properties: { postId: { type: "string" } }, required: ["postId"] } },
+  ],
+
+  async executeAction(config, actionId, params) {
+    try {
+      const orgId = config.organization_id as string;
+
+      switch (actionId) {
+        case "create_post": {
+          if (!params.text) return { success: false, error: "text is required" };
+          if (!params.visibility) return { success: false, error: "visibility is required" };
+          if (!orgId) return { success: false, error: "organization_id not configured" };
+
+          const resp = await linkedinFetch(config, "rest/posts", {
+            method: "POST",
+            headers: { "LinkedIn-Version": "202401" },
+            body: JSON.stringify({
+              author: `urn:li:organization:${orgId}`,
+              commentary: params.text,
+              visibility: params.visibility,
+              distribution: { feedDistribution: "MAIN_FEED", targetEntities: [], thirdPartyDistributionChannels: [] },
+              lifecycleState: "PUBLISHED",
+            }),
+          });
+
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Create post failed (${resp.status}): ${err}` };
+          }
+
+          // LinkedIn returns 201 with x-restli-id header for the post ID
+          const postId = resp.headers.get("x-restli-id") || "";
+          return { success: true, result: { postId, visibility: params.visibility } };
+        }
+
+        case "delete_post": {
+          if (!params.postId) return { success: false, error: "postId is required" };
+
+          const resp = await linkedinFetch(config, `rest/posts/${encodeURIComponent(params.postId as string)}`, {
+            method: "DELETE",
+            headers: { "LinkedIn-Version": "202401" },
+          });
+
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Delete post failed (${resp.status}): ${err}` };
+          }
+
+          return { success: true, result: { postId: params.postId, deleted: true } };
+        }
+
+        default:
+          return { success: false, error: `Unknown action: ${actionId}` };
+      }
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  },
+
   async getCapabilities(_config): Promise<ConnectorCapability[]> {
-    return [];
+    return [
+      { name: "create_post", description: "Publish a post to a LinkedIn organization page", inputSchema: { text: { type: "string", required: true }, visibility: { type: "string", required: true } }, sideEffects: ["Post published on LinkedIn page"] },
+      { name: "delete_post", description: "Delete a LinkedIn post", inputSchema: { postId: { type: "string", required: true } }, sideEffects: ["Post removed from LinkedIn"] },
+    ];
   },
 
   async inferSchema(_config): Promise<InferredSchema[]> {

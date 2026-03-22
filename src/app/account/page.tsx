@@ -626,7 +626,9 @@ function NotificationPreferences() {
         if (res.ok) {
           const data = await res.json();
           const map: Record<string, string> = {};
-          for (const p of data) map[p.notificationType] = p.channel;
+          if (Array.isArray(data)) {
+            for (const p of data) map[p.notificationType] = p.channel;
+          }
           setPrefs(map);
         }
       })

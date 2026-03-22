@@ -505,6 +505,346 @@ async function reactToMessage(
   return { success: true, result: { ok: true } };
 }
 
+// ── New write-back helpers ───────────────────────────────────
+
+async function replyInThread(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  const threadTs = params.threadTs as string;
+  let text = params.text as string;
+  const isAiGenerated = params.isAiGenerated as boolean | undefined;
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!threadTs) return { success: false, error: "threadTs is required" };
+  if (!text) return { success: false, error: "text is required" };
+
+  if (isAiGenerated) {
+    text = `🤖 [AI] ${text}`;
+  }
+
+  const resp = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ channel: channelId, text, thread_ts: threadTs }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack chat.postMessage (thread) failed: ${data.error}` };
+  }
+
+  return { success: true, result: { ts: data.ts, channel: data.channel, thread_ts: threadTs } };
+}
+
+async function pinMessage(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  const messageTs = params.messageTs as string;
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!messageTs) return { success: false, error: "messageTs is required" };
+
+  const resp = await fetch("https://slack.com/api/pins.add", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ channel: channelId, timestamp: messageTs }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack pins.add failed: ${data.error}` };
+  }
+
+  return { success: true, result: { ok: true } };
+}
+
+async function unpinMessage(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  const messageTs = params.messageTs as string;
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!messageTs) return { success: false, error: "messageTs is required" };
+
+  const resp = await fetch("https://slack.com/api/pins.remove", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ channel: channelId, timestamp: messageTs }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack pins.remove failed: ${data.error}` };
+  }
+
+  return { success: true, result: { ok: true } };
+}
+
+async function setChannelTopic(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  let topic = params.topic as string;
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!topic) return { success: false, error: "topic is required" };
+
+  topic = topic.slice(0, 250);
+
+  const resp = await fetch("https://slack.com/api/conversations.setTopic", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ channel: channelId, topic }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack conversations.setTopic failed: ${data.error}` };
+  }
+
+  return { success: true, result: { topic: (data.channel as Record<string, unknown>)?.topic } };
+}
+
+async function setChannelPurpose(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  let purpose = params.purpose as string;
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!purpose) return { success: false, error: "purpose is required" };
+
+  purpose = purpose.slice(0, 250);
+
+  const resp = await fetch("https://slack.com/api/conversations.setPurpose", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ channel: channelId, purpose }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack conversations.setPurpose failed: ${data.error}` };
+  }
+
+  return { success: true, result: { purpose: (data.channel as Record<string, unknown>)?.purpose } };
+}
+
+async function createChannel(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  let name = params.name as string;
+  const isPrivate = (params.isPrivate as boolean) || false;
+
+  if (!name) return { success: false, error: "name is required" };
+
+  // Sanitize: lowercase, replace spaces with hyphens, truncate to 80 chars
+  name = name.toLowerCase().replace(/\s+/g, "-").slice(0, 80);
+
+  const resp = await fetch("https://slack.com/api/conversations.create", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name, is_private: isPrivate }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack conversations.create failed: ${data.error}` };
+  }
+
+  const ch = data.channel as Record<string, unknown>;
+  return { success: true, result: { id: ch?.id, name: ch?.name } };
+}
+
+async function inviteToChannel(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  const userIds = params.userIds as string[];
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+    return { success: false, error: "userIds (string[]) is required" };
+  }
+
+  const resp = await fetch("https://slack.com/api/conversations.invite", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ channel: channelId, users: userIds.join(",") }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack conversations.invite failed: ${data.error}` };
+  }
+
+  return { success: true, result: { channel: (data.channel as Record<string, unknown>)?.id } };
+}
+
+async function addReaction(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  const messageTs = params.messageTs as string;
+  let emoji = params.emoji as string;
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!messageTs) return { success: false, error: "messageTs is required" };
+  if (!emoji) return { success: false, error: "emoji is required" };
+
+  emoji = emoji.replace(/:/g, "");
+
+  const resp = await fetch("https://slack.com/api/reactions.add", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ channel: channelId, timestamp: messageTs, name: emoji }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack reactions.add failed: ${data.error}` };
+  }
+
+  return { success: true, result: { ok: true } };
+}
+
+async function removeReaction(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  const messageTs = params.messageTs as string;
+  let emoji = params.emoji as string;
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!messageTs) return { success: false, error: "messageTs is required" };
+  if (!emoji) return { success: false, error: "emoji is required" };
+
+  emoji = emoji.replace(/:/g, "");
+
+  const resp = await fetch("https://slack.com/api/reactions.remove", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ channel: channelId, timestamp: messageTs, name: emoji }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack reactions.remove failed: ${data.error}` };
+  }
+
+  return { success: true, result: { ok: true } };
+}
+
+async function uploadFile(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const channelId = params.channelId as string;
+  const filename = params.filename as string;
+  const content = params.content as string; // base64-encoded
+  const title = params.title as string | undefined;
+  const comment = params.comment as string | undefined;
+
+  if (!channelId) return { success: false, error: "channelId is required" };
+  if (!filename) return { success: false, error: "filename is required" };
+  if (!content) return { success: false, error: "content (base64) is required" };
+
+  const fileBuffer = Buffer.from(content, "base64");
+
+  // 10 MB limit
+  if (fileBuffer.length > 10 * 1024 * 1024) {
+    return { success: false, error: "File exceeds 10 MB limit" };
+  }
+
+  const formData = new FormData();
+  formData.append("channels", channelId);
+  formData.append("filename", filename);
+  formData.append("file", new Blob([fileBuffer]), filename);
+  if (title) formData.append("title", title);
+  if (comment) formData.append("initial_comment", comment);
+
+  const resp = await fetch("https://slack.com/api/files.upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${botToken}` },
+    body: formData,
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack files.upload failed: ${data.error}` };
+  }
+
+  const file = data.file as Record<string, unknown>;
+  return { success: true, result: { id: file?.id, name: file?.name } };
+}
+
+async function setReminder(
+  botToken: string,
+  params: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const text = params.text as string;
+  const time = params.time as string;
+
+  if (!text) return { success: false, error: "text is required" };
+  if (!time) return { success: false, error: "time is required" };
+
+  const resp = await fetch("https://slack.com/api/reminders.add", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text, time }),
+  });
+
+  const data = await resp.json();
+  if (!data.ok) {
+    return { success: false, error: `Slack reminders.add failed: ${data.error}` };
+  }
+
+  const reminder = data.reminder as Record<string, unknown>;
+  return { success: true, result: { id: reminder?.id, text: reminder?.text } };
+}
+
 // ── Provider ────────────────────────────────────────────────
 
 export const slackProvider: ConnectorProvider = {
@@ -546,6 +886,28 @@ export const slackProvider: ConnectorProvider = {
         return await sendSlackMessage(botToken, params);
       case "react_to_message":
         return await reactToMessage(botToken, params);
+      case "reply_in_thread":
+        return await replyInThread(botToken, params);
+      case "pin_message":
+        return await pinMessage(botToken, params);
+      case "unpin_message":
+        return await unpinMessage(botToken, params);
+      case "set_channel_topic":
+        return await setChannelTopic(botToken, params);
+      case "set_channel_purpose":
+        return await setChannelPurpose(botToken, params);
+      case "create_channel":
+        return await createChannel(botToken, params);
+      case "invite_to_channel":
+        return await inviteToChannel(botToken, params);
+      case "add_reaction":
+        return await addReaction(botToken, params);
+      case "remove_reaction":
+        return await removeReaction(botToken, params);
+      case "upload_file":
+        return await uploadFile(botToken, params);
+      case "set_reminder":
+        return await setReminder(botToken, params);
       default:
         return { success: false, error: `Unknown action: ${actionId}` };
     }
@@ -572,8 +934,128 @@ export const slackProvider: ConnectorProvider = {
         },
         sideEffects: ["Adds a reaction to a Slack message"],
       },
+      {
+        name: "reply_in_thread",
+        description: "Reply to a message thread in a Slack channel",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          threadTs: { type: "string", required: true, description: "Thread parent message timestamp" },
+          text: { type: "string", required: true, description: "Reply text" },
+          isAiGenerated: { type: "boolean", required: false, description: "If true, prepends AI disclosure" },
+        },
+        sideEffects: ["Posts a threaded reply in a Slack channel"],
+      },
+      {
+        name: "pin_message",
+        description: "Pin a message in a Slack channel",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          messageTs: { type: "string", required: true, description: "Message timestamp to pin" },
+        },
+        sideEffects: ["Pins a message in a Slack channel"],
+      },
+      {
+        name: "unpin_message",
+        description: "Unpin a message in a Slack channel",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          messageTs: { type: "string", required: true, description: "Message timestamp to unpin" },
+        },
+        sideEffects: ["Unpins a message in a Slack channel"],
+      },
+      {
+        name: "set_channel_topic",
+        description: "Set the topic of a Slack channel",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          topic: { type: "string", required: true, description: "Channel topic (max 250 chars)" },
+        },
+        sideEffects: ["Changes the topic of a Slack channel"],
+      },
+      {
+        name: "set_channel_purpose",
+        description: "Set the purpose of a Slack channel",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          purpose: { type: "string", required: true, description: "Channel purpose (max 250 chars)" },
+        },
+        sideEffects: ["Changes the purpose of a Slack channel"],
+      },
+      {
+        name: "create_channel",
+        description: "Create a new Slack channel",
+        inputSchema: {
+          name: { type: "string", required: true, description: "Channel name (auto-sanitized)" },
+          isPrivate: { type: "boolean", required: false, description: "Create as private channel (default false)" },
+        },
+        sideEffects: ["Creates a new Slack channel in the workspace"],
+      },
+      {
+        name: "invite_to_channel",
+        description: "Invite users to a Slack channel",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          userIds: { type: "array", required: true, description: "Array of user IDs to invite" },
+        },
+        sideEffects: ["Invites users to a Slack channel"],
+      },
+      {
+        name: "add_reaction",
+        description: "Add an emoji reaction to a Slack message",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          messageTs: { type: "string", required: true, description: "Message timestamp" },
+          emoji: { type: "string", required: true, description: "Emoji name (colons stripped automatically)" },
+        },
+        sideEffects: ["Adds a reaction to a Slack message"],
+      },
+      {
+        name: "remove_reaction",
+        description: "Remove an emoji reaction from a Slack message",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          messageTs: { type: "string", required: true, description: "Message timestamp" },
+          emoji: { type: "string", required: true, description: "Emoji name (colons stripped automatically)" },
+        },
+        sideEffects: ["Removes a reaction from a Slack message"],
+      },
+      {
+        name: "upload_file",
+        description: "Upload a file to a Slack channel",
+        inputSchema: {
+          channelId: { type: "string", required: true, description: "Channel ID" },
+          filename: { type: "string", required: true, description: "File name" },
+          content: { type: "string", required: true, description: "Base64-encoded file content (max 10 MB)" },
+          title: { type: "string", required: false, description: "File title" },
+          comment: { type: "string", required: false, description: "Initial comment with the file" },
+        },
+        sideEffects: ["Uploads a file to a Slack channel"],
+      },
+      {
+        name: "set_reminder",
+        description: "Set a Slack reminder",
+        inputSchema: {
+          text: { type: "string", required: true, description: "Reminder text" },
+          time: { type: "string", required: true, description: "Unix timestamp or natural language time" },
+        },
+        sideEffects: ["Creates a Slack reminder"],
+      },
     ];
   },
+
+  writeCapabilities: [
+    { slug: "reply_in_thread", name: "Reply in Thread", description: "Reply to a message thread in a Slack channel", inputSchema: { type: "object", properties: { channelId: { type: "string" }, threadTs: { type: "string" }, text: { type: "string" }, isAiGenerated: { type: "boolean" } }, required: ["channelId", "threadTs", "text"] } },
+    { slug: "pin_message", name: "Pin Message", description: "Pin a message in a Slack channel", inputSchema: { type: "object", properties: { channelId: { type: "string" }, messageTs: { type: "string" } }, required: ["channelId", "messageTs"] } },
+    { slug: "unpin_message", name: "Unpin Message", description: "Unpin a message in a Slack channel", inputSchema: { type: "object", properties: { channelId: { type: "string" }, messageTs: { type: "string" } }, required: ["channelId", "messageTs"] } },
+    { slug: "set_channel_topic", name: "Set Channel Topic", description: "Set the topic of a Slack channel", inputSchema: { type: "object", properties: { channelId: { type: "string" }, topic: { type: "string" } }, required: ["channelId", "topic"] } },
+    { slug: "set_channel_purpose", name: "Set Channel Purpose", description: "Set the purpose of a Slack channel", inputSchema: { type: "object", properties: { channelId: { type: "string" }, purpose: { type: "string" } }, required: ["channelId", "purpose"] } },
+    { slug: "create_channel", name: "Create Channel", description: "Create a new Slack channel", inputSchema: { type: "object", properties: { name: { type: "string" }, isPrivate: { type: "boolean" } }, required: ["name"] } },
+    { slug: "invite_to_channel", name: "Invite to Channel", description: "Invite users to a Slack channel", inputSchema: { type: "object", properties: { channelId: { type: "string" }, userIds: { type: "array", items: { type: "string" } } }, required: ["channelId", "userIds"] } },
+    { slug: "add_reaction", name: "Add Reaction", description: "Add an emoji reaction to a Slack message", inputSchema: { type: "object", properties: { channelId: { type: "string" }, messageTs: { type: "string" }, emoji: { type: "string" } }, required: ["channelId", "messageTs", "emoji"] } },
+    { slug: "remove_reaction", name: "Remove Reaction", description: "Remove an emoji reaction from a Slack message", inputSchema: { type: "object", properties: { channelId: { type: "string" }, messageTs: { type: "string" }, emoji: { type: "string" } }, required: ["channelId", "messageTs", "emoji"] } },
+    { slug: "upload_file", name: "Upload File", description: "Upload a file to a Slack channel", inputSchema: { type: "object", properties: { channelId: { type: "string" }, filename: { type: "string" }, content: { type: "string" }, title: { type: "string" }, comment: { type: "string" } }, required: ["channelId", "filename", "content"] } },
+    { slug: "set_reminder", name: "Set Reminder", description: "Set a Slack reminder", inputSchema: { type: "object", properties: { text: { type: "string" }, time: { type: "string" } }, required: ["text", "time"] } },
+  ],
 
   async inferSchema() {
     return [];

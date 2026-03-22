@@ -151,8 +151,109 @@ export const metaAdsProvider: ConnectorProvider = {
     }
   },
 
+  writeCapabilities: [
+    { slug: "pause_campaign", name: "Pause Campaign", description: "Pause a Meta Ads campaign", inputSchema: { type: "object", properties: { campaignId: { type: "string" } }, required: ["campaignId"] } },
+    { slug: "enable_campaign", name: "Enable Campaign", description: "Enable a paused Meta Ads campaign", inputSchema: { type: "object", properties: { campaignId: { type: "string" } }, required: ["campaignId"] } },
+    { slug: "update_campaign_budget", name: "Update Campaign Budget", description: "Update a Meta Ads campaign's budget", inputSchema: { type: "object", properties: { campaignId: { type: "string" }, dailyBudget: { type: "number" }, lifetimeBudget: { type: "number" } }, required: ["campaignId"] } },
+    { slug: "pause_ad_set", name: "Pause Ad Set", description: "Pause a Meta Ads ad set", inputSchema: { type: "object", properties: { adSetId: { type: "string" } }, required: ["adSetId"] } },
+    { slug: "enable_ad_set", name: "Enable Ad Set", description: "Enable a paused Meta Ads ad set", inputSchema: { type: "object", properties: { adSetId: { type: "string" } }, required: ["adSetId"] } },
+    { slug: "update_ad_set_budget", name: "Update Ad Set Budget", description: "Update a Meta Ads ad set's budget", inputSchema: { type: "object", properties: { adSetId: { type: "string" }, dailyBudget: { type: "number" }, lifetimeBudget: { type: "number" } }, required: ["adSetId"] } },
+  ],
+
+  async executeAction(config, actionId, params) {
+    try {
+      const accessToken = config.access_token as string;
+
+      switch (actionId) {
+        case "pause_campaign":
+        case "enable_campaign": {
+          if (!params.campaignId) return { success: false, error: "campaignId is required" };
+          const status = actionId === "pause_campaign" ? "PAUSED" : "ACTIVE";
+          const resp = await fetch(`${META_API}/${params.campaignId}?access_token=${accessToken}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status }),
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `${actionId} failed (${resp.status}): ${err}` };
+          }
+          return { success: true, result: { campaignId: params.campaignId, status } };
+        }
+
+        case "update_campaign_budget": {
+          if (!params.campaignId) return { success: false, error: "campaignId is required" };
+          const budgetBody: Record<string, unknown> = {};
+          if (params.dailyBudget != null) budgetBody.daily_budget = params.dailyBudget;
+          if (params.lifetimeBudget != null) budgetBody.lifetime_budget = params.lifetimeBudget;
+          if (Object.keys(budgetBody).length === 0) {
+            return { success: false, error: "At least one of dailyBudget or lifetimeBudget is required" };
+          }
+          const resp = await fetch(`${META_API}/${params.campaignId}?access_token=${accessToken}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(budgetBody),
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Update campaign budget failed (${resp.status}): ${err}` };
+          }
+          return { success: true, result: { campaignId: params.campaignId, ...budgetBody } };
+        }
+
+        case "pause_ad_set":
+        case "enable_ad_set": {
+          if (!params.adSetId) return { success: false, error: "adSetId is required" };
+          const adSetStatus = actionId === "pause_ad_set" ? "PAUSED" : "ACTIVE";
+          const resp = await fetch(`${META_API}/${params.adSetId}?access_token=${accessToken}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: adSetStatus }),
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `${actionId} failed (${resp.status}): ${err}` };
+          }
+          return { success: true, result: { adSetId: params.adSetId, status: adSetStatus } };
+        }
+
+        case "update_ad_set_budget": {
+          if (!params.adSetId) return { success: false, error: "adSetId is required" };
+          const asBudgetBody: Record<string, unknown> = {};
+          if (params.dailyBudget != null) asBudgetBody.daily_budget = params.dailyBudget;
+          if (params.lifetimeBudget != null) asBudgetBody.lifetime_budget = params.lifetimeBudget;
+          if (Object.keys(asBudgetBody).length === 0) {
+            return { success: false, error: "At least one of dailyBudget or lifetimeBudget is required" };
+          }
+          const resp = await fetch(`${META_API}/${params.adSetId}?access_token=${accessToken}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(asBudgetBody),
+          });
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Update ad set budget failed (${resp.status}): ${err}` };
+          }
+          return { success: true, result: { adSetId: params.adSetId, ...asBudgetBody } };
+        }
+
+        default:
+          return { success: false, error: `Unknown action: ${actionId}` };
+      }
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  },
+
   async getCapabilities(_config): Promise<ConnectorCapability[]> {
-    return [];
+    return [
+      { name: "pause_campaign", description: "Pause a Meta Ads campaign", inputSchema: { campaignId: { type: "string", required: true } }, sideEffects: ["Campaign paused in Meta Ads"] },
+      { name: "enable_campaign", description: "Enable a paused Meta Ads campaign", inputSchema: { campaignId: { type: "string", required: true } }, sideEffects: ["Campaign enabled in Meta Ads"] },
+      { name: "update_campaign_budget", description: "Update a campaign's budget", inputSchema: { campaignId: { type: "string", required: true }, dailyBudget: { type: "number" }, lifetimeBudget: { type: "number" } }, sideEffects: ["Campaign budget updated"] },
+      { name: "pause_ad_set", description: "Pause a Meta Ads ad set", inputSchema: { adSetId: { type: "string", required: true } }, sideEffects: ["Ad set paused"] },
+      { name: "enable_ad_set", description: "Enable a paused ad set", inputSchema: { adSetId: { type: "string", required: true } }, sideEffects: ["Ad set enabled"] },
+      { name: "update_ad_set_budget", description: "Update an ad set's budget", inputSchema: { adSetId: { type: "string", required: true }, dailyBudget: { type: "number" }, lifetimeBudget: { type: "number" } }, sideEffects: ["Ad set budget updated"] },
+    ];
   },
 
   async inferSchema(config): Promise<InferredSchema[]> {

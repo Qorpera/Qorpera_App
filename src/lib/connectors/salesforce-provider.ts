@@ -125,6 +125,42 @@ export const salesforceProvider: ConnectorProvider = {
       description: "Logs a completed activity (call, email, meeting) in Salesforce",
       inputSchema: { type: "object", properties: { subject: { type: "string" }, description: { type: "string" }, type: { type: "string" }, whoId: { type: "string" }, whatId: { type: "string" } }, required: ["subject", "description", "type"] },
     },
+    {
+      slug: "create_contact",
+      name: "Create Contact",
+      description: "Creates a new contact in Salesforce",
+      inputSchema: { type: "object", properties: { firstName: { type: "string" }, lastName: { type: "string" }, email: { type: "string" }, phone: { type: "string" }, accountId: { type: "string" } }, required: ["firstName", "lastName"] },
+    },
+    {
+      slug: "create_opportunity",
+      name: "Create Opportunity",
+      description: "Creates a new opportunity in Salesforce",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, stageName: { type: "string" }, closeDate: { type: "string" }, amount: { type: "number" }, accountId: { type: "string" } }, required: ["name", "stageName", "closeDate"] },
+    },
+    {
+      slug: "create_case",
+      name: "Create Case",
+      description: "Creates a new support case in Salesforce",
+      inputSchema: { type: "object", properties: { subject: { type: "string" }, description: { type: "string" }, contactId: { type: "string" }, accountId: { type: "string" }, priority: { type: "string" }, origin: { type: "string" } }, required: ["subject"] },
+    },
+    {
+      slug: "close_case",
+      name: "Close Case",
+      description: "Closes an existing case in Salesforce",
+      inputSchema: { type: "object", properties: { caseId: { type: "string" }, status: { type: "string" }, resolution: { type: "string" } }, required: ["caseId"] },
+    },
+    {
+      slug: "complete_task",
+      name: "Complete Task",
+      description: "Marks a task as completed in Salesforce",
+      inputSchema: { type: "object", properties: { taskId: { type: "string" } }, required: ["taskId"] },
+    },
+    {
+      slug: "send_email_via_salesforce",
+      name: "Send Email via Salesforce",
+      description: "Sends an email through Salesforce to a contact or lead",
+      inputSchema: { type: "object", properties: { targetObjectId: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, isAiGenerated: { type: "boolean" } }, required: ["targetObjectId", "subject", "body"] },
+    },
   ],
 
   async testConnection(config) {
@@ -313,6 +349,119 @@ export const salesforceProvider: ConnectorProvider = {
           return { success: true, result: result.data };
         }
 
+        case "create_contact": {
+          if (!params.firstName) return { success: false, error: "firstName is required" };
+          if (!params.lastName) return { success: false, error: "lastName is required" };
+          const contactBody: Record<string, unknown> = {
+            FirstName: params.firstName,
+            LastName: params.lastName,
+          };
+          if (params.email) contactBody.Email = params.email;
+          if (params.phone) contactBody.Phone = params.phone;
+          if (params.accountId) contactBody.AccountId = params.accountId;
+
+          const result = await salesforceRequest(
+            config, "POST",
+            "/services/data/v59.0/sobjects/Contact",
+            contactBody,
+          );
+          if (!result.ok) return { success: false, error: `Create contact failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "create_opportunity": {
+          if (!params.name) return { success: false, error: "name is required" };
+          if (!params.stageName) return { success: false, error: "stageName is required" };
+          if (!params.closeDate) return { success: false, error: "closeDate is required" };
+          const oppBody: Record<string, unknown> = {
+            Name: params.name,
+            StageName: params.stageName,
+            CloseDate: params.closeDate,
+          };
+          if (params.amount != null) oppBody.Amount = params.amount;
+          if (params.accountId) oppBody.AccountId = params.accountId;
+
+          const result = await salesforceRequest(
+            config, "POST",
+            "/services/data/v59.0/sobjects/Opportunity",
+            oppBody,
+          );
+          if (!result.ok) return { success: false, error: `Create opportunity failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "create_case": {
+          if (!params.subject) return { success: false, error: "subject is required" };
+          const caseBody: Record<string, unknown> = {
+            Subject: params.subject,
+          };
+          if (params.description) caseBody.Description = params.description;
+          if (params.contactId) caseBody.ContactId = params.contactId;
+          if (params.accountId) caseBody.AccountId = params.accountId;
+          if (params.priority) caseBody.Priority = params.priority;
+          if (params.origin) caseBody.Origin = params.origin;
+
+          const result = await salesforceRequest(
+            config, "POST",
+            "/services/data/v59.0/sobjects/Case",
+            caseBody,
+          );
+          if (!result.ok) return { success: false, error: `Create case failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
+        case "close_case": {
+          if (!params.caseId) return { success: false, error: "caseId is required" };
+          const closeBody: Record<string, unknown> = {
+            Status: params.status || "Closed",
+          };
+          if (params.resolution) closeBody.Description = params.resolution;
+
+          const result = await salesforceRequest(
+            config, "PATCH",
+            `/services/data/v59.0/sobjects/Case/${params.caseId}`,
+            closeBody,
+          );
+          if (!result.ok) return { success: false, error: `Close case failed (${result.status}): ${result.error}` };
+          return { success: true, result: { caseId: params.caseId } };
+        }
+
+        case "complete_task": {
+          if (!params.taskId) return { success: false, error: "taskId is required" };
+          const result = await salesforceRequest(
+            config, "PATCH",
+            `/services/data/v59.0/sobjects/Task/${params.taskId}`,
+            { Status: "Completed" },
+          );
+          if (!result.ok) return { success: false, error: `Complete task failed (${result.status}): ${result.error}` };
+          return { success: true, result: { taskId: params.taskId } };
+        }
+
+        case "send_email_via_salesforce": {
+          if (!params.targetObjectId) return { success: false, error: "targetObjectId is required" };
+          if (!params.subject) return { success: false, error: "subject is required" };
+          if (!params.body) return { success: false, error: "body is required" };
+          let emailBody = params.body as string;
+          if (params.isAiGenerated) {
+            const org = (params._operatorName as string) || "the organization";
+            emailBody += `\n\n---\nThis message was drafted with AI assistance by ${org}'s operational AI (Qorpera).`;
+          }
+
+          const result = await salesforceRequest(
+            config, "POST",
+            "/services/data/v59.0/actions/standard/emailSimple",
+            {
+              inputs: [{
+                emailSubject: params.subject,
+                emailBody,
+                targetObjectId: params.targetObjectId,
+              }],
+            },
+          );
+          if (!result.ok) return { success: false, error: `Send email failed (${result.status}): ${result.error}` };
+          return { success: true, result: result.data };
+        }
+
         default:
           return { success: false, error: `Unknown action: ${action}` };
       }
@@ -346,6 +495,42 @@ export const salesforceProvider: ConnectorProvider = {
         description: "Log a completed activity in Salesforce",
         inputSchema: { subject: "string", description: "string", type: "string" },
         sideEffects: ["Activity logged in Salesforce"],
+      },
+      {
+        name: "create_contact",
+        description: "Create a new contact in Salesforce",
+        inputSchema: { firstName: "string", lastName: "string", email: "string?", phone: "string?", accountId: "string?" },
+        sideEffects: ["Contact created in Salesforce"],
+      },
+      {
+        name: "create_opportunity",
+        description: "Create a new opportunity in Salesforce",
+        inputSchema: { name: "string", stageName: "string", closeDate: "string", amount: "number?", accountId: "string?" },
+        sideEffects: ["Opportunity created in Salesforce"],
+      },
+      {
+        name: "create_case",
+        description: "Create a new support case in Salesforce",
+        inputSchema: { subject: "string", description: "string?", contactId: "string?", accountId: "string?", priority: "string?", origin: "string?" },
+        sideEffects: ["Case created in Salesforce"],
+      },
+      {
+        name: "close_case",
+        description: "Close an existing case in Salesforce",
+        inputSchema: { caseId: "string", status: "string?", resolution: "string?" },
+        sideEffects: ["Case closed in Salesforce"],
+      },
+      {
+        name: "complete_task",
+        description: "Mark a task as completed in Salesforce",
+        inputSchema: { taskId: "string" },
+        sideEffects: ["Task marked as completed in Salesforce"],
+      },
+      {
+        name: "send_email_via_salesforce",
+        description: "Send an email through Salesforce to a contact or lead",
+        inputSchema: { targetObjectId: "string", subject: "string", body: "string", isAiGenerated: "boolean?" },
+        sideEffects: ["Email sent via Salesforce"],
       },
     ];
   },

@@ -187,8 +187,129 @@ export const googleAdsProvider: ConnectorProvider = {
     }
   },
 
+  writeCapabilities: [
+    { slug: "pause_campaign", name: "Pause Campaign", description: "Pause a Google Ads campaign", inputSchema: { type: "object", properties: { campaignId: { type: "string" } }, required: ["campaignId"] } },
+    { slug: "enable_campaign", name: "Enable Campaign", description: "Enable a paused Google Ads campaign", inputSchema: { type: "object", properties: { campaignId: { type: "string" } }, required: ["campaignId"] } },
+    { slug: "update_campaign_budget", name: "Update Campaign Budget", description: "Update the daily budget of a Google Ads campaign budget", inputSchema: { type: "object", properties: { campaignBudgetId: { type: "string" }, newDailyBudgetMicros: { type: "number" } }, required: ["campaignBudgetId", "newDailyBudgetMicros"] } },
+    { slug: "pause_ad_group", name: "Pause Ad Group", description: "Pause a Google Ads ad group", inputSchema: { type: "object", properties: { adGroupId: { type: "string" } }, required: ["adGroupId"] } },
+    { slug: "enable_ad_group", name: "Enable Ad Group", description: "Enable a paused Google Ads ad group", inputSchema: { type: "object", properties: { adGroupId: { type: "string" } }, required: ["adGroupId"] } },
+    { slug: "update_keyword_bid", name: "Update Keyword Bid", description: "Update the CPC bid for a keyword", inputSchema: { type: "object", properties: { adGroupCriterionId: { type: "string" }, newBidMicros: { type: "number" } }, required: ["adGroupCriterionId", "newBidMicros"] } },
+  ],
+
+  async executeAction(config, actionId, params) {
+    try {
+      const accessToken = await getValidAccessToken(config);
+      const customerId = config.customer_id as string;
+      if (!customerId) return { success: false, error: "No customer_id in config" };
+
+      switch (actionId) {
+        case "pause_campaign":
+        case "enable_campaign": {
+          if (!params.campaignId) return { success: false, error: "campaignId is required" };
+          const status = actionId === "pause_campaign" ? "PAUSED" : "ENABLED";
+          const resourceName = `customers/${customerId}/campaigns/${params.campaignId}`;
+          const resp = await fetch(
+            `${ADS_API}/customers/${customerId}/campaigns:mutate`,
+            {
+              method: "POST",
+              headers: getAdsHeaders(accessToken),
+              body: JSON.stringify({
+                operations: [{ update: { resourceName, status }, updateMask: "status" }],
+              }),
+            }
+          );
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `${actionId} failed (${resp.status}): ${err}` };
+          }
+          return { success: true, result: { campaignId: params.campaignId, status } };
+        }
+
+        case "update_campaign_budget": {
+          if (!params.campaignBudgetId) return { success: false, error: "campaignBudgetId is required" };
+          if (!params.newDailyBudgetMicros || (params.newDailyBudgetMicros as number) <= 0) {
+            return { success: false, error: "newDailyBudgetMicros must be a positive number" };
+          }
+          const budgetResource = `customers/${customerId}/campaignBudgets/${params.campaignBudgetId}`;
+          const resp = await fetch(
+            `${ADS_API}/customers/${customerId}/campaignBudgets:mutate`,
+            {
+              method: "POST",
+              headers: getAdsHeaders(accessToken),
+              body: JSON.stringify({
+                operations: [{ update: { resourceName: budgetResource, amountMicros: String(params.newDailyBudgetMicros) }, updateMask: "amount_micros" }],
+              }),
+            }
+          );
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Update budget failed (${resp.status}): ${err}` };
+          }
+          return { success: true, result: { campaignBudgetId: params.campaignBudgetId, newDailyBudgetMicros: params.newDailyBudgetMicros } };
+        }
+
+        case "pause_ad_group":
+        case "enable_ad_group": {
+          if (!params.adGroupId) return { success: false, error: "adGroupId is required" };
+          const agStatus = actionId === "pause_ad_group" ? "PAUSED" : "ENABLED";
+          const agResource = `customers/${customerId}/adGroups/${params.adGroupId}`;
+          const resp = await fetch(
+            `${ADS_API}/customers/${customerId}/adGroups:mutate`,
+            {
+              method: "POST",
+              headers: getAdsHeaders(accessToken),
+              body: JSON.stringify({
+                operations: [{ update: { resourceName: agResource, status: agStatus }, updateMask: "status" }],
+              }),
+            }
+          );
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `${actionId} failed (${resp.status}): ${err}` };
+          }
+          return { success: true, result: { adGroupId: params.adGroupId, status: agStatus } };
+        }
+
+        case "update_keyword_bid": {
+          if (!params.adGroupCriterionId) return { success: false, error: "adGroupCriterionId is required" };
+          if (!params.newBidMicros || (params.newBidMicros as number) <= 0) {
+            return { success: false, error: "newBidMicros must be a positive number" };
+          }
+          const criterionResource = `customers/${customerId}/adGroupCriteria/${params.adGroupCriterionId}`;
+          const resp = await fetch(
+            `${ADS_API}/customers/${customerId}/adGroupCriteria:mutate`,
+            {
+              method: "POST",
+              headers: getAdsHeaders(accessToken),
+              body: JSON.stringify({
+                operations: [{ update: { resourceName: criterionResource, cpcBidMicros: String(params.newBidMicros) }, updateMask: "cpc_bid_micros" }],
+              }),
+            }
+          );
+          if (!resp.ok) {
+            const err = await resp.text();
+            return { success: false, error: `Update keyword bid failed (${resp.status}): ${err}` };
+          }
+          return { success: true, result: { adGroupCriterionId: params.adGroupCriterionId, newBidMicros: params.newBidMicros } };
+        }
+
+        default:
+          return { success: false, error: `Unknown action: ${actionId}` };
+      }
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  },
+
   async getCapabilities(_config): Promise<ConnectorCapability[]> {
-    return [];
+    return [
+      { name: "pause_campaign", description: "Pause a Google Ads campaign", inputSchema: { campaignId: { type: "string", required: true } }, sideEffects: ["Campaign paused in Google Ads"] },
+      { name: "enable_campaign", description: "Enable a paused Google Ads campaign", inputSchema: { campaignId: { type: "string", required: true } }, sideEffects: ["Campaign enabled in Google Ads"] },
+      { name: "update_campaign_budget", description: "Update daily budget (in micros)", inputSchema: { campaignBudgetId: { type: "string", required: true }, newDailyBudgetMicros: { type: "number", required: true } }, sideEffects: ["Campaign budget updated"] },
+      { name: "pause_ad_group", description: "Pause a Google Ads ad group", inputSchema: { adGroupId: { type: "string", required: true } }, sideEffects: ["Ad group paused"] },
+      { name: "enable_ad_group", description: "Enable a paused ad group", inputSchema: { adGroupId: { type: "string", required: true } }, sideEffects: ["Ad group enabled"] },
+      { name: "update_keyword_bid", description: "Update CPC bid for a keyword (in micros)", inputSchema: { adGroupCriterionId: { type: "string", required: true }, newBidMicros: { type: "number", required: true } }, sideEffects: ["Keyword bid updated"] },
+    ];
   },
 
   async inferSchema(config): Promise<InferredSchema[]> {

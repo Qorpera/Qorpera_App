@@ -1373,6 +1373,838 @@ async function appendToDocument(
   return { success: true, result: { documentId } };
 }
 
+// ── Drive write-back helpers ─────────────────────────────────
+
+async function createPresentation(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const title = input.title as string;
+  if (!title) return { success: false, error: "title is required" };
+  const slides = input.slides as Array<{ title: string; body: string }> | undefined;
+  const folderId = input.folderId as string | undefined;
+
+  // Create empty presentation
+  const createResp = await fetch(
+    "https://slides.googleapis.com/v1/presentations",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title }),
+    }
+  );
+
+  if (!createResp.ok) {
+    const errText = await createResp.text();
+    return { success: false, error: `Create presentation failed: ${createResp.status} ${errText}` };
+  }
+
+  const pres = await createResp.json();
+  const presentationId = pres.presentationId;
+  const presentationUrl = `https://docs.google.com/presentation/d/${presentationId}/edit`;
+
+  // Add slides if provided
+  if (slides && slides.length > 0) {
+    const requests: Record<string, unknown>[] = [];
+    for (let i = slides.length - 1; i >= 0; i--) {
+      const slideObjectId = `slide_${i}`;
+      requests.push({
+        createSlide: {
+          objectId: slideObjectId,
+          insertionIndex: 1,
+          slideLayoutReference: { predefinedLayout: "TITLE_AND_BODY" },
+        },
+      });
+    }
+
+    const layoutResp = await fetch(
+      `https://slides.googleapis.com/v1/presentations/${presentationId}:batchUpdate`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ requests }),
+      }
+    );
+
+    if (layoutResp.ok) {
+      // Fetch presentation to get placeholder IDs
+      const getResp = await fetch(
+        `https://slides.googleapis.com/v1/presentations/${presentationId}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      if (getResp.ok) {
+        const fullPres = await getResp.json();
+        const presSlides = fullPres.slides || [];
+        // Skip first slide (default title slide), process our created slides
+        for (let i = 0; i < slides.length && i + 1 < presSlides.length; i++) {
+          const slide = presSlides[i + 1];
+          const textRequests: Record<string, unknown>[] = [];
+
+          for (const element of slide.pageElements || []) {
+            const placeholder = element.placeholder;
+            if (placeholder?.type === "TITLE" || placeholder?.type === "CENTERED_TITLE") {
+              textRequests.push({
+                insertText: { objectId: element.objectId, text: slides[i].title },
+              });
+            } else if (placeholder?.type === "BODY" || placeholder?.type === "SUBTITLE") {
+              textRequests.push({
+                insertText: { objectId: element.objectId, text: slides[i].body },
+              });
+            }
+          }
+
+          if (textRequests.length > 0) {
+            await fetch(
+              `https://slides.googleapis.com/v1/presentations/${presentationId}:batchUpdate`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ requests: textRequests }),
+              }
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Move to folder if specified
+  if (folderId) {
+    await moveFileToDrive(accessToken, presentationId, folderId);
+  }
+
+  return { success: true, result: { presentationId, presentationUrl } };
+}
+
+async function uploadFile(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const name = input.name as string;
+  if (!name) return { success: false, error: "name is required" };
+  const mimeType = input.mimeType as string;
+  if (!mimeType) return { success: false, error: "mimeType is required" };
+  const content = input.content as string;
+  if (!content) return { success: false, error: "content is required (base64)" };
+  const folderId = input.folderId as string | undefined;
+
+  const fileBuffer = Buffer.from(content, "base64");
+  if (fileBuffer.length > 5 * 1024 * 1024) {
+    return { success: false, error: "File size exceeds 5MB limit" };
+  }
+
+  const metadata: Record<string, unknown> = { name, mimeType };
+  if (folderId) metadata.parents = [folderId];
+
+  const boundary = "qorpera_upload_boundary";
+  const multipartBody = [
+    `--${boundary}`,
+    "Content-Type: application/json; charset=UTF-8",
+    "",
+    JSON.stringify(metadata),
+    `--${boundary}`,
+    `Content-Type: ${mimeType}`,
+    "Content-Transfer-Encoding: base64",
+    "",
+    content,
+    `--${boundary}--`,
+  ].join("\r\n");
+
+  const resp = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body: multipartBody,
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Upload file failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { fileId: data.id, name: data.name } };
+}
+
+async function createFolder(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const name = input.name as string;
+  if (!name) return { success: false, error: "name is required" };
+  const parentFolderId = input.parentFolderId as string | undefined;
+
+  const metadata: Record<string, unknown> = {
+    name,
+    mimeType: "application/vnd.google-apps.folder",
+  };
+  if (parentFolderId) metadata.parents = [parentFolderId];
+
+  const resp = await fetch(
+    "https://www.googleapis.com/drive/v3/files",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(metadata),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Create folder failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { folderId: data.id, name: data.name } };
+}
+
+async function moveFile(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const fileId = input.fileId as string;
+  if (!fileId) return { success: false, error: "fileId is required" };
+  const targetFolderId = input.targetFolderId as string;
+  if (!targetFolderId) return { success: false, error: "targetFolderId is required" };
+
+  // Get current parents
+  const getResp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!getResp.ok) {
+    const errText = await getResp.text();
+    return { success: false, error: `Get file parents failed: ${getResp.status} ${errText}` };
+  }
+
+  const fileData = await getResp.json();
+  const previousParents = (fileData.parents || []).join(",");
+
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?addParents=${encodeURIComponent(targetFolderId)}&removeParents=${encodeURIComponent(previousParents)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Move file failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { fileId, targetFolderId } };
+}
+
+async function shareFile(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const fileId = input.fileId as string;
+  if (!fileId) return { success: false, error: "fileId is required" };
+  const email = input.email as string;
+  if (!email) return { success: false, error: "email is required" };
+  const role = input.role as string;
+  if (!role || !["reader", "writer", "commenter"].includes(role)) {
+    return { success: false, error: "role must be 'reader', 'writer', or 'commenter'" };
+  }
+
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions?sendNotificationEmail=true`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ type: "user", role, emailAddress: email }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Share file failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { permissionId: data.id, fileId, email, role } };
+}
+
+async function copyFile(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const fileId = input.fileId as string;
+  if (!fileId) return { success: false, error: "fileId is required" };
+  const newName = input.newName as string;
+  if (!newName) return { success: false, error: "newName is required" };
+  const folderId = input.folderId as string | undefined;
+
+  const body: Record<string, unknown> = { name: newName };
+  if (folderId) body.parents = [folderId];
+
+  const resp = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/copy`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Copy file failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return { success: true, result: { fileId: data.id, name: data.name } };
+}
+
+/** Helper to move a newly created file into a target folder */
+async function moveFileToDrive(
+  accessToken: string,
+  fileId: string,
+  folderId: string
+): Promise<void> {
+  try {
+    await moveFile(accessToken, { fileId, targetFolderId: folderId });
+  } catch {
+    // Best-effort — file was created successfully, just not moved
+  }
+}
+
+// ── Sheets write-back helpers ───────────────────────────────
+
+async function writeCells(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const spreadsheetId = input.spreadsheetId as string;
+  if (!spreadsheetId) return { success: false, error: "spreadsheetId is required" };
+  const range = input.range as string;
+  if (!range) return { success: false, error: "range is required" };
+  const values = input.values as string[][];
+  if (!values) return { success: false, error: "values is required" };
+
+  return updateSpreadsheetCells(accessToken, { spreadsheetId, range, values });
+}
+
+async function appendRows(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const spreadsheetId = input.spreadsheetId as string;
+  if (!spreadsheetId) return { success: false, error: "spreadsheetId is required" };
+  const sheetName = input.sheetName as string;
+  if (!sheetName) return { success: false, error: "sheetName is required" };
+  const rows = input.rows as string[][];
+  if (!rows) return { success: false, error: "rows is required" };
+
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(sheetName)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ values: rows }),
+  });
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Append rows failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  return {
+    success: true,
+    result: {
+      updatedRange: data.updates?.updatedRange,
+      updatedRows: data.updates?.updatedRows,
+    },
+  };
+}
+
+async function createSheetTab(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const spreadsheetId = input.spreadsheetId as string;
+  if (!spreadsheetId) return { success: false, error: "spreadsheetId is required" };
+  const tabName = input.tabName as string;
+  if (!tabName) return { success: false, error: "tabName is required" };
+
+  const resp = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requests: [{ addSheet: { properties: { title: tabName } } }],
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Create sheet tab failed: ${resp.status} ${errText}` };
+  }
+
+  const data = await resp.json();
+  const sheetId = data.replies?.[0]?.addSheet?.properties?.sheetId;
+  return { success: true, result: { sheetId, tabName } };
+}
+
+// ── Gmail extended write-back helpers ───────────────────────
+
+async function replyEmail(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const threadId = input.threadId as string;
+  if (!threadId) return { success: false, error: "threadId is required" };
+  const messageId = input.messageId as string;
+  if (!messageId) return { success: false, error: "messageId is required" };
+  let body = input.body as string;
+  if (!body) return { success: false, error: "body is required" };
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+  const operatorName = input._operatorName as string | undefined;
+
+  if (isAiGenerated) {
+    const org = operatorName || "the organization";
+    body += `\n\n---\nThis message was drafted with AI assistance by ${org}'s operational AI (Qorpera).`;
+  }
+
+  // Fetch original message headers
+  const msgResp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Message-ID`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!msgResp.ok) {
+    return { success: false, error: `Failed to fetch message: ${msgResp.status}` };
+  }
+
+  const msg = await msgResp.json();
+  const headers = msg.payload?.headers || [];
+  const getHdr = (name: string) =>
+    headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === name.toLowerCase())?.value;
+
+  const originalSubject = getHdr("Subject") || "";
+  const replyTo = getHdr("From") || "";
+  const originalMessageId = getHdr("Message-ID") || "";
+  const subject = originalSubject.startsWith("Re:") ? originalSubject : `Re: ${originalSubject}`;
+
+  const messageParts = [
+    `To: ${replyTo}`,
+    `Subject: ${subject}`,
+    `In-Reply-To: ${originalMessageId}`,
+    `References: ${originalMessageId}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "",
+    body,
+  ].join("\r\n");
+
+  const encoded = Buffer.from(messageParts)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const resp = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ raw: encoded, threadId }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Gmail reply failed: ${resp.status} ${errText}` };
+  }
+
+  const result = await resp.json();
+  return { success: true, result: { messageId: result.id, threadId: result.threadId } };
+}
+
+async function forwardEmail(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const originalMessageId = input.messageId as string;
+  if (!originalMessageId) return { success: false, error: "messageId is required" };
+  const to = input.to as string;
+  if (!to) return { success: false, error: "to is required" };
+  const additionalBody = input.additionalBody as string | undefined;
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+  const operatorName = input._operatorName as string | undefined;
+
+  // Fetch original message
+  const msgResp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(originalMessageId)}?format=full`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!msgResp.ok) {
+    return { success: false, error: `Failed to fetch message: ${msgResp.status}` };
+  }
+
+  const msg = await msgResp.json();
+  const headers = msg.payload?.headers || [];
+  const getHdr = (name: string) =>
+    headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === name.toLowerCase())?.value;
+
+  const originalSubject = getHdr("Subject") || "";
+  const originalFrom = getHdr("From") || "";
+  const originalDate = getHdr("Date") || "";
+  const subject = originalSubject.startsWith("Fwd:") ? originalSubject : `Fwd: ${originalSubject}`;
+
+  // Extract original body
+  let originalBody = "";
+  if (msg.payload?.body?.data) {
+    originalBody = Buffer.from(msg.payload.body.data, "base64url").toString("utf-8");
+  } else if (msg.payload?.parts) {
+    const textPart = msg.payload.parts.find((p: { mimeType: string }) => p.mimeType === "text/plain");
+    if (textPart?.body?.data) {
+      originalBody = Buffer.from(textPart.body.data, "base64url").toString("utf-8");
+    }
+  }
+
+  let body = additionalBody ? `${additionalBody}\n\n` : "";
+  if (isAiGenerated) {
+    const org = operatorName || "the organization";
+    body += `---\nThis message was drafted with AI assistance by ${org}'s operational AI (Qorpera).\n\n`;
+  }
+  body += `---------- Forwarded message ----------\nFrom: ${originalFrom}\nDate: ${originalDate}\nSubject: ${originalSubject}\n\n${originalBody}`;
+
+  const messageParts = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "",
+    body,
+  ].join("\r\n");
+
+  const encoded = Buffer.from(messageParts)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const resp = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ raw: encoded }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Gmail forward failed: ${resp.status} ${errText}` };
+  }
+
+  const result = await resp.json();
+  return { success: true, result: { messageId: result.id, threadId: result.threadId } };
+}
+
+async function createDraft(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const to = input.to as string;
+  if (!to) return { success: false, error: "to is required" };
+  const subject = input.subject as string;
+  if (!subject) return { success: false, error: "subject is required" };
+  const body = input.body as string;
+  if (!body) return { success: false, error: "body is required" };
+
+  const messageParts = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "",
+    body,
+  ].join("\r\n");
+
+  const encoded = Buffer.from(messageParts)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const resp = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ message: { raw: encoded } }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Create draft failed: ${resp.status} ${errText}` };
+  }
+
+  const result = await resp.json();
+  return { success: true, result: { draftId: result.id, messageId: result.message?.id } };
+}
+
+async function sendWithAttachment(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const to = input.to as string;
+  if (!to) return { success: false, error: "to is required" };
+  const subject = input.subject as string;
+  if (!subject) return { success: false, error: "subject is required" };
+  let body = input.body as string;
+  if (!body) return { success: false, error: "body is required" };
+  const attachments = input.attachments as Array<{ name: string; mimeType: string; content: string }>;
+  if (!attachments || attachments.length === 0) return { success: false, error: "attachments is required" };
+  const isAiGenerated = input.isAiGenerated as boolean | undefined;
+  const operatorName = input._operatorName as string | undefined;
+
+  // Validate attachment sizes
+  let totalSize = 0;
+  for (const att of attachments) {
+    const size = Buffer.from(att.content, "base64").length;
+    if (size > 5 * 1024 * 1024) {
+      return { success: false, error: `Attachment "${att.name}" exceeds 5MB limit` };
+    }
+    totalSize += size;
+  }
+  if (totalSize > 25 * 1024 * 1024) {
+    return { success: false, error: "Total attachment size exceeds 25MB limit" };
+  }
+
+  if (isAiGenerated) {
+    const org = operatorName || "the organization";
+    body += `\n\n---\nThis message was drafted with AI assistance by ${org}'s operational AI (Qorpera).`;
+  }
+
+  const boundary = "qorpera_mime_boundary_" + Date.now();
+  const mimeParts = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "",
+    body,
+  ];
+
+  for (const att of attachments) {
+    mimeParts.push(
+      `--${boundary}`,
+      `Content-Type: ${att.mimeType}; name="${att.name}"`,
+      `Content-Disposition: attachment; filename="${att.name}"`,
+      "Content-Transfer-Encoding: base64",
+      "",
+      att.content
+    );
+  }
+
+  mimeParts.push(`--${boundary}--`);
+
+  const encoded = Buffer.from(mimeParts.join("\r\n"))
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const resp = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ raw: encoded }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Send with attachment failed: ${resp.status} ${errText}` };
+  }
+
+  const result = await resp.json();
+  return { success: true, result: { messageId: result.id, threadId: result.threadId } };
+}
+
+async function addLabel(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const msgId = input.messageId as string;
+  if (!msgId) return { success: false, error: "messageId is required" };
+  const labelName = input.labelName as string;
+  if (!labelName) return { success: false, error: "labelName is required" };
+
+  // List labels to find by name
+  const listResp = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!listResp.ok) {
+    return { success: false, error: `Failed to list labels: ${listResp.status}` };
+  }
+
+  const labelsData = await listResp.json();
+  let labelId = (labelsData.labels || []).find(
+    (l: { name: string; id: string }) => l.name.toLowerCase() === labelName.toLowerCase()
+  )?.id;
+
+  // Create label if it doesn't exist
+  if (!labelId) {
+    const createResp = await fetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: labelName,
+          labelListVisibility: "labelShow",
+          messageListVisibility: "show",
+        }),
+      }
+    );
+
+    if (!createResp.ok) {
+      const errText = await createResp.text();
+      return { success: false, error: `Create label failed: ${createResp.status} ${errText}` };
+    }
+
+    const newLabel = await createResp.json();
+    labelId = newLabel.id;
+  }
+
+  // Apply label to message
+  const resp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(msgId)}/modify`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ addLabelIds: [labelId] }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Add label failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { messageId: msgId, labelId, labelName } };
+}
+
+async function archiveMessage(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const msgId = input.messageId as string;
+  if (!msgId) return { success: false, error: "messageId is required" };
+
+  const resp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(msgId)}/modify`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ removeLabelIds: ["INBOX"] }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Archive failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { messageId: msgId, archived: true } };
+}
+
+async function markRead(
+  accessToken: string,
+  input: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; result?: unknown }> {
+  const msgId = input.messageId as string;
+  if (!msgId) return { success: false, error: "messageId is required" };
+
+  const resp = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(msgId)}/modify`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ removeLabelIds: ["UNREAD"] }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    return { success: false, error: `Mark read failed: ${resp.status} ${errText}` };
+  }
+
+  return { success: true, result: { messageId: msgId, read: true } };
+}
+
 // ── Provider ────────────────────────────────────────────────
 
 export const googleProvider: ConnectorProvider = {
@@ -1428,114 +2260,158 @@ export const googleProvider: ConnectorProvider = {
     const accessToken = await getGoogleAccessToken(config);
 
     switch (actionId) {
+      // Gmail
       case "send_email":
         return await sendEmail(accessToken, params);
       case "reply_to_thread":
         return await replyToThread(accessToken, params);
-      case "create_spreadsheet":
-        return await createSpreadsheet(accessToken, params);
-      case "update_spreadsheet_cells":
-        return await updateSpreadsheetCells(accessToken, params);
+      case "reply_email":
+        return await replyEmail(accessToken, params);
+      case "forward_email":
+        return await forwardEmail(accessToken, params);
+      case "create_draft":
+        return await createDraft(accessToken, params);
+      case "send_with_attachment":
+        return await sendWithAttachment(accessToken, params);
+      case "add_label":
+        return await addLabel(accessToken, params);
+      case "archive":
+        return await archiveMessage(accessToken, params);
+      case "mark_read":
+        return await markRead(accessToken, params);
+      // Drive
       case "create_document":
         return await createDocument(accessToken, params);
       case "append_to_document":
         return await appendToDocument(accessToken, params);
+      case "create_presentation":
+        return await createPresentation(accessToken, params);
+      case "upload_file":
+        return await uploadFile(accessToken, params);
+      case "create_folder":
+        return await createFolder(accessToken, params);
+      case "move_file":
+        return await moveFile(accessToken, params);
+      case "share_file":
+        return await shareFile(accessToken, params);
+      case "copy_file":
+        return await copyFile(accessToken, params);
+      // Sheets
+      case "create_spreadsheet":
+        return await createSpreadsheet(accessToken, params);
+      case "update_spreadsheet_cells":
+        return await updateSpreadsheetCells(accessToken, params);
+      case "write_cells":
+        return await writeCells(accessToken, params);
+      case "append_rows":
+        return await appendRows(accessToken, params);
+      case "create_sheet_tab":
+        return await createSheetTab(accessToken, params);
+      // Calendar
       case "create_calendar_event":
         return await createGoogleCalendarEvent(accessToken, params);
       case "update_calendar_event":
         return await updateGoogleCalendarEvent(accessToken, params);
+      case "delete_event":
+        return await deleteCalendarEvent(accessToken, params);
+      case "rsvp_event":
+        return await rsvpEvent(accessToken, params);
       default:
         return { success: false, error: `Unknown action: ${actionId}` };
     }
   },
 
   writeCapabilities: [
-    {
-      slug: "create_calendar_event",
-      name: "Create Calendar Event",
-      description: "Creates a Google Calendar event with attendees",
-      inputSchema: { type: "object", properties: { summary: { type: "string" }, description: { type: "string" }, startDateTime: { type: "string" }, endDateTime: { type: "string" }, attendeeEmails: { type: "array", items: { type: "string" } }, location: { type: "string" } }, required: ["summary", "startDateTime", "endDateTime", "attendeeEmails"] },
-    },
-    {
-      slug: "update_calendar_event",
-      name: "Update Calendar Event",
-      description: "Updates an existing Google Calendar event",
-      inputSchema: { type: "object", properties: { eventId: { type: "string" }, fields: { type: "object" } }, required: ["eventId", "fields"] },
-    },
+    // Drive
+    { slug: "create_document", name: "Create Document", description: "Create a new Google Doc", inputSchema: { type: "object", properties: { title: { type: "string" }, content: { type: "string" }, folderId: { type: "string" } }, required: ["title"] } },
+    { slug: "create_spreadsheet", name: "Create Spreadsheet", description: "Create a new Google Spreadsheet", inputSchema: { type: "object", properties: { title: { type: "string" }, sheetName: { type: "string" }, initialData: { type: "array" } }, required: ["title"] } },
+    { slug: "create_presentation", name: "Create Presentation", description: "Create a new Google Slides presentation", inputSchema: { type: "object", properties: { title: { type: "string" }, slides: { type: "array" }, folderId: { type: "string" } }, required: ["title"] } },
+    { slug: "upload_file", name: "Upload File", description: "Upload a file to Google Drive (max 5MB)", inputSchema: { type: "object", properties: { name: { type: "string" }, mimeType: { type: "string" }, content: { type: "string" }, folderId: { type: "string" } }, required: ["name", "mimeType", "content"] } },
+    { slug: "create_folder", name: "Create Folder", description: "Create a new folder in Google Drive", inputSchema: { type: "object", properties: { name: { type: "string" }, parentFolderId: { type: "string" } }, required: ["name"] } },
+    { slug: "move_file", name: "Move File", description: "Move a file to a different folder in Google Drive", inputSchema: { type: "object", properties: { fileId: { type: "string" }, targetFolderId: { type: "string" } }, required: ["fileId", "targetFolderId"] } },
+    { slug: "share_file", name: "Share File", description: "Share a Google Drive file with a user", inputSchema: { type: "object", properties: { fileId: { type: "string" }, email: { type: "string" }, role: { type: "string", enum: ["reader", "writer", "commenter"] } }, required: ["fileId", "email", "role"] } },
+    { slug: "copy_file", name: "Copy File", description: "Copy a file in Google Drive", inputSchema: { type: "object", properties: { fileId: { type: "string" }, newName: { type: "string" }, folderId: { type: "string" } }, required: ["fileId", "newName"] } },
+    // Sheets
+    { slug: "write_cells", name: "Write Cells", description: "Write values to a cell range in Google Sheets", inputSchema: { type: "object", properties: { spreadsheetId: { type: "string" }, range: { type: "string" }, values: { type: "array" } }, required: ["spreadsheetId", "range", "values"] } },
+    { slug: "append_rows", name: "Append Rows", description: "Append rows to the end of a Google Sheet", inputSchema: { type: "object", properties: { spreadsheetId: { type: "string" }, sheetName: { type: "string" }, rows: { type: "array" } }, required: ["spreadsheetId", "sheetName", "rows"] } },
+    { slug: "create_sheet_tab", name: "Create Sheet Tab", description: "Add a new sheet tab to a Google Spreadsheet", inputSchema: { type: "object", properties: { spreadsheetId: { type: "string" }, tabName: { type: "string" } }, required: ["spreadsheetId", "tabName"] } },
+    // Gmail
+    { slug: "reply_email", name: "Reply to Email", description: "Reply to a specific email message", inputSchema: { type: "object", properties: { threadId: { type: "string" }, messageId: { type: "string" }, body: { type: "string" } }, required: ["threadId", "messageId", "body"] } },
+    { slug: "forward_email", name: "Forward Email", description: "Forward an email to another recipient", inputSchema: { type: "object", properties: { messageId: { type: "string" }, to: { type: "string" }, additionalBody: { type: "string" } }, required: ["messageId", "to"] } },
+    { slug: "create_draft", name: "Create Draft", description: "Create a draft email in Gmail", inputSchema: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["to", "subject", "body"] } },
+    { slug: "send_with_attachment", name: "Send with Attachment", description: "Send an email with file attachments", inputSchema: { type: "object", properties: { to: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, attachments: { type: "array" } }, required: ["to", "subject", "body", "attachments"] } },
+    { slug: "add_label", name: "Add Label", description: "Add a label to a Gmail message", inputSchema: { type: "object", properties: { messageId: { type: "string" }, labelName: { type: "string" } }, required: ["messageId", "labelName"] } },
+    { slug: "archive", name: "Archive Message", description: "Archive a Gmail message (remove from inbox)", inputSchema: { type: "object", properties: { messageId: { type: "string" } }, required: ["messageId"] } },
+    { slug: "mark_read", name: "Mark as Read", description: "Mark a Gmail message as read", inputSchema: { type: "object", properties: { messageId: { type: "string" } }, required: ["messageId"] } },
+    // Calendar
+    { slug: "create_calendar_event", name: "Create Calendar Event", description: "Creates a Google Calendar event with attendees", inputSchema: { type: "object", properties: { summary: { type: "string" }, description: { type: "string" }, startDateTime: { type: "string" }, endDateTime: { type: "string" }, attendeeEmails: { type: "array", items: { type: "string" } }, location: { type: "string" } }, required: ["summary", "startDateTime", "endDateTime", "attendeeEmails"] } },
+    { slug: "update_calendar_event", name: "Update Calendar Event", description: "Updates an existing Google Calendar event", inputSchema: { type: "object", properties: { eventId: { type: "string" }, fields: { type: "object" } }, required: ["eventId", "fields"] } },
+    { slug: "delete_event", name: "Delete Calendar Event", description: "Delete a Google Calendar event", inputSchema: { type: "object", properties: { eventId: { type: "string" }, calendarId: { type: "string" } }, required: ["eventId"] } },
+    { slug: "rsvp_event", name: "RSVP to Event", description: "Respond to a Google Calendar event invitation", inputSchema: { type: "object", properties: { eventId: { type: "string" }, response: { type: "string", enum: ["accepted", "declined", "tentative"] } }, required: ["eventId", "response"] } },
   ],
 
   async getCapabilities(config) {
     const scopes = config.scopes as string[] || [];
     const caps: { name: string; description: string; inputSchema: Record<string, unknown>; sideEffects: string[] }[] = [];
 
+    // Gmail send capabilities
     if (scopes.some((s) => s.includes("gmail.send"))) {
-      caps.push({
-        name: "send_email",
-        description: "Send an email via Gmail on behalf of the user",
-        inputSchema: {
-          to: { type: "string", required: true, description: "Recipient email address(es), comma-separated" },
-          subject: { type: "string", required: true, description: "Email subject line" },
-          body: { type: "string", required: true, description: "Email body text (plain text)" },
-          cc: { type: "string", required: false, description: "CC recipients, comma-separated" },
-        },
-        sideEffects: ["Sends an email from the user's Gmail account"],
-      });
-      caps.push({
-        name: "reply_to_thread",
-        description: "Reply to an existing email thread via Gmail",
-        inputSchema: {
-          threadId: { type: "string", required: true, description: "Gmail thread ID to reply to" },
-          body: { type: "string", required: true, description: "Reply body text (plain text)" },
-          cc: { type: "string", required: false, description: "CC recipients, comma-separated" },
-        },
-        sideEffects: ["Sends a reply email from the user's Gmail account"],
-      });
+      caps.push(
+        { name: "send_email", description: "Send an email via Gmail on behalf of the user", inputSchema: { to: { type: "string", required: true }, subject: { type: "string", required: true }, body: { type: "string", required: true }, cc: { type: "string", required: false } }, sideEffects: ["Sends an email from the user's Gmail account"] },
+        { name: "reply_to_thread", description: "Reply to an existing email thread via Gmail", inputSchema: { threadId: { type: "string", required: true }, body: { type: "string", required: true }, cc: { type: "string", required: false } }, sideEffects: ["Sends a reply email from the user's Gmail account"] },
+        { name: "reply_email", description: "Reply to a specific email message", inputSchema: { threadId: { type: "string", required: true }, messageId: { type: "string", required: true }, body: { type: "string", required: true } }, sideEffects: ["Sends a reply email from the user's Gmail account"] },
+        { name: "forward_email", description: "Forward an email to another recipient", inputSchema: { messageId: { type: "string", required: true }, to: { type: "string", required: true }, additionalBody: { type: "string", required: false } }, sideEffects: ["Forwards an email from the user's Gmail account"] },
+        { name: "create_draft", description: "Create a draft email in Gmail", inputSchema: { to: { type: "string", required: true }, subject: { type: "string", required: true }, body: { type: "string", required: true } }, sideEffects: ["Creates a draft in the user's Gmail"] },
+        { name: "send_with_attachment", description: "Send an email with file attachments (max 5MB per file, 25MB total)", inputSchema: { to: { type: "string", required: true }, subject: { type: "string", required: true }, body: { type: "string", required: true }, attachments: { type: "array", required: true } }, sideEffects: ["Sends an email with attachments from the user's Gmail account"] },
+      );
+    }
+
+    // Gmail modify capabilities (labels, archive, mark read)
+    if (scopes.some((s) => s.includes("gmail.modify"))) {
+      caps.push(
+        { name: "add_label", description: "Add a label to a Gmail message (creates label if needed)", inputSchema: { messageId: { type: "string", required: true }, labelName: { type: "string", required: true } }, sideEffects: ["Adds a label to the message"] },
+        { name: "archive", description: "Archive a Gmail message (remove from inbox)", inputSchema: { messageId: { type: "string", required: true } }, sideEffects: ["Removes the message from inbox"] },
+        { name: "mark_read", description: "Mark a Gmail message as read", inputSchema: { messageId: { type: "string", required: true } }, sideEffects: ["Marks the message as read"] },
+      );
     }
 
     // Spreadsheet capabilities (write scope)
     if (scopes.some((s) => s.includes("spreadsheets") && !s.includes("readonly"))) {
-      caps.push({
-        name: "create_spreadsheet",
-        description: "Create a new Google Spreadsheet, optionally with initial data",
-        inputSchema: {
-          title: { type: "string", required: true, description: "Spreadsheet title" },
-          sheetName: { type: "string", required: false, description: "First sheet name (default: Sheet1)" },
-          initialData: { type: "array", required: false, description: "2D array of initial cell values, e.g. [[\"Name\",\"Amount\"],[\"Acme\",\"5000\"]]" },
-        },
-        sideEffects: ["Creates a new Google Spreadsheet in the user's Drive"],
-      });
-      caps.push({
-        name: "update_spreadsheet_cells",
-        description: "Update cells in an existing Google Spreadsheet",
-        inputSchema: {
-          spreadsheetId: { type: "string", required: true, description: "Google Spreadsheet ID" },
-          range: { type: "string", required: true, description: "A1 notation range, e.g. 'Sheet1!A1:C10'" },
-          values: { type: "array", required: true, description: "2D array of cell values" },
-        },
-        sideEffects: ["Modifies cells in an existing Google Spreadsheet"],
-      });
+      caps.push(
+        { name: "create_spreadsheet", description: "Create a new Google Spreadsheet, optionally with initial data", inputSchema: { title: { type: "string", required: true }, sheetName: { type: "string", required: false }, initialData: { type: "array", required: false } }, sideEffects: ["Creates a new Google Spreadsheet in the user's Drive"] },
+        { name: "update_spreadsheet_cells", description: "Update cells in an existing Google Spreadsheet", inputSchema: { spreadsheetId: { type: "string", required: true }, range: { type: "string", required: true }, values: { type: "array", required: true } }, sideEffects: ["Modifies cells in an existing Google Spreadsheet"] },
+        { name: "write_cells", description: "Write values to a cell range in Google Sheets", inputSchema: { spreadsheetId: { type: "string", required: true }, range: { type: "string", required: true }, values: { type: "array", required: true } }, sideEffects: ["Writes values to cells in a Google Spreadsheet"] },
+        { name: "append_rows", description: "Append rows after the last row with data", inputSchema: { spreadsheetId: { type: "string", required: true }, sheetName: { type: "string", required: true }, rows: { type: "array", required: true } }, sideEffects: ["Appends rows to a Google Spreadsheet"] },
+        { name: "create_sheet_tab", description: "Add a new sheet tab to a Google Spreadsheet", inputSchema: { spreadsheetId: { type: "string", required: true }, tabName: { type: "string", required: true } }, sideEffects: ["Adds a new tab to the spreadsheet"] },
+      );
     }
 
     // Document capabilities
     if (scopes.some((s) => s.includes("documents"))) {
-      caps.push({
-        name: "create_document",
-        description: "Create a new Google Doc with optional initial content",
-        inputSchema: {
-          title: { type: "string", required: true, description: "Document title" },
-          content: { type: "string", required: false, description: "Initial text content" },
-        },
-        sideEffects: ["Creates a new Google Doc in the user's Drive"],
-      });
-      caps.push({
-        name: "append_to_document",
-        description: "Append text content to an existing Google Doc",
-        inputSchema: {
-          documentId: { type: "string", required: true, description: "Google Doc ID" },
-          content: { type: "string", required: true, description: "Text to append to the document" },
-        },
-        sideEffects: ["Appends content to an existing Google Doc"],
-      });
+      caps.push(
+        { name: "create_document", description: "Create a new Google Doc with optional initial content", inputSchema: { title: { type: "string", required: true }, content: { type: "string", required: false } }, sideEffects: ["Creates a new Google Doc in the user's Drive"] },
+        { name: "append_to_document", description: "Append text content to an existing Google Doc", inputSchema: { documentId: { type: "string", required: true }, content: { type: "string", required: true } }, sideEffects: ["Appends content to an existing Google Doc"] },
+      );
+    }
+
+    // Drive capabilities
+    if (scopes.some((s) => s.includes("drive"))) {
+      caps.push(
+        { name: "create_presentation", description: "Create a new Google Slides presentation", inputSchema: { title: { type: "string", required: true }, slides: { type: "array", required: false }, folderId: { type: "string", required: false } }, sideEffects: ["Creates a new Google Slides presentation in the user's Drive"] },
+        { name: "upload_file", description: "Upload a file to Google Drive (max 5MB)", inputSchema: { name: { type: "string", required: true }, mimeType: { type: "string", required: true }, content: { type: "string", required: true }, folderId: { type: "string", required: false } }, sideEffects: ["Uploads a file to the user's Google Drive"] },
+        { name: "create_folder", description: "Create a new folder in Google Drive", inputSchema: { name: { type: "string", required: true }, parentFolderId: { type: "string", required: false } }, sideEffects: ["Creates a new folder in the user's Google Drive"] },
+        { name: "move_file", description: "Move a file to a different folder in Google Drive", inputSchema: { fileId: { type: "string", required: true }, targetFolderId: { type: "string", required: true } }, sideEffects: ["Moves a file between folders in Google Drive"] },
+        { name: "share_file", description: "Share a Google Drive file with a user", inputSchema: { fileId: { type: "string", required: true }, email: { type: "string", required: true }, role: { type: "string", required: true } }, sideEffects: ["Shares a file and sends a notification email"] },
+        { name: "copy_file", description: "Copy a file in Google Drive", inputSchema: { fileId: { type: "string", required: true }, newName: { type: "string", required: true }, folderId: { type: "string", required: false } }, sideEffects: ["Creates a copy of the file in Google Drive"] },
+      );
+    }
+
+    // Calendar capabilities (always available — calendar scope implied)
+    if (scopes.some((s) => s.includes("calendar"))) {
+      caps.push(
+        { name: "delete_event", description: "Delete a Google Calendar event", inputSchema: { eventId: { type: "string", required: true }, calendarId: { type: "string", required: false } }, sideEffects: ["Deletes a calendar event"] },
+        { name: "rsvp_event", description: "Respond to a Google Calendar event invitation", inputSchema: { eventId: { type: "string", required: true }, response: { type: "string", required: true } }, sideEffects: ["Updates RSVP status on a calendar event"] },
+      );
     }
 
     return caps;
@@ -1600,4 +2476,96 @@ async function updateGoogleCalendarEvent(
   }
   const data = await resp.json();
   return { success: true, result: { eventId: data.id, platform: "google" } };
+}
+
+async function deleteCalendarEvent(
+  accessToken: string,
+  params: Record<string, unknown>,
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const eventId = params.eventId as string;
+  if (!eventId) return { success: false, error: "eventId is required" };
+  const calendarId = (params.calendarId as string) || "primary";
+
+  const resp = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    return { success: false, error: `Delete calendar event failed (${resp.status}): ${err}` };
+  }
+
+  return { success: true, result: { eventId, deleted: true } };
+}
+
+async function rsvpEvent(
+  accessToken: string,
+  params: Record<string, unknown>,
+): Promise<{ success: boolean; result?: unknown; error?: string }> {
+  const eventId = params.eventId as string;
+  if (!eventId) return { success: false, error: "eventId is required" };
+  const response = params.response as string;
+  if (!response || !["accepted", "declined", "tentative"].includes(response)) {
+    return { success: false, error: "response must be 'accepted', 'declined', or 'tentative'" };
+  }
+
+  // Fetch current event to get attendee list and find authenticated user
+  const getResp = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!getResp.ok) {
+    const err = await getResp.text();
+    return { success: false, error: `Fetch event failed (${getResp.status}): ${err}` };
+  }
+
+  const event = await getResp.json();
+
+  // Get authenticated user's email
+  const profileResp = await fetch(
+    "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!profileResp.ok) {
+    return { success: false, error: "Failed to determine authenticated user email" };
+  }
+  const profile = await profileResp.json();
+  const userEmail = profile.emailAddress?.toLowerCase();
+
+  // Update the attendee's responseStatus
+  const attendees = (event.attendees || []) as Array<{ email: string; responseStatus?: string }>;
+  let found = false;
+  for (const att of attendees) {
+    if (att.email.toLowerCase() === userEmail) {
+      att.responseStatus = response;
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    // User is not in the attendees list — add them with the response
+    attendees.push({ email: userEmail, responseStatus: response });
+  }
+
+  const patchResp = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ attendees }),
+    }
+  );
+
+  if (!patchResp.ok) {
+    const err = await patchResp.text();
+    return { success: false, error: `RSVP event failed (${patchResp.status}): ${err}` };
+  }
+
+  return { success: true, result: { eventId, response, email: userEmail } };
 }
