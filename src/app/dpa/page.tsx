@@ -1,6 +1,9 @@
+import { getLocale } from "next-intl/server";
 import { QorperaLogo } from "@/components/qorpera-logo";
 
-export default function DpaPage() {
+export default async function DpaPage() {
+  const locale = await getLocale();
+
   return (
     <div className="min-h-screen bg-[#0e1418] text-white/80">
       <div className="max-w-2xl mx-auto px-6 py-16">
@@ -9,6 +12,12 @@ export default function DpaPage() {
           <span className="font-heading text-lg text-white/90 tracking-[-0.02em]">qorpera</span>
         </div>
 
+        {locale === "da" ? (
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-5 py-4 mb-8">
+            <p className="text-sm text-amber-400/80">Databehandleraftale — Dansk version under udarbejdelse. Kontakt os på support@qorpera.com for spørgsmål.</p>
+          </div>
+        ) : (
+        <>
         <h1 className="text-2xl font-medium text-white/90 mb-2">Data Processing Agreement — Qorpera ApS</h1>
         <p className="text-sm text-white/40 mb-8">Last updated: March 21, 2026</p>
 
@@ -32,6 +41,8 @@ export default function DpaPage() {
         </ol>
 
         <p className="mt-8 text-sm text-white/40">Contact: dpa@qorpera.com</p>
+        </>
+        )}
 
         <div className="mt-12 pt-6 border-t border-white/[0.06] text-center text-xs text-white/30">
           <a href="/terms" className="hover:text-white/50">Terms</a>

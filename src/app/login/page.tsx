@@ -2,12 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QorperaLogo } from "@/components/qorpera-logo";
 
 export default function LoginPage() {
   const router = useRouter();
+  const t = useTranslations("auth.login");
+  const tc = useTranslations("common");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -54,9 +57,9 @@ export default function LoginPage() {
       }
 
       const data = await res.json();
-      setError(data.error || "Login failed");
+      setError(data.error || t("loginFailed"));
     } catch {
-      setError("Connection error");
+      setError(tc("connectionError"));
     } finally {
       setLoading(false);
     }
@@ -65,35 +68,35 @@ export default function LoginPage() {
   if (!ready) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
-        <div className="text-white/30 text-sm">Loading...</div>
+        <div className="text-white/30 text-sm">{tc("loading")}</div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
-      <div className="w-full max-w-sm px-6">
+      <div className="w-full max-w-sm mx-auto px-4">
         {/* Logo */}
         <div className="flex justify-center mb-8">
           <QorperaLogo width={64} />
         </div>
 
         <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-white/90 text-center mb-6">
-          Sign in to Qorpera
+          {t("title")}
         </h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label="Email"
+            label={t("email")}
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@company.com"
+            placeholder={t("emailPlaceholder")}
             required
           />
           <div className="relative">
             <Input
-              label="Password"
+              label={t("password")}
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -128,25 +131,25 @@ export default function LoginPage() {
             size="lg"
             type="submit"
             disabled={loading}
-            className="w-full"
+            className="w-full min-h-[44px]"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? t("submitting") : t("submit")}
           </Button>
         </form>
 
         <p className="text-center text-sm text-white/30 mt-6">
-          New company?{" "}
+          {t("newCompany")}{" "}
           <a href="/register" className="text-purple-400 hover:text-purple-300">
-            Register here
+            {t("registerHere")}
           </a>
         </p>
       </div>
       <div className="text-center text-xs text-white/30 pb-8">
-        <a href="/terms" className="hover:text-white/50">Terms</a>
+        <a href="/terms" className="hover:text-white/50">{tc("terms")}</a>
         {" · "}
-        <a href="/privacy" className="hover:text-white/50">Privacy</a>
+        <a href="/privacy" className="hover:text-white/50">{tc("privacy")}</a>
         {" · "}
-        <a href="/dpa" className="hover:text-white/50">DPA</a>
+        <a href="/dpa" className="hover:text-white/50">{tc("dpa")}</a>
       </div>
     </div>
   );

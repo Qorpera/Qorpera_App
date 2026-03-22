@@ -1,4 +1,7 @@
 import { withSentryConfig } from "@sentry/nextjs";
+import createNextIntlPlugin from "next-intl/plugin";
+
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -9,14 +12,16 @@ const nextConfig = {
   },
 };
 
+const intlConfig = withNextIntl(nextConfig);
+
 const sentryConfig = process.env.SENTRY_AUTH_TOKEN
-  ? withSentryConfig(nextConfig, {
+  ? withSentryConfig(intlConfig, {
       org: process.env.SENTRY_ORG,
       project: process.env.SENTRY_PROJECT,
       silent: true,
       hideSourceMaps: true,
       disableLogger: true,
     })
-  : nextConfig;
+  : intlConfig;
 
 export default sentryConfig;

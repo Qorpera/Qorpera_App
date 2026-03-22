@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { Provider } from "./types";
@@ -63,6 +64,8 @@ interface StepConnectorsProps {
 type Connector = { id: string; provider: string; name: string; status: string; userId?: string | null };
 
 export function StepConnectors({ onContinue, onBack }: StepConnectorsProps) {
+  const t = useTranslations("onboarding.connectors");
+  const tc = useTranslations("common");
   const searchParams = useSearchParams();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [connectors, setConnectors] = useState<Connector[]>([]);
@@ -148,7 +151,7 @@ export function StepConnectors({ onContinue, onBack }: StepConnectorsProps) {
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <p className="text-xs text-white/30 uppercase tracking-wider">Step 5 of 6</p>
-        <h1 className="text-2xl font-semibold text-white/90">Connect your tools</h1>
+        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
         <p className="text-sm text-white/45">
           Link your work tools so the AI can learn how your business operates.
         </p>
@@ -157,7 +160,7 @@ export function StepConnectors({ onContinue, onBack }: StepConnectorsProps) {
       {/* Personal connectors */}
       {configuredPersonal.length > 0 && (
         <div className="space-y-3">
-          <div className="text-xs text-white/30 uppercase tracking-wider px-1">Personal</div>
+          <div className="text-xs text-white/30 uppercase tracking-wider px-1">{t("personal")}</div>
           {configuredPersonal.map(p => (
             <ConnectorRow
               key={p.id}
@@ -172,7 +175,7 @@ export function StepConnectors({ onContinue, onBack }: StepConnectorsProps) {
       {/* Company connectors (admin-only) */}
       {configuredCompany.length > 0 && (
         <div className="space-y-3">
-          <div className="text-xs text-white/30 uppercase tracking-wider px-1">Company</div>
+          <div className="text-xs text-white/30 uppercase tracking-wider px-1">{t("company")}</div>
           {configuredCompany.map(p => (
             <ConnectorRow
               key={p.id}
@@ -196,7 +199,7 @@ export function StepConnectors({ onContinue, onBack }: StepConnectorsProps) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <span className="text-xs text-white/50">
-          Tools are optional — you can always connect them later in Settings.
+          {t("subtitle")}
         </span>
         {totalConnected > 0 && (
           <span className="text-xs font-medium ml-auto text-emerald-400">
@@ -210,10 +213,10 @@ export function StepConnectors({ onContinue, onBack }: StepConnectorsProps) {
           onClick={onBack}
           className="text-sm text-white/40 hover:text-white/60 transition"
         >
-          &larr; Back
+          &larr; {tc("back")}
         </button>
         <Button variant="primary" size="md" onClick={handleStep5Continue}>
-          Continue
+          {tc("continue")}
         </Button>
       </div>
 
@@ -235,7 +238,7 @@ export function StepConnectors({ onContinue, onBack }: StepConnectorsProps) {
               </div>
             ))}
             <div className="flex justify-end gap-3 pt-2">
-              <button onClick={() => setTokenModal(null)} className="text-sm text-white/40 hover:text-white/60">Cancel</button>
+              <button onClick={() => setTokenModal(null)} className="text-sm text-white/40 hover:text-white/60">{tc("cancel")}</button>
               <Button
                 variant="primary"
                 size="sm"
@@ -268,7 +271,7 @@ export function StepConnectors({ onContinue, onBack }: StepConnectorsProps) {
                   }
                 }}
               >
-                Connect
+                {t("connect")}
               </Button>
             </div>
           </div>
@@ -287,6 +290,7 @@ function ConnectorRow({
   connected: boolean;
   onConnect: () => void;
 }) {
+  const t = useTranslations("onboarding.connectors");
   const label = PROVIDER_LABELS[providerId] ?? providerId;
   const color = PROVIDER_COLORS[providerId] ?? "#888";
 
@@ -303,7 +307,7 @@ function ConnectorRow({
       </div>
       {connected ? (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-emerald-400">Connected</span>
+          <span className="text-xs text-emerald-400">{t("connected")}</span>
           <svg className="w-3 h-3 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
@@ -313,7 +317,7 @@ function ConnectorRow({
           onClick={onConnect}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] text-xs text-white/60 hover:bg-white/[0.06] hover:text-white/80 transition"
         >
-          Connect
+          {t("connect")}
         </button>
       )}
     </div>

@@ -159,8 +159,17 @@ export async function POST(req: NextRequest) {
   const { token, expiresAt } = await createSession(result.user.id);
   await setSessionCookie(token, expiresAt);
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role },
     operator: { id: result.operator.id, companyName: result.operator.companyName },
   }, { status: 201 });
+
+  // Set locale cookie to default for new users
+  response.cookies.set("NEXT_LOCALE", "en", {
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365,
+    sameSite: "lax",
+  });
+
+  return response;
 }

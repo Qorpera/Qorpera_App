@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
     return rateLimitResponse(userRateCheck.reset);
   }
 
-  const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo, user.id, contextInfo);
+  const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo, user.id, contextInfo, user.locale);
 
   // Tee the stream: one for the HTTP response, one to capture for persistence
   const [responseStream, captureStream] = stream.tee();

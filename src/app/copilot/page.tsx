@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app-shell";
+import { useTranslations, useLocale } from "next-intl";
+import { useIsMobile } from "@/hooks/use-media-query";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -130,6 +132,8 @@ function AssistantContent({
 // ── Main component ──────────────────────────────────────
 
 export default function CopilotPage() {
+  const isMobile = useIsMobile();
+
   // Core chat state
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -151,6 +155,14 @@ export default function CopilotPage() {
   const [activeSessionId, setActiveSessionId] = useState<string>("default");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loadingSessions, setLoadingSessions] = useState(false);
+
+  const t = useTranslations("copilot");
+  const locale = useLocale();
+
+  // Close sidebar by default on mobile
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -539,17 +551,24 @@ export default function CopilotPage() {
     <AppShell>
       <div className="flex h-[calc(100vh-0px)]">
         {/* ── Sessions sidebar ─────────────────────────── */}
+        {/* Mobile backdrop */}
+        {sidebarOpen && isMobile && (
+          <div
+            className="fixed inset-0 z-40 bg-black/50"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
         {sidebarOpen && (
-          <div className="w-60 flex-shrink-0 border-r border-white/[0.06] bg-[rgba(8,12,16,0.6)] flex flex-col">
+          <div className={`${isMobile ? "fixed inset-y-0 left-0 z-50 w-72" : "w-60 flex-shrink-0"} border-r border-white/[0.06] bg-[rgba(8,12,16,0.95)] flex flex-col`}>
             {/* Sidebar header */}
             <div className="px-3 pt-4 pb-2 flex items-center justify-between">
               <span className="text-xs font-medium text-white/40 uppercase tracking-wider">
-                History
+                {t("history")}
               </span>
               <button
                 onClick={() => setSidebarOpen(false)}
                 className="p-1 rounded hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
-                title="Close sidebar"
+                title={t("closeSidebar")}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -566,7 +585,7 @@ export default function CopilotPage() {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
-                New conversation
+                {t("newConversation")}
               </button>
             </div>
 
@@ -578,7 +597,7 @@ export default function CopilotPage() {
                 </div>
               ) : sessions.length === 0 ? (
                 <p className="text-xs text-white/20 text-center py-6">
-                  No conversations yet
+                  {t("noConversations")}
                 </p>
               ) : (
                 sessions.map((s) => {
@@ -597,7 +616,7 @@ export default function CopilotPage() {
                         {s.preview}
                       </div>
                       <div className="text-[10px] text-white/25 mt-1">
-                        {new Date(s.createdAt).toLocaleDateString(undefined, {
+                        {new Date(s.createdAt).toLocaleDateString(locale, {
                           month: "short",
                           day: "numeric",
                         })}
@@ -618,7 +637,7 @@ export default function CopilotPage() {
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="p-1.5 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
-                title="Show history"
+                title={t("showHistory")}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -626,7 +645,7 @@ export default function CopilotPage() {
               </button>
             )}
             <h1 className="text-sm font-medium text-white/50">
-              Co-pilot
+              {t("title")}
             </h1>
           </div>
 
@@ -636,7 +655,7 @@ export default function CopilotPage() {
               <div className="max-w-[720px] mx-auto flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs text-purple-300/70">
                   <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-                  Orientation — learning about your business
+                  {t("orientationBanner")}
                 </div>
                 <button
                   onClick={handleCompleteOrientation}
@@ -644,8 +663,8 @@ export default function CopilotPage() {
                   className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors disabled:opacity-50"
                 >
                   {completingOrientation
-                    ? "Completing..."
-                    : "Complete orientation \u2192"}
+                    ? t("completing")
+                    : t("completeOrientation")}
                 </button>
               </div>
             </div>
@@ -677,11 +696,10 @@ export default function CopilotPage() {
                     />
                   </svg>
                   <h2 className="text-base font-medium text-white/40 mb-2">
-                    AI Co-pilot
+                    {t("emptyTitle")}
                   </h2>
                   <p className="text-sm text-white/25 leading-relaxed">
-                    Ask me anything about your business data, entities,
-                    relationships, or get help with analysis and insights.
+                    {t("emptyDescription")}
                   </p>
                 </div>
               </div>
@@ -701,7 +719,7 @@ export default function CopilotPage() {
                           Loading...
                         </span>
                       ) : (
-                        "Load earlier messages"
+                        t("loadEarlier")
                       )}
                     </button>
                   </div>
@@ -773,13 +791,13 @@ export default function CopilotPage() {
               <div className="max-w-[720px] mx-auto mb-2">
                 {copilotBudget.remainingCents <= 0 ? (
                   <div className="text-[12px] text-amber-400/80 flex items-center gap-2">
-                    Free copilot limit reached.{" "}
-                    <a href="/settings?tab=billing" className="underline text-purple-400">Activate billing</a>{" "}
-                    for unlimited access.
+                    {t("freeLimitMessage")}{" "}
+                    <a href="/settings?tab=billing" className="underline text-purple-400">{t("activateBilling")}</a>{" "}
+                    {t("forUnlimited")}
                   </div>
                 ) : (
                   <div className="text-[11px] text-white/30">
-                    Free tier &middot; ~${(copilotBudget.remainingCents / 100).toFixed(2)} remaining
+                    {t("freeTier")} &middot; ~${(copilotBudget.remainingCents / 100).toFixed(2)} {t("remaining")}
                   </div>
                 )}
               </div>
@@ -792,13 +810,13 @@ export default function CopilotPage() {
                 onKeyDown={handleKeyDown}
                 placeholder={
                   copilotBudget && copilotBudget.billingStatus !== "active" && copilotBudget.remainingCents <= 0
-                    ? "Free copilot limit reached"
+                    ? t("freeLimitReached")
                     : isOrientation
-                      ? "Tell me about your business..."
-                      : "Ask anything..."
+                      ? t("tellAboutBusiness")
+                      : t("askAnything")
                 }
                 rows={1}
-                className="flex-1 resize-none px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/25 focus:outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/15 text-sm leading-relaxed"
+                className="flex-1 resize-none px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/25 focus:outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/15 text-base md:text-sm leading-relaxed"
                 style={{ maxHeight: 200 }}
                 disabled={streaming || initializing || (copilotBudget?.billingStatus !== "active" && (copilotBudget?.remainingCents ?? 1) <= 0)}
               />

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { useUser } from "@/components/user-provider";
+import { useTranslations } from "next-intl";
 import type { PolicyEffect, PolicyScope } from "@/lib/types";
 
 // ── Types ────────────────────────────────────────────────
@@ -70,6 +71,8 @@ const ACTION_TYPES = [
 export default function GovernancePage() {
   const { toast } = useToast();
   const { isAdmin } = useUser();
+  const t = useTranslations("governance");
+  const tc = useTranslations("common");
 
   const [situationTypes, setSituationTypes] = useState<SituationTypeItem[]>([]);
   const [autoLoading, setAutoLoading] = useState(true);
@@ -237,12 +240,12 @@ export default function GovernancePage() {
   return (
     <AppShell>
       <div className="p-8 max-w-4xl mx-auto space-y-6">
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: "#e8e8e8" }}>Governance</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 600, color: "#e8e8e8" }}>{t("title")}</h1>
 
         {/* ── Section 1: Trust Gradient ── */}
         <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
           <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }} className="mb-4">
-            Trust Gradient
+            {t("trustGradient")}
           </div>
 
           {autoLoading ? (
@@ -266,9 +269,9 @@ export default function GovernancePage() {
 
               {/* Labels */}
               <div className="flex justify-between" style={{ fontSize: 10, color: "#484848" }}>
-                <span>&larr; supervised</span>
-                <span>notify</span>
-                <span>autonomous &rarr;</span>
+                <span>{t("supervised")}</span>
+                <span>{t("notify")}</span>
+                <span>{t("autonomous")}</span>
               </div>
 
               {/* Counts */}
@@ -285,7 +288,7 @@ export default function GovernancePage() {
         <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
           <div className="flex items-center justify-between mb-4">
             <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }}>
-              Rules
+              {t("rules")}
             </div>
             {isAdmin && (
               <button
@@ -293,7 +296,7 @@ export default function GovernancePage() {
                 style={{ fontSize: 11, color: "#b0b0b0", background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px" }}
                 className="hover:bg-[#2a2a2a] transition"
               >
-                + Add rule
+                {t("addRule")}
               </button>
             )}
           </div>
@@ -305,7 +308,7 @@ export default function GovernancePage() {
           )}
 
           {!policiesLoading && policies.length === 0 && (
-            <p style={{ fontSize: 13, color: "#484848" }}>No rules configured.</p>
+            <p style={{ fontSize: 13, color: "#484848" }}>{t("noRules")}</p>
           )}
 
           {!policiesLoading && policies.length > 0 && (
@@ -362,7 +365,7 @@ export default function GovernancePage() {
         {/* ── Section 3: Trust Progression ── */}
         <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
           <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }} className="mb-4">
-            Trust Progression
+            {t("trustProgression")}
           </div>
 
           {autoLoading ? (
@@ -400,7 +403,7 @@ export default function GovernancePage() {
                             onClick={() => handlePromote(st.id)}
                             disabled={promotingId !== null}
                           >
-                            {promotingId === st.id ? "..." : "Promote"}
+                            {promotingId === st.id ? "..." : t("promote")}
                           </Button>
                         )}
                         {isAdmin && st.autonomyLevel !== "supervised" && (
@@ -410,7 +413,7 @@ export default function GovernancePage() {
                             onClick={() => handleDemote(st.id)}
                             disabled={demotingId !== null}
                           >
-                            {demotingId === st.id ? "..." : "Demote"}
+                            {demotingId === st.id ? "..." : t("demote")}
                           </Button>
                         )}
                       </div>
@@ -466,7 +469,7 @@ export default function GovernancePage() {
             </div>
             <Input label="Priority" type="number" value={formPriority} onChange={e => setFormPriority(e.target.value)} placeholder="0" />
             <div className="flex justify-end gap-3 pt-2">
-              <Button variant="ghost" onClick={() => { setShowNewPolicy(false); resetPolicyForm(); }}>Cancel</Button>
+              <Button variant="ghost" onClick={() => { setShowNewPolicy(false); resetPolicyForm(); }}>{tc("cancel")}</Button>
               <Button variant="primary" onClick={handleCreatePolicy} disabled={policySaving || !formName.trim()}>
                 {policySaving ? "Creating..." : "Create Rule"}
               </Button>
@@ -497,6 +500,7 @@ const SCOPE_STYLES: Record<string, { bg: string; color: string }> = {
 };
 
 function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: string, type: "success" | "error") => void }) {
+  const t = useTranslations("governance");
   const [insights, setInsights] = useState<InsightItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -545,7 +549,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
   return (
     <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
       <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }} className="mb-4">
-        AI Knowledge
+        {t("aiKnowledge")}
       </div>
 
       {loading ? (
@@ -554,7 +558,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
         </div>
       ) : insights.length === 0 ? (
         <p style={{ fontSize: 13, color: "#484848" }}>
-          No operational insights yet. Insights are extracted from resolved situations after enough data accumulates.
+          {t("noInsights")}
         </p>
       ) : (
         <div className="space-y-2">
@@ -622,6 +626,8 @@ interface GoalItem {
 }
 
 function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: string, type: "success" | "error") => void }) {
+  const t = useTranslations("governance");
+  const tc = useTranslations("common");
   const [goals, setGoals] = useState<GoalItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -705,7 +711,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
     <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
       <div className="flex items-center justify-between mb-4">
         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }}>
-          Goals
+          {t("goals")}
         </div>
         {isAdmin && !showForm && (
           <button
@@ -713,7 +719,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
             style={{ fontSize: 11, color: "#b0b0b0", background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px" }}
             className="hover:bg-[#2a2a2a] transition"
           >
-            + Add goal
+            {t("addGoal")}
           </button>
         )}
       </div>
@@ -721,11 +727,11 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
       {/* Add goal form */}
       {showForm && (
         <div className="mb-4 space-y-3" style={{ background: "#1c1c1c", border: "1px solid #333", borderRadius: 4, padding: 14 }}>
-          <Input label="Title" value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="Goal title" />
-          <Input label="Description" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Goal description" />
+          <Input label="Title" value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder={t("goalTitle")} />
+          <Input label="Description" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder={t("goalDescription")} />
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs text-white/40 mb-1 block">Priority (1-5)</label>
+              <label className="text-xs text-white/40 mb-1 block">{t("priority")} (1-5)</label>
               <input
                 type="number"
                 min={1}
@@ -737,7 +743,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
               />
             </div>
             <div className="flex-1">
-              <label className="text-xs text-white/40 mb-1 block">Department</label>
+              <label className="text-xs text-white/40 mb-1 block">{t("department")}</label>
               <select
                 value={formDeptId}
                 onChange={e => setFormDeptId(e.target.value)}
@@ -753,9 +759,9 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
           </div>
           <div className="flex gap-2 pt-1">
             <Button variant="primary" size="sm" onClick={handleCreate} disabled={saving || !formTitle.trim()}>
-              {saving ? "Creating..." : "Create Goal"}
+              {saving ? "Creating..." : t("createGoal")}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>{tc("cancel")}</Button>
           </div>
         </div>
       )}
@@ -792,7 +798,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
                       className="text-[11px] transition hover:text-red-400"
                       style={{ color: "#484848" }}
                     >
-                      Delete
+                      {tc("delete")}
                     </button>
                   )}
                 </div>

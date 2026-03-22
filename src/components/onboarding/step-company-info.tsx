@@ -1,21 +1,25 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { Department } from "./types";
 
-const INDUSTRY_OPTIONS = [
-  { value: "", label: "Select industry (optional)" },
-  { value: "Technology", label: "Technology" },
-  { value: "Finance", label: "Finance" },
-  { value: "Healthcare", label: "Healthcare" },
-  { value: "Retail", label: "Retail" },
-  { value: "Manufacturing", label: "Manufacturing" },
-  { value: "Professional Services", label: "Professional Services" },
-  { value: "Other", label: "Other" },
-];
+function useIndustryOptions() {
+  const t = useTranslations("onboarding.companyInfo");
+  return [
+    { value: "", label: t("industryPlaceholder") },
+    { value: "Technology", label: t("industries.technology") },
+    { value: "Finance", label: t("industries.finance") },
+    { value: "Healthcare", label: t("industries.healthcare") },
+    { value: "Retail", label: t("industries.retail") },
+    { value: "Manufacturing", label: t("industries.manufacturing") },
+    { value: "Professional Services", label: t("industries.professional_services") },
+    { value: "Other", label: t("industries.other") },
+  ];
+}
 
 interface StepCompanyInfoProps {
   companyName: string;
@@ -36,6 +40,9 @@ export function StepCompanyInfo({
   originalIndustry,
   onContinue,
 }: StepCompanyInfoProps) {
+  const t = useTranslations("onboarding.companyInfo");
+  const tc = useTranslations("common");
+  const industryOptions = useIndustryOptions();
   const [saving, setSaving] = useState(false);
 
   async function handleContinue() {
@@ -79,20 +86,20 @@ export function StepCompanyInfo({
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <p className="text-xs text-white/30 uppercase tracking-wider">Step 1 of 6</p>
-        <h1 className="text-2xl font-semibold text-white/90">What&apos;s your company called?</h1>
+        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
       </div>
 
       <div className="space-y-4">
         <Input
-          label="Company name"
+          label={t("companyName")}
           value={companyName}
           onChange={e => setCompanyName(e.target.value)}
-          placeholder="Acme Corp"
+          placeholder={t("companyPlaceholder")}
           autoFocus
         />
         <Select
-          label="What industry are you in?"
-          options={INDUSTRY_OPTIONS}
+          label={t("industry")}
+          options={industryOptions}
           value={industry}
           onChange={e => setIndustry(e.target.value)}
         />
@@ -105,7 +112,7 @@ export function StepCompanyInfo({
           onClick={handleContinue}
           disabled={!companyName.trim() || saving}
         >
-          {saving ? "Saving..." : "Continue"}
+          {saving ? tc("saving") : tc("continue")}
         </Button>
       </div>
     </div>

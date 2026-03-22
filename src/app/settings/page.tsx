@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useUser } from "@/components/user-provider";
 import { NotificationPreferences } from "@/components/settings/notification-preferences";
 
@@ -97,6 +98,7 @@ export default function SettingsPage() {
 }
 
 function SettingsPageInner() {
+  const t = useTranslations("settings");
   const { toast } = useToast();
   const { isAdmin, isSuperadmin } = useUser();
   const searchParams = useSearchParams();
@@ -549,13 +551,13 @@ function SettingsPageInner() {
   };
 
   const allTabs: { key: Tab; label: string; adminOnly?: boolean }[] = [
-    { key: "ai", label: "AI Configuration" },
-    { key: "notifications", label: "Notifications" },
-    { key: "connections", label: "Connections", adminOnly: true },
-    { key: "team", label: "Team", adminOnly: true },
-    { key: "billing", label: "Billing" },
-    { key: "merges", label: "Entity Merges", adminOnly: true },
-    { key: "governance", label: "AI Governance", adminOnly: true },
+    { key: "ai", label: t("tabs.ai") },
+    { key: "notifications", label: t("tabs.notifications") },
+    { key: "connections", label: t("tabs.connections"), adminOnly: true },
+    { key: "team", label: t("tabs.team"), adminOnly: true },
+    { key: "billing", label: t("tabs.billing") },
+    { key: "merges", label: t("tabs.merges"), adminOnly: true },
+    { key: "governance", label: t("tabs.governance"), adminOnly: true },
   ];
   const tabs = allTabs.filter((t) => !t.adminOnly || isAdmin);
 
@@ -579,7 +581,7 @@ function SettingsPageInner() {
   return (
     <AppShell>
       <div className="p-8 max-w-3xl mx-auto space-y-6">
-        <h1 className="text-2xl font-semibold text-white/90">Settings</h1>
+        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
 
         {/* Emergency AI Pause */}
         {!emergencyStopLoading && (
@@ -673,12 +675,12 @@ function SettingsPageInner() {
         )}
 
         {/* Tab bar */}
-        <div className="flex gap-1 bg-white/[0.03] rounded-lg p-1 w-fit">
+        <div className="flex gap-1 bg-white/[0.03] rounded-lg p-1 w-fit max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide snap-x snap-mandatory">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition ${
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition snap-start ${
                 activeTab === tab.key
                   ? "bg-purple-500/15 text-purple-300"
                   : "text-white/40 hover:text-white/60"
@@ -920,7 +922,7 @@ function SettingsPageInner() {
             <div className="wf-soft p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-medium text-white/80">
-                  Connected Sources
+                  {t("connections.title")}
                 </h2>
                 {connectors.length > 0 && (
                   <Button
@@ -953,7 +955,7 @@ function SettingsPageInner() {
                         <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                         Syncing...
                       </span>
-                    ) : "Sync All"}
+                    ) : t("connections.syncNow")}
                   </Button>
                 )}
               </div>
@@ -1202,7 +1204,7 @@ function SettingsPageInner() {
             {/* Active Users */}
             <div className="wf-soft p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-medium text-white/80">Team Members</h2>
+                <h2 className="text-lg font-medium text-white/80">{t("team.title")}</h2>
                 <Button variant="default" size="sm" onClick={() => setBulkOpen(!bulkOpen)}>
                   {bulkOpen ? "Close" : "Grant Cross-Department Access"}
                 </Button>

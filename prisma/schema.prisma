@@ -100,6 +100,7 @@ model User {
   role         String   @default("member") // "superadmin" | "admin" | "member"
   entityId         String?   @unique // FK to Entity — the base entity this user represents in the org chart
   entity           Entity?   @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  locale           String    @default("en")
   emailVerified    Boolean   @default(false)
   emailVerifiedAt  DateTime?
   lastDigestSentAt DateTime?

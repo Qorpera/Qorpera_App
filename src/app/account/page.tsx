@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { fetchApi } from "@/lib/fetch-api";
+import { useTranslations } from "next-intl";
 
 interface UserProfile {
   user: { id: string; name: string; email: string; role: string };
@@ -50,6 +51,7 @@ export default function AccountPage() {
 }
 
 function AccountPageInner() {
+  const t = useTranslations("account");
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -179,7 +181,7 @@ function AccountPageInner() {
         {/* Info card */}
         <div className="wf-soft p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-white/40">Role</span>
+            <span className="text-sm text-white/40">{t("role")}</span>
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${roleClass}`}>
               {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
             </span>
@@ -187,7 +189,7 @@ function AccountPageInner() {
 
           {operator.companyName && (
             <div className="flex items-center justify-between">
-              <span className="text-sm text-white/40">Organization</span>
+              <span className="text-sm text-white/40">{t("organization")}</span>
               <span className="text-sm text-white/70">{operator.companyName}</span>
             </div>
           )}
@@ -199,7 +201,7 @@ function AccountPageInner() {
             <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
             </svg>
-            My AI Assistant
+            {t("myAiAssistant")}
           </h2>
 
           {aiEntity === undefined ? (
@@ -207,7 +209,7 @@ function AccountPageInner() {
           ) : aiEntity === null ? (
             <div className="wf-soft p-5">
               <p className="text-sm text-white/40">
-                No AI assistant yet. Your assistant will be created when your account is set up by an admin.
+                {t("noAiAssistant")}
               </p>
             </div>
           ) : (
@@ -226,15 +228,15 @@ function AccountPageInner() {
               )}
               {paRows.length > 0 ? (
                 <div className="pt-3 border-t border-white/[0.06]">
-                  <p className="text-xs text-white/35 mb-3">Learning Progress</p>
+                  <p className="text-xs text-white/35 mb-3">{t("learningProgress")}</p>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-[11px] text-white/30 uppercase tracking-wider">
-                        <th className="text-left pb-2 font-medium">Situation Type</th>
-                        <th className="text-left pb-2 font-medium">Level</th>
-                        <th className="text-right pb-2 font-medium">Approvals</th>
-                        <th className="text-right pb-2 font-medium">Rate</th>
-                        <th className="text-right pb-2 font-medium">Consecutive</th>
+                        <th className="text-left pb-2 font-medium">{t("situationType")}</th>
+                        <th className="text-left pb-2 font-medium">{t("level")}</th>
+                        <th className="text-right pb-2 font-medium">{t("approvals")}</th>
+                        <th className="text-right pb-2 font-medium">{t("rate")}</th>
+                        <th className="text-right pb-2 font-medium">{t("consecutive")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -265,7 +267,7 @@ function AccountPageInner() {
                   </table>
                 </div>
               ) : (
-                <p className="text-xs text-white/25 pt-2">No learning data yet. Approve or reject situations to start training.</p>
+                <p className="text-xs text-white/25 pt-2">{t("noLearningData")}</p>
               )}
             </div>
           )}
@@ -273,9 +275,9 @@ function AccountPageInner() {
 
         {/* Connected Accounts */}
         <div className="mt-8 pt-8 border-t border-white/[0.06]">
-          <h2 className="text-sm font-medium text-white/60 mb-2">Connected Accounts</h2>
+          <h2 className="text-sm font-medium text-white/60 mb-2">{t("connectedAccounts")}</h2>
           <p className="text-xs text-white/35 mb-4">
-            Connect your personal accounts for email, files, calendar, and messaging.
+            {t("connectedAccountsDescription")}
           </p>
 
           <div className="wf-soft px-5 py-4 flex items-center gap-3">
@@ -286,16 +288,16 @@ function AccountPageInner() {
               G
             </span>
             <div className="flex-1 min-w-0">
-              <span className="text-sm text-white/80">Google</span>
+              <span className="text-sm text-white/80">{t("google")}</span>
               <p className="text-[11px] text-white/35 mt-0.5">
-                Gmail, Drive, Calendar, Sheets
+                {t("googleDescription")}
               </p>
             </div>
             {googleConnector ? (
               <div className="flex items-center gap-3">
                 <div className="text-right">
                   <span className="text-xs text-white/50 block">{googleConnector.name}</span>
-                  <span className="text-[10px] text-emerald-400">Connected</span>
+                  <span className="text-[10px] text-emerald-400">{t("connected")}</span>
                 </div>
                 <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -322,7 +324,7 @@ function AccountPageInner() {
                     }
                   }}
                 >
-                  {disconnecting ? "..." : "Disconnect"}
+                  {disconnecting ? "..." : t("disconnect")}
                 </button>
               </div>
             ) : (
@@ -360,16 +362,16 @@ function AccountPageInner() {
               M
             </span>
             <div className="flex-1 min-w-0">
-              <span className="text-sm text-white/80">Microsoft 365</span>
+              <span className="text-sm text-white/80">{t("microsoft")}</span>
               <p className="text-[11px] text-white/35 mt-0.5">
-                Outlook, OneDrive, Teams, Calendar
+                {t("microsoftDescription")}
               </p>
             </div>
             {microsoftConnector ? (
               <div className="flex items-center gap-3">
                 <div className="text-right">
                   <span className="text-xs text-white/50 block">{microsoftConnector.name}</span>
-                  <span className="text-[10px] text-emerald-400">Connected</span>
+                  <span className="text-[10px] text-emerald-400">{t("connected")}</span>
                 </div>
                 <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -396,7 +398,7 @@ function AccountPageInner() {
                     }
                   }}
                 >
-                  {disconnecting ? "..." : "Disconnect"}
+                  {disconnecting ? "..." : t("disconnect")}
                 </button>
               </div>
             ) : (
@@ -434,16 +436,16 @@ function AccountPageInner() {
               EC
             </span>
             <div className="flex-1 min-w-0">
-              <span className="text-sm text-white/80">e-conomic</span>
+              <span className="text-sm text-white/80">{t("economic")}</span>
               <p className="text-[11px] text-white/35 mt-0.5">
-                Customers, Invoices, Products
+                {t("economicDescription")}
               </p>
             </div>
             {economicConnector ? (
               <div className="flex items-center gap-3">
                 <div className="text-right">
                   <span className="text-xs text-white/50 block">{economicConnector.name}</span>
-                  <span className="text-[10px] text-emerald-400">Connected</span>
+                  <span className="text-[10px] text-emerald-400">{t("connected")}</span>
                 </div>
                 <svg className="w-3.5 h-3.5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -470,7 +472,7 @@ function AccountPageInner() {
                     }
                   }}
                 >
-                  {disconnecting ? "..." : "Disconnect"}
+                  {disconnecting ? "..." : t("disconnect")}
                 </button>
               </div>
             ) : (
@@ -550,15 +552,15 @@ function AccountPageInner() {
             onClick={handleLogout}
             disabled={loggingOut}
           >
-            {loggingOut ? "Signing out..." : "Sign Out"}
+            {loggingOut ? t("signingOut") : t("signOut")}
           </Button>
         </div>
 
         {/* Export My Data */}
         <div className="mt-8 pt-8 border-t border-white/[0.06]">
-          <h2 className="text-sm font-medium text-white/60 mb-2">Export My Data</h2>
+          <h2 className="text-sm font-medium text-white/60 mb-2">{t("exportMyData")}</h2>
           <p className="text-xs text-white/35 mb-4">
-            Download your personal data (profile, conversations, approvals) as a JSON file.
+            {t("exportDescription")}
           </p>
           <Button
             variant="default"
@@ -584,7 +586,7 @@ function AccountPageInner() {
               }
             }}
           >
-            {exporting ? "Exporting..." : "Export My Data"}
+            {exporting ? "Exporting..." : t("exportButton")}
           </Button>
         </div>
       </div>
@@ -615,6 +617,7 @@ const CHANNEL_OPTIONS = [
 ];
 
 function NotificationPreferences() {
+  const t = useTranslations("account");
   const [prefs, setPrefs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -653,7 +656,7 @@ function NotificationPreferences() {
 
   return (
     <div className="mt-8 pt-8 border-t border-white/[0.06]">
-      <h2 className="text-sm font-medium text-white/60 mb-2">Notification Preferences</h2>
+      <h2 className="text-sm font-medium text-white/60 mb-2">{t("notificationPreferences")}</h2>
       <p className="text-xs text-white/35 mb-4">
         Choose how you receive each type of notification.
       </p>

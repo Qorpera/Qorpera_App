@@ -2446,6 +2446,7 @@ export async function chat(
   scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" },
   userId?: string,
   contextInfo?: { contextType: string; contextText: string } | null,
+  locale?: string,
 ): Promise<ReadableStream & { totalApiCostCents: number }> {
   // Build system prompt — orientation-aware or normal
   let systemPrompt: string;
@@ -2460,6 +2461,11 @@ export async function chat(
     }
   } else {
     systemPrompt = await buildSystemPrompt(operatorId, userRole, scopeInfo, contextInfo?.contextText);
+  }
+
+  // Locale directive — instruct AI to respond in user's preferred language
+  if (locale === "da") {
+    systemPrompt += "\n\nIMPORTANT: The user's preferred language is Danish. Respond in Danish. Use natural Danish business language. Keep technical terms in English where Danish professionals would naturally use them (e.g., 'dashboard', 'email', 'sync'). Do not translate product names like 'Qorpera' or connector names.";
   }
 
   // Select tools — orientation mode gets extra tools, context mode gets scoped tools

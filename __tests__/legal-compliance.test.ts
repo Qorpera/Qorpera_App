@@ -95,9 +95,12 @@ describe("Cookie consent banner", () => {
     // Checks localStorage
     expect(source).toContain("localStorage.getItem");
     expect(source).toContain("cookie_consent");
-    // Shows banner text
-    expect(source).toContain("essential cookies");
-    expect(source).toContain("No tracking");
+    // Shows banner text via i18n (strings moved to messages/en.json)
+    const messages = JSON.parse(
+      readFileSync(path.join(process.cwd(), "messages/en.json"), "utf-8"),
+    );
+    expect(messages.cookieConsent.message).toContain("essential cookies");
+    expect(source).toContain('t("message")');
   });
 
   it("hides after Accept is clicked (sets localStorage)", () => {

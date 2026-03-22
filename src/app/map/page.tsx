@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { fetchApi } from "@/lib/fetch-api";
 import { useUser } from "@/components/user-provider";
+import { useTranslations } from "next-intl";
+import { useIsMobile } from "@/hooks/use-media-query";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -224,6 +226,9 @@ function computeLines(
 export default function MapPage() {
   const router = useRouter();
   const { isAdmin } = useUser();
+  const isMobile = useIsMobile();
+  const t = useTranslations("map");
+  const tc = useTranslations("common");
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
@@ -472,8 +477,8 @@ export default function MapPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!formName.trim()) { setFormError("Name is required"); return; }
-    if (!formDesc.trim()) { setFormError("Description is required"); return; }
+    if (!formName.trim()) { setFormError(t("nameRequired")); return; }
+    if (!formDesc.trim()) { setFormError(t("descriptionRequired")); return; }
     setSaving(true);
     setFormError("");
 
@@ -635,7 +640,7 @@ export default function MapPage() {
                   : "bg-[#222] text-[#b0b0b0] hover:bg-[#2a2a2a] border border-[#333]"
               }`}
             >
-              {editMode ? "Done Editing" : "Edit Map"}
+              {editMode ? t("doneEditing") : t("editMap")}
               {!editMode && unroutedCount > 0 && (
                 <span className="ml-1.5 min-w-[16px] h-[16px] inline-flex items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-black px-1">
                   {unroutedCount}
@@ -645,7 +650,7 @@ export default function MapPage() {
           )}
           {isAdmin && (
             <Button variant="primary" size="sm" onClick={openAdd}>
-              Add Department
+              {t("addDepartment")}
             </Button>
           )}
         </div>
@@ -659,7 +664,55 @@ export default function MapPage() {
           </div>
         )}
 
-        {/* Canvas */}
+        {isMobile ? (
+          /* ── Mobile: vertical list of department cards ── */
+          <div className="px-4 py-4 space-y-3 overflow-y-auto absolute inset-0" style={{ background: "#101010" }}>
+            {loading && (
+              <p className="text-[#484848] text-sm text-center py-8">{tc("loading")}</p>
+            )}
+            {!loading && departments.length === 0 && (
+              <p className="text-[#484848] text-sm text-center py-8">{t("emptyMapHint")}</p>
+            )}
+            {hq && (
+              <button
+                onClick={() => router.push(`/map/${hq.id}`)}
+                className="w-full text-left rounded-lg p-4 transition hover:brightness-110"
+                style={{ background: "#1c1c1c", border: CARD_BORDER }}
+              >
+                <div className="text-lg font-semibold text-[#e8e8e8]">{hq.displayName}</div>
+                <div className="text-sm text-[#707070] mt-1">
+                  {depts.length} department{depts.length !== 1 ? "s" : ""} &middot; {totalPeople} people
+                </div>
+                {activeSituationCount > 0 && (
+                  <div className="text-xs text-[#484848] mt-1">
+                    {activeSituationCount} active situation{activeSituationCount !== 1 ? "s" : ""}
+                  </div>
+                )}
+              </button>
+            )}
+            {depts.map(dept => (
+              <button
+                key={dept.id}
+                onClick={() => router.push(`/map/${dept.id}`)}
+                className="w-full text-left rounded-lg p-4 transition hover:brightness-110"
+                style={{ background: "#1c1c1c", border: CARD_BORDER }}
+              >
+                <div className="text-base font-semibold text-[#e8e8e8]">{dept.displayName}</div>
+                <div className="text-sm text-[#707070] mt-1">
+                  {dept.memberCount} people &middot; {dept.documentCount} docs
+                </div>
+                {(deptStats[dept.id]?.situations > 0 || deptStats[dept.id]?.initiatives > 0) && (
+                  <div className="text-xs text-[#484848] mt-1">
+                    {deptStats[dept.id].situations > 0 && <>{deptStats[dept.id].situations} situation{deptStats[dept.id].situations !== 1 ? "s" : ""}</>}
+                    {deptStats[dept.id].situations > 0 && deptStats[dept.id].initiatives > 0 && " · "}
+                    {deptStats[dept.id].initiatives > 0 && <>{deptStats[dept.id].initiatives} initiative{deptStats[dept.id].initiatives !== 1 ? "s" : ""}</>}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+        /* ── Desktop: Canvas ── */
         <div
           ref={containerRef}
           onMouseDown={onCanvasMouseDown}
@@ -753,10 +806,10 @@ export default function MapPage() {
                       autoFocus onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                     <input value={editDesc} onChange={e => setEditDesc(e.target.value)}
                       className="w-full bg-transparent border-b border-[#2a2a2a] outline-none text-xs text-[#707070]"
-                      placeholder="Description" onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
+                      placeholder={t("description")} onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                     <div className="flex gap-1.5">
-                      <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">Save</button>
-                      <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">Cancel</button>
+                      <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">{tc("save")}</button>
+                      <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">{tc("cancel")}</button>
                     </div>
                   </div>
                 ) : (
@@ -823,10 +876,10 @@ export default function MapPage() {
                         autoFocus onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                       <input value={editDesc} onChange={e => setEditDesc(e.target.value)}
                         className="w-full bg-transparent border-b border-[#2a2a2a] outline-none text-xs text-[#707070]"
-                        placeholder="Description" onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
+                        placeholder={t("description")} onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                       <div className="flex gap-1.5">
-                        <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">Save</button>
-                        <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">Cancel</button>
+                        <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">{tc("save")}</button>
+                        <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">{tc("cancel")}</button>
                       </div>
                     </div>
                   ) : (
@@ -913,6 +966,7 @@ export default function MapPage() {
             })}
           </div>
         </div>
+        )}
 
         {/* Unrouted entities panel */}
         {editMode && unroutedEntities.length > 0 && (
@@ -921,7 +975,7 @@ export default function MapPage() {
               onClick={() => setUnroutedOpen(!unroutedOpen)}
               className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium text-amber-300/80 hover:text-amber-300 transition"
             >
-              <span>Unassigned Entities ({unroutedCount})</span>
+              <span>{t("unassignedEntities", { count: unroutedCount })}</span>
               <svg className={`w-3.5 h-3.5 transition ${unroutedOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
@@ -941,7 +995,7 @@ export default function MapPage() {
                       onChange={e => { if (e.target.value) assignToDepartment(entity.id, e.target.value); }}
                       className="bg-transparent border border-[#2a2a2a] rounded px-2 py-1 text-[11px] text-[#707070] outline-none cursor-pointer"
                     >
-                      <option value="" disabled>Assign to...</option>
+                      <option value="" disabled>{t("assignTo")}</option>
                       {departments.filter(d => d.entityType.slug === "department" || d.isHQ).map(d => (
                         <option key={d.id} value={d.id} className="bg-[#1c1c1c]">{d.displayName}</option>
                       ))}
@@ -963,31 +1017,31 @@ export default function MapPage() {
           <button
             className="w-full text-left px-3 py-1.5 text-sm text-[#b0b0b0] hover:bg-[#222] hover:text-[#e8e8e8]"
             onClick={() => { openEdit(ctxMenu.dept); setCtxMenu(null); }}
-          >Edit</button>
+          >{tc("edit")}</button>
           <button
             className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-[#222] hover:text-red-300"
             onClick={() => { setDeleteTarget(ctxMenu.dept); setCtxMenu(null); }}
-          >Delete</button>
+          >{tc("delete")}</button>
         </div>
       )}
 
       {/* Add/Edit modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editTarget ? "Edit Department" : "Add Department"}>
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editTarget ? t("editDepartment") : t("addDepartment")}>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input label="Name" value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Engineering" autoFocus />
-          <Input label="Description" value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="What does this department do?" />
+          <Input label={t("departmentName")} value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Engineering" autoFocus />
+          <Input label={t("description")} value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="What does this department do?" />
           {formError && <p className="text-sm text-red-400">{formError}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="default" size="sm" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button type="button" variant="default" size="sm" onClick={() => setModalOpen(false)}>{tc("cancel")}</Button>
             <Button type="submit" variant="primary" size="sm" disabled={saving}>
-              {saving ? "Saving..." : editTarget ? "Save" : "Create"}
+              {saving ? tc("saving") : editTarget ? tc("save") : tc("create")}
             </Button>
           </div>
         </form>
       </Modal>
 
       {/* Delete confirmation */}
-      <Modal open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} title="Delete Department">
+      <Modal open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} title={t("deleteDepartment")}>
         <div className="space-y-4">
           <p className="text-sm text-[#707070]">
             Are you sure you want to delete <span className="text-[#e8e8e8] font-medium">{deleteTarget?.displayName}</span>?
@@ -999,9 +1053,9 @@ export default function MapPage() {
           </p>
           {deleteError && <p className="text-sm text-red-400">{deleteError}</p>}
           <div className="flex justify-end gap-2">
-            <Button variant="default" size="sm" onClick={() => { setDeleteTarget(null); setDeleteError(""); }}>Cancel</Button>
+            <Button variant="default" size="sm" onClick={() => { setDeleteTarget(null); setDeleteError(""); }}>{tc("cancel")}</Button>
             <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleting}>
-              {deleting ? "Deleting..." : "Delete"}
+              {deleting ? tc("deleting") : tc("delete")}
             </Button>
           </div>
         </div>

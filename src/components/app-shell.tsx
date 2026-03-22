@@ -1,12 +1,15 @@
 "use client";
 
-import { type ReactNode, useState, useEffect, Suspense } from "react";
-import { useRouter } from "next/navigation";
+import { type ReactNode, useState, useEffect, useCallback, Suspense } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { useTranslations, useLocale } from "next-intl";
 import { AppNav } from "./app-nav";
 import { ToastProvider } from "./ui/toast";
 import { NotificationBell } from "./notification-bell";
 import { useUser } from "./user-provider";
 import { QorperaLogo } from "./qorpera-logo";
+import { LocaleSwitcher } from "./locale-switcher";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 function CollapseChevron({ collapsed }: { collapsed: boolean }) {
   return (
@@ -24,6 +27,7 @@ function CollapseChevron({ collapsed }: { collapsed: boolean }) {
 
 function AiPausedBanner() {
   const { isAdmin } = useUser();
+  const t = useTranslations("shell");
   const [paused, setPaused] = useState(false);
 
   useEffect(() => {
@@ -38,11 +42,11 @@ function AiPausedBanner() {
   return (
     <div className="bg-red-500/15 border-b border-red-500/20 px-4 py-1.5 flex items-center justify-between flex-shrink-0">
       <span className="text-xs text-red-300">
-        <span className="mr-1">⚠️</span> AI activity is paused.
+        <span className="mr-1">⚠️</span> {t("aiPaused")}
       </span>
       {isAdmin && (
         <a href="/settings" className="text-xs text-red-400 hover:text-red-300 font-medium">
-          Go to Settings to resume
+          {t("goToSettings")}
         </a>
       )}
     </div>
@@ -52,6 +56,7 @@ function AiPausedBanner() {
 function SuperadminBanner() {
   const router = useRouter();
   const { isSuperadmin, actingAsOperator } = useUser();
+  const t = useTranslations("shell");
   const [companyName, setCompanyName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -68,7 +73,7 @@ function SuperadminBanner() {
   return (
     <div className="bg-amber-500/15 border-b border-amber-500/20 px-4 py-1.5 flex items-center justify-between flex-shrink-0">
       <span className="text-xs text-amber-300">
-        Viewing as: <span className="font-medium">{companyName}</span>
+        {t("viewingAs")} <span className="font-medium">{companyName}</span>
       </span>
       <button
         className="text-xs text-amber-400 hover:text-amber-300 font-medium"
@@ -77,13 +82,83 @@ function SuperadminBanner() {
           router.push("/admin");
         }}
       >
-        Exit
+        {t("exit")}
       </button>
     </div>
   );
 }
 
+// ── Hamburger icon ──────────────────────────────────────────────────────────
+
+function HamburgerIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+// ── Sidebar content (shared between desktop aside and mobile drawer) ────────
+
+function SidebarContent({
+  pendingApprovals,
+  collapsed,
+  locale,
+  onNavClick,
+}: {
+  pendingApprovals: number;
+  collapsed: boolean;
+  locale: string;
+  onNavClick?: () => void;
+}) {
+  const t = useTranslations("shell");
+
+  return (
+    <>
+      {/* Navigation */}
+      <nav className={`flex-1 overflow-y-auto ${collapsed ? "px-1.5" : "px-3"} pb-4`}>
+        <Suspense>
+          <AppNav pendingApprovals={pendingApprovals} collapsed={collapsed} onNavClick={onNavClick} />
+        </Suspense>
+      </nav>
+
+      {/* Footer */}
+      {!collapsed && (
+        <div className="px-5 py-3 border-t border-[#1e1e1e]">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] text-[#444]">{t("version")}</p>
+            <LocaleSwitcher currentLocale={locale} />
+          </div>
+          <div className="text-[10px] text-[#444] mt-1">
+            <a href="/terms" className="hover:text-[#666]">Terms</a>
+            {" · "}
+            <a href="/privacy" className="hover:text-[#666]">Privacy</a>
+            {" · "}
+            <a href="/dpa" className="hover:text-[#666]">DPA</a>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Main AppShell ───────────────────────────────────────────────────────────
+
 export function AppShell({ children, pendingApprovals = 0, topBarContent }: { children: ReactNode; pendingApprovals?: number; topBarContent?: ReactNode }) {
+  const t = useTranslations("shell");
+  const locale = useLocale();
+  const pathname = usePathname();
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  // Desktop sidebar collapse
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("sidebar-collapsed") === "true";
@@ -95,76 +170,133 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
     localStorage.setItem("sidebar-collapsed", String(collapsed));
   }, [collapsed]);
 
+  // Mobile drawer
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Close drawer on navigation
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  // Close drawer on Escape
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileNavOpen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [mobileNavOpen]);
+
+  // Prevent body scroll when drawer open
+  useEffect(() => {
+    if (mobileNavOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileNavOpen]);
+
+  const handleNavClick = useCallback(() => {
+    setMobileNavOpen(false);
+  }, []);
+
   return (
     <ToastProvider>
       <div className="flex h-screen wf-shell">
-        {/* Sidebar */}
-        <aside
-          style={{ background: "#0c0c0c" }}
-          className={`flex-shrink-0 flex flex-col border-r border-[#1e1e1e] transition-[width] duration-200 ${
-            collapsed ? "w-14" : "w-60"
-          }`}
-        >
-          {/* Logo + collapse toggle */}
-          <div className={`flex items-center ${collapsed ? "flex-col gap-2 px-2" : "px-5"} py-5`}>
-            {collapsed ? (
-              <>
-                <QorperaLogo width={44} />
-                <button
-                  onClick={() => setCollapsed(false)}
-                  className="text-white/20 hover:text-white/50 transition-colors p-1 rounded-lg hover:bg-white/[0.04]"
-                  title="Expand sidebar"
-                >
-                  <CollapseChevron collapsed={true} />
-                </button>
-              </>
-            ) : (
-              <>
-                <QorperaLogo width={80} className="flex-shrink-0" />
-                <button
-                  onClick={() => setCollapsed(true)}
-                  className="ml-auto text-white/20 hover:text-white/50 transition-colors p-1 -mr-1 rounded-lg hover:bg-white/[0.04]"
-                  title="Collapse sidebar"
-                >
-                  <CollapseChevron collapsed={false} />
-                </button>
-              </>
-            )}
-          </div>
+        {/* ── Desktop sidebar (lg+) — CSS-only visibility to avoid hydration flash ── */}
+          <aside
+            style={{ background: "#0c0c0c" }}
+            className={`hidden lg:flex flex-shrink-0 flex-col border-r border-[#1e1e1e] transition-[width] duration-200 ${
+              collapsed ? "w-14" : "w-60"
+            }`}
+          >
+            {/* Logo + collapse toggle */}
+            <div className={`flex items-center ${collapsed ? "flex-col gap-2 px-2" : "px-5"} py-5`}>
+              {collapsed ? (
+                <>
+                  <QorperaLogo width={44} />
+                  <button
+                    onClick={() => setCollapsed(false)}
+                    className="text-white/20 hover:text-white/50 transition-colors p-1 rounded-lg hover:bg-white/[0.04]"
+                    title={t("expandSidebar")}
+                  >
+                    <CollapseChevron collapsed={true} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <QorperaLogo width={80} className="flex-shrink-0" />
+                  <button
+                    onClick={() => setCollapsed(true)}
+                    className="ml-auto text-white/20 hover:text-white/50 transition-colors p-1 -mr-1 rounded-lg hover:bg-white/[0.04]"
+                    title={t("collapseSidebar")}
+                  >
+                    <CollapseChevron collapsed={false} />
+                  </button>
+                </>
+              )}
+            </div>
 
-          {/* Navigation */}
-          <nav className={`flex-1 overflow-y-auto ${collapsed ? "px-1.5" : "px-3"} pb-4`}>
-            <Suspense>
-              <AppNav pendingApprovals={pendingApprovals} collapsed={collapsed} />
-            </Suspense>
-          </nav>
+            <SidebarContent pendingApprovals={pendingApprovals} collapsed={collapsed} locale={locale} />
+          </aside>
 
-          {/* Footer */}
-          {!collapsed && (
-            <div className="px-5 py-3 border-t border-[#1e1e1e]">
-              <p className="text-[10px] text-[#444]">Qorpera Desktop v0.1.0</p>
-              <div className="text-[10px] text-[#444] mt-1">
-                <a href="/terms" className="hover:text-[#666]">Terms</a>
-                {" · "}
-                <a href="/privacy" className="hover:text-[#666]">Privacy</a>
-                {" · "}
-                <a href="/dpa" className="hover:text-[#666]">DPA</a>
+        {/* ── Mobile drawer overlay (below lg) ── */}
+        {!isDesktop && mobileNavOpen && (
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-black/40 z-40"
+              onClick={() => setMobileNavOpen(false)}
+            />
+            {/* Drawer */}
+            <div
+              className="fixed inset-y-0 left-0 w-72 z-50 flex flex-col"
+              style={{ background: "#0c0c0c" }}
+            >
+              {/* Drawer header */}
+              <div className="flex items-center justify-between px-5 py-4">
+                <QorperaLogo width={80} />
+                <button
+                  onClick={() => setMobileNavOpen(false)}
+                  className="p-2 -mr-2 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.04] min-h-[44px] min-w-[44px] flex items-center justify-center"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+
+              <SidebarContent pendingApprovals={pendingApprovals} collapsed={false} locale={locale} onNavClick={handleNavClick} />
+            </div>
+          </>
+        )}
+
+        {/* ── Main content ── */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Mobile top bar (below lg) — CSS-only visibility */}
+            <div className="flex lg:hidden items-center justify-between px-3 h-14 border-b border-white/[0.06] flex-shrink-0" style={{ background: "#0c0c0c" }}>
+              <button
+                onClick={() => setMobileNavOpen(true)}
+                className="p-2 rounded-lg text-white/50 hover:text-white/80 hover:bg-white/[0.04] min-h-[44px] min-w-[44px] flex items-center justify-center"
+              >
+                <HamburgerIcon />
+              </button>
+              <QorperaLogo width={60} />
+              <div className="flex items-center">
+                <NotificationBell />
               </div>
             </div>
-          )}
-        </aside>
 
-        {/* Main content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Superadmin banner */}
+          {/* Superadmin + AI paused banners */}
           <SuperadminBanner />
-          {/* AI paused banner */}
           <AiPausedBanner />
-          {/* Top bar */}
-          <div className="flex items-center justify-end gap-3 px-5 py-2 border-b border-white/[0.04] flex-shrink-0">
-            {topBarContent}
-            <NotificationBell />
-          </div>
+
+          {/* Desktop top bar (lg+) — CSS-only visibility */}
+            <div className="hidden lg:flex items-center justify-end gap-3 px-5 py-2 border-b border-white/[0.04] flex-shrink-0">
+              {topBarContent}
+              <NotificationBell />
+            </div>
+
           {/* Scrollable content */}
           <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">
             {children}

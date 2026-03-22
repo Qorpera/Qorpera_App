@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { locales, type Locale } from "@/i18n/config";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -39,10 +40,44 @@ export async function GET() {
       email: user.email,
       role: user.role,
       entityId: user.entityId,
+      locale: user.locale,
     },
     operator,
     isSuperadmin,
     actingAsOperator,
     scopes,
   });
+}
+
+export async function PATCH(req: NextRequest) {
+  const su = await getSessionUser();
+  if (!su) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  const updates: Record<string, unknown> = {};
+
+  if ("locale" in body) {
+    const newLocale = body.locale;
+    if (typeof newLocale !== "string" || !locales.includes(newLocale as Locale)) {
+      return NextResponse.json({ error: "Invalid locale" }, { status: 400 });
+    }
+    updates.locale = newLocale;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+  }
+
+  await prisma.user.update({
+    where: { id: su.user.id },
+    data: updates,
+  });
+
+  return NextResponse.json({ ok: true });
 }

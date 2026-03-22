@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useTranslations } from "next-intl";
+import { useIsMobile } from "@/hooks/use-media-query";
 
 interface Message {
   role: "user" | "assistant";
@@ -17,14 +19,22 @@ interface ContextualChatProps {
 export function ContextualChat({
   contextType,
   contextId,
-  placeholder = "Ask about this...",
+  placeholder,
   hints,
 }: ContextualChatProps) {
+  const t = useTranslations("contextualChat");
+  const isMobile = useIsMobile();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Collapse by default on mobile
+  useEffect(() => {
+    if (isMobile) setExpanded(false);
+  }, [isMobile]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -100,6 +110,24 @@ export function ContextualChat({
     }
   };
 
+  if (!expanded) {
+    return (
+      <div style={{ borderTop: "1px solid #1e1e1e" }}>
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full px-4 py-3 flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300 transition-colors"
+          style={{ background: "#0c0c0c" }}
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z" />
+          </svg>
+          {t("askAboutThis")}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col" style={{ borderTop: "1px solid #1e1e1e" }}>
       {/* Messages area */}
@@ -108,7 +136,7 @@ export function ContextualChat({
           {messages.map((msg, i) => (
             <div key={i}>
               <div style={{ fontSize: 10, fontWeight: 500, color: msg.role === "user" ? "#707070" : "#c084fc", marginBottom: 2 }}>
-                {msg.role === "user" ? "You" : "Qorpera"}
+                {msg.role === "user" ? t("you") : t("qorpera")}
               </div>
               <div style={{
                 fontSize: 13,
@@ -158,7 +186,7 @@ export function ContextualChat({
             e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
           }}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder}
+          placeholder={placeholder || t("defaultPlaceholder")}
           rows={1}
           className="flex-1 outline-none resize-none"
           style={{

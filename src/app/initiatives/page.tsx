@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { ContextualChat } from "@/components/contextual-chat";
+import { useIsMobile } from "@/hooks/use-media-query";
+import { useTranslations, useLocale } from "next-intl";
+import { formatRelativeTime } from "@/lib/format-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,15 +60,6 @@ interface StepData {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
-
 function statusColor(status: string): string {
   switch (status) {
     case "proposed": return "#f59e0b";
@@ -109,6 +103,10 @@ function ExecutionModeBadge({ mode }: { mode: string }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function InitiativesPage() {
+  const t = useTranslations("initiatives");
+  const tc = useTranslations("common");
+  const locale = useLocale();
+  const isMobile = useIsMobile();
   const [initiatives, setInitiatives] = useState<InitiativeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -216,12 +214,13 @@ export default function InitiativesPage() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Left: initiative list ── */}
-        <div className="w-[300px] flex-shrink-0 flex flex-col overflow-hidden" style={{ borderRight: "1px solid #1e1e1e" }}>
+        {(!isMobile || !selectedId) && (
+        <div className={`${isMobile ? "w-full" : "w-[300px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid #1e1e1e" }}>
           {/* Header */}
           <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "#e8e8e8" }}>Initiatives</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "#e8e8e8" }}>{t("title")}</div>
             <div style={{ fontSize: 11, color: "#707070" }} className="mt-0.5">
-              AI-proposed strategic work
+              {t("subtitle")}
             </div>
           </div>
 
@@ -238,7 +237,7 @@ export default function InitiativesPage() {
                   color: filter === f ? "#e8e8e8" : "#484848",
                 }}
               >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
+                {f === "active" ? tc("active") : tc("all")}
               </button>
             ))}
           </div>
@@ -267,7 +266,7 @@ export default function InitiativesPage() {
                     {item.rationale.split(/[.!?\n]/)[0] || "Untitled initiative"}
                   </span>
                   <span style={{ fontSize: 11, color: "#484848" }} className="flex-shrink-0">
-                    {timeAgo(item.createdAt)}
+                    {formatRelativeTime(item.createdAt, locale)}
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: "#484848" }} className="pl-[15px] truncate">
@@ -277,14 +276,22 @@ export default function InitiativesPage() {
             ))}
             {!loading && filteredInitiatives.length === 0 && (
               <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "#484848" }}>
-                No initiatives
+                {t("empty")}
               </div>
             )}
           </div>
         </div>
+        )}
 
         {/* ── Right: detail pane ── */}
+        {(!isMobile || selectedId) && (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {isMobile && (
+            <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-white/50 hover:text-white/70 min-h-[44px]">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+              Back
+            </button>
+          )}
           {selectedId && detail ? (
             <>
               <div className="flex-1 overflow-y-auto">
@@ -300,8 +307,8 @@ export default function InitiativesPage() {
               <ContextualChat
                 contextType="initiative"
                 contextId={detail.id}
-                placeholder="Discuss this initiative..."
-                hints={["What's the expected ROI?", "Are there dependencies?"]}
+                placeholder={t("discuss")}
+                hints={[t("hintRoi"), t("hintDependencies")]}
               />
             </>
           ) : selectedId && detailLoading ? (
@@ -310,10 +317,11 @@ export default function InitiativesPage() {
             </div>
           ) : (
             <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "#484848" }}>
-              Select an initiative
+              {t("selectInitiative")}
             </div>
           )}
         </div>
+        )}
 
       </div>
     </AppShell>
@@ -335,6 +343,9 @@ function DetailPane({
   advanceStep: (planId: string, stepId: string, action: "approve" | "skip") => Promise<void>;
   completeHumanStep: (planId: string, stepId: string, notes: string) => Promise<void>;
 }) {
+  const t = useTranslations("initiatives");
+  const tc = useTranslations("common");
+  const locale = useLocale();
   const [showPlan, setShowPlan] = useState(false);
   const [showImpact, setShowImpact] = useState(false);
   const [humanNotes, setHumanNotes] = useState("");
@@ -356,7 +367,7 @@ function DetailPane({
             {d.status.charAt(0).toUpperCase() + d.status.slice(1)}
           </Badge>
           <span style={{ fontSize: 12, color: "#707070" }}>{d.aiEntityName ?? "AI"}</span>
-          <span style={{ fontSize: 12, color: "#484848" }}>{timeAgo(d.createdAt)}</span>
+          <span style={{ fontSize: 12, color: "#484848" }}>{formatRelativeTime(d.createdAt, locale)}</span>
         </div>
 
         <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "#e8e8e8" }}>
@@ -379,7 +390,7 @@ function DetailPane({
       {/* ── Rationale ── */}
       <div>
         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
-          Rationale
+          {t("rationale")}
         </div>
         <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
           <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0", whiteSpace: "pre-wrap" }}>{d.rationale}</p>
@@ -394,13 +405,13 @@ function DetailPane({
             style={{ background: "#16a34a", color: "#fff" }}
             onClick={() => patchInitiative(d.id, { status: "approved" })}
           >
-            Approve
+            {tc("approve")}
           </button>
           <button
             className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"
             onClick={() => patchInitiative(d.id, { status: "rejected" })}
           >
-            Reject
+            {tc("reject")}
           </button>
         </div>
       )}
@@ -416,7 +427,7 @@ function DetailPane({
             <svg className={`w-3 h-3 transition-transform ${showPlan ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
-            Execution plan &middot; {d.steps.length} steps
+            {t("executionPlan")} &middot; {d.steps.length} steps
             {d.planStatus && (
               <span style={{
                 fontSize: 10,
@@ -490,14 +501,14 @@ function DetailPane({
                               style={{ background: "#16a34a", color: "#fff" }}
                               onClick={() => advanceStep(d.executionPlanId!, step.id, "approve")}
                             >
-                              Approve step
+                              {t("approveStep")}
                             </button>
                             <button
                               className="rounded-full text-[12px] font-medium px-3 py-1 transition"
                               style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
                               onClick={() => advanceStep(d.executionPlanId!, step.id, "skip")}
                             >
-                              Skip
+                              {tc("skip")}
                             </button>
                           </div>
                         )}
@@ -508,7 +519,7 @@ function DetailPane({
                             <textarea
                               value={humanNotes}
                               onChange={e => setHumanNotes(e.target.value)}
-                              placeholder="Describe what you did..."
+                              placeholder={t("humanTaskPlaceholder")}
                               className="w-full outline-none"
                               style={{ background: "#111", border: "1px solid #333", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8", resize: "vertical", fontFamily: "inherit" }}
                               rows={2}
@@ -522,7 +533,7 @@ function DetailPane({
                                 setHumanNotes("");
                               }}
                             >
-                              Mark complete
+                              {t("markComplete")}
                             </button>
                           </div>
                         )}
@@ -547,7 +558,7 @@ function DetailPane({
             <svg className={`w-3 h-3 transition-transform ${showImpact ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
-            Impact assessment
+            {t("impactAssessment")}
           </button>
 
           {showImpact && (

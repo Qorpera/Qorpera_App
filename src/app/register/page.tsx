@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const t = useTranslations("auth.register");
+  const tc = useTranslations("common");
   const [companyName, setCompanyName] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -46,9 +49,9 @@ export default function RegisterPage() {
       }
 
       const data = await res.json();
-      setError(data.error || "Registration failed");
+      setError(data.error || t("registrationFailed"));
     } catch {
-      setError("Connection error");
+      setError(tc("connectionError"));
     } finally {
       setLoading(false);
     }
@@ -56,7 +59,7 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
-      <div className="w-full max-w-sm px-6">
+      <div className="w-full max-w-sm mx-auto px-4">
         {/* Logo */}
         <div className="flex justify-center mb-8">
           <svg viewBox="0 0 40 40" className="w-14 h-14" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -66,53 +69,53 @@ export default function RegisterPage() {
         </div>
 
         <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-white/90 text-center mb-2">
-          Create Your Account
+          {t("title")}
         </h1>
         <p className="text-sm text-white/40 text-center mb-6">
-          Set up a new Qorpera workspace for your company.
+          {t("subtitle")}
         </p>
 
         {checking ? (
-          <p className="text-sm text-white/40 text-center">Loading...</p>
+          <p className="text-sm text-white/40 text-center">{tc("loading")}</p>
         ) : registrationClosed ? (
           <div className="text-center space-y-4">
-            <p className="text-sm text-white/50">Registration is currently closed.</p>
+            <p className="text-sm text-white/50">{t("registrationClosed")}</p>
             <p className="text-sm text-white/30">
-              Contact your administrator for an invite link, or{" "}
-              <a href="/login" className="text-purple-400 hover:text-purple-300">sign in</a>.
+              {t("contactAdmin")}{" "}
+              <a href="/login" className="text-purple-400 hover:text-purple-300">{t("signIn")}</a>.
             </p>
           </div>
         ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label="Company Name"
+            label={t("companyName")}
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
-            placeholder="Acme Corp"
+            placeholder={t("companyPlaceholder")}
             required
           />
           <Input
-            label="Your Name"
+            label={t("yourName")}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Jane Smith"
+            placeholder={t("namePlaceholder")}
             required
           />
           <Input
-            label="Email"
+            label={t("email")}
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@company.com"
+            placeholder={t("emailPlaceholder")}
             required
           />
           <div className="relative">
             <Input
-              label="Password"
+              label={t("password")}
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Min 8 characters"
+              placeholder={t("passwordPlaceholder")}
               required
             />
             <button
@@ -146,10 +149,10 @@ export default function RegisterPage() {
               className="mt-0.5 accent-purple-500"
             />
             <span>
-              I agree to the{" "}
-              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 underline">Terms of Service</a>
-              {" "}and{" "}
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 underline">Privacy Policy</a>
+              {t("tosAgree")}{" "}
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 underline">{t("termsOfService")}</a>
+              {" "}{t("and")}{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 underline">{t("privacyPolicy")}</a>
             </span>
           </label>
 
@@ -158,28 +161,28 @@ export default function RegisterPage() {
             size="lg"
             type="submit"
             disabled={loading || !companyName || !name || !email || password.length < 8 || !tosAccepted}
-            className="w-full"
+            className="w-full min-h-[44px]"
           >
-            {loading ? "Creating..." : "Create Account"}
+            {loading ? t("submitting") : t("submit")}
           </Button>
         </form>
         )}
 
         {!registrationClosed && !checking && (
         <p className="text-center text-sm text-white/30 mt-6">
-          Already have an account?{" "}
+          {t("alreadyHaveAccount")}{" "}
           <a href="/login" className="text-purple-400 hover:text-purple-300">
-            Sign in
+            {t("signIn")}
           </a>
         </p>
         )}
       </div>
       <div className="text-center text-xs text-white/30 pb-8">
-        <a href="/terms" className="hover:text-white/50">Terms</a>
+        <a href="/terms" className="hover:text-white/50">{tc("terms")}</a>
         {" · "}
-        <a href="/privacy" className="hover:text-white/50">Privacy</a>
+        <a href="/privacy" className="hover:text-white/50">{tc("privacy")}</a>
         {" · "}
-        <a href="/dpa" className="hover:text-white/50">DPA</a>
+        <a href="/dpa" className="hover:text-white/50">{tc("dpa")}</a>
       </div>
     </div>
   );

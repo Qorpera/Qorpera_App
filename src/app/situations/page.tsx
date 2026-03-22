@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { ContextualChat } from "@/components/contextual-chat";
+import { useIsMobile } from "@/hooks/use-media-query";
+import { useTranslations, useLocale } from "next-intl";
+import { formatRelativeTime } from "@/lib/format-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -163,15 +166,6 @@ function severityBadge(s: SituationItem): { label: string; variant: "red" | "amb
   return { label: "Medium", variant: "default" };
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
-
 function providerLabel(draft: DraftPayload): string {
   const p = draft.provider?.toLowerCase();
   if (p === "google" || p === "gmail") return "Gmail";
@@ -206,6 +200,10 @@ const CATEGORY_LABELS: Record<string, string> = {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SituationsPage() {
+  const t = useTranslations("situations");
+  const tc = useTranslations("common");
+  const locale = useLocale();
+  const isMobile = useIsMobile();
   const [situations, setSituations] = useState<SituationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -349,10 +347,11 @@ export default function SituationsPage() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
         {/* ── Left: situation list ── */}
-        <div className="w-[320px] flex-shrink-0 flex flex-col overflow-hidden" style={{ borderRight: "1px solid #1e1e1e" }}>
+        {(!isMobile || !selectedId) && (
+        <div className={`${isMobile ? "w-full" : "w-[320px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid #1e1e1e" }}>
           {/* Header */}
           <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "#e8e8e8" }}>Situations</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "#e8e8e8" }}>{t("title")}</div>
             <div style={{ fontSize: 11, color: "#707070" }} className="mt-0.5">
               {situations.length} total &middot; {pendingCount} pending
             </div>
@@ -371,7 +370,7 @@ export default function SituationsPage() {
                   color: filter === f ? "#e8e8e8" : "#484848",
                 }}
               >
-                {f}
+                {f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
           </div>
@@ -401,7 +400,7 @@ export default function SituationsPage() {
                     {s.triggerEntityName ?? "Unknown"}
                   </span>
                   <span style={{ fontSize: 11, color: "#484848" }} className="flex-shrink-0">
-                    {timeAgo(s.createdAt)}
+                    {formatRelativeTime(s.createdAt, locale)}
                   </span>
                 </div>
                 <div style={{ fontSize: 11, color: "#484848" }} className="pl-[15px] truncate">
@@ -411,14 +410,22 @@ export default function SituationsPage() {
             ))}
             {!loading && filteredSituations.length === 0 && (
               <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "#484848" }}>
-                No situations
+                {t("empty")}
               </div>
             )}
           </div>
         </div>
+        )}
 
         {/* ── Right: detail pane ── */}
+        {(!isMobile || selectedId) && (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {isMobile && (
+            <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-white/50 hover:text-white/70 min-h-[44px]">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+              Back
+            </button>
+          )}
           {selectedSituation ? (
             <>
               <div className="flex-1 overflow-y-auto">
@@ -444,16 +451,17 @@ export default function SituationsPage() {
               <ContextualChat
                 contextType="situation"
                 contextId={selectedSituation.id}
-                placeholder="Discuss this situation..."
+                placeholder={t("discuss")}
                 hints={["What evidence supports this?", "Should I escalate?"]}
               />
             </>
           ) : (
             <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "#484848" }}>
-              Select a situation
+              {t("selectSituation")}
             </div>
           )}
         </div>
+        )}
 
       </div>
     </AppShell>
@@ -472,6 +480,7 @@ interface DelegationItem {
 }
 
 function DelegationFeed() {
+  const tc = useTranslations("common");
   const [delegations, setDelegations] = useState<DelegationItem[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [completingId, setCompletingId] = useState<string | null>(null);
@@ -549,7 +558,7 @@ function DelegationFeed() {
                       className="text-[11px] px-2 py-0.5 rounded transition"
                       style={{ color: "#484848" }}
                     >
-                      Cancel
+                      {tc("cancel")}
                     </button>
                   </div>
                 </div>
@@ -621,6 +630,9 @@ function DetailPane({
   setOutcomeNote: (n: string) => void;
   billingStatus: string;
 }) {
+  const t = useTranslations("situations");
+  const tc = useTranslations("common");
+  const locale = useLocale();
   const [showEvidence, setShowEvidence] = useState(false);
   const [editingDraft, setEditingDraft] = useState(false);
   const [editedDraftBody, setEditedDraftBody] = useState("");
@@ -836,7 +848,7 @@ function DetailPane({
         <div className="flex items-center gap-2 mt-2 flex-wrap">
           {s.departmentName && <Badge>{s.departmentName}</Badge>}
           <span style={{ fontSize: 12, color: "#707070" }}>{(s.confidence * 100).toFixed(0)}%</span>
-          <span style={{ fontSize: 12, color: "#484848" }}>{timeAgo(s.createdAt)}</span>
+          <span style={{ fontSize: 12, color: "#484848" }}>{formatRelativeTime(s.createdAt, locale)}</span>
         </div>
       </div>
 
@@ -1020,14 +1032,14 @@ function DetailPane({
                       className="transition"
                       style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.3)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#c084fc" }}
                     >
-                      Save
+                      {t("saveInstruction")}
                     </button>
                     <button
                       onClick={cancelDraftEdit}
                       style={{ background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#b0b0b0" }}
                       className="hover:bg-[#2a2a2a] transition"
                     >
-                      Cancel
+                      {tc("cancel")}
                     </button>
                   </div>
                 )}
@@ -1038,19 +1050,19 @@ function DetailPane({
                 {/* Email fields */}
                 {primaryDraft.payload.to && (
                   <div style={{ fontSize: 12, color: "#707070" }} className="mb-1">
-                    <span style={{ color: "#484848" }}>To:</span> {primaryDraft.payload.to}
+                    <span style={{ color: "#484848" }}>{t("to")}</span> {primaryDraft.payload.to}
                     {primaryDraft.payload.cc && <span className="ml-3"><span style={{ color: "#484848" }}>Cc:</span> {primaryDraft.payload.cc}</span>}
                   </div>
                 )}
                 {primaryDraft.payload.subject && (
                   <div style={{ fontSize: 12, color: "#707070" }} className="mb-2">
-                    <span style={{ color: "#484848" }}>Subject:</span> {primaryDraft.payload.subject}
+                    <span style={{ color: "#484848" }}>{t("subject")}</span> {primaryDraft.payload.subject}
                   </div>
                 )}
                 {/* Slack channel */}
                 {primaryDraft.payload.channel && !primaryDraft.payload.to && (
                   <div style={{ fontSize: 12, color: "#707070" }} className="mb-2">
-                    <span style={{ color: "#484848" }}>Channel:</span> #{primaryDraft.payload.channel}
+                    <span style={{ color: "#484848" }}>{t("channel")}</span> #{primaryDraft.payload.channel}
                   </div>
                 )}
 
@@ -1104,7 +1116,7 @@ function DetailPane({
                 style={{ background: "#16a34a", color: "#fff" }}
                 onClick={handleApprove}
               >
-                {actionPlan && actionPlan.length > 1 ? "Approve plan" : "Approve"}
+                {actionPlan && actionPlan.length > 1 ? t("approvePlan") : tc("approve")}
               </button>
               <button
                 className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"
@@ -1169,7 +1181,7 @@ function DetailPane({
                   {/* Evidence summary */}
                   {reasoning.evidenceSummary && (
                     <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-1.5">Evidence</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-1.5">{t("evidenceSummary")}</div>
                       <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0" }}>{reasoning.evidenceSummary}</p>
                     </div>
                   )}
@@ -1177,7 +1189,7 @@ function DetailPane({
                   {/* Considered actions */}
                   {reasoning.consideredActions.length > 0 && (
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Considered Actions</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">{t("consideredActions")}</div>
                       <div className="space-y-2">
                         {reasoning.consideredActions.map((ca, i) => {
                           if (typeof ca === "string") {
@@ -1220,7 +1232,7 @@ function DetailPane({
                   {/* Missing context */}
                   {reasoning.missingContext && reasoning.missingContext.length > 0 && (
                     <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 4 }} className="p-3">
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "rgba(245,158,11,0.85)", textTransform: "uppercase" as const }} className="mb-1.5">Missing Context</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "rgba(245,158,11,0.85)", textTransform: "uppercase" as const }} className="mb-1.5">{t("missingContext")}</div>
                       <ul className="space-y-0.5">
                         {reasoning.missingContext.map((mc, i) => (
                           <li key={i} style={{ fontSize: 13, color: "rgba(245,158,11,0.85)" }}>&bull; {mc}</li>
@@ -1273,7 +1285,7 @@ function DetailPane({
                       <div className="space-y-1.5">
                         {detail.contextSnapshot.recentEvents.slice(0, 8).map(ev => (
                           <div key={ev.id} className="flex items-center gap-3" style={{ fontSize: 13 }}>
-                            <span style={{ fontSize: 11, color: "#484848", width: 48, textAlign: "right", flexShrink: 0 }}>{timeAgo(ev.createdAt)}</span>
+                            <span style={{ fontSize: 11, color: "#484848", width: 48, textAlign: "right", flexShrink: 0 }}>{formatRelativeTime(ev.createdAt, locale)}</span>
                             <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#333", flexShrink: 0 }} />
                             <span style={{ color: "#b0b0b0" }}>{ev.eventType}</span>
                             <span style={{ color: "#484848" }}>{ev.source}</span>
@@ -1330,7 +1342,7 @@ function DetailPane({
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
                   style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
                   onClick={resetInteraction}
-                >Cancel</button>
+                >{tc("cancel")}</button>
               </div>
             </div>
           )}
@@ -1370,7 +1382,7 @@ function DetailPane({
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
                   style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
                   onClick={resetInteraction}
-                >Cancel</button>
+                >{tc("cancel")}</button>
               </div>
             </div>
           )}
@@ -1419,7 +1431,7 @@ function DetailPane({
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
                   style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
                   onClick={resetInteraction}
-                >Cancel</button>
+                >{tc("cancel")}</button>
               </div>
             </div>
           )}

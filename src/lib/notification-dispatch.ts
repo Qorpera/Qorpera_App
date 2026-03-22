@@ -2,13 +2,15 @@ import { prisma } from "@/lib/db";
 import { getDefaultChannel } from "@/lib/notification-defaults";
 import { sendEmail } from "@/lib/email";
 import { renderNotificationEmail } from "@/emails/template-registry";
+import { getLocalizedNotification } from "@/lib/notification-strings";
 
 type SendNotificationParams = {
   operatorId: string;
   userId: string;
   type: string;
-  title: string;
-  body: string;
+  title?: string;
+  body?: string;
+  context?: Record<string, string>;
   sourceType?: string;
   sourceId?: string;
   sourceAiEntityId?: string;
@@ -21,7 +23,7 @@ export async function sendNotification(params: SendNotificationParams): Promise<
     // Load user once — needed for role-based default and email dispatch
     const user = await prisma.user.findUnique({
       where: { id: params.userId },
-      select: { role: true, email: true },
+      select: { role: true, email: true, locale: true },
     });
 
     // Look up user preference for this notification type
@@ -40,13 +42,22 @@ export async function sendNotification(params: SendNotificationParams): Promise<
 
     if (effectiveChannel === "none") return;
 
+    // Resolve title/body — use provided strings or generate from locale + context
+    const locale = user?.locale ?? "en";
+    let { title, body } = params;
+    if (!title || !body) {
+      const localized = getLocalizedNotification(locale, params.type, params.context ?? {});
+      title = title || localized.title;
+      body = body || localized.body;
+    }
+
     // Create in-app notification for in_app, email, and both channels
     await prisma.notification.create({
       data: {
         operatorId: params.operatorId,
         userId: params.userId,
-        title: params.title,
-        body: params.body,
+        title,
+        body,
         sourceType: params.sourceType,
         sourceId: params.sourceId,
         sourceAiEntityId: params.sourceAiEntityId,
@@ -60,7 +71,7 @@ export async function sendNotification(params: SendNotificationParams): Promise<
           // Build template props from emailContext or fall back to generic
           const templateProps = params.emailContext
             ? { ...params.emailContext, viewUrl: params.linkUrl }
-            : { content: params.body, viewUrl: params.linkUrl };
+            : { content: body, viewUrl: params.linkUrl };
 
           // Load operator name for subject line context
           const operator = await prisma.operator.findUnique({
@@ -71,7 +82,8 @@ export async function sendNotification(params: SendNotificationParams): Promise<
           const emailResult = await renderNotificationEmail(
             params.type,
             templateProps,
-            operator?.displayName ?? "Qorpera"
+            operator?.displayName ?? "Qorpera",
+            user.locale ?? "en"
           );
 
           if (emailResult) {

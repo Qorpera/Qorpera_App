@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { DOCUMENT_SLOT_TYPES, type SlotType } from "@/lib/document-slots";
@@ -20,6 +21,8 @@ interface StepDocumentsProps {
 }
 
 export function StepDocuments({ departments, onContinue, onBack }: StepDocumentsProps) {
+  const t = useTranslations("onboarding.documents");
+  const tc = useTranslations("common");
   const realDepts = departments.filter(d => d.entityType?.slug === "department");
   const [docsPerDept, setDocsPerDept] = useState<Record<string, DocsData>>({});
   const [expandedDocDept, setExpandedDocDept] = useState<string | null>(null);
@@ -188,7 +191,7 @@ export function StepDocuments({ departments, onContinue, onBack }: StepDocuments
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <p className="text-xs text-white/30 uppercase tracking-wider">Step 4 of 6</p>
-        <h1 className="text-2xl font-semibold text-white/90">Share your knowledge</h1>
+        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
         <p className="text-sm text-white/45">
           Drop in documents to help the AI understand how each department works. <span className="text-white/30">(optional)</span>
         </p>
@@ -323,7 +326,7 @@ export function StepDocuments({ departments, onContinue, onBack }: StepDocuments
                                           onClick={(e) => { e.stopPropagation(); handleRetryDoc(dept.id, doc.id); }}
                                           className="text-[10px] text-purple-400 hover:text-purple-300 font-medium"
                                         >
-                                          Retry
+                                          {t("retry")}
                                         </button>
                                       )}
                                       <button
@@ -391,7 +394,7 @@ export function StepDocuments({ departments, onContinue, onBack }: StepDocuments
                                 onClick={() => handleRetryDoc(dept.id, cdoc.id)}
                                 className="text-[10px] text-purple-400 hover:text-purple-300 font-medium shrink-0"
                               >
-                                Retry
+                                {t("retry")}
                               </button>
                             )}
                             <button
@@ -432,17 +435,17 @@ export function StepDocuments({ departments, onContinue, onBack }: StepDocuments
           onClick={onBack}
           className="text-sm text-white/40 hover:text-white/60 transition"
         >
-          &larr; Back
+          &larr; {tc("back")}
         </button>
         <div className="flex items-center gap-3">
           <button
             onClick={onContinue}
             className="text-sm text-white/40 hover:text-white/60 transition"
           >
-            Skip for now
+            {t("skipForNow")}
           </button>
           <Button variant="primary" size="md" onClick={onContinue}>
-            Continue
+            {tc("continue")}
           </Button>
         </div>
       </div>
@@ -553,14 +556,15 @@ function ChevronDown({ open }: { open: boolean }) {
 }
 
 function EmbeddingBadge({ status }: { status: string }) {
+  const t = useTranslations("onboarding.documents");
   if (status === "complete" || status === "embedded") {
-    return <span className="text-[10px] text-emerald-400/60">Embedded</span>;
+    return <span className="text-[10px] text-emerald-400/60">{t("embedded")}</span>;
   }
   if (status === "processing" || status === "pending") {
-    return <span className="text-[10px] text-amber-400/60">Processing...</span>;
+    return <span className="text-[10px] text-amber-400/60">{t("processing")}</span>;
   }
   if (status === "error") {
-    return <span className="text-[10px] text-red-400/60">Error</span>;
+    return <span className="text-[10px] text-red-400/60">{t("error")}</span>;
   }
   return null;
 }

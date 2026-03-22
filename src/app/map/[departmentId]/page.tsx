@@ -10,6 +10,7 @@ import { DOCUMENT_SLOT_TYPES, type SlotType, isStructuralSlot } from "@/lib/docu
 import { fetchApi } from "@/lib/fetch-api";
 import { EntityRow } from "@/components/entity-row";
 import { useUser } from "@/components/user-provider";
+import { useTranslations } from "next-intl";
 
 /* Inline diff types to avoid importing structural-extraction.ts (has server-only deps) */
 type DiffAction = "create" | "update" | "flag-missing";
@@ -227,27 +228,28 @@ function Section({ title, action, children }: { title: string; action?: React.Re
 /* ------------------------------------------------------------------ */
 
 function StatusBadge({ status, embeddingStatus }: { status: string; embeddingStatus: string }) {
+  const t = useTranslations("map");
   if (status === "confirmed") {
-    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">Confirmed</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">{t("confirmed")}</span>;
   }
   if (status === "extracted") {
-    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">Ready for review</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">{t("readyForReview")}</span>;
   }
   if (status === "processing" || embeddingStatus === "processing") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">
         <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-        Processing
+        {t("processing")}
       </span>
     );
   }
   if (embeddingStatus === "error") {
-    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">Error</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">{t("error")}</span>;
   }
   if (embeddingStatus === "complete") {
-    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">Embedded</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">{t("embedded")}</span>;
   }
-  return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/40">Pending</span>;
+  return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/40">{t("pending")}</span>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -267,6 +269,8 @@ function DepartmentDetailInner() {
   const router = useRouter();
   const deptId = params.departmentId as string;
   const { isAdmin } = useUser();
+  const t = useTranslations("map");
+  const tc = useTranslations("common");
 
   const [dept, setDept] = useState<DeptDetail | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -746,7 +750,7 @@ function DepartmentDetailInner() {
   if (loading) {
     return (
       <AppShell>
-        <div className="p-8 text-white/30 text-sm">Loading...</div>
+        <div className="p-8 text-white/30 text-sm">{tc("loading")}</div>
       </AppShell>
     );
   }
@@ -755,9 +759,9 @@ function DepartmentDetailInner() {
     return (
       <AppShell>
         <div className="p-8">
-          <p className="text-white/50 mb-4">Department not found</p>
+          <p className="text-white/50 mb-4">{t("departmentNotFound")}</p>
           <Link href="/map" className="text-purple-400 hover:text-purple-300 text-sm">
-            &larr; Back to Map
+            &larr; {t("backToMap")}
           </Link>
         </div>
       </AppShell>
@@ -784,7 +788,7 @@ function DepartmentDetailInner() {
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
               </svg>
-              Back to Map
+              {t("backToMap")}
             </button>
             {isAdmin && (
               <button
@@ -795,7 +799,7 @@ function DepartmentDetailInner() {
                     : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
                 }`}
               >
-                {editMode ? "Done Editing" : "Edit"}
+                {editMode ? t("doneEditing") : tc("edit")}
               </button>
             )}
           </div>
@@ -818,11 +822,11 @@ function DepartmentDetailInner() {
 
         {/* ---- Section 1: People ---- */}
         <Section
-          title="People"
+          title={t("people")}
           action={
             isAdmin && !showAdd && (
               <Button variant="default" size="sm" onClick={() => { setShowAdd(true); setAddError(""); }}>
-                Add Person
+                {t("addMember")}
               </Button>
             )
           }
@@ -832,20 +836,20 @@ function DepartmentDetailInner() {
             <form onSubmit={handleAdd} className="wf-soft p-3 mb-4 space-y-3">
               <div className="flex gap-2">
                 <input
-                  placeholder="Name"
+                  placeholder={t("name")}
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
                   className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-purple-500/50"
                   autoFocus
                 />
                 <input
-                  placeholder="Role"
+                  placeholder={t("role")}
                   value={addRole}
                   onChange={(e) => setAddRole(e.target.value)}
                   className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-purple-500/50"
                 />
                 <input
-                  placeholder="Email"
+                  placeholder={t("email")}
                   type="email"
                   value={addEmail}
                   onChange={(e) => setAddEmail(e.target.value)}
@@ -855,10 +859,10 @@ function DepartmentDetailInner() {
               {addError && <p className="text-xs text-red-400">{addError}</p>}
               <div className="flex gap-2">
                 <Button type="submit" variant="primary" size="sm" disabled={addSaving}>
-                  {addSaving ? "Adding..." : "Add"}
+                  {addSaving ? t("adding") : tc("add")}
                 </Button>
                 <Button type="button" variant="default" size="sm" onClick={() => setShowAdd(false)}>
-                  Cancel
+                  {tc("cancel")}
                 </Button>
               </div>
             </form>
@@ -867,7 +871,7 @@ function DepartmentDetailInner() {
           {/* member list */}
           {members.length === 0 && !showAdd ? (
             <p className="text-sm text-white/30 py-4 text-center">
-              No team members yet. Add people to this department.
+              {t("noMembers")}
             </p>
           ) : (
             <div className="divide-y divide-white/[0.05]">
@@ -933,8 +937,8 @@ function DepartmentDetailInner() {
                       </div>
                       {editError && <p className="text-xs text-red-400">{editError}</p>}
                       <div className="flex gap-2">
-                        <button onClick={saveEdit} className="text-xs text-green-400 hover:text-green-300">Save</button>
-                        <button onClick={() => setEditId(null)} className="text-xs text-white/40 hover:text-white/60">Cancel</button>
+                        <button onClick={saveEdit} className="text-xs text-green-400 hover:text-green-300">{tc("save")}</button>
+                        <button onClick={() => setEditId(null)} className="text-xs text-white/40 hover:text-white/60">{tc("cancel")}</button>
                       </div>
                     </div>
                   );
@@ -944,10 +948,10 @@ function DepartmentDetailInner() {
                 if (removeId === m.id) {
                   return (
                     <div key={m.id} className="py-2.5 flex items-center justify-between">
-                      <span className="text-sm text-white/60">Remove {m.displayName}?</span>
+                      <span className="text-sm text-white/60">{tc("remove")} {m.displayName}?</span>
                       <div className="flex gap-2">
-                        <button onClick={confirmRemove} className="text-xs text-red-400 hover:text-red-300">Confirm</button>
-                        <button onClick={() => setRemoveId(null)} className="text-xs text-white/40 hover:text-white/60">Cancel</button>
+                        <button onClick={confirmRemove} className="text-xs text-red-400 hover:text-red-300">{tc("confirm")}</button>
+                        <button onClick={() => setRemoveId(null)} className="text-xs text-white/40 hover:text-white/60">{tc("cancel")}</button>
                       </div>
                     </div>
                   );
@@ -972,11 +976,11 @@ function DepartmentDetailInner() {
                         )}
                         {/* Account status badges */}
                         {acctStatus === "account" && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">Has Account</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">{t("hasAccount")}</span>
                         )}
                         {acctStatus === "pending" && (
                           <span className="inline-flex items-center gap-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
-                            Invite Pending
+                            {t("invitePending")}
                             <button
                               className="text-purple-400 hover:text-purple-300"
                               onClick={() => {
@@ -1001,17 +1005,17 @@ function DepartmentDetailInner() {
                             }}
                             className="text-[10px] text-purple-400 hover:text-purple-300 mr-2"
                           >
-                            Create Account
+                            {t("createAccount")}
                           </button>
                         )}
                         {isAdmin && !isAiAgent && (
                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                            <button onClick={() => startEdit(m)} title="Edit" className="p-1 text-white/30 hover:text-white/60">
+                            <button onClick={() => startEdit(m)} title={tc("edit")} className="p-1 text-white/30 hover:text-white/60">
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                               </svg>
                             </button>
-                            <button onClick={() => setRemoveId(m.id)} title="Remove" className="p-1 text-white/30 hover:text-red-400">
+                            <button onClick={() => setRemoveId(m.id)} title={tc("remove")} className="p-1 text-white/30 hover:text-red-400">
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                               </svg>
@@ -1025,7 +1029,7 @@ function DepartmentDetailInner() {
                       <div className="pb-3 pl-4 space-y-2">
                         <div className="flex gap-2 items-end">
                           <div className="flex-1">
-                            <label className="text-[10px] text-white/40 block mb-0.5">Email</label>
+                            <label className="text-[10px] text-white/40 block mb-0.5">{t("email")}</label>
                             <input
                               type="email"
                               value={inviteEmail}
@@ -1035,7 +1039,7 @@ function DepartmentDetailInner() {
                             />
                           </div>
                           <div className="flex-1">
-                            <label className="text-[10px] text-white/40 block mb-0.5">Password</label>
+                            <label className="text-[10px] text-white/40 block mb-0.5">{t("password")}</label>
                             <input
                               type="password"
                               value={invitePassword}
@@ -1045,7 +1049,7 @@ function DepartmentDetailInner() {
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] text-white/40 block mb-0.5">Role</label>
+                            <label className="text-[10px] text-white/40 block mb-0.5">{t("role")}</label>
                             <select
                               value={inviteRole}
                               onChange={(e) => setInviteRole(e.target.value)}
@@ -1080,10 +1084,10 @@ function DepartmentDetailInner() {
                               finally { setInviteCreating(false); }
                             }}
                           >
-                            {inviteCreating ? "Creating..." : "Create & Copy Link"}
+                            {inviteCreating ? t("creating") : t("createAndCopyLink")}
                           </button>
                           <button className="text-xs text-white/40 hover:text-white/60" onClick={() => setInviteEntityId(null)}>
-                            Cancel
+                            {tc("cancel")}
                           </button>
                         </div>
                       </div>
@@ -1096,7 +1100,7 @@ function DepartmentDetailInner() {
         </Section>
 
         {/* ---- Section 2a: Structural Document Slots ---- */}
-        <Section title="Structural Documents">
+        <Section title={t("structuralDocuments")}>
           {docError && (
             <p className="text-xs text-red-400 mb-3">{docError}</p>
           )}
@@ -1130,7 +1134,7 @@ function DepartmentDetailInner() {
                         onClick={() => slotFileInputRefs.current[slotType]?.click()}
                         className="w-full py-4 border border-dashed border-white/10 rounded-md text-xs text-white/30 hover:text-white/50 hover:border-white/20 transition"
                       >
-                        Drop file here or click to upload
+                        {t("dropOrClick")}
                         <input
                           ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
                           type="file"
@@ -1141,7 +1145,7 @@ function DepartmentDetailInner() {
                       </button>
                     )}
                     {slotDocs.length === 0 && !isUploading && !isAdmin && (
-                      <p className="py-4 text-center text-xs text-white/20">No document uploaded</p>
+                      <p className="py-4 text-center text-xs text-white/20">{t("noDocuments")}</p>
                     )}
 
                     {isUploading && (
@@ -1150,7 +1154,7 @@ function DepartmentDetailInner() {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        <p className="text-xs text-white/40">Uploading...</p>
+                        <p className="text-xs text-white/40">{t("uploading")}</p>
                       </div>
                     )}
 
@@ -1167,7 +1171,7 @@ function DepartmentDetailInner() {
                               {isExtracting && (
                                 <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
                                   <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                                  Extracting...
+                                  {t("extracting")}
                                 </p>
                               )}
                               <div className="flex gap-2 mt-2">
@@ -1176,7 +1180,7 @@ function DepartmentDetailInner() {
                                     onClick={() => handleReExtract(doc.id, slotType).then(() => {/* modal opens via handler */})}
                                     className="text-[11px] text-purple-400 hover:text-purple-300"
                                   >
-                                    Review Changes
+                                    {t("reviewChanges")}
                                   </button>
                                 )}
                                 {doc.status === "confirmed" && isAdmin && (
@@ -1185,7 +1189,7 @@ function DepartmentDetailInner() {
                                     disabled={!!isExtracting}
                                     className="text-[11px] text-white/40 hover:text-white/60"
                                   >
-                                    Re-extract
+                                    {t("reExtract")}
                                   </button>
                                 )}
                                 {isAdmin && (
@@ -1195,13 +1199,13 @@ function DepartmentDetailInner() {
                                         onClick={() => handleDeleteDoc(doc.id)}
                                         className="text-[11px] text-red-400 hover:text-red-300"
                                       >
-                                        Delete
+                                        {tc("delete")}
                                       </button>
                                       <button
                                         onClick={() => setDeleteDocId(null)}
                                         className="text-[11px] text-white/40 hover:text-white/60"
                                       >
-                                        Cancel
+                                        {tc("cancel")}
                                       </button>
                                     </div>
                                   ) : (
@@ -1209,7 +1213,7 @@ function DepartmentDetailInner() {
                                       onClick={() => setDeleteDocId(doc.id)}
                                       className="text-[11px] text-red-400/60 hover:text-red-400"
                                     >
-                                      Remove
+                                      {tc("remove")}
                                     </button>
                                   )
                                 )}
@@ -1222,7 +1226,7 @@ function DepartmentDetailInner() {
                             onClick={() => slotFileInputRefs.current[slotType]?.click()}
                             className="text-[11px] text-purple-400 hover:text-purple-300 mt-1"
                           >
-                            + Add more
+                            {t("addMore")}
                             <input
                               ref={(el) => { slotFileInputRefs.current[slotType] = el; }}
                               type="file"
@@ -1242,7 +1246,7 @@ function DepartmentDetailInner() {
         </Section>
 
         {/* ---- Section 2b: Context Documents ---- */}
-        <Section title="Context Documents">
+        <Section title={t("contextDocuments")}>
           {/* drop zone */}
           {isAdmin && (
           <button
@@ -1253,10 +1257,10 @@ function DepartmentDetailInner() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             <p className="text-xs text-white/40">
-              {uploadingContext ? "Uploading..." : "Drop files here or click to upload"}
+              {uploadingContext ? t("uploading") : t("dropOrClick")}
             </p>
             <p className="text-[10px] text-white/25 mt-0.5">
-              Process guides, playbooks, policies...
+              {t("contextDocHint")}
             </p>
             <input
               ref={contextFileInputRef}
@@ -1286,7 +1290,7 @@ function DepartmentDetailInner() {
                     {doc.embeddingStatus === "error" && (
                       <button
                         onClick={() => handleReprocess(doc.id)}
-                        title="Retry"
+                        title={t("retry")}
                         className="p-1 text-white/30 hover:text-amber-400"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1300,19 +1304,19 @@ function DepartmentDetailInner() {
                           onClick={() => handleDeleteDoc(doc.id)}
                           className="text-[10px] text-red-400 hover:text-red-300"
                         >
-                          Delete
+                          {tc("delete")}
                         </button>
                         <button
                           onClick={() => setDeleteDocId(null)}
                           className="text-[10px] text-white/40 hover:text-white/60"
                         >
-                          Cancel
+                          {tc("cancel")}
                         </button>
                       </div>
                     ) : (
                       <button
                         onClick={() => setDeleteDocId(doc.id)}
-                        title="Delete"
+                        title={tc("delete")}
                         className="p-1 text-white/30 hover:text-red-400"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1326,15 +1330,15 @@ function DepartmentDetailInner() {
             </div>
           ) : (
             !uploadingContext && (
-              <p className="text-xs text-white/25 text-center py-2">No context documents uploaded yet</p>
+              <p className="text-xs text-white/25 text-center py-2">{t("noContextDocuments")}</p>
             )
           )}
         </Section>
 
         {/* ---- Section 3: Connected Data ---- */}
-        <Section title="Connected Data">
+        <Section title={t("connectedData")}>
           {connectedEntities.length === 0 ? (
-            <p className="text-xs text-white/25 text-center py-2">No connected data yet</p>
+            <p className="text-xs text-white/25 text-center py-2">{t("noConnectedData")}</p>
           ) : (
             <div className="space-y-4">
               {connectedEntities.map((group) => {
@@ -1369,7 +1373,7 @@ function DepartmentDetailInner() {
                         })}
                         className="text-[11px] text-purple-400 hover:text-purple-300 mt-1 ml-3"
                       >
-                        {isExpanded ? "Show less" : `Show all ${group.entities.length}`}
+                        {isExpanded ? t("showLess") : t("showAll", { count: group.entities.length })}
                       </button>
                     )}
                   </div>
@@ -1384,7 +1388,7 @@ function DepartmentDetailInner() {
                   }}
                   className="w-full py-2 text-xs text-purple-400 hover:text-purple-300 transition"
                 >
-                  Load more ({connectedTotal - connectedOffset - 50} remaining)
+                  {t("loadMore", { count: connectedTotal - connectedOffset - 50 })}
                 </button>
               )}
             </div>
@@ -1392,15 +1396,15 @@ function DepartmentDetailInner() {
         </Section>
 
         {/* ---- Section 4: External Links ---- */}
-        <Section title="External Links">
+        <Section title={t("externalLinks")}>
           {externalLinks.length === 0 ? (
             <div className="py-8 text-center">
               <svg className="mx-auto w-8 h-8 text-white/15 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.856-2.07a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.07" />
               </svg>
-              <p className="text-sm text-white/40">No external connections yet</p>
+              <p className="text-sm text-white/40">{t("noExternalLinks")}</p>
               <p className="text-xs text-white/25 mt-1">
-                As your connected tools sync data, related customers and partners will appear here
+                {t("externalLinksHint")}
               </p>
             </div>
           ) : (
@@ -1449,7 +1453,7 @@ function DepartmentDetailInner() {
                       {creates.length > 0 && (
                         <div>
                           <h4 className="text-[10px] uppercase tracking-wider text-green-400/70 mb-2">
-                            New Members
+                            {t("newMembers")}
                           </h4>
                           {creates.map((p) => {
                             const idx = diffItems.people!.indexOf(p);
@@ -1479,7 +1483,7 @@ function DepartmentDetailInner() {
                       {updates.length > 0 && (
                         <div>
                           <h4 className="text-[10px] uppercase tracking-wider text-amber-400/70 mb-2">
-                            Updates
+                            {t("updates")}
                           </h4>
                           {updates.map((p) => {
                             const idx = diffItems.people!.indexOf(p);
@@ -1509,7 +1513,7 @@ function DepartmentDetailInner() {
                       {missing.length > 0 && (
                         <div>
                           <h4 className="text-[10px] uppercase tracking-wider text-white/30 mb-2">
-                            Not in Document (will not be removed)
+                            {t("notInDocument")}
                           </h4>
                           {missing.map((p) => {
                             const idx = diffItems.people!.indexOf(p);
@@ -1524,7 +1528,7 @@ function DepartmentDetailInner() {
                                 <div className="text-sm">
                                   <span className="text-white/50">{p.name}</span>
                                   <p className="text-xs text-white/25">
-                                    Exists in department but not in this document
+                                    {t("existsButNotInDoc")}
                                   </p>
                                 </div>
                               </label>
@@ -1542,7 +1546,7 @@ function DepartmentDetailInner() {
             {diffItems.properties && diffItems.properties.length > 0 && (
               <div>
                 <h4 className="text-[10px] uppercase tracking-wider text-white/40 mb-2">
-                  Properties
+                  {t("properties")}
                 </h4>
                 {diffItems.properties.map((p, i) => (
                   <label key={i} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
@@ -1573,7 +1577,7 @@ function DepartmentDetailInner() {
             {(!diffItems.people || diffItems.people.length === 0) &&
               (!diffItems.properties || diffItems.properties.length === 0) && (
                 <p className="text-sm text-white/40 py-4 text-center">
-                  No data found in document
+                  {t("noDataInDocument")}
                 </p>
               )}
 
@@ -1583,7 +1587,7 @@ function DepartmentDetailInner() {
                 size="sm"
                 onClick={() => { setDiffModal(null); setDiffItems(null); }}
               >
-                Cancel
+                {tc("cancel")}
               </Button>
               <Button
                 variant="primary"
@@ -1591,7 +1595,7 @@ function DepartmentDetailInner() {
                 onClick={handleConfirmDiff}
                 disabled={confirming}
               >
-                {confirming ? "Applying..." : "Apply Selected Changes"}
+                {confirming ? t("applying") : t("applySelectedChanges")}
               </Button>
             </div>
           </div>

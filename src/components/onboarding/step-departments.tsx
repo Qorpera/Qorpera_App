@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, type MutableRefObject } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { OnboardingMapBuilder } from "./onboarding-map-builder";
@@ -32,6 +33,8 @@ export function StepDepartments({
   onContinue,
   onBack,
 }: StepDepartmentsProps) {
+  const t = useTranslations("onboarding.departments");
+  const tc = useTranslations("common");
   const [addingDept, setAddingDept] = useState(false);
   const [deptName, setDeptName] = useState("");
   const [deptDesc, setDeptDesc] = useState("");
@@ -202,7 +205,7 @@ export function StepDepartments({
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <p className="text-xs text-white/30 uppercase tracking-wider">Step 2 of 6</p>
-        <h1 className="text-2xl font-semibold text-white/90">Build your departments</h1>
+        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
         <p className="text-sm text-white/45">
           Add the teams that make up your company.
         </p>
@@ -221,23 +224,23 @@ export function StepDepartments({
         <div className="wf-soft p-4 space-y-3">
           <div className="text-xs text-white/30 uppercase tracking-wider">New department</div>
           <Input
-            placeholder="Department name"
+            placeholder={t("departmentName")}
             value={deptName}
             onChange={e => { setDeptName(e.target.value); setDeptError(""); }}
             autoFocus
           />
           <Input
-            placeholder="What does this department do?"
+            placeholder={t("description")}
             value={deptDesc}
             onChange={e => { setDeptDesc(e.target.value); setDeptError(""); }}
           />
           {deptError && <p className="text-xs text-red-400">{deptError}</p>}
           <div className="flex gap-2">
             <Button variant="primary" size="sm" onClick={handleAddDepartment} disabled={savingDept}>
-              {savingDept ? "Adding..." : "Add"}
+              {savingDept ? "Adding..." : tc("add")}
             </Button>
             <Button variant="default" size="sm" onClick={() => { setAddingDept(false); setDeptName(""); setDeptDesc(""); setDeptError(""); }}>
-              Cancel
+              {tc("cancel")}
             </Button>
           </div>
         </div>
@@ -246,7 +249,7 @@ export function StepDepartments({
           onClick={() => setAddingDept(true)}
           className="w-full py-3 rounded-xl border border-dashed border-white/[0.1] text-sm text-white/40 hover:text-white/60 hover:border-white/20 transition"
         >
-          + Add Department
+          + {t("addDepartment")}
         </button>
       )}
 
@@ -256,7 +259,7 @@ export function StepDepartments({
             <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <span className={`text-xs ${canContinue ? "text-white/50" : "text-white/30"}`}>
-            Add at least 2 departments to continue
+            {t("minDepartments")}
           </span>
         </div>
         <span className={`text-xs font-medium ${canContinue ? "text-emerald-400" : "text-white/30"}`}>
@@ -292,7 +295,7 @@ export function StepDepartments({
           onClick={onBack}
           className="text-sm text-white/40 hover:text-white/60 transition"
         >
-          &larr; Back
+          &larr; {tc("back")}
         </button>
         <Button
           variant="primary"
@@ -300,7 +303,7 @@ export function StepDepartments({
           onClick={handleContinue}
           disabled={!canContinue}
         >
-          Continue
+          {tc("continue")}
         </Button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import type { Department, Member } from "./types";
 
@@ -17,6 +18,8 @@ export function StepTeam({
   onContinue,
   onBack,
 }: StepTeamProps) {
+  const t = useTranslations("onboarding.team");
+  const tc = useTranslations("common");
   const realDepts = departments.filter(d => d.entityType?.slug === "department");
   const [deptMembers, setDeptMembers] = useState<Record<string, Member[]>>({});
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
@@ -79,7 +82,7 @@ export function StepTeam({
         if (!found) {
           setMemberHints(prev => ({
             ...prev,
-            [emailNorm]: "This person doesn't have a Qorpera account yet — invite them from Settings \u2192 Team.",
+            [emailNorm]: t("inviteHint"),
           }));
         }
       }
@@ -117,7 +120,7 @@ export function StepTeam({
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <p className="text-xs text-white/30 uppercase tracking-wider">Step 3 of 6</p>
-        <h1 className="text-2xl font-semibold text-white/90">Add your team</h1>
+        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
         <p className="text-sm text-white/45">
           Add at least one person to each department.
         </p>
@@ -216,14 +219,14 @@ export function StepTeam({
                         type="text"
                         value={memberName}
                         onChange={e => { setMemberName(e.target.value); setMemberError(""); }}
-                        placeholder="Name"
+                        placeholder={t("name")}
                         className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-purple-500/40"
                       />
                       <input
                         type="text"
                         value={memberRole}
                         onChange={e => { setMemberRole(e.target.value); setMemberError(""); }}
-                        placeholder="Role"
+                        placeholder={t("role")}
                         className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-purple-500/40"
                       />
                     </div>
@@ -232,11 +235,11 @@ export function StepTeam({
                         type="email"
                         value={memberEmail}
                         onChange={e => { setMemberEmail(e.target.value); setMemberError(""); }}
-                        placeholder="Email"
+                        placeholder={t("email")}
                         className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-white/80 placeholder:text-white/25 focus:outline-none focus:ring-1 focus:ring-purple-500/40"
                       />
                       <Button variant="primary" size="sm" onClick={() => handleAddMember(dept.id)} disabled={savingMember}>
-                        {savingMember ? "..." : "Add"}
+                        {savingMember ? "..." : tc("add")}
                       </Button>
                     </div>
                     {memberError && <p className="text-xs text-red-400">{memberError}</p>}
@@ -253,7 +256,7 @@ export function StepTeam({
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <span className={`text-xs ${allDeptsHaveMembers ? "text-white/50" : "text-white/30"}`}>
-          Add at least 1 person per department
+          {t("minMembers")}
         </span>
       </div>
 
@@ -262,7 +265,7 @@ export function StepTeam({
           onClick={onBack}
           className="text-sm text-white/40 hover:text-white/60 transition"
         >
-          &larr; Back
+          &larr; {tc("back")}
         </button>
         <Button
           variant="primary"
@@ -270,7 +273,7 @@ export function StepTeam({
           onClick={handleContinue}
           disabled={!allDeptsHaveMembers || savingStep}
         >
-          {savingStep ? "Saving..." : "Continue"}
+          {savingStep ? tc("saving") : tc("continue")}
         </Button>
       </div>
     </div>

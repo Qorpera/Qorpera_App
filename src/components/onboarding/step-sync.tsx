@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { Department } from "./types";
@@ -11,6 +12,8 @@ interface StepSyncProps {
 }
 
 export function StepSync({ departments, setDepartments }: StepSyncProps) {
+  const t = useTranslations("onboarding.sync");
+  const tc = useTranslations("common");
   const router = useRouter();
   const realDepts = departments.filter(d => d.entityType?.slug === "department");
 
@@ -104,7 +107,7 @@ export function StepSync({ departments, setDepartments }: StepSyncProps) {
       <div className="text-center space-y-2">
         <p className="text-xs text-white/30 uppercase tracking-wider">Step 6 of 6</p>
         <h1 className="text-2xl font-semibold text-white/90">
-          {syncComplete ? "Your business model" : "Learning your business..."}
+          {syncComplete ? "Your business model" : t("title")}
         </h1>
         <p className="text-sm text-white/45">
           {syncComplete
@@ -144,7 +147,7 @@ export function StepSync({ departments, setDepartments }: StepSyncProps) {
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
               Syncing...
             </span>
-          ) : "Start Sync"}
+          ) : t("startSync")}
         </Button>
         {manualSyncResult && (
           <div className="w-full space-y-1">
@@ -182,7 +185,7 @@ export function StepSync({ departments, setDepartments }: StepSyncProps) {
                 />
               </div>
               <p className="text-xs text-white/40">
-                {count} {count === 1 ? "entity" : "entities"}
+                {count} {t("entities")}
               </p>
             </div>
           );
@@ -193,18 +196,18 @@ export function StepSync({ departments, setDepartments }: StepSyncProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="wf-soft p-4 text-center">
           <div className="text-2xl font-semibold text-white/90">{totalEntities}</div>
-          <div className="text-xs text-white/40 mt-1">Total entities</div>
+          <div className="text-xs text-white/40 mt-1">{t("entities")}</div>
         </div>
         <div className="wf-soft p-4 text-center">
           <div className="text-2xl font-semibold text-white/90">{totalRelationships}</div>
-          <div className="text-xs text-white/40 mt-1">Relationships</div>
+          <div className="text-xs text-white/40 mt-1">{t("relationships")}</div>
         </div>
       </div>
 
       {syncComplete && (
         <div className="flex justify-center pt-4">
           <Button variant="primary" size="lg" onClick={handleFinish}>
-            Ready! Let&apos;s talk about your business &rarr;
+            {t("ready")}
           </Button>
         </div>
       )}

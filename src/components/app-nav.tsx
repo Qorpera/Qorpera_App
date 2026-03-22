@@ -2,41 +2,42 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useUser } from "./user-provider";
 
-type NavItem = { href: string; label: string; icon: string; badge?: boolean; superadminOnly?: boolean; adminOnly?: boolean };
-type NavGroup = { label: string; items: NavItem[] };
+type NavItem = { href: string; labelKey: string; icon: string; badge?: boolean; superadminOnly?: boolean; adminOnly?: boolean };
+type NavGroup = { labelKey: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Operations",
+    labelKey: "operations",
     items: [
-      { href: "/map", label: "Map", icon: "map" },
-      { href: "/situations", label: "Situations", icon: "alert-triangle", badge: true },
-      { href: "/initiatives", label: "Initiatives", icon: "lightbulb", adminOnly: true },
-      { href: "/projects", label: "Projects", icon: "layers", adminOnly: true },
+      { href: "/map", labelKey: "map", icon: "map" },
+      { href: "/situations", labelKey: "situations", icon: "alert-triangle", badge: true },
+      { href: "/initiatives", labelKey: "initiatives", icon: "lightbulb", adminOnly: true },
+      { href: "/projects", labelKey: "projects", icon: "layers", adminOnly: true },
     ],
   },
   {
-    label: "Intelligence",
+    labelKey: "intelligence",
     items: [
-      { href: "/copilot", label: "Copilot", icon: "sparkles" },
-      { href: "/learning", label: "Learning", icon: "trending-up" },
+      { href: "/copilot", labelKey: "copilot", icon: "sparkles" },
+      { href: "/learning", labelKey: "learning", icon: "trending-up" },
     ],
   },
   {
-    label: "Governance",
+    labelKey: "governance",
     items: [
-      { href: "/governance", label: "Governance", icon: "shield" },
+      { href: "/governance", labelKey: "governance", icon: "shield" },
     ],
   },
   {
-    label: "",
+    labelKey: "",
     items: [
-      { href: "/admin", label: "Admin", icon: "shield", superadminOnly: true },
-      { href: "/settings", label: "Settings", icon: "settings" },
-      { href: "/health", label: "Setup", icon: "check-circle" },
-      { href: "/account", label: "Account", icon: "user" },
+      { href: "/admin", labelKey: "admin", icon: "shield", superadminOnly: true },
+      { href: "/settings", labelKey: "settings", icon: "settings" },
+      { href: "/health", labelKey: "setup", icon: "check-circle" },
+      { href: "/account", labelKey: "account", icon: "user" },
     ],
   },
 ];
@@ -66,11 +67,12 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
   superadmin: "bg-amber-500/20 text-amber-300",
 };
 
-export function AppNav({ pendingApprovals = 0, collapsed = false }: { pendingApprovals?: number; collapsed?: boolean }) {
+export function AppNav({ pendingApprovals = 0, collapsed = false, onNavClick }: { pendingApprovals?: number; collapsed?: boolean; onNavClick?: () => void }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const fullPath = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
   const { role, isSuperadmin, user } = useUser();
+  const t = useTranslations("nav");
 
   return (
     <div className="space-y-5">
@@ -83,13 +85,14 @@ export function AppNav({ pendingApprovals = 0, collapsed = false }: { pendingApp
         if (visibleItems.length === 0) return null;
         return (
           <div key={gi}>
-            {group.label && !collapsed && (
+            {group.labelKey && !collapsed && (
               <p className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/25">
-                {group.label}
+                {t(group.labelKey)}
               </p>
             )}
             <div className="space-y-0.5">
               {visibleItems.map((item) => {
+                const label = t(item.labelKey);
                 const active = item.href.includes("?")
                   ? fullPath === item.href
                   : pathname === item.href || pathname?.startsWith(item.href + "/");
@@ -97,8 +100,9 @@ export function AppNav({ pendingApprovals = 0, collapsed = false }: { pendingApp
                   <Link
                     key={item.href}
                     href={item.href}
-                    title={collapsed ? item.label : undefined}
-                    className={`flex items-center ${collapsed ? "justify-center" : "gap-2.5"} rounded-lg ${collapsed ? "px-2 py-2" : "px-2.5 py-2"} text-[13px] font-medium transition ${
+                    onClick={onNavClick}
+                    title={collapsed ? label : undefined}
+                    className={`flex items-center ${collapsed ? "justify-center" : "gap-2.5"} rounded-lg ${collapsed ? "px-2 py-2" : "px-2.5 py-2"} text-[13px] font-medium transition min-h-[44px] ${
                       active
                         ? "bg-purple-500/10 text-purple-300"
                         : "text-white/50 hover:bg-white/[0.04] hover:text-white/70"
@@ -107,7 +111,7 @@ export function AppNav({ pendingApprovals = 0, collapsed = false }: { pendingApp
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d={ICONS[item.icon] || ICONS.grid} />
                     </svg>
-                    {!collapsed && <span className="flex-1">{item.label}</span>}
+                    {!collapsed && <span className="flex-1">{label}</span>}
                     {!collapsed && item.badge && pendingApprovals > 0 && (
                       <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-purple-500 text-[10px] font-bold text-white px-1">
                         {pendingApprovals}

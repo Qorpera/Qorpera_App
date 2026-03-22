@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, EB_Garamond } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import { UserProvider } from "@/components/user-provider";
 import { CookieConsent } from "@/components/cookie-consent";
 import "./globals.css";
@@ -21,16 +23,21 @@ export const metadata: Metadata = {
   description: "Governed AI Workflow Engine",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="en" className={`${inter.variable} ${ebGaramond.variable}`}>
+    <html lang={locale} className={`${inter.variable} ${ebGaramond.variable}`}>
       <body className="antialiased">
-        <UserProvider>{children}</UserProvider>
-        <CookieConsent />
+        <NextIntlClientProvider messages={messages}>
+          <UserProvider>{children}</UserProvider>
+          <CookieConsent />
+        </NextIntlClientProvider>
       </body>
     </html>
   );

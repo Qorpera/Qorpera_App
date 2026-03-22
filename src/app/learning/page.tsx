@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { useUser } from "@/components/user-provider";
 import { AppShell } from "@/components/app-shell";
 import {
@@ -134,6 +135,7 @@ interface AiLearningEntry {
 }
 
 export default function LearningPage() {
+  const t = useTranslations("learning");
   const { isAdmin } = useUser();
   const [period, setPeriod] = useState(30);
   const [departmentFilter, setDepartmentFilter] = useState<string | null>(null);
@@ -222,7 +224,7 @@ export default function LearningPage() {
       <div className="p-8 max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3 sticky top-0 z-10 bg-[rgba(8,12,16,1)] py-3 -mt-3">
-          <h1 className="text-2xl font-semibold text-white/90">Learning</h1>
+          <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
           <div className="flex items-center gap-2 flex-wrap">
             <select
               value={period}
@@ -298,14 +300,15 @@ export default function LearningPage() {
 // ── Panel 1: Overview ────────────────────────────────────────────────────────
 
 function OverviewPanel({ overview }: { overview: OverviewData | null }) {
+  const t = useTranslations("learning");
   if (!overview) return null;
 
   const metrics = [
-    { label: "Detected", value: overview.totalDetected },
-    { label: "Approved", value: overview.totalApproved },
-    { label: "Rejected", value: overview.totalRejected },
-    { label: "Approval Rate", value: pct(overview.overallApprovalRate) },
-    { label: "Auto-Resolved", value: overview.totalAutoResolved },
+    { label: t("kpi.totalDetected"), value: overview.totalDetected },
+    { label: t("kpi.approved"), value: overview.totalApproved },
+    { label: t("kpi.rejected"), value: overview.totalRejected },
+    { label: t("approvalRate"), value: pct(overview.overallApprovalRate) },
+    { label: t("kpi.autoResolved"), value: overview.totalAutoResolved },
   ];
 
   const outcomeData = Object.entries(overview.outcomeDistribution).map(([name, value]) => ({
@@ -319,7 +322,7 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
 
   return (
     <section className="space-y-4">
-      <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">Overview</h2>
+      <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">{t("tabs.overview")}</h2>
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -335,7 +338,7 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
       <div className="flex flex-col lg:flex-row gap-4">
         {/* Approval Rate Over Time */}
         <div className="wf-soft p-4 flex-1 lg:w-[60%]">
-          <h3 className="text-xs text-white/40 mb-3">Approval Rate Over Time</h3>
+          <h3 className="text-xs text-white/40 mb-3">{t("approvalRateOverTime")}</h3>
           {hasChartData ? (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={overview.approvalRateOverTime}>
@@ -352,7 +355,7 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
                 />
                 <Tooltip
                   {...CHART_TOOLTIP_STYLE}
-                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "Approval Rate"]}
+                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, t("approvalRate")]}
                 />
                 <Line
                   type="monotone"
@@ -372,7 +375,7 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
 
         {/* Outcome Distribution */}
         <div className="wf-soft p-4 lg:w-[40%]">
-          <h3 className="text-xs text-white/40 mb-3">Outcome Distribution</h3>
+          <h3 className="text-xs text-white/40 mb-3">{t("outcomes")}</h3>
           {hasOutcomeData ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={outcomeData} layout="vertical">
@@ -413,11 +416,12 @@ function DepartmentTable({
   onSelectDepartment: (id: string | null) => void;
   activeDepartment: string | null;
 }) {
+  const t = useTranslations("learning");
   if (departments.length === 0) {
     return (
       <section className="space-y-4">
         <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-          Department Breakdown
+          {t("departmentPerformance")}
         </h2>
         <div className="wf-soft p-8 text-center text-sm text-white/30">
           Complete onboarding to see department breakdown
@@ -439,7 +443,7 @@ function DepartmentTable({
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-          Department Breakdown
+          {t("departmentPerformance")}
         </h2>
         {activeDepartment && (
           <button
@@ -456,7 +460,7 @@ function DepartmentTable({
             <tr className="text-white/30 text-xs border-b border-white/5">
               <th className="text-left py-3 px-4 font-medium">Department</th>
               <th className="text-right py-3 px-4 font-medium">Situations</th>
-              <th className="text-right py-3 px-4 font-medium">Approval Rate</th>
+              <th className="text-right py-3 px-4 font-medium">{t("approvalRate")}</th>
               <th className="text-right py-3 px-4 font-medium">Situation Types</th>
               <th className="text-right py-3 px-4 font-medium">Top Autonomy</th>
             </tr>
@@ -534,11 +538,12 @@ function SituationTypesPanel({
   onExpandType: (id: string) => void;
   isAdmin: boolean;
 }) {
+  const t = useTranslations("learning");
   if (situationTypes.length === 0) {
     return (
       <section className="space-y-4">
         <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-          Situation Types
+          {t("typeDetails")}
         </h2>
         <div className="wf-soft p-8 text-center text-sm text-white/30">
           No situation types created yet. Complete orientation to teach the AI what to watch for.
@@ -550,7 +555,7 @@ function SituationTypesPanel({
   return (
     <section className="space-y-4">
       <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-        Situation Types
+        {t("typeDetails")}
       </h2>
       <div className="space-y-3">
         {situationTypes.map((st) => (
@@ -587,6 +592,7 @@ function SituationTypeCard({
   onToggle: () => void;
   isAdmin: boolean;
 }) {
+  const t = useTranslations("learning");
   const autonomyColor = AUTONOMY_COLORS[st.autonomyLevel] ?? AUTONOMY_COLORS.supervised;
 
   return (
@@ -613,11 +619,11 @@ function SituationTypeCard({
           <>
             {/* Metrics row */}
             <div className="flex items-center gap-4 text-xs text-white/50 mb-2">
-              <span>{detail.metrics.totalProposed} proposed</span>
-              <span>{detail.metrics.totalApproved} approved</span>
-              <span>{detail.metrics.totalRejected} rejected</span>
-              <span className="text-white/70">{pct(detail.metrics.approvalRate)} rate</span>
-              <span>{detail.metrics.consecutiveApprovals} consecutive</span>
+              <span>{detail.metrics.totalProposed} {t("kpi.proposed")}</span>
+              <span>{detail.metrics.totalApproved} {t("kpi.approved")}</span>
+              <span>{detail.metrics.totalRejected} {t("kpi.rejected")}</span>
+              <span className="text-white/70">{pct(detail.metrics.approvalRate)} {t("rate")}</span>
+              <span>{detail.metrics.consecutiveApprovals} {t("consecutive")}</span>
             </div>
 
             {/* Approval rate bar */}
@@ -670,7 +676,7 @@ function SituationTypeCard({
               {/* Mini approval rate chart */}
               {detail.approvalRateOverTime.length > 0 && (
                 <div>
-                  <h4 className="text-xs text-white/30 mb-2">Approval Trend</h4>
+                  <h4 className="text-xs text-white/30 mb-2">{t("approvalRateOverTime")}</h4>
                   <ResponsiveContainer width="100%" height={120}>
                     <LineChart data={detail.approvalRateOverTime}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
@@ -707,7 +713,7 @@ function SituationTypeCard({
               {/* Recent feedback */}
               {detail.recentFeedback.length > 0 ? (
                 <div>
-                  <h4 className="text-xs text-white/30 mb-2">Recent Feedback</h4>
+                  <h4 className="text-xs text-white/30 mb-2">{t("recentFeedback")}</h4>
                   <div className="space-y-2">
                     {detail.recentFeedback.map((f) => (
                       <div
@@ -730,7 +736,7 @@ function SituationTypeCard({
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-white/20">No feedback yet for this type.</p>
+                <p className="text-xs text-white/20">{t("noFeedback")}</p>
               )}
 
               {/* Admin promote button */}
@@ -787,13 +793,14 @@ function PromoteButton({
 // ── Panel 4: Feedback Impact ─────────────────────────────────────────────────
 
 function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
+  const t = useTranslations("learning");
   if (!feedback) return null;
 
   if (feedback.recentFeedback.length === 0) {
     return (
       <section className="space-y-4">
         <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-          Your Teaching
+          {t("recentFeedback")}
         </h2>
         <div className="wf-soft p-8 text-center text-sm text-white/30">
           No feedback given yet. Approve, reject, or teach on situations to help the AI learn.
@@ -805,7 +812,7 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
   return (
     <section className="space-y-4">
       <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
-        Your Teaching
+        {t("recentFeedback")}
       </h2>
       <p className="text-xs text-white/30">
         Recent feedback and its impact on AI performance:
@@ -865,7 +872,7 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
       {/* Theme summary */}
       {feedback.feedbackThemeSummary && (
         <div className="wf-soft p-4">
-          <h3 className="text-xs text-white/30 mb-2">Feedback Themes</h3>
+          <h3 className="text-xs text-white/30 mb-2">{t("feedbackThemeSummary")}</h3>
           <p className="text-sm text-white/50">{feedback.feedbackThemeSummary}</p>
         </div>
       )}

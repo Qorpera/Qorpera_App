@@ -46,6 +46,7 @@ beforeEach(() => {
     id: "user1",
     email: "test@example.com",
     role: "admin",
+    locale: "en",
   });
   mockPrisma.operator.findUnique.mockResolvedValue({ displayName: "Test Co" });
 });
@@ -166,7 +167,8 @@ describe("sendNotification", () => {
         summary: "15 days overdue",
         viewUrl: "/situations/1",
       }),
-      "Test Co"
+      "Test Co",
+      "en"
     );
   });
 
@@ -183,7 +185,8 @@ describe("sendNotification", () => {
         content: "Test body",
         viewUrl: "/situations/1",
       }),
-      "Test Co"
+      "Test Co",
+      "en"
     );
   });
 });

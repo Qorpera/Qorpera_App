@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
 import { StepCompanyInfo } from "@/components/onboarding/step-company-info";
 import { StepDepartments } from "@/components/onboarding/step-departments";
@@ -30,8 +31,9 @@ function defaultPosition(index: number, total: number) {
 /* ------------------------------------------------------------------ */
 
 export default function OnboardingPageWrapper() {
+  const tc = useTranslations("common");
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[rgba(8,12,16,1)]"><div className="text-white/30 text-sm">Loading...</div></div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[rgba(8,12,16,1)]"><div className="text-white/30 text-sm">{tc("loading")}</div></div>}>
       <OnboardingPage />
     </Suspense>
   );
