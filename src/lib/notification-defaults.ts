@@ -14,6 +14,8 @@ export const NOTIFICATION_TYPES = [
   "peer_signal",
   "insight_discovered",
   "system_alert",
+  "graduation_proposal",
+  "policy_applied",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -32,6 +34,8 @@ const DEFAULT_CHANNELS: Record<NotificationType, NotificationChannel> = {
   peer_signal: "in_app",
   insight_discovered: "in_app",
   system_alert: "both",
+  graduation_proposal: "both",
+  policy_applied: "in_app",
 };
 
 export function getDefaultChannel(type: NotificationType): NotificationChannel {

@@ -350,12 +350,12 @@ describe("sendPeerSignal", () => {
       content: "Customer X has been very active",
     });
 
-    expect(mockPrisma.notification.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(sendNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
         sourceAiEntityId: "ai-sales",
         sourceType: "peer_signal",
       }),
-    });
+    );
   });
 });
 

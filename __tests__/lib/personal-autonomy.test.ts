@@ -31,6 +31,12 @@ const mockPrisma = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
+vi.mock("@/lib/notification-dispatch", () => ({
+  sendNotification: vi.fn().mockResolvedValue(undefined),
+  sendNotificationToAdmins: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import type { PolicyEvaluationResult } from "@/lib/policy-evaluator";
 import { checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
@@ -122,14 +128,14 @@ describe("checkPersonalGraduation", () => {
 
     await checkPersonalGraduation("pa1");
 
-    expect(mockPrisma.notification.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(sendNotificationToAdmins).toHaveBeenCalledWith(
+      expect.objectContaining({
         operatorId: "op1",
         title: expect.stringContaining("notify"),
         sourceType: "graduation",
         sourceId: "pa1",
       }),
-    });
+    );
   });
 
   it("does not create notification when below threshold", async () => {
@@ -145,7 +151,7 @@ describe("checkPersonalGraduation", () => {
 
     await checkPersonalGraduation("pa1");
 
-    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+    expect(sendNotificationToAdmins).not.toHaveBeenCalled();
   });
 });
 
@@ -168,13 +174,13 @@ describe("checkPersonalDemotion", () => {
       data: { autonomyLevel: "supervised" },
     });
 
-    expect(mockPrisma.notification.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(sendNotificationToAdmins).toHaveBeenCalledWith(
+      expect.objectContaining({
         operatorId: "op1",
         title: expect.stringContaining("Demoted"),
         sourceType: "graduation",
       }),
-    });
+    );
   });
 
   it("does nothing if already supervised", async () => {
@@ -189,7 +195,7 @@ describe("checkPersonalDemotion", () => {
     await checkPersonalDemotion("pa1");
 
     expect(mockPrisma.personalAutonomy.update).not.toHaveBeenCalled();
-    expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+    expect(sendNotificationToAdmins).not.toHaveBeenCalled();
   });
 });
 

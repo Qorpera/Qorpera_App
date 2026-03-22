@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
-  const policy = await createPolicy(operatorId, parsed.data);
+  const policy = await createPolicy(operatorId, parsed.data, su.user.id);
   return NextResponse.json(policy, { status: 201 });
 }
 
@@ -31,7 +31,7 @@ export async function PATCH(req: NextRequest) {
   if (su.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   const { operatorId } = su;
   const { id, ...fields } = await req.json();
-  const policy = await updatePolicy(operatorId, id, fields);
+  const policy = await updatePolicy(operatorId, id, fields, su.user.id);
   if (!policy) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(policy);
 }

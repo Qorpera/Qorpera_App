@@ -51,11 +51,17 @@ vi.mock("@/lib/reasoning-engine", () => ({
   reasonAboutSituation: vi.fn(),
 }));
 
+vi.mock("@/lib/notification-dispatch", () => ({
+  sendNotification: vi.fn().mockResolvedValue(undefined),
+  sendNotificationToAdmins: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { prisma } from "@/lib/db";
 import { callLLM } from "@/lib/ai-provider";
 import { resolveEntity } from "@/lib/entity-resolution";
 import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import {
   evaluateContentForSituations,
   isEligibleCommunication,
@@ -213,7 +219,7 @@ describe("evaluateContentForSituations", () => {
     expect(createArgs.triggerEntityId).toBe("entity-alice");
 
     // Should create notification
-    expect(mockPrisma.notification.create).toHaveBeenCalledOnce();
+    expect(sendNotificationToAdmins).toHaveBeenCalledOnce();
 
     // Should fire reasoning
     expect(mockReasonAbout).toHaveBeenCalledWith("sit-new-001");

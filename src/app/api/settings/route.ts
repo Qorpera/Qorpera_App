@@ -61,11 +61,20 @@ export async function PUT(req: NextRequest) {
     if (existing) {
       await prisma.appSetting.update({
         where: { id: existing.id },
-        data: { value },
+        data: {
+          value,
+          lastModifiedById: su.user.id,
+          lastModifiedAt: new Date(),
+        },
       });
     } else {
       await prisma.appSetting.create({
-        data: { key, value },
+        data: {
+          key,
+          value,
+          lastModifiedById: su.user.id,
+          lastModifiedAt: new Date(),
+        },
       });
     }
   }

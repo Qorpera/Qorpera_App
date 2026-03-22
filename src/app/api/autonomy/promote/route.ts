@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 const PROMOTION_MAP: Record<string, string> = {
   supervised: "notify",
@@ -31,17 +32,20 @@ export async function POST(req: NextRequest) {
 
   const updated = await prisma.situationType.update({
     where: { id: situationTypeId },
-    data: { autonomyLevel: nextLevel },
+    data: {
+      autonomyLevel: nextLevel,
+      lastModifiedById: su.user.id,
+      lastModifiedAt: new Date(),
+    },
   });
 
-  await prisma.notification.create({
-    data: {
-      operatorId,
-      title: `Promoted: ${st.name} → ${nextLevel}`,
-      body: `${st.name} has been promoted to ${nextLevel} mode.`,
-      sourceType: "graduation",
-      sourceId: situationTypeId,
-    },
+  await sendNotificationToAdmins({
+    operatorId,
+    type: "graduation_proposal",
+    title: `Promoted: ${st.name} → ${nextLevel}`,
+    body: `${st.name} has been promoted to ${nextLevel} mode.`,
+    sourceType: "graduation",
+    sourceId: situationTypeId,
   }).catch(() => {});
 
   return NextResponse.json(updated);

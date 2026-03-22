@@ -1165,8 +1165,40 @@ function SettingsPageInner() {
         )}
 
         {/* Team Tab */}
-        {activeTab === "team" && (
+        {activeTab === "team" && (() => {
+          const unboundMembers = teamUsers.filter(
+            (u) => u.role === "member" && u.scopes.length === 0
+          );
+          return (
           <div className="space-y-6">
+            {/* Department binding warning */}
+            {unboundMembers.length > 0 && (
+              <div className="rounded-lg px-4 py-3 bg-amber-500/10 border border-amber-500/15 text-amber-400 flex items-start gap-3">
+                <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+                </svg>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    {unboundMembers.length} member{unboundMembers.length !== 1 ? "s" : ""} without department access
+                  </p>
+                  <p className="text-xs text-amber-400/70">
+                    These users cannot receive situations until assigned to a department. Click <strong>Edit</strong> on each user to grant department access.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {unboundMembers.map((u) => (
+                      <button
+                        key={u.id}
+                        onClick={() => setEditingUserId(u.id)}
+                        className="text-xs bg-amber-500/15 hover:bg-amber-500/25 px-2 py-0.5 rounded transition"
+                      >
+                        {u.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Active Users */}
             <div className="wf-soft p-6 space-y-4">
               <div className="flex items-center justify-between">
@@ -1296,7 +1328,17 @@ function SettingsPageInner() {
                                 </span>
                               )}
                             </td>
-                            <td className="py-2.5 text-white/50 text-xs">{u.departmentName || (u.role === "admin" ? "All" : "—")}</td>
+                            <td className="py-2.5 text-xs">
+                              {u.departmentName ? (
+                                <span className="text-white/50">{u.departmentName}</span>
+                              ) : u.role === "admin" ? (
+                                <span className="text-white/50">All</span>
+                              ) : u.scopes.length === 0 ? (
+                                <span className="text-amber-400/80 font-medium">No department</span>
+                              ) : (
+                                <span className="text-white/30">&mdash;</span>
+                              )}
+                            </td>
                             <td className="py-2.5">
                               {u.role === "admin" ? (
                                 <span className="text-xs text-white/30">All (admin)</span>
@@ -1440,7 +1482,8 @@ function SettingsPageInner() {
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Entity Merges Tab */}
         {activeTab === "merges" && (

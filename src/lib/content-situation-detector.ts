@@ -5,6 +5,7 @@ import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -410,14 +411,13 @@ async function handleActionRequired(
   createdInBatch.add(dedupeKey);
 
   // Notification
-  await prisma.notification.create({
-    data: {
-      operatorId,
-      title: `Action needed: ${result.summary}`,
-      body: result.summary,
-      sourceType: "situation",
-      sourceId: situation.id,
-    },
+  await sendNotificationToAdmins({
+    operatorId,
+    type: "situation_proposed",
+    title: `Action needed: ${result.summary}`,
+    body: result.summary,
+    sourceType: "situation",
+    sourceId: situation.id,
   }).catch(() => {});
 
   // Free tier tracking (fire-and-forget)

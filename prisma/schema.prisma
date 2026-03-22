@@ -127,11 +127,13 @@ model User {
 }
 
 model AppSetting {
-  id         String    @id @default(cuid())
-  key        String
-  value      String
-  operatorId String?
-  operator   Operator? @relation(fields: [operatorId], references: [id])
+  id               String    @id @default(cuid())
+  key              String
+  value            String
+  operatorId       String?
+  lastModifiedById String?
+  lastModifiedAt   DateTime?
+  operator         Operator? @relation(fields: [operatorId], references: [id])
 
   @@unique([key, operatorId])
 }
@@ -340,17 +342,19 @@ model SyncLog {
 // ─── Layer 4: Policy & Action ────────────────────────────
 
 model PolicyRule {
-  id            String  @id @default(cuid())
-  operatorId    String
-  name          String
-  scope         String  // global, entity_type, entity
-  scopeTargetId String?
-  actionType    String  // create, update, delete, approve, execute
-  effect        String  // ALLOW, DENY, REQUIRE_APPROVAL
-  conditions    String? // JSON
-  priority      Int     @default(0)
-  enabled       Boolean @default(true)
-  createdAt     DateTime @default(now())
+  id               String  @id @default(cuid())
+  operatorId       String
+  name             String
+  scope            String  // global, entity_type, entity
+  scopeTargetId    String?
+  actionType       String  // create, update, delete, approve, execute
+  effect           String  // ALLOW, DENY, REQUIRE_APPROVAL
+  conditions       String? // JSON
+  priority         Int     @default(0)
+  enabled          Boolean @default(true)
+  lastModifiedById String?
+  lastModifiedAt   DateTime?
+  createdAt        DateTime @default(now())
 
   operator Operator     @relation(fields: [operatorId], references: [id])
 }
@@ -405,8 +409,10 @@ model SituationType {
   detectedCount   Int @default(0)
   confirmedCount  Int @default(0)
   dismissedCount  Int @default(0)
-  promptVersion   Int @default(1) // Reserved for post-launch reasoning prompt optimization canary system
-  createdAt      DateTime @default(now())
+  promptVersion    Int @default(1) // Reserved for post-launch reasoning prompt optimization canary system
+  lastModifiedById String?
+  lastModifiedAt   DateTime?
+  createdAt        DateTime @default(now())
 
   operator   Operator    @relation(fields: [operatorId], references: [id])
   situations Situation[]

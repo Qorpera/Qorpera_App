@@ -4,6 +4,7 @@ import { getEntityType } from "@/lib/entity-model-store";
 import { notifySituationDetectors } from "@/lib/situation-detector";
 import { checkForSituationResolution } from "@/lib/situation-resolver";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -607,14 +608,13 @@ export async function materializeEvent(
             },
           });
 
-          await prisma.notification.create({
-            data: {
-              operatorId,
-              title: notificationTitle,
-              body: `There are ${pendingCount} event(s) of type "${eventType}" waiting to be processed, but the entity type "${rule.entityTypeSlug}" does not exist yet. Create it in entity type settings or re-sync the connector.`,
-              sourceType: "system",
-              sourceId: event.id,
-            },
+          await sendNotificationToAdmins({
+            operatorId,
+            type: "system_alert",
+            title: notificationTitle,
+            body: `There are ${pendingCount} event(s) of type "${eventType}" waiting to be processed, but the entity type "${rule.entityTypeSlug}" does not exist yet. Create it in entity type settings or re-sync the connector.`,
+            sourceType: "system",
+            sourceId: event.id,
           });
         }
       }

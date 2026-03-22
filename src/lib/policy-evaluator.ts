@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,13 +101,12 @@ export async function evaluateActionPolicies(
       ? `Blocked: ${blocked.map((b) => b.name).join(", ")} — ${blocked.map((b) => b.reason).join(", ")}`
       : `Require approval enforced for: ${permitted.filter((p) => policies.some((pol) => pol.effect === "REQUIRE_APPROVAL")).map((p) => p.name).join(", ")}`;
 
-    await prisma.notification.create({
-      data: {
-        operatorId,
-        title: "Policy applied",
-        body,
-        sourceType: "policy",
-      },
+    await sendNotificationToAdmins({
+      operatorId,
+      type: "policy_applied",
+      title: "Policy applied",
+      body,
+      sourceType: "policy",
     }).catch(() => {});
   }
 

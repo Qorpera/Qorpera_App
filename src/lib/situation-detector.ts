@@ -6,6 +6,7 @@ import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { isEntityInScope } from "@/lib/situation-scope";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -564,14 +565,13 @@ async function createDetectedSituation(
   }
 
   // Create notification
-  await prisma.notification.create({
-    data: {
-      operatorId,
-      title: `${situationType.name}: ${context.triggerEntity.displayName}`,
-      body: `New situation detected with ${(confidence * 100).toFixed(0)}% confidence.`,
-      sourceType: "situation",
-      sourceId: situation.id,
-    },
+  await sendNotificationToAdmins({
+    operatorId,
+    type: "situation_proposed",
+    title: `${situationType.name}: ${context.triggerEntity.displayName}`,
+    body: `New situation detected with ${(confidence * 100).toFixed(0)}% confidence.`,
+    sourceType: "situation",
+    sourceId: situation.id,
   }).catch(() => {});
 
   // Free tier tracking: set start date and increment counter

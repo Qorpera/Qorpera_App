@@ -8,6 +8,7 @@
 
 import { prisma } from "@/lib/db";
 import { runConnectorSync } from "@/lib/connector-sync";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 const SYNC_INTERVALS: Record<string, number> = {
   "google": 5 * 60 * 1000,       // unified Google (Gmail, Drive, Calendar, Sheets)
@@ -133,13 +134,12 @@ async function handleFailure(
     });
 
     // Create admin notification
-    await prisma.notification.create({
-      data: {
-        operatorId,
-        sourceType: "system",
-        title: `${provider} sync failed ${MAX_CONSECUTIVE_FAILURES} times`,
-        body: `Connector has been disabled after ${MAX_CONSECUTIVE_FAILURES} consecutive sync failures. Last error: ${errorMsg.slice(0, 500)}. Reconnection may be needed.`,
-      },
+    await sendNotificationToAdmins({
+      operatorId,
+      type: "system_alert",
+      sourceType: "system",
+      title: `${provider} sync failed ${MAX_CONSECUTIVE_FAILURES} times`,
+      body: `Connector has been disabled after ${MAX_CONSECUTIVE_FAILURES} consecutive sync failures. Last error: ${errorMsg.slice(0, 500)}. Reconnection may be needed.`,
     });
 
     console.warn(

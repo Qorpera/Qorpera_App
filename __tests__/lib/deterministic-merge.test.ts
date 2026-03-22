@@ -78,6 +78,12 @@ vi.mock("@/lib/rag/embedder", () => ({
   embedChunks: vi.fn().mockResolvedValue([null]),
 }));
 
+vi.mock("@/lib/notification-dispatch", () => ({
+  sendNotification: vi.fn().mockResolvedValue(undefined),
+  sendNotificationToAdmins: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { runDeterministicMerges } from "@/lib/identity-resolution";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -221,13 +227,11 @@ describe("runDeterministicMerges", () => {
 
     await runDeterministicMerges("op1");
 
-    expect(mockNotificationCreate).toHaveBeenCalledTimes(1);
-    expect(mockNotificationCreate).toHaveBeenCalledWith(
+    expect(sendNotificationToAdmins).toHaveBeenCalledTimes(1);
+    expect(sendNotificationToAdmins).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          operatorId: "op1",
-          body: expect.stringContaining("2 active situation(s)"),
-        }),
+        operatorId: "op1",
+        body: expect.stringContaining("2 active situation(s)"),
       }),
     );
   });
@@ -241,7 +245,7 @@ describe("runDeterministicMerges", () => {
 
     await runDeterministicMerges("op1");
 
-    expect(mockNotificationCreate).not.toHaveBeenCalled();
+    expect(sendNotificationToAdmins).not.toHaveBeenCalled();
     expect(mockEntityMergeLogCreate).toHaveBeenCalled();
   });
 

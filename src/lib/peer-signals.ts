@@ -31,18 +31,16 @@ export async function sendPeerSignal(params: PeerSignalParams): Promise<void> {
     targetUserId = adminUser?.id ?? null;
   }
 
-  // 1. Create the data record for context assembly (direct create — needs sourceAiEntityId
-  //    which sendNotification doesn't support; this is a system data record, not a user notification)
+  // 1. Create data record for context assembly (with sourceAiEntityId for peer signal tracking)
   if (targetUserId) {
-    await prisma.notification.create({
-      data: {
-        operatorId: params.operatorId,
-        userId: targetUserId,
-        title: "Peer AI signal",
-        body: params.content,
-        sourceType: "peer_signal",
-        sourceAiEntityId: params.fromAiEntityId,
-      },
+    await sendNotification({
+      operatorId: params.operatorId,
+      userId: targetUserId,
+      type: "peer_signal",
+      title: "Peer AI signal",
+      body: params.content,
+      sourceType: "peer_signal",
+      sourceAiEntityId: params.fromAiEntityId,
     });
   }
 

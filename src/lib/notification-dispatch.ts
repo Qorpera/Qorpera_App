@@ -11,6 +11,7 @@ type SendNotificationParams = {
   body: string;
   sourceType?: string;
   sourceId?: string;
+  sourceAiEntityId?: string;
   linkUrl?: string;
   emailContext?: Record<string, any>;
 };
@@ -48,6 +49,7 @@ export async function sendNotification(params: SendNotificationParams): Promise<
         body: params.body,
         sourceType: params.sourceType,
         sourceId: params.sourceId,
+        sourceAiEntityId: params.sourceAiEntityId,
       },
     });
 

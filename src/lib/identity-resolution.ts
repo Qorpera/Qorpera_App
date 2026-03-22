@@ -9,6 +9,7 @@
 import { prisma } from "@/lib/db";
 import { embedChunks } from "@/lib/rag/embedder";
 import { CATEGORY_PRIORITY } from "@/lib/hardcoded-type-defs";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -801,13 +802,12 @@ export async function runDeterministicMerges(
         if (log) mergeLogIds.push(log.id);
 
         if (activeSituationCount > 0) {
-          await prisma.notification.create({
-            data: {
-              operatorId,
-              title: "Entity merged — active situations transferred",
-              body: `Entity ${absorbed.displayName} was merged into ${survivor.displayName}. ${activeSituationCount} active situation(s) were transferred — review in Entity Merges.`,
-              sourceType: "system",
-            },
+          await sendNotificationToAdmins({
+            operatorId,
+            type: "system_alert",
+            title: "Entity merged — active situations transferred",
+            body: `Entity ${absorbed.displayName} was merged into ${survivor.displayName}. ${activeSituationCount} active situation(s) were transferred — review in Entity Merges.`,
+            sourceType: "system",
           });
         }
 

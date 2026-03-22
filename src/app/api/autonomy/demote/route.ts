@@ -31,7 +31,12 @@ export async function POST(req: NextRequest) {
 
   const updated = await prisma.situationType.update({
     where: { id: situationTypeId },
-    data: { autonomyLevel: nextLevel, consecutiveApprovals: 0 },
+    data: {
+      autonomyLevel: nextLevel,
+      consecutiveApprovals: 0,
+      lastModifiedById: su.user.id,
+      lastModifiedAt: new Date(),
+    },
   });
 
   return NextResponse.json(updated);

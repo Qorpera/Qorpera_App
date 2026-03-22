@@ -26,11 +26,21 @@ export async function PUT(req: NextRequest) {
       if (existing) {
         await prisma.appSetting.update({
           where: { id: existing.id },
-          data: { value: String(body[key]) },
+          data: {
+            value: String(body[key]),
+            lastModifiedById: su.user.id,
+            lastModifiedAt: new Date(),
+          },
         });
       } else {
         await prisma.appSetting.create({
-          data: { key, value: String(body[key]), operatorId: su.operatorId },
+          data: {
+            key,
+            value: String(body[key]),
+            operatorId: su.operatorId,
+            lastModifiedById: su.user.id,
+            lastModifiedAt: new Date(),
+          },
         });
       }
     }

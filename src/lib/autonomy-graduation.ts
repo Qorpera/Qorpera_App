@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 const DEFAULT_THRESHOLDS = {
   graduation_supervised_to_notify_consecutive: 10,
@@ -70,14 +71,13 @@ export async function checkGraduation(situationTypeId: string): Promise<void> {
 
   const ratePercent = (st.approvalRate * 100).toFixed(0);
 
-  await prisma.notification.create({
-    data: {
-      operatorId: st.operatorId,
-      title: `Promote to ${nextLevel}: ${st.name}`,
-      body: `${st.consecutiveApprovals} consecutive approvals with ${ratePercent}% accuracy. Promote ${st.name} to ${nextLevel} mode?`,
-      sourceType: "graduation",
-      sourceId: situationTypeId,
-    },
+  await sendNotificationToAdmins({
+    operatorId: st.operatorId,
+    type: "graduation_proposal",
+    title: `Promote to ${nextLevel}: ${st.name}`,
+    body: `${st.consecutiveApprovals} consecutive approvals with ${ratePercent}% accuracy. Promote ${st.name} to ${nextLevel} mode?`,
+    sourceType: "graduation",
+    sourceId: situationTypeId,
   }).catch(() => {});
 }
 
@@ -94,14 +94,13 @@ export async function checkDemotion(situationTypeId: string): Promise<void> {
     data: { autonomyLevel: "supervised" },
   });
 
-  await prisma.notification.create({
-    data: {
-      operatorId: st.operatorId,
-      title: `Demoted to supervised: ${st.name}`,
-      body: `A rejection was received — reverting to human review.`,
-      sourceType: "graduation",
-      sourceId: situationTypeId,
-    },
+  await sendNotificationToAdmins({
+    operatorId: st.operatorId,
+    type: "graduation_proposal",
+    title: `Demoted to supervised: ${st.name}`,
+    body: `A rejection was received — reverting to human review.`,
+    sourceType: "graduation",
+    sourceId: situationTypeId,
   }).catch(() => {});
 }
 
@@ -138,14 +137,13 @@ export async function checkPersonalGraduation(personalAutonomyId: string): Promi
 
   const ratePercent = (pa.approvalRate * 100).toFixed(0);
 
-  await prisma.notification.create({
-    data: {
-      operatorId: pa.operatorId,
-      title: `Promote ${pa.aiEntity.displayName} to ${nextLevel}: ${pa.situationType.name}`,
-      body: `${pa.consecutiveApprovals} consecutive approvals with ${ratePercent}% accuracy. Promote to ${nextLevel} mode?`,
-      sourceType: "graduation",
-      sourceId: personalAutonomyId,
-    },
+  await sendNotificationToAdmins({
+    operatorId: pa.operatorId,
+    type: "graduation_proposal",
+    title: `Promote ${pa.aiEntity.displayName} to ${nextLevel}: ${pa.situationType.name}`,
+    body: `${pa.consecutiveApprovals} consecutive approvals with ${ratePercent}% accuracy. Promote to ${nextLevel} mode?`,
+    sourceType: "graduation",
+    sourceId: personalAutonomyId,
   }).catch(() => {});
 }
 
@@ -164,13 +162,12 @@ export async function checkPersonalDemotion(personalAutonomyId: string): Promise
     data: { autonomyLevel: "supervised" },
   });
 
-  await prisma.notification.create({
-    data: {
-      operatorId: pa.operatorId,
-      title: `Demoted ${pa.aiEntity.displayName} to supervised: ${pa.situationType.name}`,
-      body: `A rejection was received — reverting to human review.`,
-      sourceType: "graduation",
-      sourceId: personalAutonomyId,
-    },
+  await sendNotificationToAdmins({
+    operatorId: pa.operatorId,
+    type: "graduation_proposal",
+    title: `Demoted ${pa.aiEntity.displayName} to supervised: ${pa.situationType.name}`,
+    body: `A rejection was received — reverting to human review.`,
+    sourceType: "graduation",
+    sourceId: personalAutonomyId,
   }).catch(() => {});
 }

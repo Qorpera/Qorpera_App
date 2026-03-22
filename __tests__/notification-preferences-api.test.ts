@@ -43,8 +43,8 @@ describe("GET /api/notification-preferences", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // Should contain all 11 notification types
-    expect(body.preferences).toHaveLength(11);
+    // Should contain all 13 notification types
+    expect(body.preferences).toHaveLength(13);
 
     // Explicit prefs should not be marked as default
     const situationPref = body.preferences.find(

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 const RESOLUTION_SIGNALS: Record<string, (slug: string) => boolean> = {
   "invoice.paid": (slug) =>
@@ -53,14 +54,13 @@ export async function checkForSituationResolution(
         select: { displayName: true },
       });
 
-      await prisma.notification.create({
-        data: {
-          operatorId,
-          title: `Situation resolved: ${situation.situationType.name}`,
-          body: `Overdue invoice situation for ${entity?.displayName || "entity"} has been automatically resolved — payment received.`,
-          sourceType: "situation",
-          sourceId: situation.id,
-        },
+      await sendNotificationToAdmins({
+        operatorId,
+        type: "situation_resolved",
+        title: `Situation resolved: ${situation.situationType.name}`,
+        body: `Overdue invoice situation for ${entity?.displayName || "entity"} has been automatically resolved — payment received.`,
+        sourceType: "situation",
+        sourceId: situation.id,
       });
 
       // Emit billing event (fire-and-forget)

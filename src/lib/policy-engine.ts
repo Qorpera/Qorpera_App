@@ -89,6 +89,7 @@ export async function createPolicy(
     conditions?: Record<string, unknown>;
     priority?: number;
   },
+  modifiedById?: string,
 ) {
   return prisma.policyRule.create({
     data: {
@@ -100,6 +101,8 @@ export async function createPolicy(
       effect: input.effect,
       conditions: input.conditions ? JSON.stringify(input.conditions) : null,
       priority: input.priority ?? 0,
+      lastModifiedById: modifiedById,
+      lastModifiedAt: modifiedById ? new Date() : undefined,
     },
   });
 }
@@ -117,6 +120,7 @@ export async function updatePolicy(
     priority: number;
     enabled: boolean;
   }>,
+  modifiedById?: string,
 ) {
   const existing = await prisma.policyRule.findFirst({ where: { id: policyId, operatorId } });
   if (!existing) return null;
@@ -133,6 +137,8 @@ export async function updatePolicy(
       }),
       ...(fields.priority !== undefined && { priority: fields.priority }),
       ...(fields.enabled !== undefined && { enabled: fields.enabled }),
+      lastModifiedById: modifiedById,
+      lastModifiedAt: modifiedById ? new Date() : undefined,
     },
   });
 }

@@ -38,7 +38,11 @@ export async function POST(
 
   await prisma.situationType.update({
     where: { id },
-    data: { autonomyLevel: body.level },
+    data: {
+      autonomyLevel: body.level,
+      lastModifiedById: su.user.id,
+      lastModifiedAt: new Date(),
+    },
   });
 
   return NextResponse.json({ success: true });
