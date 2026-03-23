@@ -91,6 +91,11 @@ export default function GovernancePage() {
   const [formEffect, setFormEffect] = useState<PolicyEffect>("ALLOW");
   const [formPriority, setFormPriority] = useState("0");
 
+  // ── New UI state ────────────────────────────────────────
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
+  const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set());
+  const [chatInput, setChatInput] = useState("");
+
   // ── Data fetching ──────────────────────────────────────
 
   const loadSituationTypes = useCallback(() => {
@@ -175,6 +180,24 @@ export default function GovernancePage() {
     } catch {}
   };
 
+  const handleDeletePolicy = async (policyId: string) => {
+    try {
+      const res = await fetch("/api/policies", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: policyId }),
+      });
+      if (res.ok) {
+        setPolicies(prev => prev.filter(p => p.id !== policyId));
+        toast("Policy deleted", "success");
+      } else {
+        toast("Failed to delete policy", "error");
+      }
+    } catch {
+      toast("Failed to delete policy", "error");
+    }
+  };
+
   const handleCreatePolicy = async () => {
     if (!formName.trim()) return;
     setPolicySaving(true);
@@ -212,6 +235,30 @@ export default function GovernancePage() {
     setFormPriority("0");
   };
 
+  const toggleTypeExpanded = (id: string) => {
+    setExpandedTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const togglePolicyExpanded = (id: string) => {
+    setExpandedPolicies(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleChatSend = () => {
+    if (!chatInput.trim()) return;
+    toast("Governance AI coming soon", "success");
+    setChatInput("");
+  };
+
   // ── Derived ────────────────────────────────────────────
 
   const supervisedCount = situationTypes.filter(st => st.autonomyLevel === "supervised").length;
@@ -240,192 +287,315 @@ export default function GovernancePage() {
   return (
     <AppShell>
       <div className="p-8 max-w-4xl mx-auto space-y-6">
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: "var(--foreground)" }}>{t("title")}</h1>
+        <h1 className="text-xl font-semibold text-foreground">{t("title")}</h1>
 
         {/* ── Section 1: Trust Gradient ── */}
-        <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }} className="mb-4">
-            {t("trustGradient")}
+        <section className="bg-surface border border-border rounded-lg overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-hover">
+            <svg className="w-4 h-4 text-[var(--fg2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+            </svg>
+            <h2 className="text-[13px] font-semibold text-foreground">{t("trustGradient")}</h2>
           </div>
 
-          {autoLoading ? (
-            <div className="flex justify-center py-4">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-            </div>
-          ) : (
-            <>
-              {/* Progress bar */}
-              <div className="flex rounded overflow-hidden h-3 mb-4" style={{ background: "var(--elevated)" }}>
-                {supervisedCount > 0 && (
-                  <div style={{ flex: supervisedCount, background: "var(--hover)" }} />
-                )}
-                {notifyCount > 0 && (
-                  <div style={{ flex: notifyCount, background: "rgba(245,158,11,0.25)" }} />
-                )}
-                {autonomousCount > 0 && (
-                  <div style={{ flex: autonomousCount, background: "rgba(34,197,94,0.25)" }} />
-                )}
+          <div className="p-5">
+            {autoLoading ? (
+              <div className="flex justify-center py-4">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-[var(--fg3)]" />
               </div>
+            ) : (
+              <>
+                {/* Progress bar */}
+                <div className="flex rounded overflow-hidden h-3 mb-4 bg-elevated">
+                  {supervisedCount > 0 && (
+                    <div className="bg-hover" style={{ flex: supervisedCount }} />
+                  )}
+                  {notifyCount > 0 && (
+                    <div className="bg-[rgba(245,158,11,0.25)]" style={{ flex: notifyCount }} />
+                  )}
+                  {autonomousCount > 0 && (
+                    <div className="bg-[rgba(34,197,94,0.25)]" style={{ flex: autonomousCount }} />
+                  )}
+                </div>
 
-              {/* Labels */}
-              <div className="flex justify-between" style={{ fontSize: 10, color: "var(--fg4)" }}>
-                <span>{t("supervised")}</span>
-                <span>{t("notify")}</span>
-                <span>{t("autonomous")}</span>
-              </div>
+                {/* Labels */}
+                <div className="flex justify-between text-[10px] text-[var(--fg2)]">
+                  <span>{t("supervised")}</span>
+                  <span>{t("notify")}</span>
+                  <span>{t("autonomous")}</span>
+                </div>
 
-              {/* Counts */}
-              <div className="flex gap-6 mt-3" style={{ fontSize: 12 }}>
-                <span>Supervised: <span style={{ color: "var(--fg2)" }}>{supervisedCount}</span></span>
-                <span>Notify: <span style={{ color: "var(--warn)" }}>{notifyCount}</span></span>
-                <span>Autonomous: <span style={{ color: "var(--ok)" }}>{autonomousCount}</span></span>
-              </div>
-            </>
-          )}
+                {/* Counts */}
+                <div className="flex gap-6 mt-3 text-xs">
+                  <span className="text-[var(--fg2)]">Supervised: <span className="text-foreground font-medium">{supervisedCount}</span></span>
+                  <span className="text-[var(--fg2)]">Notify: <span className="text-warn font-medium">{notifyCount}</span></span>
+                  <span className="text-[var(--fg2)]">Autonomous: <span className="text-ok font-medium">{autonomousCount}</span></span>
+                </div>
+              </>
+            )}
+          </div>
         </section>
 
         {/* ── Section 2: Rules ── */}
-        <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
-          <div className="flex items-center justify-between mb-4">
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }}>
-              {t("rules")}
+        <section className="bg-surface border border-border rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-hover">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-[var(--fg2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              </svg>
+              <h2 className="text-[13px] font-semibold text-foreground">{t("rules")}</h2>
             </div>
             {isAdmin && (
-              <button
-                onClick={() => setShowNewPolicy(true)}
-                style={{ fontSize: 11, color: "var(--fg2)", background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 10px" }}
-                className="hover:bg-surface transition"
-              >
+              <Button variant="default" size="sm" onClick={() => setShowNewPolicy(true)}>
                 {t("addRule")}
-              </button>
+              </Button>
             )}
           </div>
 
-          {policiesLoading && (
-            <div className="flex justify-center py-4">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-            </div>
-          )}
+          <div className="p-5">
+            {policiesLoading && (
+              <div className="flex justify-center py-4">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-[var(--fg3)]" />
+              </div>
+            )}
 
-          {!policiesLoading && policies.length === 0 && (
-            <p style={{ fontSize: 13, color: "var(--fg4)" }}>{t("noRules")}</p>
-          )}
+            {!policiesLoading && policies.length === 0 && (
+              <div className="text-center py-6">
+                <p className="text-[13px] text-[var(--fg2)] mb-3">{t("noRules")}</p>
+                {isAdmin && (
+                  <Button variant="default" size="sm" onClick={() => setShowNewPolicy(true)}>
+                    {t("addRule")}
+                  </Button>
+                )}
+              </div>
+            )}
 
-          {!policiesLoading && policies.length > 0 && (
-            <div className="space-y-1.5">
-              {policies.map(policy => {
-                const effectLabel = policy.effect === "REQUIRE_APPROVAL" ? "Approval" : policy.effect === "DENY" ? "Block" : "Allow";
-                const effectVariant = policy.effect === "REQUIRE_APPROVAL" ? "amber" : policy.effect === "DENY" ? "red" : "green";
-                return (
-                  <div
-                    key={policy.id}
-                    className={`flex items-center gap-3 ${!policy.enabled ? "opacity-50" : ""}`}
-                    style={{ background: "var(--surface)", borderRadius: 4, padding: "10px 12px" }}
-                  >
-                    <Badge variant={effectVariant as "amber" | "red" | "green"}>{effectLabel}</Badge>
-                    <div className="flex-1 min-w-0">
-                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>{policy.name}</div>
-                      <div style={{ fontSize: 11, color: "var(--fg4)" }}>
-                        {policy.scope} &middot; {policy.actionType === "*" ? "All actions" : policy.actionType}
-                      </div>
-                    </div>
-                    {isAdmin && (
+            {!policiesLoading && policies.length > 0 && (
+              <div className="space-y-1.5">
+                {policies.map(policy => {
+                  const effectLabel = policy.effect === "REQUIRE_APPROVAL" ? "Approval" : policy.effect === "DENY" ? "Block" : "Allow";
+                  const effectVariant = policy.effect === "REQUIRE_APPROVAL" ? "amber" : policy.effect === "DENY" ? "red" : "green";
+                  const isExpanded = expandedPolicies.has(policy.id);
+                  return (
+                    <div
+                      key={policy.id}
+                      className={`rounded-md border border-border transition ${!policy.enabled ? "opacity-50" : ""}`}
+                    >
                       <button
-                        onClick={() => handleTogglePolicy(policy)}
-                        className="flex-shrink-0"
-                        style={{
-                          position: "relative",
-                          display: "inline-flex",
-                          height: 20,
-                          width: 36,
-                          alignItems: "center",
-                          borderRadius: 10,
-                          background: policy.enabled ? "var(--accent)" : "var(--elevated)",
-                          transition: "background 150ms",
-                        }}
+                        type="button"
+                        onClick={() => togglePolicyExpanded(policy.id)}
+                        className="flex items-center gap-3 w-full text-left px-3 py-2.5 hover:bg-hover rounded-md transition"
                       >
-                        <span style={{
-                          display: "inline-block",
-                          height: 14,
-                          width: 14,
-                          borderRadius: 7,
-                          background: "var(--accent-ink)",
-                          transition: "transform 150ms",
-                          transform: policy.enabled ? "translateX(18px)" : "translateX(2px)",
-                        }} />
+                        <svg
+                          className={`w-3 h-3 text-[var(--fg3)] flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                        <Badge variant={effectVariant as "amber" | "red" | "green"}>{effectLabel}</Badge>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[13px] font-medium text-foreground">{policy.name}</span>
+                        </div>
+                        {isAdmin && (
+                          <div
+                            onClick={e => { e.stopPropagation(); handleTogglePolicy(policy); }}
+                            className="flex-shrink-0 relative inline-flex h-5 w-9 items-center rounded-full cursor-pointer transition-colors"
+                            style={{ background: policy.enabled ? "var(--accent)" : "var(--border)" }}
+                            role="switch"
+                            aria-checked={policy.enabled}
+                          >
+                            <span
+                              className={`inline-block h-3.5 w-3.5 rounded-full bg-[var(--accent-ink)] transition-transform ${
+                                policy.enabled ? "translate-x-[18px]" : "translate-x-[2px]"
+                              }`}
+                            />
+                          </div>
+                        )}
                       </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+
+                      {isExpanded && (
+                        <div className="px-3 pb-3 pt-1 border-t border-border mx-3 mb-1">
+                          <div className="grid grid-cols-3 gap-4 text-[11px] mt-2">
+                            <div>
+                              <span className="text-[var(--fg3)] block mb-0.5">Scope</span>
+                              <span className="text-[var(--fg2)] font-medium capitalize">{policy.scope}</span>
+                              {policy.scopeTargetId && (
+                                <span className="text-[var(--fg3)] ml-1">({policy.scopeTargetId})</span>
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-[var(--fg3)] block mb-0.5">Action</span>
+                              <span className="text-[var(--fg2)] font-medium">{policy.actionType === "*" ? "All actions" : policy.actionType}</span>
+                            </div>
+                            <div>
+                              <span className="text-[var(--fg3)] block mb-0.5">Priority</span>
+                              <span className="text-[var(--fg2)] font-medium">{policy.priority}</span>
+                            </div>
+                          </div>
+                          {policy.conditions && (
+                            <div className="mt-2 text-[11px]">
+                              <span className="text-[var(--fg3)] block mb-0.5">Conditions</span>
+                              <span className="text-[var(--fg2)]">{policy.conditions}</span>
+                            </div>
+                          )}
+                          {isAdmin && (
+                            <div className="mt-3 flex justify-end">
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => handleDeletePolicy(policy.id)}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* ── Section 3: Trust Progression ── */}
-        <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }} className="mb-4">
-            {t("trustProgression")}
+        <section className="bg-surface border border-border rounded-lg overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-hover">
+            <svg className="w-4 h-4 text-[var(--fg2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+            </svg>
+            <h2 className="text-[13px] font-semibold text-foreground">{t("trustProgression")}</h2>
           </div>
 
-          {autoLoading ? (
-            <div className="flex justify-center py-4">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-            </div>
-          ) : sortedTypes.length === 0 ? (
-            <p style={{ fontSize: 13, color: "var(--fg4)" }}>No situation types configured yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {sortedTypes.map(st => {
-                const ready = isReadyForPromotion(st);
-                const levelLabel = st.autonomyLevel === "supervised" ? "supervised" : st.autonomyLevel === "notify" ? "notify" : "autonomous";
-                const levelColor = st.autonomyLevel === "supervised" ? "var(--fg2)" : st.autonomyLevel === "notify" ? "var(--warn)" : "var(--ok)";
-                return (
-                  <div
-                    key={st.id}
-                    style={{
-                      background: ready ? "rgba(168,85,247,0.06)" : "var(--surface)",
-                      border: ready ? "1px solid rgba(168,85,247,0.2)" : "1px solid var(--border)",
-                      borderRadius: 4,
-                      padding: "10px 14px",
-                    }}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>{st.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span style={{ fontSize: 11, fontWeight: 500, color: levelColor, border: `1px solid ${levelColor}33`, borderRadius: 9999, padding: "1px 8px" }}>
-                          {levelLabel}
-                        </span>
-                        {isAdmin && ready && (
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => handlePromote(st.id)}
-                            disabled={promotingId !== null}
+          <div className="p-5">
+            {autoLoading ? (
+              <div className="flex justify-center py-4">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-[var(--fg3)]" />
+              </div>
+            ) : sortedTypes.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-[13px] text-[var(--fg2)]">No situation types configured yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {sortedTypes.map(st => {
+                  const ready = isReadyForPromotion(st);
+                  const isExpanded = expandedTypes.has(st.id);
+                  const levelLabel = st.autonomyLevel === "supervised" ? "supervised" : st.autonomyLevel === "notify" ? "notify" : "autonomous";
+
+                  return (
+                    <div
+                      key={st.id}
+                      className={`rounded-md border transition overflow-hidden ${
+                        ready
+                          ? "border-l-[3px] border-l-accent border-t-border border-r-border border-b-border bg-[var(--accent-light)]"
+                          : "border-border bg-surface"
+                      }`}
+                    >
+                      {/* Collapsed row — always visible */}
+                      <button
+                        type="button"
+                        onClick={() => toggleTypeExpanded(st.id)}
+                        className="flex items-center justify-between w-full text-left px-3.5 py-2.5 hover:bg-hover transition"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <svg
+                            className={`w-3 h-3 text-[var(--fg3)] flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
                           >
-                            {promotingId === st.id ? "..." : t("promote")}
-                          </Button>
-                        )}
-                        {isAdmin && st.autonomyLevel !== "supervised" && (
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => handleDemote(st.id)}
-                            disabled={demotingId !== null}
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                          </svg>
+                          <span className="text-[13px] font-medium text-foreground truncate">{st.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2.5 flex-shrink-0">
+                          <span className="text-[11px] text-[var(--fg2)]">
+                            {(st.approvalRate * 100).toFixed(0)}% approved
+                          </span>
+                          <span
+                            className={`text-[11px] font-medium rounded-full px-2.5 py-0.5 ${
+                              st.autonomyLevel === "supervised"
+                                ? "bg-[var(--elevated)] text-[var(--fg2)]"
+                                : st.autonomyLevel === "notify"
+                                  ? "bg-[rgba(245,158,11,0.15)] text-warn"
+                                  : "bg-[rgba(34,197,94,0.15)] text-ok"
+                            }`}
                           >
-                            {demotingId === st.id ? "..." : t("demote")}
-                          </Button>
-                        )}
-                      </div>
+                            {levelLabel}
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Expanded details */}
+                      {isExpanded && (
+                        <div className="px-3.5 pb-3 border-t border-border">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-3">
+                            <div>
+                              <span className="text-[10px] text-[var(--fg3)] uppercase tracking-wide block mb-0.5">Proposed</span>
+                              <span className="text-sm font-medium text-foreground">{st.totalProposed}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-[var(--fg3)] uppercase tracking-wide block mb-0.5">Approved</span>
+                              <span className="text-sm font-medium text-foreground">{st.totalApproved}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-[var(--fg3)] uppercase tracking-wide block mb-0.5">Streak</span>
+                              <span className="text-sm font-medium text-foreground">{st.consecutiveApprovals}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-[var(--fg3)] uppercase tracking-wide block mb-0.5">Approval Rate</span>
+                              <span className="text-sm font-medium text-foreground">{(st.approvalRate * 100).toFixed(1)}%</span>
+                            </div>
+                          </div>
+
+                          {/* Thresholds needed */}
+                          {thresholds && st.autonomyLevel !== "autonomous" && (
+                            <div className="mt-3 text-[11px] text-[var(--fg3)] bg-elevated rounded px-3 py-2">
+                              {st.autonomyLevel === "supervised" ? (
+                                <span>
+                                  Needs {thresholds.supervisedToNotifyConsecutive} consecutive approvals (have {st.consecutiveApprovals}) and {(thresholds.supervisedToNotifyRate * 100).toFixed(0)}% rate (have {(st.approvalRate * 100).toFixed(0)}%) to promote to <span className="text-warn font-medium">notify</span>
+                                </span>
+                              ) : (
+                                <span>
+                                  Needs {thresholds.notifyToAutonomousConsecutive} consecutive approvals (have {st.consecutiveApprovals}) and {(thresholds.notifyToAutonomousRate * 100).toFixed(0)}% rate (have {(st.approvalRate * 100).toFixed(0)}%) to promote to <span className="text-ok font-medium">autonomous</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Action buttons */}
+                          {isAdmin && (
+                            <div className="flex items-center gap-2 mt-3">
+                              {ready && (
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={() => handlePromote(st.id)}
+                                  disabled={promotingId !== null}
+                                >
+                                  {promotingId === st.id ? "..." : t("promote")}
+                                </Button>
+                              )}
+                              {st.autonomyLevel !== "supervised" && (
+                                <Button
+                                  variant="danger"
+                                  size="sm"
+                                  onClick={() => handleDemote(st.id)}
+                                  disabled={demotingId !== null}
+                                >
+                                  {demotingId === st.id ? "..." : t("demote")}
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-1">
-                      {st.totalProposed} proposed &middot; {(st.approvalRate * 100).toFixed(0)}% approved &middot; {st.consecutiveApprovals} streak
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* ── Section 4: AI Knowledge ── */}
@@ -433,6 +603,33 @@ export default function GovernancePage() {
 
         {/* ── Section 5: Goals ── */}
         <GoalsSection isAdmin={isAdmin} toast={toast} />
+
+        {/* ── Governance AI Chat Bar ── */}
+        <div className="mt-8 border-t border-border pt-4">
+          <div className="flex items-center gap-2 mb-2">
+            <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+            </svg>
+            <span className="text-[13px] font-semibold text-foreground">Governance AI</span>
+            <span className="text-[11px] text-[var(--fg3)]">Ask questions or request changes to your governance configuration</span>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleChatSend(); }}
+              placeholder="e.g. 'Promote all situation types with >95% approval rate'"
+              className="flex-1 px-4 py-2.5 rounded-xl bg-elevated border border-border text-foreground placeholder:text-[var(--fg3)] focus:outline-none focus:border-accent text-sm"
+            />
+            <button
+              onClick={handleChatSend}
+              className="px-4 py-2.5 rounded-xl bg-accent text-[var(--accent-ink)] text-sm font-medium hover:opacity-90 transition"
+            >
+              Send
+            </button>
+          </div>
+        </div>
 
         {/* ── New Policy Modal ── */}
         <Modal open={showNewPolicy} onClose={() => { setShowNewPolicy(false); resetPolicyForm(); }} title="New Rule">
@@ -449,18 +646,17 @@ export default function GovernancePage() {
             )}
             <Select label="Action Type" options={ACTION_TYPES} value={formActionType} onChange={e => setFormActionType(e.target.value)} />
             <div>
-              <label className="text-sm font-medium mb-2 block" style={{ color: "var(--fg3)" }}>Effect</label>
+              <label className="text-sm font-medium mb-2 block text-[var(--fg3)]">Effect</label>
               <div className="flex gap-2">
                 {EFFECTS.map(eff => (
                   <button
                     key={eff.value}
                     onClick={() => setFormEffect(eff.value)}
-                    className="px-4 py-2 rounded text-sm font-medium border transition"
-                    style={{
-                      borderColor: formEffect === eff.value ? "rgba(168,85,247,0.4)" : "var(--border)",
-                      background: formEffect === eff.value ? "var(--accent-light)" : "var(--elevated)",
-                      color: formEffect === eff.value ? "var(--accent)" : "var(--fg3)",
-                    }}
+                    className={`px-4 py-2 rounded text-sm font-medium border transition ${
+                      formEffect === eff.value
+                        ? "border-[rgba(168,85,247,0.4)] bg-[var(--accent-light)] text-accent"
+                        : "border-border bg-elevated text-[var(--fg3)]"
+                    }`}
                   >
                     {eff.label}
                   </button>
@@ -547,67 +743,77 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
   };
 
   return (
-    <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }} className="mb-4">
-        {t("aiKnowledge")}
+    <section className="bg-surface border border-border rounded-lg overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-hover">
+        <svg className="w-4 h-4 text-[var(--fg2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
+        </svg>
+        <h2 className="text-[13px] font-semibold text-foreground">{t("aiKnowledge")}</h2>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-4">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-        </div>
-      ) : insights.length === 0 ? (
-        <p style={{ fontSize: 13, color: "var(--fg4)" }}>
-          {t("noInsights")}
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {insights.map(insight => {
-            const scopeStyle = SCOPE_STYLES[insight.shareScope] ?? SCOPE_STYLES.personal;
-            return (
-              <div key={insight.id} style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "12px 14px" }}>
-                <div className="flex items-start justify-between gap-3">
-                  <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", flex: 1 }}>{insight.description}</p>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: scopeStyle.bg, color: scopeStyle.color }}>
-                      {insight.shareScope}
-                    </span>
-                    {insight.status !== "active" && (
-                      <Badge variant={insight.status === "superseded" ? "amber" : "red"}>{insight.status}</Badge>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 mt-2" style={{ fontSize: 11, color: "var(--fg4)" }}>
-                  {insight.evidence?.sampleSize && <span>Sample: {insight.evidence.sampleSize}</span>}
-                  {insight.evidence?.successRate != null && <span>Success: {(insight.evidence.successRate * 100).toFixed(0)}%</span>}
-                  <span>Confidence: {(insight.confidence * 100).toFixed(0)}%</span>
-                  {insight.aiEntityName && <span>{insight.aiEntityName}</span>}
-                </div>
-                {isAdmin && insight.status === "active" && (
-                  <div className="flex items-center gap-2 mt-2">
-                    {insight.shareScope !== "operator" && (
-                      <button
-                        onClick={() => handlePromote(insight.id, insight.shareScope)}
-                        className="text-[11px] px-2 py-0.5 rounded transition"
-                        style={{ background: "var(--accent-light)", color: "var(--accent)" }}
+      <div className="p-5">
+        {loading ? (
+          <div className="flex justify-center py-4">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-[var(--fg3)]" />
+          </div>
+        ) : insights.length === 0 ? (
+          <div className="text-center py-6">
+            <p className="text-[13px] text-[var(--fg2)]">
+              {t("noInsights")}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {insights.map(insight => {
+              const scopeStyle = SCOPE_STYLES[insight.shareScope] ?? SCOPE_STYLES.personal;
+              return (
+                <div key={insight.id} className="bg-elevated border border-border rounded-md p-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[13px] leading-relaxed text-[var(--fg2)] flex-1">{insight.description}</p>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span
+                        className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                        style={{ background: scopeStyle.bg, color: scopeStyle.color }}
                       >
-                        Promote
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleInvalidate(insight.id)}
-                      className="text-[11px] px-2 py-0.5 rounded transition"
-                      style={{ background: "rgba(239,68,68,0.1)", color: "var(--danger)" }}
-                    >
-                      Invalidate
-                    </button>
+                        {insight.shareScope}
+                      </span>
+                      {insight.status !== "active" && (
+                        <Badge variant={insight.status === "superseded" ? "amber" : "red"}>{insight.status}</Badge>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  <div className="flex items-center gap-4 mt-2 text-[11px] text-[var(--fg2)]">
+                    {insight.evidence?.sampleSize && <span>Sample: {insight.evidence.sampleSize}</span>}
+                    {insight.evidence?.successRate != null && <span>Success: {(insight.evidence.successRate * 100).toFixed(0)}%</span>}
+                    <span>Confidence: {(insight.confidence * 100).toFixed(0)}%</span>
+                    {insight.aiEntityName && <span>{insight.aiEntityName}</span>}
+                  </div>
+                  {isAdmin && insight.status === "active" && (
+                    <div className="flex items-center gap-2 mt-2">
+                      {insight.shareScope !== "operator" && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handlePromote(insight.id, insight.shareScope)}
+                        >
+                          Promote
+                        </Button>
+                      )}
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => handleInvalidate(insight.id)}
+                      >
+                        Invalidate
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -708,109 +914,117 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
   };
 
   return (
-    <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
-      <div className="flex items-center justify-between mb-4">
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }}>
-          {t("goals")}
+    <section className="bg-surface border border-border rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-hover">
+        <div className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-[var(--fg2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+          </svg>
+          <h2 className="text-[13px] font-semibold text-foreground">{t("goals")}</h2>
         </div>
         {isAdmin && !showForm && (
-          <button
-            onClick={() => setShowForm(true)}
-            style={{ fontSize: 11, color: "var(--fg2)", background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 10px" }}
-            className="hover:bg-surface transition"
-          >
+          <Button variant="default" size="sm" onClick={() => setShowForm(true)}>
             {t("addGoal")}
-          </button>
+          </Button>
         )}
       </div>
 
-      {/* Add goal form */}
-      {showForm && (
-        <div className="mb-4 space-y-3" style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: 14 }}>
-          <Input label="Title" value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder={t("goalTitle")} />
-          <Input label="Description" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder={t("goalDescription")} />
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="text-xs text-[var(--fg2)] mb-1 block">{t("priority")} (1-5)</label>
-              <input
-                type="number"
-                min={1}
-                max={5}
-                value={formPriority}
-                onChange={e => setFormPriority(e.target.value)}
-                className="w-full outline-none text-sm"
-                style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--foreground)" }}
-              />
+      <div className="p-5">
+        {/* Add goal form */}
+        {showForm && (
+          <div className="mb-4 space-y-3 bg-elevated border border-border rounded-md p-3.5">
+            <Input label="Title" value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder={t("goalTitle")} />
+            <Input label="Description" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder={t("goalDescription")} />
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-xs text-[var(--fg2)] mb-1 block">{t("priority")} (1-5)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={formPriority}
+                  onChange={e => setFormPriority(e.target.value)}
+                  className="w-full outline-none text-sm bg-surface border border-border rounded px-2.5 py-1.5 text-foreground"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-[var(--fg2)] mb-1 block">{t("department")}</label>
+                <select
+                  value={formDeptId}
+                  onChange={e => setFormDeptId(e.target.value)}
+                  className="w-full outline-none text-sm bg-surface border border-border rounded px-2.5 py-1.5 text-foreground"
+                >
+                  <option value="" className="bg-surface">HQ-level (none)</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id} className="bg-surface">{d.displayName}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div className="flex-1">
-              <label className="text-xs text-[var(--fg2)] mb-1 block">{t("department")}</label>
-              <select
-                value={formDeptId}
-                onChange={e => setFormDeptId(e.target.value)}
-                className="w-full outline-none text-sm"
-                style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--foreground)" }}
-              >
-                <option value="" style={{ background: "var(--surface)" }}>HQ-level (none)</option>
-                {departments.map(d => (
-                  <option key={d.id} value={d.id} style={{ background: "var(--surface)" }}>{d.displayName}</option>
-                ))}
-              </select>
+            <div className="flex gap-2 pt-1">
+              <Button variant="primary" size="sm" onClick={handleCreate} disabled={saving || !formTitle.trim()}>
+                {saving ? "Creating..." : t("createGoal")}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>{tc("cancel")}</Button>
             </div>
           </div>
-          <div className="flex gap-2 pt-1">
-            <Button variant="primary" size="sm" onClick={handleCreate} disabled={saving || !formTitle.trim()}>
-              {saving ? "Creating..." : t("createGoal")}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>{tc("cancel")}</Button>
-          </div>
-        </div>
-      )}
+        )}
 
-      {loading ? (
-        <div className="flex justify-center py-4">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-        </div>
-      ) : goals.length === 0 ? (
-        <p style={{ fontSize: 13, color: "var(--fg4)" }}>No goals configured yet.</p>
-      ) : (
-        <div className="space-y-2">
-          {goals.map(goal => (
-            <div key={goal.id} style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "10px 14px" }}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>{goal.title}</span>
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: 500,
-                    padding: "1px 6px",
-                    borderRadius: 3,
-                    background: goal.status === "achieved" ? "rgba(34,197,94,0.1)" : goal.status === "paused" ? "rgba(245,158,11,0.1)" : "var(--accent-light)",
-                    color: goal.status === "achieved" ? "var(--ok)" : goal.status === "paused" ? "var(--warn)" : "var(--accent)",
-                  }}>
-                    {goal.status}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ fontSize: 11, color: "var(--fg4)" }}>P{goal.priority}</span>
-                  {isAdmin && (
-                    <button
-                      onClick={() => handleDelete(goal.id)}
-                      className="text-[11px] transition hover:text-danger"
-                      style={{ color: "var(--fg4)" }}
+        {loading ? (
+          <div className="flex justify-center py-4">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-[var(--fg3)]" />
+          </div>
+        ) : goals.length === 0 ? (
+          <div className="text-center py-6">
+            <p className="text-[13px] text-[var(--fg2)] mb-3">No goals configured yet.</p>
+            {isAdmin && (
+              <Button variant="default" size="sm" onClick={() => setShowForm(true)}>
+                {t("addGoal")}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {goals.map(goal => (
+              <div key={goal.id} className="bg-elevated border border-border rounded-md px-3.5 py-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-medium text-foreground">{goal.title}</span>
+                    <span
+                      className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        goal.status === "achieved"
+                          ? "bg-[rgba(34,197,94,0.1)] text-ok"
+                          : goal.status === "paused"
+                            ? "bg-[rgba(245,158,11,0.1)] text-warn"
+                            : "bg-[var(--accent-light)] text-accent"
+                      }`}
                     >
-                      {tc("delete")}
-                    </button>
-                  )}
+                      {goal.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-[var(--fg2)]">P{goal.priority}</span>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(goal.id)}
+                        className="text-[11px] text-[var(--fg3)] hover:text-danger"
+                      >
+                        {tc("delete")}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-[var(--fg3)] mt-0.5">{goal.description}</p>
+                <div className="text-[11px] text-[var(--fg2)] mt-1">
+                  {goal._count.initiatives} initiative{goal._count.initiatives !== 1 ? "s" : ""}
                 </div>
               </div>
-              <p style={{ fontSize: 12, color: "var(--fg3)", marginTop: 2 }}>{goal.description}</p>
-              <div style={{ fontSize: 11, color: "var(--fg4)", marginTop: 4 }}>
-                {goal._count.initiatives} initiative{goal._count.initiatives !== 1 ? "s" : ""}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
