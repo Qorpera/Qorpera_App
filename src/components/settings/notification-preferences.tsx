@@ -103,7 +103,7 @@ export function NotificationPreferences() {
   if (loading) {
     return (
       <div className="flex justify-center py-8">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-[var(--fg2)]" />
       </div>
     );
   }
@@ -113,8 +113,8 @@ export function NotificationPreferences() {
       {/* Digest toggle */}
       <div
         style={{
-          background: "#161616",
-          border: "1px solid #2a2a2a",
+          background: "var(--elevated)",
+          border: "1px solid var(--border)",
           borderRadius: 6,
           padding: 20,
         }}
@@ -124,7 +124,7 @@ export function NotificationPreferences() {
             fontSize: 10,
             fontWeight: 600,
             letterSpacing: "0.06em",
-            color: "#484848",
+            color: "var(--fg3)",
             textTransform: "uppercase" as const,
           }}
           className="mb-4"
@@ -133,10 +133,10 @@ export function NotificationPreferences() {
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <div style={{ fontSize: 13, color: "#b0b0b0" }}>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>
               Email digest
             </div>
-            <div style={{ fontSize: 11, color: "#484848" }}>
+            <div style={{ fontSize: 11, color: "var(--fg3)" }}>
               Receive a periodic summary of notifications instead of individual emails
             </div>
           </div>
@@ -150,7 +150,7 @@ export function NotificationPreferences() {
               width: 40,
               alignItems: "center",
               borderRadius: 12,
-              background: digestEnabled ? "#a855f7" : "#222",
+              background: digestEnabled ? "var(--accent)" : "var(--border)",
               transition: "background 150ms",
               opacity: savingDigest ? 0.5 : 1,
             }}
@@ -175,8 +175,8 @@ export function NotificationPreferences() {
       {/* Per-type channel preferences */}
       <div
         style={{
-          background: "#161616",
-          border: "1px solid #2a2a2a",
+          background: "var(--elevated)",
+          border: "1px solid var(--border)",
           borderRadius: 6,
           padding: 20,
         }}
@@ -186,7 +186,7 @@ export function NotificationPreferences() {
             fontSize: 10,
             fontWeight: 600,
             letterSpacing: "0.06em",
-            color: "#484848",
+            color: "var(--fg3)",
             textTransform: "uppercase" as const,
           }}
           className="mb-4"
@@ -200,14 +200,14 @@ export function NotificationPreferences() {
             className="grid items-center pb-2 mb-2"
             style={{
               gridTemplateColumns: "1fr 180px",
-              borderBottom: "1px solid #2a2a2a",
+              borderBottom: "1px solid var(--border)",
             }}
           >
             <div
               style={{
                 fontSize: 11,
                 fontWeight: 600,
-                color: "#484848",
+                color: "var(--fg3)",
                 textTransform: "uppercase" as const,
                 letterSpacing: "0.05em",
               }}
@@ -218,7 +218,7 @@ export function NotificationPreferences() {
               style={{
                 fontSize: 11,
                 fontWeight: 600,
-                color: "#484848",
+                color: "var(--fg3)",
                 textTransform: "uppercase" as const,
                 letterSpacing: "0.05em",
               }}
@@ -234,15 +234,15 @@ export function NotificationPreferences() {
               className="grid items-center py-2"
               style={{
                 gridTemplateColumns: "1fr 180px",
-                borderBottom: "1px solid rgba(255,255,255,0.03)",
+                borderBottom: "1px solid var(--border)",
               }}
             >
               <div>
-                <div style={{ fontSize: 13, color: "#b0b0b0" }}>
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>
                   {TYPE_LABELS[pref.type] ?? pref.type}
                 </div>
                 {pref.isDefault && (
-                  <div style={{ fontSize: 10, color: "#484848", marginTop: 1 }}>
+                  <div style={{ fontSize: 10, color: "var(--fg3)", marginTop: 1 }}>
                     Using default
                   </div>
                 )}
@@ -258,9 +258,9 @@ export function NotificationPreferences() {
                     width: "100%",
                     padding: "5px 28px 5px 10px",
                     fontSize: 12,
-                    color: savingType === pref.type ? "#484848" : "#b0b0b0",
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid #2a2a2a",
+                    color: savingType === pref.type ? "var(--fg3)" : "var(--muted)",
+                    background: "var(--hover)",
+                    border: "1px solid var(--border)",
                     borderRadius: 4,
                     outline: "none",
                     appearance: "none",
@@ -272,7 +272,7 @@ export function NotificationPreferences() {
                     <option
                       key={opt.value}
                       value={opt.value}
-                      style={{ background: "#161616", color: "#b0b0b0" }}
+                      style={{ background: "var(--elevated)", color: "var(--muted)" }}
                     >
                       {opt.label}
                     </option>
@@ -294,7 +294,7 @@ export function NotificationPreferences() {
                 >
                   <path
                     d="M1 1L5 5L9 1"
-                    stroke="#484848"
+                    stroke="var(--fg3)"
                     strokeWidth="1.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"

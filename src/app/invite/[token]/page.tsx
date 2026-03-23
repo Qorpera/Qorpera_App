@@ -61,7 +61,7 @@ export default function InviteAcceptPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
+    <div className="min-h-screen flex items-center justify-center bg-sidebar">
       <div className="w-full max-w-lg px-6">
         {/* Logo */}
         <div className="flex justify-center mb-8">
@@ -72,13 +72,13 @@ export default function InviteAcceptPage() {
         </div>
 
         {loading && (
-          <div className="text-center text-white/30 text-sm">Verifying invite...</div>
+          <div className="text-center text-[var(--fg3)] text-sm">Verifying invite...</div>
         )}
 
         {!loading && error && (
           <div className="text-center space-y-4">
             <div className="wf-soft p-6">
-              <p className="text-white/60 text-sm">This invite link is no longer valid. Contact your administrator for a new one.</p>
+              <p className="text-[var(--fg2)] text-sm">This invite link is no longer valid. Contact your administrator for a new one.</p>
             </div>
           </div>
         )}
@@ -86,9 +86,9 @@ export default function InviteAcceptPage() {
         {!loading && gone && (
           <div className="text-center space-y-4">
             <div className="wf-soft p-6">
-              <p className="text-white/60 text-sm">This invite has already been used. Try logging in instead.</p>
+              <p className="text-[var(--fg2)] text-sm">This invite has already been used. Try logging in instead.</p>
             </div>
-            <a href="/login" className="text-sm text-purple-400 hover:text-purple-300">
+            <a href="/login" className="text-sm text-accent hover:text-accent">
               Go to login
             </a>
           </div>
@@ -97,30 +97,30 @@ export default function InviteAcceptPage() {
         {!loading && invite && (
           <div className="space-y-6">
             <div className="text-center">
-              <p className="text-sm text-white/50 mb-1">You&apos;ve been invited to join</p>
-              <h1 className="font-heading text-3xl font-semibold tracking-[-0.02em] text-white/90">
+              <p className="text-sm text-[var(--fg2)] mb-1">You&apos;ve been invited to join</p>
+              <h1 className="font-heading text-3xl font-semibold tracking-[-0.02em] text-foreground">
                 {invite.companyName}
               </h1>
             </div>
 
             <div className="wf-soft p-6 space-y-3">
-              <p className="text-white/70 text-sm">
-                as <span className="text-white/90 font-medium">{invite.personName}</span>
+              <p className="text-[var(--fg2)] text-sm">
+                as <span className="text-foreground font-medium">{invite.personName}</span>
                 {invite.departmentName && (
-                  <> in <span className="text-white/90 font-medium">{invite.departmentName}</span></>
+                  <> in <span className="text-foreground font-medium">{invite.departmentName}</span></>
                 )}
               </p>
 
-              <div className="flex items-center gap-3 text-xs text-white/40">
+              <div className="flex items-center gap-3 text-xs text-[var(--fg2)]">
                 <span>{invite.email}</span>
-                <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 font-medium capitalize">
+                <span className="px-2 py-0.5 rounded bg-accent-light text-accent font-medium capitalize">
                   {invite.role}
                 </span>
               </div>
             </div>
 
             {acceptError && (
-              <p className="text-sm text-red-400 text-center">{acceptError}</p>
+              <p className="text-sm text-danger text-center">{acceptError}</p>
             )}
 
             <Button

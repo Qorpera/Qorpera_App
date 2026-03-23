@@ -205,14 +205,14 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
   return (
     <div className="space-y-8">
       <div className="text-center space-y-2">
-        <p className="text-xs text-white/30 uppercase tracking-wider">Step 2 of 4</p>
-        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
-        <p className="text-sm text-white/45">{t("subtitle")}</p>
+        <p className="text-xs text-[var(--fg3)] uppercase tracking-wider">Step 2 of 4</p>
+        <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
+        <p className="text-sm text-[var(--fg2)]">{t("subtitle")}</p>
       </div>
 
       {/* Tier 1 — Workspace */}
       <div className="space-y-3">
-        <h2 className="text-xs text-white/40 uppercase tracking-wider px-1">{t("workspace")}</h2>
+        <h2 className="text-xs text-[var(--fg2)] uppercase tracking-wider px-1">{t("workspace")}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Google Workspace */}
           <WorkspaceCard
@@ -247,10 +247,10 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
 
       {/* Tier 2 — Business Tools */}
       <div className="space-y-3">
-        <h2 className="text-xs text-white/40 uppercase tracking-wider px-1">{t("businessTools")}</h2>
+        <h2 className="text-xs text-[var(--fg2)] uppercase tracking-wider px-1">{t("businessTools")}</h2>
         {TIER2_CATEGORIES.map(cat => (
           <div key={cat.labelKey}>
-            <div className="text-[11px] text-white/25 uppercase tracking-wider px-1 mb-2">{t(cat.labelKey)}</div>
+            <div className="text-[11px] text-[var(--fg3)] uppercase tracking-wider px-1 mb-2">{t(cat.labelKey)}</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
               {cat.items.map(item => (
                 <Tier2Card
@@ -271,14 +271,14 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
       {/* Confidence indicator */}
       {totalConnected > 0 && (
         <div className="flex items-center gap-2 px-1">
-          <div className={`w-2 h-2 rounded-full ${totalConnected >= 6 ? "bg-emerald-400" : totalConnected >= 3 ? "bg-emerald-400/70" : "bg-amber-400"}`} />
-          <span className="text-xs text-white/50">{getConfidenceMessage()}</span>
+          <div className={`w-2 h-2 rounded-full ${totalConnected >= 6 ? "bg-ok" : totalConnected >= 3 ? "bg-ok/70" : "bg-warn"}`} />
+          <span className="text-xs text-[var(--fg2)]">{getConfidenceMessage()}</span>
         </div>
       )}
 
       {/* Nudge */}
       {showNudge && (
-        <p className="text-xs text-amber-400/70 text-center px-4">
+        <p className="text-xs text-warn/70 text-center px-4">
           {t("nudge")}
         </p>
       )}
@@ -287,7 +287,7 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
       <div className="flex items-center justify-between pt-2">
         <button
           onClick={onBack}
-          className="text-sm text-white/40 hover:text-white/60 transition min-h-[44px]"
+          className="text-sm text-[var(--fg2)] hover:text-foreground transition min-h-[44px]"
         >
           &larr; {tc("back")}
         </button>
@@ -335,27 +335,27 @@ function WorkspaceCard({
           {icon}
         </div>
         <div className="min-w-0">
-          <h3 className="text-sm font-medium text-white/90">{name}</h3>
-          <p className="text-xs text-white/40">{subtitle}</p>
+          <h3 className="text-sm font-medium text-foreground">{name}</h3>
+          <p className="text-xs text-[var(--fg2)]">{subtitle}</p>
         </div>
       </div>
       {connected ? (
         <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg className="w-4 h-4 text-ok shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
-          <span className="text-xs text-emerald-400 font-medium">{connectedTextLabel}</span>
-          <span className="text-xs text-white/30 ml-auto">{connectedLabel}</span>
+          <span className="text-xs text-ok font-medium">{connectedTextLabel}</span>
+          <span className="text-xs text-[var(--fg3)] ml-auto">{connectedLabel}</span>
         </div>
       ) : (
         <button
           onClick={onConnect}
           disabled={connecting}
-          className="w-full px-4 py-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] text-sm text-white/70 hover:bg-white/[0.06] hover:text-white/90 transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[44px]"
+          className="w-full px-4 py-2.5 rounded-lg border border-border bg-hover text-sm text-[var(--fg2)] hover:bg-skeleton hover:text-foreground transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[44px]"
         >
           {connecting ? (
             <span className="flex items-center justify-center gap-2">
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
               {connectingLabel}
             </span>
           ) : (
@@ -389,16 +389,16 @@ function Tier2Card({
   return (
     <div className="wf-soft px-4 py-3 flex items-center gap-3">
       <span
-        className="w-6 h-6 rounded flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+        className="w-6 h-6 rounded flex items-center justify-center text-[9px] font-bold text-foreground shrink-0"
         style={{ backgroundColor: def.color }}
       >
         {def.label.slice(0, 2).toUpperCase()}
       </span>
-      <span className="text-sm text-white/80 flex-1 min-w-0 truncate">{def.label}</span>
+      <span className="text-sm text-foreground flex-1 min-w-0 truncate">{def.label}</span>
       {connected ? (
         <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-xs text-emerald-400">{connectedLabel}</span>
-          <svg className="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+          <span className="text-xs text-ok">{connectedLabel}</span>
+          <svg className="w-3 h-3 text-ok" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
         </div>
@@ -406,10 +406,10 @@ function Tier2Card({
         <button
           onClick={onConnect}
           disabled={connecting}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-white/[0.02] text-xs text-white/60 hover:bg-white/[0.06] hover:text-white/80 transition disabled:opacity-40 min-h-[44px]"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-hover text-xs text-[var(--fg2)] hover:bg-skeleton hover:text-foreground transition disabled:opacity-40 min-h-[44px]"
         >
           {connecting ? (
-            <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
           ) : (
             connectLabel
           )}

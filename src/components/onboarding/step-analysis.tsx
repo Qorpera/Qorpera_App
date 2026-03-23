@@ -206,9 +206,9 @@ export function StepAnalysis({ onComplete }: StepAnalysisProps) {
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <p className="text-xs text-white/30 uppercase tracking-wider">Step 3 of 4</p>
-        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
-        <p className="text-sm text-white/45">{t("subtitle")}</p>
+        <p className="text-xs text-[var(--fg3)] uppercase tracking-wider">Step 3 of 4</p>
+        <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
+        <p className="text-sm text-[var(--fg2)]">{t("subtitle")}</p>
       </div>
 
       {/* Phase indicator */}
@@ -216,19 +216,19 @@ export function StepAnalysis({ onComplete }: StepAnalysisProps) {
         <div className="flex flex-col items-center gap-3">
           <div className="relative w-16 h-16">
             <svg className="w-16 h-16 animate-spin-slow" viewBox="0 0 64 64" fill="none">
-              <circle cx="32" cy="32" r="28" stroke="rgba(168,85,247,0.15)" strokeWidth="4" />
+              <circle cx="32" cy="32" r="28" stroke="color-mix(in srgb, var(--accent) 15%, transparent)" strokeWidth="4" />
               <path
                 d="M32 4a28 28 0 0 1 28 28"
-                stroke="rgba(168,85,247,0.6)"
+                stroke="color-mix(in srgb, var(--accent) 60%, transparent)"
                 strokeWidth="4"
                 strokeLinecap="round"
               />
             </svg>
           </div>
-          <p className="text-sm text-purple-300/80 font-medium">
+          <p className="text-sm text-accent/80 font-medium">
             {syncPhase === "syncing" ? t("syncing") : getPhaseLabel(phase, t)}
           </p>
-          <p className="text-xs text-white/30">{getEstimateLabel(phase, t)}</p>
+          <p className="text-xs text-[var(--fg3)]">{getEstimateLabel(phase, t)}</p>
         </div>
       )}
 
@@ -239,13 +239,13 @@ export function StepAnalysis({ onComplete }: StepAnalysisProps) {
             const time = formatTime(msg.timestamp);
             return (
               <div key={i} className="flex items-start gap-2 text-xs">
-                <span className="text-white/25 shrink-0 font-mono">[{time}]</span>
+                <span className="text-[var(--fg3)] shrink-0 font-mono">[{time}]</span>
                 {msg.agentName && (
-                  <span className="shrink-0 px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300/70 text-[10px]">
+                  <span className="shrink-0 px-1.5 py-0.5 rounded bg-accent-light text-accent/70 text-[10px]">
                     {msg.agentName}
                   </span>
                 )}
-                <span className="text-white/60">{msg.message}</span>
+                <span className="text-[var(--fg2)]">{msg.message}</span>
               </div>
             );
           })}
@@ -255,26 +255,26 @@ export function StepAnalysis({ onComplete }: StepAnalysisProps) {
 
       {/* Failed state */}
       {isFailed && (
-        <div className="wf-soft p-5 space-y-4 border border-red-500/20">
+        <div className="wf-soft p-5 space-y-4 border border-[color-mix(in_srgb,var(--danger)_20%,transparent)]">
           <div className="flex items-center gap-2">
-            <svg className="w-5 h-5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-5 h-5 text-danger shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <h3 className="text-sm font-medium text-red-400">{t("failed")}</h3>
+            <h3 className="text-sm font-medium text-danger">{t("failed")}</h3>
           </div>
           {progress?.failureReason && (
-            <p className="text-xs text-white/50">{progress.failureReason}</p>
+            <p className="text-xs text-[var(--fg2)]">{progress.failureReason}</p>
           )}
           <div className="flex items-center gap-3">
             <Button variant="primary" size="md" onClick={handleRetry} disabled={retrying} className="min-h-[44px]">
               {retrying ? (
                 <span className="flex items-center gap-2">
-                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
                   {t("retrying")}
                 </span>
               ) : t("retry")}
             </Button>
-            <a href="mailto:support@qorpera.com" className="text-xs text-white/40 hover:text-white/60 transition">
+            <a href="mailto:support@qorpera.com" className="text-xs text-[var(--fg2)] hover:text-foreground transition">
               {t("contactSupport")}
             </a>
           </div>
@@ -286,7 +286,7 @@ export function StepAnalysis({ onComplete }: StepAnalysisProps) {
         <div className="flex justify-center sm:sticky sm:bottom-4">
           <button
             onClick={() => setEmailOptIn(true)}
-            className="text-xs text-purple-300/60 hover:text-purple-300/90 transition underline underline-offset-2 min-h-[44px]"
+            className="text-xs text-accent/60 hover:text-accent/90 transition underline underline-offset-2 min-h-[44px]"
           >
             {t("emailMe")}
           </button>
@@ -295,10 +295,10 @@ export function StepAnalysis({ onComplete }: StepAnalysisProps) {
 
       {emailOptIn && (
         <div className="wf-soft p-4 text-center space-y-2">
-          <svg className="w-6 h-6 text-emerald-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className="w-6 h-6 text-ok mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
-          <p className="text-sm text-white/70">{t("emailConfirm")}</p>
+          <p className="text-sm text-[var(--fg2)]">{t("emailConfirm")}</p>
         </div>
       )}
     </div>

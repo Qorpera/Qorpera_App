@@ -21,10 +21,10 @@ export function OnboardingProgress({ step }: OnboardingProgressProps) {
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
                   isComplete
-                    ? "bg-purple-500 text-white"
+                    ? "bg-accent text-foreground"
                     : isCurrent
-                      ? "bg-purple-500/20 text-purple-300 ring-2 ring-purple-500/40"
-                      : "bg-white/[0.06] text-white/30"
+                      ? "bg-accent-light text-accent ring-2 ring-[color-mix(in_srgb,var(--accent)_40%,transparent)]"
+                      : "bg-skeleton text-[var(--fg3)]"
                 }`}
               >
                 {isComplete ? (
@@ -36,7 +36,7 @@ export function OnboardingProgress({ step }: OnboardingProgressProps) {
                 )}
               </div>
               {i < STEP_LABELS.length - 1 && (
-                <div className={`hidden sm:block w-8 lg:w-14 h-px ${isComplete ? "bg-purple-500/40" : "bg-white/[0.06]"}`} />
+                <div className={`hidden sm:block w-8 lg:w-14 h-px ${isComplete ? "bg-accent/40" : "bg-skeleton"}`} />
               )}
             </div>
           );
@@ -50,10 +50,10 @@ export function OnboardingProgress({ step }: OnboardingProgressProps) {
               key={label}
               className={`text-[10px] ${
                 step === stepNum
-                  ? "text-white/70"
+                  ? "text-[var(--fg2)]"
                   : step > stepNum
-                    ? "text-purple-400/60"
-                    : "text-white/25"
+                    ? "text-accent/60"
+                    : "text-[var(--fg3)]"
               }`}
             >
               {label}

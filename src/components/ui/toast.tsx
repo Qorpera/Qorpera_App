@@ -32,9 +32,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const typeColors: Record<ToastType, string> = {
-    success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
-    error: "border-red-500/30 bg-red-500/10 text-red-300",
-    info: "border-purple-500/30 bg-purple-500/10 text-purple-300",
+    success: "border-[color-mix(in_srgb,var(--ok)_30%,transparent)] bg-[color-mix(in_srgb,var(--ok)_10%,transparent)] text-ok",
+    error: "border-[color-mix(in_srgb,var(--danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] text-danger",
+    info: "border-[color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-accent",
   };
 
   return (

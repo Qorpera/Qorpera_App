@@ -67,21 +67,21 @@ export default function LoginPage() {
 
   if (!ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
-        <div className="text-white/30 text-sm">{tc("loading")}</div>
+      <div className="min-h-screen flex items-center justify-center bg-sidebar">
+        <div className="text-[var(--fg3)] text-sm">{tc("loading")}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
+    <div className="min-h-screen flex items-center justify-center bg-sidebar">
       <div className="w-full max-w-sm mx-auto px-4">
         {/* Logo */}
         <div className="flex justify-center mb-8">
           <QorperaLogo width={64} />
         </div>
 
-        <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-white/90 text-center mb-6">
+        <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-foreground text-center mb-6">
           {t("title")}
         </h1>
 
@@ -106,7 +106,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-[34px] text-white/30 hover:text-white/60 transition"
+              className="absolute right-3 top-[34px] text-[var(--fg3)] hover:text-[var(--fg2)] transition"
               tabIndex={-1}
             >
               {showPassword ? (
@@ -123,7 +123,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <p className="text-sm text-red-400 text-center">{error}</p>
+            <p className="text-sm text-danger text-center">{error}</p>
           )}
 
           <Button
@@ -137,19 +137,19 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <p className="text-center text-sm text-white/30 mt-6">
+        <p className="text-center text-sm text-[var(--fg3)] mt-6">
           {t("newCompany")}{" "}
-          <a href="/register" className="text-purple-400 hover:text-purple-300">
+          <a href="/register" className="text-accent hover:text-accent">
             {t("registerHere")}
           </a>
         </p>
       </div>
-      <div className="text-center text-xs text-white/30 pb-8">
-        <a href="/terms" className="hover:text-white/50">{tc("terms")}</a>
+      <div className="text-center text-xs text-[var(--fg3)] pb-8">
+        <a href="/terms" className="hover:text-[var(--fg2)]">{tc("terms")}</a>
         {" · "}
-        <a href="/privacy" className="hover:text-white/50">{tc("privacy")}</a>
+        <a href="/privacy" className="hover:text-[var(--fg2)]">{tc("privacy")}</a>
         {" · "}
-        <a href="/dpa" className="hover:text-white/50">{tc("dpa")}</a>
+        <a href="/dpa" className="hover:text-[var(--fg2)]">{tc("dpa")}</a>
       </div>
     </div>
   );

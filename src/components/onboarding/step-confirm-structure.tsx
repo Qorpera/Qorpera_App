@@ -238,7 +238,7 @@ export function StepConfirmStructure() {
   if (loading) {
     return (
       <div className="min-h-[300px] flex items-center justify-center">
-        <div className="w-6 h-6 rounded-full border-2 border-purple-500/40 border-t-purple-400 animate-spin" />
+        <div className="w-6 h-6 rounded-full border-2 border-accent/40 border-t-accent animate-spin" />
       </div>
     );
   }
@@ -246,7 +246,7 @@ export function StepConfirmStructure() {
   if (!synthesis) {
     return (
       <div className="text-center space-y-4 py-12">
-        <p className="text-white/50 text-sm">{t("noData")}</p>
+        <p className="text-[var(--fg2)] text-sm">{t("noData")}</p>
         <Button variant="primary" size="md" onClick={loadData}>{t("reload")}</Button>
       </div>
     );
@@ -261,21 +261,21 @@ export function StepConfirmStructure() {
   return (
     <div className="space-y-6 w-full max-w-3xl mx-auto">
       <div className="text-center space-y-2">
-        <p className="text-xs text-white/30 uppercase tracking-wider">Step 4 of 4</p>
-        <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
-        <p className="text-sm text-white/45">{t("subtitle")}</p>
+        <p className="text-xs text-[var(--fg3)] uppercase tracking-wider">Step 4 of 4</p>
+        <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
+        <p className="text-sm text-[var(--fg2)]">{t("subtitle")}</p>
       </div>
 
       {/* Tab navigation */}
-      <div className="flex gap-1 p-1 bg-white/[0.04] rounded-lg">
+      <div className="flex gap-1 p-1 bg-hover rounded-lg">
         {(["map", "questions", "preview"] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition min-h-[44px] ${
               activeTab === tab
-                ? "bg-purple-500/20 text-purple-300"
-                : "text-white/40 hover:text-white/60"
+                ? "bg-accent-light text-accent"
+                : "text-[var(--fg2)] hover:text-foreground"
             }`}
           >
             {tab === "map" ? t("orgMap") : tab === "questions" ? `${t("uncertaintyLog")} (${questions.length})` : t("preview")}
@@ -299,11 +299,11 @@ export function StepConfirmStructure() {
               >
                 {/* Department header */}
                 <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
+                  <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
                   {renamingDept === dept.name ? (
                     <div className="flex items-center gap-2 flex-1">
                       <input
-                        className="bg-white/[0.06] border border-white/[0.12] rounded px-2 py-1 text-base text-white/90 flex-1"
+                        className="bg-skeleton border border-border rounded px-2 py-1 text-base text-foreground flex-1"
                         value={renameValue}
                         onChange={e => setRenameValue(e.target.value)}
                         onKeyDown={e => {
@@ -314,32 +314,32 @@ export function StepConfirmStructure() {
                       />
                       <button
                         onClick={() => renameValue.trim() && renameDepartment(dept.name, renameValue.trim())}
-                        className="text-xs text-purple-300 hover:text-purple-200"
+                        className="text-xs text-accent hover:text-accent"
                       >
                         {t("save")}
                       </button>
                     </div>
                   ) : (
                     <h3
-                      className="text-sm font-medium text-white/90 flex-1 cursor-pointer hover:text-purple-300 transition"
+                      className="text-sm font-medium text-foreground flex-1 cursor-pointer hover:text-accent transition"
                       onClick={() => { setRenamingDept(dept.name); setRenameValue(displayName); }}
                       title={t("clickToRename")}
                     >
                       {displayName}
                     </h3>
                   )}
-                  <span className="text-xs text-white/30">{t("people", { count: dept.headCount })}</span>
+                  <span className="text-xs text-[var(--fg3)]">{t("people", { count: dept.headCount })}</span>
                   {deleted ? (
                     <button
                       onClick={() => undoDeleteDepartment(dept.name)}
-                      className="text-xs text-amber-400 hover:text-amber-300 min-h-[44px] px-2"
+                      className="text-xs text-warn hover:text-warn min-h-[44px] px-2"
                     >
                       {t("undo")}
                     </button>
                   ) : (
                     <button
                       onClick={() => deleteDepartment(dept.name)}
-                      className="text-xs text-white/20 hover:text-red-400 transition min-h-[44px] px-2"
+                      className="text-xs text-[var(--fg3)] hover:text-danger transition min-h-[44px] px-2"
                     >
                       {t("remove")}
                     </button>
@@ -350,7 +350,7 @@ export function StepConfirmStructure() {
                 {dept.functions.length > 0 && (
                   <div className="flex flex-wrap gap-1 pl-5">
                     {dept.functions.map(fn => (
-                      <span key={fn} className="px-2 py-0.5 rounded-full bg-white/[0.04] text-[10px] text-white/40">{fn}</span>
+                      <span key={fn} className="px-2 py-0.5 rounded-full bg-hover text-[10px] text-[var(--fg2)]">{fn}</span>
                     ))}
                   </div>
                 )}
@@ -365,19 +365,19 @@ export function StepConfirmStructure() {
                           key={person.email || person.name}
                           className={`flex items-center gap-2 py-1 ${personDeleted ? "opacity-40" : ""}`}
                         >
-                          <div className="w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[9px] text-white/40 shrink-0">
+                          <div className="w-5 h-5 rounded-full bg-skeleton flex items-center justify-center text-[9px] text-[var(--fg2)] shrink-0">
                             {person.name.charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <span className="text-xs text-white/70">{person.name}</span>
+                            <span className="text-xs text-[var(--fg2)]">{person.name}</span>
                             {person.role && (
-                              <span className="text-[10px] text-white/30 ml-2">{person.role}</span>
+                              <span className="text-[10px] text-[var(--fg3)] ml-2">{person.role}</span>
                             )}
                           </div>
                           {/* Move dropdown */}
                           {person.email && !personDeleted && departments.length > 1 && (
                             <select
-                              className="bg-transparent border-none text-[10px] text-white/20 hover:text-white/40 cursor-pointer"
+                              className="bg-transparent border-none text-[10px] text-[var(--fg3)] hover:text-[var(--fg2)] cursor-pointer"
                               value=""
                               onChange={e => {
                                 if (e.target.value && person.email) movePerson(person.email, e.target.value);
@@ -394,14 +394,14 @@ export function StepConfirmStructure() {
                             personDeleted ? (
                               <button
                                 onClick={() => person.email && undoDeletePerson(person.email)}
-                                className="text-[10px] text-amber-400 hover:text-amber-300 min-h-[44px] px-1"
+                                className="text-[10px] text-warn hover:text-warn min-h-[44px] px-1"
                               >
                                 {t("undo")}
                               </button>
                             ) : (
                               <button
                                 onClick={() => person.email && deletePerson(person.email)}
-                                className="text-[10px] text-white/15 hover:text-red-400 transition min-h-[44px] px-1"
+                                className="text-[10px] text-[var(--fg3)] hover:text-danger transition min-h-[44px] px-1"
                               >
                                 {t("remove")}
                               </button>
@@ -416,7 +416,7 @@ export function StepConfirmStructure() {
                 {/* Situations badge */}
                 {deptSituations.length > 0 && (
                   <div className="pl-5">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/10 text-[10px] text-purple-300/70">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-[10px] text-accent/70">
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                       </svg>
@@ -431,16 +431,16 @@ export function StepConfirmStructure() {
           {/* People without department */}
           {unassignedPeople.length > 0 && (
             <div className="wf-soft p-4 space-y-2">
-              <h3 className="text-sm font-medium text-white/60">{t("unassigned")}</h3>
+              <h3 className="text-sm font-medium text-[var(--fg2)]">{t("unassigned")}</h3>
               {unassignedPeople.map(person => (
                 <div key={person.email || person.name} className="flex items-center gap-2 py-1">
-                  <div className="w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center text-[9px] text-white/40 shrink-0">
+                  <div className="w-5 h-5 rounded-full bg-skeleton flex items-center justify-center text-[9px] text-[var(--fg2)] shrink-0">
                     {person.name.charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-xs text-white/70 flex-1">{person.name}</span>
+                  <span className="text-xs text-[var(--fg2)] flex-1">{person.name}</span>
                   {person.email && departments.length > 0 && (
                     <select
-                      className="bg-transparent border-none text-[10px] text-white/30 cursor-pointer"
+                      className="bg-transparent border-none text-[10px] text-[var(--fg3)] cursor-pointer"
                       value=""
                       onChange={e => {
                         if (e.target.value && person.email) movePerson(person.email, e.target.value);
@@ -464,17 +464,17 @@ export function StepConfirmStructure() {
         <div className="space-y-4">
           {questions.length === 0 ? (
             <div className="wf-soft p-6 text-center">
-              <p className="text-sm text-white/40">{t("noQuestions")}</p>
+              <p className="text-sm text-[var(--fg2)]">{t("noQuestions")}</p>
             </div>
           ) : (
             questions.map((q, i) => (
               <div key={i} className="wf-soft p-4 space-y-3">
                 <div className="flex items-start gap-2">
-                  <span className="text-purple-400 shrink-0 mt-0.5">?</span>
-                  <p className="text-sm text-white/80">{q.question}</p>
+                  <span className="text-accent shrink-0 mt-0.5">?</span>
+                  <p className="text-sm text-foreground">{q.question}</p>
                 </div>
                 {q.context && (
-                  <p className="text-xs text-white/35 pl-5">{q.context}</p>
+                  <p className="text-xs text-[var(--fg2)] pl-5">{q.context}</p>
                 )}
                 {q.possibleAnswers && q.possibleAnswers.length > 0 ? (
                   <div className="pl-5 flex flex-wrap gap-2">
@@ -484,8 +484,8 @@ export function StepConfirmStructure() {
                         onClick={() => setAnswers(prev => ({ ...prev, [i]: ans }))}
                         className={`px-3 py-1.5 rounded-lg text-xs transition min-h-[44px] ${
                           answers[i] === ans
-                            ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-                            : "bg-white/[0.04] text-white/50 border border-white/[0.08] hover:bg-white/[0.06]"
+                            ? "bg-accent-light text-accent border border-[color-mix(in_srgb,var(--accent)_30%,transparent)]"
+                            : "bg-hover text-[var(--fg2)] border border-border hover:bg-skeleton"
                         }`}
                       >
                         {ans}
@@ -494,7 +494,7 @@ export function StepConfirmStructure() {
                     {/* Free-text "Other" input */}
                     <input
                       placeholder={t("otherAnswer")}
-                      className="px-3 py-1.5 rounded-lg text-xs bg-white/[0.04] border border-white/[0.08] text-white/60 placeholder-white/20 min-w-[120px] text-base"
+                      className="px-3 py-1.5 rounded-lg text-xs bg-hover border border-border text-[var(--fg2)] placeholder-[var(--fg3)] min-w-[120px] text-base"
                       value={answers[i] && !q.possibleAnswers.includes(answers[i]) ? answers[i] : ""}
                       onChange={e => setAnswers(prev => ({ ...prev, [i]: e.target.value }))}
                     />
@@ -503,7 +503,7 @@ export function StepConfirmStructure() {
                   <div className="pl-5">
                     <input
                       placeholder={t("yourAnswer")}
-                      className="w-full px-3 py-2 rounded-lg text-xs bg-white/[0.04] border border-white/[0.08] text-white/60 placeholder-white/20 text-base"
+                      className="w-full px-3 py-2 rounded-lg text-xs bg-hover border border-border text-[var(--fg2)] placeholder-[var(--fg3)] text-base"
                       value={answers[i] || ""}
                       onChange={e => setAnswers(prev => ({ ...prev, [i]: e.target.value }))}
                     />
@@ -520,7 +520,7 @@ export function StepConfirmStructure() {
         <div className="space-y-4">
           {/* Situations summary */}
           <div className="wf-soft p-4 space-y-3">
-            <h3 className="text-sm font-medium text-white/70">{t("detectedIntelligence")}</h3>
+            <h3 className="text-sm font-medium text-[var(--fg2)]">{t("detectedIntelligence")}</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <StatCard
                 label={t("situationsDetected", { count: situationCount, departments: departments.length })}
@@ -552,15 +552,15 @@ export function StepConfirmStructure() {
           {/* Situation recommendations preview */}
           {synthesis.situationRecommendations.length > 0 && (
             <div className="wf-soft p-4 space-y-2">
-              <h3 className="text-sm font-medium text-white/70">{t("recommendedMonitoring")}</h3>
+              <h3 className="text-sm font-medium text-[var(--fg2)]">{t("recommendedMonitoring")}</h3>
               {synthesis.situationRecommendations.slice(0, 6).map((rec, i) => (
                 <div key={i} className="flex items-start gap-2 py-1">
                   <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
-                    rec.priority === "high" ? "bg-red-400" : rec.priority === "medium" ? "bg-amber-400" : "bg-white/30"
+                    rec.priority === "high" ? "bg-danger" : rec.priority === "medium" ? "bg-warn" : "bg-[var(--fg3)]"
                   }`} />
                   <div>
-                    <p className="text-xs text-white/70">{rec.name}</p>
-                    <p className="text-[10px] text-white/30">{rec.description}</p>
+                    <p className="text-xs text-[var(--fg2)]">{rec.name}</p>
+                    <p className="text-[10px] text-[var(--fg3)]">{rec.description}</p>
                   </div>
                 </div>
               ))}
@@ -570,17 +570,17 @@ export function StepConfirmStructure() {
           {/* Knowledge coverage */}
           {synthesis.knowledgeInventory.length > 0 && (
             <div className="wf-soft p-4 space-y-2">
-              <h3 className="text-sm font-medium text-white/70">{t("knowledgeCoverage")}</h3>
+              <h3 className="text-sm font-medium text-[var(--fg2)]">{t("knowledgeCoverage")}</h3>
               <div className="flex flex-wrap gap-2">
                 {synthesis.knowledgeInventory.map((ki, i) => (
                   <span
                     key={i}
                     className={`px-2 py-1 rounded text-[10px] ${
                       ki.coverage === "comprehensive"
-                        ? "bg-emerald-500/10 text-emerald-400/70"
+                        ? "bg-[color-mix(in_srgb,var(--ok)_10%,transparent)] text-ok/70"
                         : ki.coverage === "partial"
-                          ? "bg-amber-500/10 text-amber-400/70"
-                          : "bg-white/[0.04] text-white/30"
+                          ? "bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] text-warn/70"
+                          : "bg-hover text-[var(--fg3)]"
                     }`}
                   >
                     {ki.topic}
@@ -603,7 +603,7 @@ export function StepConfirmStructure() {
         >
           {confirming ? (
             <span className="flex items-center gap-2">
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
               {tc("saving")}
             </span>
           ) : t("confirm")}
@@ -619,14 +619,14 @@ export function StepConfirmStructure() {
 
 function StatCard({ label, value, color }: { label: string; value: string; color: "purple" | "amber" | "emerald" }) {
   const colorClasses = {
-    purple: "bg-purple-500/10 text-purple-300",
-    amber: "bg-amber-500/10 text-amber-300",
-    emerald: "bg-emerald-500/10 text-emerald-300",
+    purple: "bg-accent-light text-accent",
+    amber: "bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] text-warn",
+    emerald: "bg-[color-mix(in_srgb,var(--ok)_10%,transparent)] text-ok",
   };
   return (
     <div className={`rounded-lg p-3 ${colorClasses[color].split(" ")[0]}`}>
       <div className={`text-lg font-semibold ${colorClasses[color].split(" ")[1]}`}>{value}</div>
-      <div className="text-[10px] text-white/40 mt-0.5">{label}</div>
+      <div className="text-[10px] text-[var(--fg2)] mt-0.5">{label}</div>
     </div>
   );
 }

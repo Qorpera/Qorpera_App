@@ -48,8 +48,8 @@ export function LocaleSwitcher({ currentLocale = "en" }: { currentLocale?: strin
           disabled={isPending}
           className={`text-[11px] px-2 py-0.5 rounded transition-colors ${
             locale === code
-              ? "bg-white/[0.08] text-white/70 font-medium"
-              : "text-white/30 hover:text-white/50"
+              ? "bg-hover text-[var(--fg2)] font-medium"
+              : "text-[var(--fg3)] hover:text-[var(--fg2)]"
           } ${isPending ? "opacity-50 cursor-wait" : ""}`}
           title={t("switchTo", { language: label })}
         >

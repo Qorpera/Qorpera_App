@@ -5,12 +5,12 @@ export function SkeletonSplitPane() {
   return (
     <div className="flex h-full">
       {/* List panel */}
-      <div className="w-full lg:w-[300px] flex-shrink-0 lg:border-r border-[#1e1e1e]">
-        <div className="px-4 py-3" style={{ borderBottom: "1px solid #1e1e1e" }}>
+      <div className="w-full lg:w-[300px] flex-shrink-0 lg:border-r border-border">
+        <div className="px-4 py-3 border-b border-border">
           <Skeleton className="h-5 w-28 mb-1.5" />
           <Skeleton className="h-3 w-44" />
         </div>
-        <div className="px-4 py-2 flex gap-1.5" style={{ borderBottom: "1px solid #1e1e1e" }}>
+        <div className="px-4 py-2 flex gap-1.5 border-b border-border">
           <Skeleton className="h-6 w-14 rounded-full" />
           <Skeleton className="h-6 w-10 rounded-full" />
         </div>

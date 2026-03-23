@@ -192,7 +192,7 @@ function InlineEdit({
           if (e.key === "Enter") commit();
           if (e.key === "Escape") { setDraft(value); setEditing(false); }
         }}
-        className={`bg-transparent border-b border-purple-500/40 outline-none ${inputClassName ?? className ?? ""}`}
+        className={`bg-transparent border-b border-accent outline-none ${inputClassName ?? className ?? ""}`}
       />
     );
   }
@@ -200,9 +200,9 @@ function InlineEdit({
   return (
     <Tag
       onClick={() => setEditing(true)}
-      className={`cursor-pointer hover:border-b hover:border-white/20 transition ${className ?? ""}`}
+      className={`cursor-pointer hover:border-b hover:border-border-strong transition ${className ?? ""}`}
     >
-      {value || <span className="italic text-white/20">Click to edit</span>}
+      {value || <span className="italic text-[var(--fg3)]">Click to edit</span>}
     </Tag>
   );
 }
@@ -215,7 +215,7 @@ function Section({ title, action, children }: { title: string; action?: React.Re
   return (
     <div className="wf-soft p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-white/50">{title}</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg2)]">{title}</h2>
         {action}
       </div>
       {children}
@@ -230,26 +230,26 @@ function Section({ title, action, children }: { title: string; action?: React.Re
 function StatusBadge({ status, embeddingStatus }: { status: string; embeddingStatus: string }) {
   const t = useTranslations("map");
   if (status === "confirmed") {
-    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">{t("confirmed")}</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok">{t("confirmed")}</span>;
   }
   if (status === "extracted") {
-    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">{t("readyForReview")}</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn">{t("readyForReview")}</span>;
   }
   if (status === "processing" || embeddingStatus === "processing") {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400">
+      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn">
         <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
         {t("processing")}
       </span>
     );
   }
   if (embeddingStatus === "error") {
-    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400">{t("error")}</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger">{t("error")}</span>;
   }
   if (embeddingStatus === "complete") {
-    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">{t("embedded")}</span>;
+    return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok">{t("embedded")}</span>;
   }
-  return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-white/10 text-white/40">{t("pending")}</span>;
+  return <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-hover text-[var(--fg2)]">{t("pending")}</span>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -750,7 +750,7 @@ function DepartmentDetailInner() {
   if (loading) {
     return (
       <AppShell>
-        <div className="p-8 text-white/30 text-sm">{tc("loading")}</div>
+        <div className="p-8 text-[var(--fg3)] text-sm">{tc("loading")}</div>
       </AppShell>
     );
   }
@@ -759,8 +759,8 @@ function DepartmentDetailInner() {
     return (
       <AppShell>
         <div className="p-8">
-          <p className="text-white/50 mb-4">{t("departmentNotFound")}</p>
-          <Link href="/map" className="text-purple-400 hover:text-purple-300 text-sm">
+          <p className="text-[var(--fg2)] mb-4">{t("departmentNotFound")}</p>
+          <Link href="/map" className="text-accent hover:text-accent text-sm">
             &larr; {t("backToMap")}
           </Link>
         </div>
@@ -773,7 +773,7 @@ function DepartmentDetailInner() {
       <div className="max-w-4xl mx-auto p-8 space-y-8">
         {/* ---- toast ---- */}
         {toast && (
-          <div className="fixed top-4 right-4 z-50 bg-green-500/20 border border-green-500/30 text-green-300 text-sm px-4 py-2 rounded-lg shadow-lg">
+          <div className="fixed top-4 right-4 z-50 bg-[color-mix(in_srgb,var(--ok)_20%,transparent)] border border-[color-mix(in_srgb,var(--ok)_30%,transparent)] text-ok text-sm px-4 py-2 rounded-lg shadow-lg">
             {toast}
           </div>
         )}
@@ -783,7 +783,7 @@ function DepartmentDetailInner() {
           <div className="flex items-center justify-between mb-4">
             <button
               onClick={() => router.push("/map")}
-              className="flex items-center gap-1.5 text-sm text-white/40 hover:text-white/60 transition"
+              className="flex items-center gap-1.5 text-sm text-[var(--fg2)] hover:text-[var(--fg2)] transition"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -795,8 +795,8 @@ function DepartmentDetailInner() {
                 onClick={() => setEditMode(!editMode)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
                   editMode
-                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/70"
+                    ? "bg-[color-mix(in_srgb,var(--warn)_20%,transparent)] text-warn border border-[color-mix(in_srgb,var(--warn)_30%,transparent)]"
+                    : "bg-hover text-[var(--fg2)] hover:bg-hover hover:text-[var(--fg2)]"
                 }`}
               >
                 {editMode ? t("doneEditing") : tc("edit")}
@@ -808,15 +808,15 @@ function DepartmentDetailInner() {
             as="h1"
             value={dept.displayName}
             onSave={(v) => saveDeptField("name", v)}
-            className="text-2xl font-semibold text-white/90 block"
-            inputClassName="text-2xl font-semibold text-white/90 w-full"
+            className="text-2xl font-semibold text-foreground block"
+            inputClassName="text-2xl font-semibold text-foreground w-full"
           />
           <InlineEdit
             as="p"
             value={dept.description ?? ""}
             onSave={(v) => saveDeptField("description", v)}
-            className="text-white/50 mt-1 block"
-            inputClassName="text-white/50 mt-1 w-full"
+            className="text-[var(--fg2)] mt-1 block"
+            inputClassName="text-[var(--fg2)] mt-1 w-full"
           />
         </div>
 
@@ -839,24 +839,24 @@ function DepartmentDetailInner() {
                   placeholder={t("name")}
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-purple-500/50"
+                  className="flex-1 bg-hover border border-border rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-[var(--fg3)] outline-none focus:border-accent"
                   autoFocus
                 />
                 <input
                   placeholder={t("role")}
                   value={addRole}
                   onChange={(e) => setAddRole(e.target.value)}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-purple-500/50"
+                  className="flex-1 bg-hover border border-border rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-[var(--fg3)] outline-none focus:border-accent"
                 />
                 <input
                   placeholder={t("email")}
                   type="email"
                   value={addEmail}
                   onChange={(e) => setAddEmail(e.target.value)}
-                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/90 placeholder:text-white/30 outline-none focus:border-purple-500/50"
+                  className="flex-1 bg-hover border border-border rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-[var(--fg3)] outline-none focus:border-accent"
                 />
               </div>
-              {addError && <p className="text-xs text-red-400">{addError}</p>}
+              {addError && <p className="text-xs text-danger">{addError}</p>}
               <div className="flex gap-2">
                 <Button type="submit" variant="primary" size="sm" disabled={addSaving}>
                   {addSaving ? t("adding") : tc("add")}
@@ -870,7 +870,7 @@ function DepartmentDetailInner() {
 
           {/* member list */}
           {members.length === 0 && !showAdd ? (
-            <p className="text-sm text-white/30 py-4 text-center">
+            <p className="text-sm text-[var(--fg3)] py-4 text-center">
               {t("noMembers")}
             </p>
           ) : (
@@ -891,19 +891,19 @@ function DepartmentDetailInner() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
                           </svg>
                           <div className="min-w-0">
-                            <span className="text-sm font-medium text-white/90">{m.displayName}</span>
+                            <span className="text-sm font-medium text-foreground">{m.displayName}</span>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-[11px] text-indigo-300/60">AI Assistant</span>
                               {m.ownerUser && (
-                                <span className="text-[11px] text-white/30">Paired with {m.ownerUser.name}</span>
+                                <span className="text-[11px] text-[var(--fg3)]">Paired with {m.ownerUser.name}</span>
                               )}
                             </div>
                             {s ? (
-                              <p className="text-[11px] text-white/35 mt-0.5">
+                              <p className="text-[11px] text-[var(--fg3)] mt-0.5">
                                 {s.supervised} supervised · {s.notify} notify · {s.autonomous} autonomous
                               </p>
                             ) : (
-                              <p className="text-[11px] text-white/20 mt-0.5">No tasks assigned yet</p>
+                              <p className="text-[11px] text-[var(--fg3)] mt-0.5">No tasks assigned yet</p>
                             )}
                           </div>
                         </div>
@@ -920,25 +920,25 @@ function DepartmentDetailInner() {
                         <input
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/90 outline-none focus:border-purple-500/50"
+                          className="flex-1 bg-hover border border-border rounded-lg px-3 py-1.5 text-sm text-foreground outline-none focus:border-accent"
                           autoFocus
                         />
                         <input
                           value={editRole}
                           onChange={(e) => setEditRole(e.target.value)}
-                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/90 outline-none focus:border-purple-500/50"
+                          className="flex-1 bg-hover border border-border rounded-lg px-3 py-1.5 text-sm text-foreground outline-none focus:border-accent"
                         />
                         <input
                           value={editEmail}
                           onChange={(e) => setEditEmail(e.target.value)}
                           type="email"
-                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white/90 outline-none focus:border-purple-500/50"
+                          className="flex-1 bg-hover border border-border rounded-lg px-3 py-1.5 text-sm text-foreground outline-none focus:border-accent"
                         />
                       </div>
-                      {editError && <p className="text-xs text-red-400">{editError}</p>}
+                      {editError && <p className="text-xs text-danger">{editError}</p>}
                       <div className="flex gap-2">
                         <button onClick={saveEdit} className="text-xs text-green-400 hover:text-green-300">{tc("save")}</button>
-                        <button onClick={() => setEditId(null)} className="text-xs text-white/40 hover:text-white/60">{tc("cancel")}</button>
+                        <button onClick={() => setEditId(null)} className="text-xs text-[var(--fg2)] hover:text-[var(--fg2)]">{tc("cancel")}</button>
                       </div>
                     </div>
                   );
@@ -948,10 +948,10 @@ function DepartmentDetailInner() {
                 if (removeId === m.id) {
                   return (
                     <div key={m.id} className="py-2.5 flex items-center justify-between">
-                      <span className="text-sm text-white/60">{tc("remove")} {m.displayName}?</span>
+                      <span className="text-sm text-[var(--fg2)]">{tc("remove")} {m.displayName}?</span>
                       <div className="flex gap-2">
-                        <button onClick={confirmRemove} className="text-xs text-red-400 hover:text-red-300">{tc("confirm")}</button>
-                        <button onClick={() => setRemoveId(null)} className="text-xs text-white/40 hover:text-white/60">{tc("cancel")}</button>
+                        <button onClick={confirmRemove} className="text-xs text-danger hover:text-danger">{tc("confirm")}</button>
+                        <button onClick={() => setRemoveId(null)} className="text-xs text-[var(--fg2)] hover:text-[var(--fg2)]">{tc("cancel")}</button>
                       </div>
                     </div>
                   );
@@ -966,9 +966,9 @@ function DepartmentDetailInner() {
                   <div key={m.id}>
                     <div className="group py-2.5 flex items-center justify-between">
                       <div className="min-w-0 flex-1 flex items-center gap-2">
-                        <span className="text-sm font-medium text-white/90">{m.displayName}</span>
-                        {displayRole && <span className="text-sm text-white/40">{displayRole}</span>}
-                        {email && <span className="text-xs text-white/30">{email}</span>}
+                        <span className="text-sm font-medium text-foreground">{m.displayName}</span>
+                        {displayRole && <span className="text-sm text-[var(--fg2)]">{displayRole}</span>}
+                        {email && <span className="text-xs text-[var(--fg3)]">{email}</span>}
                         {m.crossDepartment && m.homeDepartment && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/15 text-amber-400/60">
                             Home: {m.homeDepartment}
@@ -979,10 +979,10 @@ function DepartmentDetailInner() {
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">{t("hasAccount")}</span>
                         )}
                         {acctStatus === "pending" && (
-                          <span className="inline-flex items-center gap-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
+                          <span className="inline-flex items-center gap-1.5 text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn">
                             {t("invitePending")}
                             <button
-                              className="text-purple-400 hover:text-purple-300"
+                              className="text-accent hover:text-accent"
                               onClick={() => {
                                 const link = entityInviteLinks[m.id];
                                 if (link) { navigator.clipboard.writeText(link); setToast("Link copied"); }
@@ -1003,19 +1003,19 @@ function DepartmentDetailInner() {
                               setInviteRole("member");
                               setInviteError("");
                             }}
-                            className="text-[10px] text-purple-400 hover:text-purple-300 mr-2"
+                            className="text-[10px] text-accent hover:text-accent mr-2"
                           >
                             {t("createAccount")}
                           </button>
                         )}
                         {isAdmin && !isAiAgent && (
                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                            <button onClick={() => startEdit(m)} title={tc("edit")} className="p-1 text-white/30 hover:text-white/60">
+                            <button onClick={() => startEdit(m)} title={tc("edit")} className="p-1 text-[var(--fg3)] hover:text-[var(--fg2)]">
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                               </svg>
                             </button>
-                            <button onClick={() => setRemoveId(m.id)} title={tc("remove")} className="p-1 text-white/30 hover:text-red-400">
+                            <button onClick={() => setRemoveId(m.id)} title={tc("remove")} className="p-1 text-[var(--fg3)] hover:text-danger">
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                               </svg>
@@ -1029,42 +1029,42 @@ function DepartmentDetailInner() {
                       <div className="pb-3 pl-4 space-y-2">
                         <div className="flex gap-2 items-end">
                           <div className="flex-1">
-                            <label className="text-[10px] text-white/40 block mb-0.5">{t("email")}</label>
+                            <label className="text-[10px] text-[var(--fg2)] block mb-0.5">{t("email")}</label>
                             <input
                               type="email"
                               value={inviteEmail}
                               onChange={(e) => setInviteEmail(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white/90 outline-none focus:border-purple-500/50"
+                              className="w-full bg-hover border border-border rounded px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-accent"
                               placeholder="email@company.com"
                             />
                           </div>
                           <div className="flex-1">
-                            <label className="text-[10px] text-white/40 block mb-0.5">{t("password")}</label>
+                            <label className="text-[10px] text-[var(--fg2)] block mb-0.5">{t("password")}</label>
                             <input
                               type="password"
                               value={invitePassword}
                               onChange={(e) => setInvitePassword(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded px-2.5 py-1.5 text-xs text-white/90 outline-none focus:border-purple-500/50"
+                              className="w-full bg-hover border border-border rounded px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-accent"
                               placeholder="Min 8 chars"
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] text-white/40 block mb-0.5">{t("role")}</label>
+                            <label className="text-[10px] text-[var(--fg2)] block mb-0.5">{t("role")}</label>
                             <select
                               value={inviteRole}
                               onChange={(e) => setInviteRole(e.target.value)}
-                              className="bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs text-white/70"
+                              className="bg-hover border border-border rounded px-2 py-1.5 text-xs text-[var(--fg2)]"
                             >
                               <option value="member">Member</option>
                               <option value="admin">Admin</option>
                             </select>
                           </div>
                         </div>
-                        {inviteError && <p className="text-xs text-red-400">{inviteError}</p>}
+                        {inviteError && <p className="text-xs text-danger">{inviteError}</p>}
                         <div className="flex gap-2">
                           <button
                             disabled={inviteCreating || !inviteEmail || invitePassword.length < 8}
-                            className="text-xs text-purple-400 hover:text-purple-300 disabled:text-white/20"
+                            className="text-xs text-accent hover:text-accent disabled:text-[var(--fg3)]"
                             onClick={async () => {
                               setInviteCreating(true);
                               setInviteError("");
@@ -1086,7 +1086,7 @@ function DepartmentDetailInner() {
                           >
                             {inviteCreating ? t("creating") : t("createAndCopyLink")}
                           </button>
-                          <button className="text-xs text-white/40 hover:text-white/60" onClick={() => setInviteEntityId(null)}>
+                          <button className="text-xs text-[var(--fg2)] hover:text-[var(--fg2)]" onClick={() => setInviteEntityId(null)}>
                             {tc("cancel")}
                           </button>
                         </div>
@@ -1102,7 +1102,7 @@ function DepartmentDetailInner() {
         {/* ---- Section 2a: Structural Document Slots ---- */}
         <Section title={t("structuralDocuments")}>
           {docError && (
-            <p className="text-xs text-red-400 mb-3">{docError}</p>
+            <p className="text-xs text-danger mb-3">{docError}</p>
           )}
           <div className="grid grid-cols-2 gap-3">
             {(Object.entries(DOCUMENT_SLOT_TYPES) as [SlotType, typeof DOCUMENT_SLOT_TYPES[SlotType]][]).map(
@@ -1115,24 +1115,24 @@ function DepartmentDetailInner() {
                     key={slotType}
                     className={`rounded-lg border p-4 transition ${
                       slotDocs.length > 0
-                        ? "border-white/10 border-l-2 border-l-purple-500/50"
-                        : "border-dashed border-white/10 hover:border-white/20"
+                        ? "border-border border-l-2 border-l-accent"
+                        : "border-dashed border-border hover:border-border-strong"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <SlotIcon icon={slotDef.icon} className="w-4 h-4 text-white/40" />
-                        <span className="text-sm font-medium text-white/70">{slotDef.label}</span>
+                        <SlotIcon icon={slotDef.icon} className="w-4 h-4 text-[var(--fg2)]" />
+                        <span className="text-sm font-medium text-[var(--fg2)]">{slotDef.label}</span>
                       </div>
                       {slotDocs.length > 0 && (
-                        <span className="text-[10px] text-white/30">{slotDocs.length} file{slotDocs.length !== 1 ? "s" : ""}</span>
+                        <span className="text-[10px] text-[var(--fg3)]">{slotDocs.length} file{slotDocs.length !== 1 ? "s" : ""}</span>
                       )}
                     </div>
 
                     {slotDocs.length === 0 && !isUploading && isAdmin && (
                       <button
                         onClick={() => slotFileInputRefs.current[slotType]?.click()}
-                        className="w-full py-4 border border-dashed border-white/10 rounded-md text-xs text-white/30 hover:text-white/50 hover:border-white/20 transition"
+                        className="w-full py-4 border border-dashed border-border rounded-md text-xs text-[var(--fg3)] hover:text-[var(--fg2)] hover:border-border-strong transition"
                       >
                         {t("dropOrClick")}
                         <input
@@ -1145,16 +1145,16 @@ function DepartmentDetailInner() {
                       </button>
                     )}
                     {slotDocs.length === 0 && !isUploading && !isAdmin && (
-                      <p className="py-4 text-center text-xs text-white/20">{t("noDocuments")}</p>
+                      <p className="py-4 text-center text-xs text-[var(--fg3)]">{t("noDocuments")}</p>
                     )}
 
                     {isUploading && (
                       <div className="py-4 text-center">
-                        <svg className="mx-auto w-5 h-5 text-purple-400 animate-spin mb-1" viewBox="0 0 24 24" fill="none">
+                        <svg className="mx-auto w-5 h-5 text-accent animate-spin mb-1" viewBox="0 0 24 24" fill="none">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        <p className="text-xs text-white/40">{t("uploading")}</p>
+                        <p className="text-xs text-[var(--fg2)]">{t("uploading")}</p>
                       </div>
                     )}
 
@@ -1164,7 +1164,7 @@ function DepartmentDetailInner() {
                           const isExtracting = extractingDoc === doc.id;
                           return (
                             <div key={doc.id}>
-                              <p className="text-xs text-white/50 truncate">{doc.fileName}</p>
+                              <p className="text-xs text-[var(--fg2)] truncate">{doc.fileName}</p>
                               <div className="mt-1">
                                 <StatusBadge status={doc.status} embeddingStatus={doc.embeddingStatus} />
                               </div>
@@ -1178,7 +1178,7 @@ function DepartmentDetailInner() {
                                 {doc.status === "extracted" && isAdmin && (
                                   <button
                                     onClick={() => handleReExtract(doc.id, slotType).then(() => {/* modal opens via handler */})}
-                                    className="text-[11px] text-purple-400 hover:text-purple-300"
+                                    className="text-[11px] text-accent hover:text-accent"
                                   >
                                     {t("reviewChanges")}
                                   </button>
@@ -1187,7 +1187,7 @@ function DepartmentDetailInner() {
                                   <button
                                     onClick={() => handleReExtract(doc.id, slotType)}
                                     disabled={!!isExtracting}
-                                    className="text-[11px] text-white/40 hover:text-white/60"
+                                    className="text-[11px] text-[var(--fg2)] hover:text-[var(--fg2)]"
                                   >
                                     {t("reExtract")}
                                   </button>
@@ -1197,13 +1197,13 @@ function DepartmentDetailInner() {
                                     <div className="flex gap-2">
                                       <button
                                         onClick={() => handleDeleteDoc(doc.id)}
-                                        className="text-[11px] text-red-400 hover:text-red-300"
+                                        className="text-[11px] text-danger hover:text-danger"
                                       >
                                         {tc("delete")}
                                       </button>
                                       <button
                                         onClick={() => setDeleteDocId(null)}
-                                        className="text-[11px] text-white/40 hover:text-white/60"
+                                        className="text-[11px] text-[var(--fg2)] hover:text-[var(--fg2)]"
                                       >
                                         {tc("cancel")}
                                       </button>
@@ -1211,7 +1211,7 @@ function DepartmentDetailInner() {
                                   ) : (
                                     <button
                                       onClick={() => setDeleteDocId(doc.id)}
-                                      className="text-[11px] text-red-400/60 hover:text-red-400"
+                                      className="text-[11px] text-danger/60 hover:text-danger"
                                     >
                                       {tc("remove")}
                                     </button>
@@ -1224,7 +1224,7 @@ function DepartmentDetailInner() {
                         {isAdmin && (
                           <button
                             onClick={() => slotFileInputRefs.current[slotType]?.click()}
-                            className="text-[11px] text-purple-400 hover:text-purple-300 mt-1"
+                            className="text-[11px] text-accent hover:text-accent mt-1"
                           >
                             {t("addMore")}
                             <input
@@ -1251,15 +1251,15 @@ function DepartmentDetailInner() {
           {isAdmin && (
           <button
             onClick={() => contextFileInputRef.current?.click()}
-            className="w-full py-5 mb-4 border border-dashed border-white/10 rounded-lg text-center hover:border-white/20 transition"
+            className="w-full py-5 mb-4 border border-dashed border-border rounded-lg text-center hover:border-border-strong transition"
           >
-            <svg className="mx-auto w-6 h-6 text-white/20 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <svg className="mx-auto w-6 h-6 text-[var(--fg3)] mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            <p className="text-xs text-white/40">
+            <p className="text-xs text-[var(--fg2)]">
               {uploadingContext ? t("uploading") : t("dropOrClick")}
             </p>
-            <p className="text-[10px] text-white/25 mt-0.5">
+            <p className="text-[10px] text-[var(--fg3)] mt-0.5">
               {t("contextDocHint")}
             </p>
             <input
@@ -1279,19 +1279,19 @@ function DepartmentDetailInner() {
               {docsData.contextDocs.map((doc) => (
                 <div
                   key={doc.id}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.03] transition"
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-hover transition"
                 >
-                  <svg className="w-4 h-4 text-white/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <svg className="w-4 h-4 text-[var(--fg3)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                   </svg>
-                  <span className="text-sm text-white/70 flex-1 truncate">{doc.fileName}</span>
+                  <span className="text-sm text-[var(--fg2)] flex-1 truncate">{doc.fileName}</span>
                   <StatusBadge status={doc.status} embeddingStatus={doc.embeddingStatus} />
                   <div className="flex gap-1">
                     {doc.embeddingStatus === "error" && (
                       <button
                         onClick={() => handleReprocess(doc.id)}
                         title={t("retry")}
-                        className="p-1 text-white/30 hover:text-amber-400"
+                        className="p-1 text-[var(--fg3)] hover:text-warn"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
@@ -1302,13 +1302,13 @@ function DepartmentDetailInner() {
                       <div className="flex gap-1 items-center">
                         <button
                           onClick={() => handleDeleteDoc(doc.id)}
-                          className="text-[10px] text-red-400 hover:text-red-300"
+                          className="text-[10px] text-danger hover:text-danger"
                         >
                           {tc("delete")}
                         </button>
                         <button
                           onClick={() => setDeleteDocId(null)}
-                          className="text-[10px] text-white/40 hover:text-white/60"
+                          className="text-[10px] text-[var(--fg2)] hover:text-[var(--fg2)]"
                         >
                           {tc("cancel")}
                         </button>
@@ -1317,7 +1317,7 @@ function DepartmentDetailInner() {
                       <button
                         onClick={() => setDeleteDocId(doc.id)}
                         title={tc("delete")}
-                        className="p-1 text-white/30 hover:text-red-400"
+                        className="p-1 text-[var(--fg3)] hover:text-danger"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -1330,7 +1330,7 @@ function DepartmentDetailInner() {
             </div>
           ) : (
             !uploadingContext && (
-              <p className="text-xs text-white/25 text-center py-2">{t("noContextDocuments")}</p>
+              <p className="text-xs text-[var(--fg3)] text-center py-2">{t("noContextDocuments")}</p>
             )
           )}
         </Section>
@@ -1338,7 +1338,7 @@ function DepartmentDetailInner() {
         {/* ---- Section 3: Connected Data ---- */}
         <Section title={t("connectedData")}>
           {connectedEntities.length === 0 ? (
-            <p className="text-xs text-white/25 text-center py-2">{t("noConnectedData")}</p>
+            <p className="text-xs text-[var(--fg3)] text-center py-2">{t("noConnectedData")}</p>
           ) : (
             <div className="space-y-4">
               {connectedEntities.map((group) => {
@@ -1348,8 +1348,8 @@ function DepartmentDetailInner() {
                   <div key={group.typeSlug}>
                     <div className="flex items-center gap-2 mb-2">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: group.typeColor }} />
-                      <span className="text-xs font-medium text-white/60">{group.typeName}</span>
-                      <span className="text-xs text-white/25">({group.entities.length})</span>
+                      <span className="text-xs font-medium text-[var(--fg2)]">{group.typeName}</span>
+                      <span className="text-xs text-[var(--fg3)]">({group.entities.length})</span>
                     </div>
                     <div className="space-y-0.5">
                       {visibleEntities.map((e) => (
@@ -1371,7 +1371,7 @@ function DepartmentDetailInner() {
                           else next.add(group.typeSlug);
                           return next;
                         })}
-                        className="text-[11px] text-purple-400 hover:text-purple-300 mt-1 ml-3"
+                        className="text-[11px] text-accent hover:text-accent mt-1 ml-3"
                       >
                         {isExpanded ? t("showLess") : t("showAll", { count: group.entities.length })}
                       </button>
@@ -1386,7 +1386,7 @@ function DepartmentDetailInner() {
                     setConnectedOffset(newOffset);
                     fetchConnectedEntities(true);
                   }}
-                  className="w-full py-2 text-xs text-purple-400 hover:text-purple-300 transition"
+                  className="w-full py-2 text-xs text-accent hover:text-accent transition"
                 >
                   {t("loadMore", { count: connectedTotal - connectedOffset - 50 })}
                 </button>
@@ -1399,11 +1399,11 @@ function DepartmentDetailInner() {
         <Section title={t("externalLinks")}>
           {externalLinks.length === 0 ? (
             <div className="py-8 text-center">
-              <svg className="mx-auto w-8 h-8 text-white/15 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg className="mx-auto w-8 h-8 text-[var(--fg3)] mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.856-2.07a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.07" />
               </svg>
-              <p className="text-sm text-white/40">{t("noExternalLinks")}</p>
-              <p className="text-xs text-white/25 mt-1">
+              <p className="text-sm text-[var(--fg2)]">{t("noExternalLinks")}</p>
+              <p className="text-xs text-[var(--fg3)] mt-1">
                 {t("externalLinksHint")}
               </p>
             </div>
@@ -1438,7 +1438,7 @@ function DepartmentDetailInner() {
       >
         {diffItems && (
           <div className="space-y-4">
-            <p className="text-sm text-white/60">{diffItems.summary}</p>
+            <p className="text-sm text-[var(--fg2)]">{diffItems.summary}</p>
 
             {/* People diffs */}
             {diffItems.people && diffItems.people.length > 0 && (
@@ -1458,7 +1458,7 @@ function DepartmentDetailInner() {
                           {creates.map((p) => {
                             const idx = diffItems.people!.indexOf(p);
                             return (
-                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
+                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-hover rounded px-1">
                                 <input
                                   type="checkbox"
                                   checked={p.selected}
@@ -1466,13 +1466,13 @@ function DepartmentDetailInner() {
                                   className="mt-0.5 accent-purple-500"
                                 />
                                 <div className="text-sm">
-                                  <span className="text-white/90 font-medium">{p.name}</span>
-                                  {p.role && <span className="text-white/40 ml-2">— {p.role}</span>}
+                                  <span className="text-foreground font-medium">{p.name}</span>
+                                  {p.role && <span className="text-[var(--fg2)] ml-2">— {p.role}</span>}
                                   {p.email && (
-                                    <p className="text-xs text-white/30">email: {p.email}</p>
+                                    <p className="text-xs text-[var(--fg3)]">email: {p.email}</p>
                                   )}
                                   {p.reportsTo && (
-                                    <p className="text-xs text-white/30">reports to: {p.reportsTo}</p>
+                                    <p className="text-xs text-[var(--fg3)]">reports to: {p.reportsTo}</p>
                                   )}
                                 </div>
                               </label>
@@ -1488,7 +1488,7 @@ function DepartmentDetailInner() {
                           {updates.map((p) => {
                             const idx = diffItems.people!.indexOf(p);
                             return (
-                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
+                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-hover rounded px-1">
                                 <input
                                   type="checkbox"
                                   checked={p.selected}
@@ -1496,12 +1496,12 @@ function DepartmentDetailInner() {
                                   className="mt-0.5 accent-purple-500"
                                 />
                                 <div className="text-sm">
-                                  <span className="text-white/90 font-medium">{p.name}</span>
+                                  <span className="text-foreground font-medium">{p.name}</span>
                                   {p.changes && Object.entries(p.changes).map(([key, change]) => (
-                                    <p key={key} className="text-xs text-white/40">
-                                      {key}: <span className="text-white/30">&ldquo;{change.from}&rdquo;</span>
+                                    <p key={key} className="text-xs text-[var(--fg2)]">
+                                      {key}: <span className="text-[var(--fg3)]">&ldquo;{change.from}&rdquo;</span>
                                       {" → "}
-                                      <span className="text-white/70">&ldquo;{change.to}&rdquo;</span>
+                                      <span className="text-[var(--fg2)]">&ldquo;{change.to}&rdquo;</span>
                                     </p>
                                   ))}
                                 </div>
@@ -1512,13 +1512,13 @@ function DepartmentDetailInner() {
                       )}
                       {missing.length > 0 && (
                         <div>
-                          <h4 className="text-[10px] uppercase tracking-wider text-white/30 mb-2">
+                          <h4 className="text-[10px] uppercase tracking-wider text-[var(--fg3)] mb-2">
                             {t("notInDocument")}
                           </h4>
                           {missing.map((p) => {
                             const idx = diffItems.people!.indexOf(p);
                             return (
-                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
+                              <label key={idx} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-hover rounded px-1">
                                 <input
                                   type="checkbox"
                                   checked={p.selected}
@@ -1526,8 +1526,8 @@ function DepartmentDetailInner() {
                                   className="mt-0.5 accent-purple-500"
                                 />
                                 <div className="text-sm">
-                                  <span className="text-white/50">{p.name}</span>
-                                  <p className="text-xs text-white/25">
+                                  <span className="text-[var(--fg2)]">{p.name}</span>
+                                  <p className="text-xs text-[var(--fg3)]">
                                     {t("existsButNotInDoc")}
                                   </p>
                                 </div>
@@ -1545,11 +1545,11 @@ function DepartmentDetailInner() {
             {/* Property diffs */}
             {diffItems.properties && diffItems.properties.length > 0 && (
               <div>
-                <h4 className="text-[10px] uppercase tracking-wider text-white/40 mb-2">
+                <h4 className="text-[10px] uppercase tracking-wider text-[var(--fg2)] mb-2">
                   {t("properties")}
                 </h4>
                 {diffItems.properties.map((p, i) => (
-                  <label key={i} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-white/[0.02] rounded px-1">
+                  <label key={i} className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-hover rounded px-1">
                     <input
                       type="checkbox"
                       checked={p.selected}
@@ -1557,13 +1557,13 @@ function DepartmentDetailInner() {
                       className="mt-0.5 accent-purple-500"
                     />
                     <div className="text-sm">
-                      <span className="text-white/70">{p.label}:</span>
-                      <span className="text-white/90 ml-1">{p.newValue}</span>
+                      <span className="text-[var(--fg2)]">{p.label}:</span>
+                      <span className="text-foreground ml-1">{p.newValue}</span>
                       {p.targetEntityName !== "Department" && (
-                        <span className="text-xs text-white/30 ml-2">({p.targetEntityName})</span>
+                        <span className="text-xs text-[var(--fg3)] ml-2">({p.targetEntityName})</span>
                       )}
                       {p.oldValue && (
-                        <p className="text-xs text-white/30">
+                        <p className="text-xs text-[var(--fg3)]">
                           was: {p.oldValue}
                         </p>
                       )}
@@ -1576,12 +1576,12 @@ function DepartmentDetailInner() {
             {/* Empty extraction */}
             {(!diffItems.people || diffItems.people.length === 0) &&
               (!diffItems.properties || diffItems.properties.length === 0) && (
-                <p className="text-sm text-white/40 py-4 text-center">
+                <p className="text-sm text-[var(--fg2)] py-4 text-center">
                   {t("noDataInDocument")}
                 </p>
               )}
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-white/[0.06]">
+            <div className="flex justify-end gap-2 pt-3 border-t border-border">
               <Button
                 variant="default"
                 size="sm"

@@ -30,11 +30,11 @@ interface SessionEntry {
 function ThinkingIndicator() {
   return (
     <div className="mb-6">
-      <div className="text-xs font-medium mb-1.5 text-purple-300/70">Qorpera</div>
+      <div className="text-xs font-medium mb-1.5 text-accent/70">Qorpera</div>
       <div className="flex items-center gap-1 h-5">
-        <span className="w-1.5 h-1.5 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_infinite]" />
-        <span className="w-1.5 h-1.5 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
-        <span className="w-1.5 h-1.5 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-[pulse_1.4s_ease-in-out_infinite]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
       </div>
     </div>
   );
@@ -93,37 +93,37 @@ function AssistantContent({
     <>
       <ReactMarkdown
         components={{
-          h1: ({ children }) => <h1 className="text-lg font-semibold text-white/90 mt-4 mb-2">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-base font-semibold text-white/90 mt-3 mb-1.5">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-sm font-semibold text-white/90 mt-2 mb-1">{children}</h3>,
+          h1: ({ children }) => <h1 className="text-lg font-semibold text-foreground mt-4 mb-2">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-base font-semibold text-foreground mt-3 mb-1.5">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-sm font-semibold text-foreground mt-2 mb-1">{children}</h3>,
           p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
-          strong: ({ children }) => <strong className="font-medium text-white/90">{children}</strong>,
-          em: ({ children }) => <em className="text-white/70">{children}</em>,
-          a: ({ href, children }) => <a href={href} className="text-purple-300 hover:text-purple-200 underline underline-offset-2">{children}</a>,
-          ul: ({ children }) => <ul className="list-disc marker:text-white/40 ml-5 mt-2 mb-3 space-y-1.5">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal marker:text-white/40 ml-5 mt-2 mb-3 space-y-1.5">{children}</ol>,
-          li: ({ children }) => <li className="text-white/70 pl-1">{children}</li>,
+          strong: ({ children }) => <strong className="font-medium text-foreground">{children}</strong>,
+          em: ({ children }) => <em className="text-[var(--fg2)]">{children}</em>,
+          a: ({ href, children }) => <a href={href} className="text-accent hover:text-accent underline underline-offset-2">{children}</a>,
+          ul: ({ children }) => <ul className="list-disc marker:text-[var(--fg2)] ml-5 mt-2 mb-3 space-y-1.5">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal marker:text-[var(--fg2)] ml-5 mt-2 mb-3 space-y-1.5">{children}</ol>,
+          li: ({ children }) => <li className="text-[var(--fg2)] pl-1">{children}</li>,
           code: ({ className, children }) => {
             if (className?.includes("language-")) {
-              return <code className="font-mono text-[13px] text-white/80">{children}</code>;
+              return <code className="font-mono text-[13px] text-foreground">{children}</code>;
             }
-            return <code className="font-mono text-[13px] bg-white/[0.06] px-1.5 py-0.5 rounded text-purple-200/90">{children}</code>;
+            return <code className="font-mono text-[13px] bg-skeleton px-1.5 py-0.5 rounded text-accent/90">{children}</code>;
           },
           pre: ({ children }) => (
-            <pre className="my-3 rounded-lg bg-white/[0.04] border border-white/[0.06] px-4 py-3 overflow-x-auto text-[13px] leading-relaxed">
+            <pre className="my-3 rounded-lg bg-hover border border-border px-4 py-3 overflow-x-auto text-[13px] leading-relaxed">
               {children}
             </pre>
           ),
           blockquote: ({ children }) => (
-            <blockquote className="border-l-2 border-purple-500/30 pl-3 my-2 text-white/60">{children}</blockquote>
+            <blockquote className="border-l-2 border-[color-mix(in_srgb,var(--accent)_30%,transparent)] pl-3 my-2 text-[var(--fg2)]">{children}</blockquote>
           ),
-          hr: () => <hr className="border-white/[0.08] my-4" />,
+          hr: () => <hr className="border-border my-4" />,
         }}
       >
         {visibleText}
       </ReactMarkdown>
       {isStreaming && (
-        <span className="inline-block w-1.5 h-4 bg-purple-400/50 ml-0.5 animate-pulse align-middle" />
+        <span className="inline-block w-1.5 h-4 bg-accent/50 ml-0.5 animate-pulse align-middle" />
       )}
     </>
   );
@@ -554,20 +554,20 @@ export default function CopilotPage() {
         {/* Mobile backdrop */}
         {sidebarOpen && isMobile && (
           <div
-            className="fixed inset-0 z-40 bg-black/50"
+            className="fixed inset-0 z-40 bg-overlay"
             onClick={() => setSidebarOpen(false)}
           />
         )}
         {sidebarOpen && (
-          <div className={`${isMobile ? "fixed inset-y-0 left-0 z-50 w-72" : "w-60 flex-shrink-0"} border-r border-white/[0.06] bg-[rgba(8,12,16,0.95)] flex flex-col`}>
+          <div className={`${isMobile ? "fixed inset-y-0 left-0 z-50 w-72" : "w-60 flex-shrink-0"} border-r border-border bg-sidebar flex flex-col`}>
             {/* Sidebar header */}
             <div className="px-3 pt-4 pb-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-white/40 uppercase tracking-wider">
+              <span className="text-xs font-medium text-[var(--fg2)] uppercase tracking-wider">
                 {t("history")}
               </span>
               <button
                 onClick={() => setSidebarOpen(false)}
-                className="p-1 rounded hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
+                className="p-1 rounded hover:bg-hover text-[var(--fg3)] hover:text-[var(--fg2)] transition-colors"
                 title={t("closeSidebar")}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -580,7 +580,7 @@ export default function CopilotPage() {
             <div className="px-3 pb-2">
               <button
                 onClick={handleNewConversation}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/70 hover:text-white/90 hover:bg-white/[0.06] border border-white/[0.08] border-dashed transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-[var(--fg2)] hover:text-foreground hover:bg-skeleton border border-border border-dashed transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -593,10 +593,10 @@ export default function CopilotPage() {
             <div className="flex-1 overflow-y-auto px-2 pb-3">
               {loadingSessions && sessions.length === 0 ? (
                 <div className="flex justify-center py-6">
-                  <div className="w-4 h-4 rounded-full border-2 border-purple-500/30 border-t-purple-400 animate-spin" />
+                  <div className="w-4 h-4 rounded-full border-2 border-[color-mix(in_srgb,var(--accent)_30%,transparent)] border-t-accent animate-spin" />
                 </div>
               ) : sessions.length === 0 ? (
-                <p className="text-xs text-white/20 text-center py-6">
+                <p className="text-xs text-[var(--fg3)] text-center py-6">
                   {t("noConversations")}
                 </p>
               ) : (
@@ -608,14 +608,14 @@ export default function CopilotPage() {
                       onClick={() => handleSelectSession(s.sessionId)}
                       className={`w-full text-left px-3 py-2.5 rounded-lg mb-0.5 transition-colors ${
                         isActive
-                          ? "bg-purple-500/10 text-white/80"
-                          : "text-white/50 hover:bg-white/[0.04] hover:text-white/70"
+                          ? "bg-accent-light text-foreground"
+                          : "text-[var(--fg2)] hover:bg-hover hover:text-[var(--fg2)]"
                       }`}
                     >
                       <div className="text-xs truncate leading-snug">
                         {s.preview}
                       </div>
-                      <div className="text-[10px] text-white/25 mt-1">
+                      <div className="text-[10px] text-[var(--fg3)] mt-1">
                         {new Date(s.createdAt).toLocaleDateString(locale, {
                           month: "short",
                           day: "numeric",
@@ -632,11 +632,11 @@ export default function CopilotPage() {
         {/* ── Main chat area ───────────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Top bar */}
-          <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
             {!sidebarOpen && (
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="p-1.5 rounded-lg hover:bg-white/5 text-white/30 hover:text-white/60 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-hover text-[var(--fg3)] hover:text-[var(--fg2)] transition-colors"
                 title={t("showHistory")}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -644,23 +644,23 @@ export default function CopilotPage() {
                 </svg>
               </button>
             )}
-            <h1 className="text-sm font-medium text-white/50">
+            <h1 className="text-sm font-medium text-[var(--fg2)]">
               {t("title")}
             </h1>
           </div>
 
           {/* Orientation banner */}
           {isOrientation && (
-            <div className="px-6 py-2 bg-purple-500/10 border-b border-purple-500/20">
+            <div className="px-6 py-2 bg-accent-light border-b border-[color-mix(in_srgb,var(--accent)_20%,transparent)]">
               <div className="max-w-[720px] mx-auto flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-purple-300/70">
-                  <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                <div className="flex items-center gap-2 text-xs text-accent/70">
+                  <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                   {t("orientationBanner")}
                 </div>
                 <button
                   onClick={handleCompleteOrientation}
                   disabled={completingOrientation || streaming}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors disabled:opacity-50"
+                  className="text-xs px-3 py-1.5 rounded-lg bg-accent-light text-accent hover:bg-[color-mix(in_srgb,var(--accent)_30%,transparent)] hover:text-accent transition-colors disabled:opacity-50"
                 >
                   {completingOrientation
                     ? t("completing")
@@ -677,13 +677,13 @@ export default function CopilotPage() {
           >
             {initializing ? (
               <div className="flex items-center justify-center h-full">
-                <div className="w-6 h-6 rounded-full border-2 border-purple-500/40 border-t-purple-400 animate-spin" />
+                <div className="w-6 h-6 rounded-full border-2 border-[color-mix(in_srgb,var(--accent)_40%,transparent)] border-t-accent animate-spin" />
               </div>
             ) : messages.length === 0 && !streaming ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center max-w-md px-6">
                   <svg
-                    className="w-10 h-10 text-white/[0.07] mx-auto mb-4"
+                    className="w-10 h-10 text-[var(--fg3)] mx-auto mb-4"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -695,10 +695,10 @@ export default function CopilotPage() {
                       d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"
                     />
                   </svg>
-                  <h2 className="text-base font-medium text-white/40 mb-2">
+                  <h2 className="text-base font-medium text-[var(--fg2)] mb-2">
                     {t("emptyTitle")}
                   </h2>
-                  <p className="text-sm text-white/25 leading-relaxed">
+                  <p className="text-sm text-[var(--fg3)] leading-relaxed">
                     {t("emptyDescription")}
                   </p>
                 </div>
@@ -711,11 +711,11 @@ export default function CopilotPage() {
                     <button
                       onClick={handleLoadEarlier}
                       disabled={loadingEarlier}
-                      className="text-xs text-purple-400/70 hover:text-purple-300 transition-colors disabled:opacity-50"
+                      className="text-xs text-accent/70 hover:text-accent transition-colors disabled:opacity-50"
                     >
                       {loadingEarlier ? (
                         <span className="flex items-center gap-2">
-                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-purple-400/30 border-t-purple-400" />
+                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color-mix(in_srgb,var(--accent)_30%,transparent)] border-t-accent" />
                           Loading...
                         </span>
                       ) : (
@@ -731,7 +731,7 @@ export default function CopilotPage() {
                     key={i}
                     className={`mb-6 ${
                       msg.role === "user"
-                        ? "border-l-2 border-purple-500/20 pl-4"
+                        ? "border-l-2 border-[color-mix(in_srgb,var(--accent)_20%,transparent)] pl-4"
                         : ""
                     }`}
                   >
@@ -739,8 +739,8 @@ export default function CopilotPage() {
                     <div
                       className={`text-xs font-medium mb-1.5 ${
                         msg.role === "user"
-                          ? "text-white/40"
-                          : "text-purple-300/70"
+                          ? "text-[var(--fg2)]"
+                          : "text-accent/70"
                       }`}
                     >
                       {msg.role === "user" ? "You" : "Qorpera"}
@@ -748,7 +748,7 @@ export default function CopilotPage() {
 
                     {/* Content */}
                     {msg.role === "assistant" ? (
-                      <div className="text-sm leading-[1.7] text-white/80" style={{ wordBreak: "break-word" }}>
+                      <div className="text-sm leading-[1.7] text-foreground" style={{ wordBreak: "break-word" }}>
                         <AssistantContent
                           content={msg.content}
                           isStreaming={streaming && i === messages.length - 1}
@@ -757,7 +757,7 @@ export default function CopilotPage() {
                       </div>
                     ) : (
                       <div
-                        className="text-sm leading-[1.7] text-white/60"
+                        className="text-sm leading-[1.7] text-[var(--fg2)]"
                         style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
                       >
                         {msg.content}
@@ -779,24 +779,24 @@ export default function CopilotPage() {
           {/* Error */}
           {error && (
             <div className="px-6">
-              <div className="max-w-[720px] mx-auto text-sm text-red-400/80 pb-2">
+              <div className="max-w-[720px] mx-auto text-sm text-danger/80 pb-2">
                 {error}
               </div>
             </div>
           )}
 
           {/* Input area */}
-          <div className="border-t border-white/[0.06] px-6 py-4 bg-[rgba(8,12,16,0.4)]">
+          <div className="border-t border-border px-6 py-4 bg-sidebar/40">
             {copilotBudget && copilotBudget.billingStatus !== "active" && (
               <div className="max-w-[720px] mx-auto mb-2">
                 {copilotBudget.remainingCents <= 0 ? (
-                  <div className="text-[12px] text-amber-400/80 flex items-center gap-2">
+                  <div className="text-[12px] text-warn/80 flex items-center gap-2">
                     {t("freeLimitMessage")}{" "}
-                    <a href="/settings?tab=billing" className="underline text-purple-400">{t("activateBilling")}</a>{" "}
+                    <a href="/settings?tab=billing" className="underline text-accent">{t("activateBilling")}</a>{" "}
                     {t("forUnlimited")}
                   </div>
                 ) : (
-                  <div className="text-[11px] text-white/30">
+                  <div className="text-[11px] text-[var(--fg3)]">
                     {t("freeTier")} &middot; ~${(copilotBudget.remainingCents / 100).toFixed(2)} {t("remaining")}
                   </div>
                 )}
@@ -816,17 +816,17 @@ export default function CopilotPage() {
                       : t("askAnything")
                 }
                 rows={1}
-                className="flex-1 resize-none px-4 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/90 placeholder:text-white/25 focus:outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/15 text-base md:text-sm leading-relaxed"
+                className="flex-1 resize-none px-4 py-3 rounded-xl bg-hover border border-border text-foreground placeholder:text-[var(--fg3)] focus:outline-none focus:border-accent focus:ring-1 focus:ring-[color-mix(in_srgb,var(--accent)_30%,transparent)] text-base md:text-sm leading-relaxed"
                 style={{ maxHeight: 200 }}
                 disabled={streaming || initializing || (copilotBudget?.billingStatus !== "active" && (copilotBudget?.remainingCents ?? 1) <= 0)}
               />
               <button
                 onClick={handleSend}
                 disabled={streaming || !input.trim() || initializing}
-                className="flex-shrink-0 p-3 rounded-xl bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 hover:text-purple-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex-shrink-0 p-3 rounded-xl bg-accent-light text-accent hover:bg-[color-mix(in_srgb,var(--accent)_30%,transparent)] hover:text-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {streaming ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-purple-300/30 border-t-purple-300" />
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
                 ) : (
                   <svg
                     className="w-4 h-4"

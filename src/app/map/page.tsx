@@ -637,7 +637,7 @@ export default function MapPage() {
               className={`px-3 py-1.5 rounded text-xs font-medium transition ${
                 editMode
                   ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                  : "bg-[#222] text-[#b0b0b0] hover:bg-[#2a2a2a] border border-[#333]"
+                  : "bg-surface text-muted hover:bg-elevated border border-border"
               }`}
             >
               {editMode ? t("doneEditing") : t("editMap")}
@@ -728,12 +728,12 @@ export default function MapPage() {
             <button
               onClick={() => setZoom(z => Math.min(MAX_ZOOM, z * 1.2))}
               style={{ width: 28, height: 28, borderRadius: 4, background: "#1c1c1c", border: "1px solid #2a2a2a", color: "#b0b0b0" }}
-              className="flex items-center justify-center text-sm font-medium hover:bg-[#222] transition"
+              className="flex items-center justify-center text-sm font-medium hover:bg-surface transition"
             >+</button>
             <button
               onClick={() => setZoom(z => Math.max(MIN_ZOOM, z / 1.2))}
               style={{ width: 28, height: 28, borderRadius: 4, background: "#1c1c1c", border: "1px solid #2a2a2a", color: "#b0b0b0" }}
-              className="flex items-center justify-center text-sm font-medium hover:bg-[#222] transition"
+              className="flex items-center justify-center text-sm font-medium hover:bg-surface transition"
             >&minus;</button>
           </div>
 
@@ -791,7 +791,7 @@ export default function MapPage() {
                   <div className="absolute top-1.5 right-1.5">
                     <button
                       onClick={e => { e.stopPropagation(); startEditing(hq.id); }}
-                      className="w-5 h-5 rounded flex items-center justify-center bg-[#222] hover:bg-[#2a2a2a] transition"
+                      className="w-5 h-5 rounded flex items-center justify-center bg-surface hover:bg-elevated transition"
                     >
                       <svg className="w-3 h-3 text-[#707070]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
@@ -802,13 +802,13 @@ export default function MapPage() {
                 {editingDept === hq.id ? (
                   <div className="p-3 space-y-1.5" onClick={e => e.stopPropagation()}>
                     <input value={editName} onChange={e => setEditName(e.target.value)}
-                      className="w-full bg-transparent border-b border-purple-500/40 outline-none text-sm font-semibold text-[#e8e8e8]"
+                      className="w-full bg-transparent border-b border-accent outline-none text-sm font-semibold text-[#e8e8e8]"
                       autoFocus onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                     <input value={editDesc} onChange={e => setEditDesc(e.target.value)}
                       className="w-full bg-transparent border-b border-[#2a2a2a] outline-none text-xs text-[#707070]"
                       placeholder={t("description")} onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                     <div className="flex gap-1.5">
-                      <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">{tc("save")}</button>
+                      <button onClick={saveInlineEdit} className="text-[10px] text-accent hover:text-accent">{tc("save")}</button>
                       <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">{tc("cancel")}</button>
                     </div>
                   </div>
@@ -856,14 +856,14 @@ export default function MapPage() {
                   {editMode && !isEditing && (
                     <div className="absolute top-1.5 right-1.5 flex gap-1">
                       <button onClick={e => { e.stopPropagation(); startEditing(dept.id); }}
-                        className="w-5 h-5 rounded flex items-center justify-center bg-[#222] hover:bg-[#2a2a2a] transition">
+                        className="w-5 h-5 rounded flex items-center justify-center bg-surface hover:bg-elevated transition">
                         <svg className="w-3 h-3 text-[#707070]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                         </svg>
                       </button>
                       <button onClick={e => { e.stopPropagation(); setDeleteTarget(dept); }}
                         className="w-5 h-5 rounded flex items-center justify-center bg-red-500/10 hover:bg-red-500/20 transition">
-                        <svg className="w-3 h-3 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <svg className="w-3 h-3 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
@@ -872,13 +872,13 @@ export default function MapPage() {
                   {isEditing ? (
                     <div className="p-3 space-y-1.5" onClick={e => e.stopPropagation()}>
                       <input value={editName} onChange={e => setEditName(e.target.value)}
-                        className="w-full bg-transparent border-b border-purple-500/40 outline-none text-sm font-bold text-[#e8e8e8]"
+                        className="w-full bg-transparent border-b border-accent outline-none text-sm font-bold text-[#e8e8e8]"
                         autoFocus onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                       <input value={editDesc} onChange={e => setEditDesc(e.target.value)}
                         className="w-full bg-transparent border-b border-[#2a2a2a] outline-none text-xs text-[#707070]"
                         placeholder={t("description")} onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                       <div className="flex gap-1.5">
-                        <button onClick={saveInlineEdit} className="text-[10px] text-purple-400 hover:text-purple-300">{tc("save")}</button>
+                        <button onClick={saveInlineEdit} className="text-[10px] text-accent hover:text-accent">{tc("save")}</button>
                         <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">{tc("cancel")}</button>
                       </div>
                     </div>
@@ -983,12 +983,12 @@ export default function MapPage() {
             {unroutedOpen && (
               <div className="max-h-[250px] overflow-y-auto px-4 pb-3 space-y-1">
                 {unroutedEntities.map(entity => (
-                  <div key={entity.id} className="flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1c1c1c] transition">
+                  <div key={entity.id} className="flex items-center gap-3 px-3 py-2 rounded hover:bg-surface transition">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entity.entityType.color ?? "#888" }} />
                     <span className="text-sm text-[#e8e8e8] flex-1 min-w-0 truncate">{entity.displayName}</span>
                     <span className="text-[10px] text-[#484848]">{entity.entityType.name}</span>
                     {entity.sourceSystem && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1c1c1c] text-[#484848]">{entity.sourceSystem}</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface text-[#484848]">{entity.sourceSystem}</span>
                     )}
                     <select
                       defaultValue=""
@@ -997,7 +997,7 @@ export default function MapPage() {
                     >
                       <option value="" disabled>{t("assignTo")}</option>
                       {departments.filter(d => d.entityType.slug === "department" || d.isHQ).map(d => (
-                        <option key={d.id} value={d.id} className="bg-[#1c1c1c]">{d.displayName}</option>
+                        <option key={d.id} value={d.id} className="bg-surface">{d.displayName}</option>
                       ))}
                     </select>
                   </div>
@@ -1015,11 +1015,11 @@ export default function MapPage() {
           style={{ left: ctxMenu.x, top: ctxMenu.y, background: "#1c1c1c", border: "1px solid #2a2a2a", borderRadius: 4 }}
         >
           <button
-            className="w-full text-left px-3 py-1.5 text-sm text-[#b0b0b0] hover:bg-[#222] hover:text-[#e8e8e8]"
+            className="w-full text-left px-3 py-1.5 text-sm text-[#b0b0b0] hover:bg-surface hover:text-[#e8e8e8]"
             onClick={() => { openEdit(ctxMenu.dept); setCtxMenu(null); }}
           >{tc("edit")}</button>
           <button
-            className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-[#222] hover:text-red-300"
+            className="w-full text-left px-3 py-1.5 text-sm text-danger hover:bg-surface hover:text-danger"
             onClick={() => { setDeleteTarget(ctxMenu.dept); setCtxMenu(null); }}
           >{tc("delete")}</button>
         </div>
@@ -1030,7 +1030,7 @@ export default function MapPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input label={t("departmentName")} value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Engineering" autoFocus />
           <Input label={t("description")} value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="What does this department do?" />
-          {formError && <p className="text-sm text-red-400">{formError}</p>}
+          {formError && <p className="text-sm text-danger">{formError}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="default" size="sm" onClick={() => setModalOpen(false)}>{tc("cancel")}</Button>
             <Button type="submit" variant="primary" size="sm" disabled={saving}>
@@ -1051,7 +1051,7 @@ export default function MapPage() {
               </span>
             )}
           </p>
-          {deleteError && <p className="text-sm text-red-400">{deleteError}</p>}
+          {deleteError && <p className="text-sm text-danger">{deleteError}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="default" size="sm" onClick={() => { setDeleteTarget(null); setDeleteError(""); }}>{tc("cancel")}</Button>
             <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleting}>

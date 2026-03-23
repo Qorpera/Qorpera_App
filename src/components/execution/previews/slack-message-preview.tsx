@@ -33,18 +33,18 @@ export function SlackMessagePreview({ step }: PreviewProps) {
   const showAiPrefix = isActMode(step);
 
   return (
-    <div className="rounded-md overflow-hidden" style={{ border: "1px solid #2a2a2a", background: "#141414" }}>
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: "1px solid #222", background: "#181818" }}>
-        <HashIcon size={14} className="text-purple-400 flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>Slack</span>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <HashIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>Slack</span>
       </div>
 
       <div className="px-4 py-3 space-y-2.5">
         {/* Channel */}
         <div className="flex items-baseline gap-2">
-          <span style={{ fontSize: 11, color: "#585858", fontWeight: 500, minWidth: 56 }}>{t("channel")}</span>
-          <span style={{ fontSize: 13, fontWeight: 500, color: "#b0b0b0", background: "rgba(168,85,247,0.08)", padding: "1px 6px", borderRadius: 3 }}>
+          <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("channel")}</span>
+          <span style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", padding: "1px 6px", borderRadius: 3 }}>
             #{channel.replace(/^#/, "")}
           </span>
         </div>
@@ -52,7 +52,7 @@ export function SlackMessagePreview({ step }: PreviewProps) {
         {/* Message */}
         <div>
           <div
-            style={{ fontSize: 13, lineHeight: 1.65, color: "#909090" }}
+            style={{ fontSize: 13, lineHeight: 1.65, color: "var(--muted)" }}
             dangerouslySetInnerHTML={{
               __html: (showAiPrefix ? `<span style="font-size:12px">${t("aiPrefix")}</span> ` : "") + formatSlackText(message),
             }}

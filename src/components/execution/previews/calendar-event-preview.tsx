@@ -40,22 +40,22 @@ export function CalendarEventPreview({ step, locale }: PreviewProps) {
   const hiddenCount = attendees.length - 4;
 
   return (
-    <div className="rounded-md overflow-hidden" style={{ border: "1px solid #2a2a2a", background: "#141414" }}>
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: "1px solid #222", background: "#181818" }}>
-        <CalendarIcon size={14} className="text-purple-400 flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>{t("eventTitle")}</span>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <CalendarIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("eventTitle")}</span>
       </div>
 
       <div className="px-4 py-3 space-y-2.5">
         {/* Title */}
-        <p style={{ fontSize: 15, fontWeight: 600, color: "#d0d0d0" }}>{title}</p>
+        <p style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>{title}</p>
 
         {/* Date & Time */}
         {hasTimes && (
           <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "#585858", fontWeight: 500, minWidth: 80 }}>{t("dateTime")}</span>
-            <span style={{ fontSize: 13, color: "#b0b0b0" }}>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("dateTime")}</span>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>
               {formatDate(startTime, locale)} &middot; {formatTime(startTime, locale)} – {formatTime(endTime, locale)}
             </span>
           </div>
@@ -64,8 +64,8 @@ export function CalendarEventPreview({ step, locale }: PreviewProps) {
         {/* Duration */}
         {hasTimes && mins > 0 && (
           <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "#585858", fontWeight: 500, minWidth: 80 }}>{t("duration")}</span>
-            <span style={{ fontSize: 13, color: "#909090" }}>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("duration")}</span>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>
               {mins >= 60
                 ? (mins % 60 > 0
                   ? `${t("hours", { count: Math.floor(mins / 60) })} ${t("minutes", { count: mins % 60 })}`
@@ -78,16 +78,16 @@ export function CalendarEventPreview({ step, locale }: PreviewProps) {
         {/* Attendees */}
         {attendees.length > 0 && (
           <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "#585858", fontWeight: 500, minWidth: 80 }}>{t("attendees")}</span>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("attendees")}</span>
             <div>
-              <span style={{ fontSize: 13, color: "#b0b0b0" }}>
+              <span style={{ fontSize: 13, color: "var(--muted)" }}>
                 {visibleAttendees.join(", ")}
               </span>
               {!showAll && shouldCollapse && (
                 <button
                   onClick={() => setShowAll(true)}
-                  className="ml-1.5 hover:text-purple-300 transition-colors"
-                  style={{ fontSize: 12, color: "#a855f7" }}
+                  className="ml-1.5 hover:text-accent transition-colors"
+                  style={{ fontSize: 12, color: "var(--accent)" }}
                 >
                   {t("moreAttendees", { count: hiddenCount })}
                 </button>
@@ -99,8 +99,8 @@ export function CalendarEventPreview({ step, locale }: PreviewProps) {
         {/* Location */}
         {location && (
           <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "#585858", fontWeight: 500, minWidth: 80 }}>{t("location")}</span>
-            <span style={{ fontSize: 13, color: "#909090" }}>{location}</span>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("location")}</span>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>{location}</span>
           </div>
         )}
       </div>

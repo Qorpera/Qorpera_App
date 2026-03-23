@@ -383,7 +383,7 @@ export default function SituationsPage() {
             <DelegationFeed />
             {loading && (
               <div className="flex justify-center py-10">
-                <div className="h-4 w-4 animate-spin rounded-full border border-[#2a2a2a] border-t-[#707070]" />
+                <div className="h-4 w-4 animate-spin rounded-full border border-border border-t-muted" />
               </div>
             )}
             {filteredSituations.map(s => (
@@ -424,7 +424,7 @@ export default function SituationsPage() {
         {(!isMobile || selectedId) && (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {isMobile && (
-            <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-white/50 hover:text-white/70 min-h-[44px]">
+            <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-[var(--fg2)] hover:text-[var(--fg2)] min-h-[44px]">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
               Back
             </button>
@@ -519,7 +519,7 @@ function DelegationFeed() {
         className="w-full text-left px-4 py-2 flex items-center gap-2"
         style={{ background: "rgba(168,85,247,0.04)" }}
       >
-        <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-purple-500 text-[10px] font-bold text-white px-1">
+        <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white px-1">
           {delegations.length}
         </span>
         <span style={{ fontSize: 12, fontWeight: 500, color: "#c084fc" }}>
@@ -788,7 +788,7 @@ function DetailPane({
                   style={{ background: "#1c1c1c", border: "1px solid #333", borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", width: 220, overflow: "hidden" }}
                 >
                   <button
-                    className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-white/[0.04]"
+                    className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-hover"
                     style={{ color: "#c084fc", borderBottom: "1px solid #222" }}
                     disabled={creatingProject}
                     onClick={async () => {
@@ -825,7 +825,7 @@ function DetailPane({
                   {workStreams.map(ws => (
                     <button
                       key={ws.id}
-                      className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-white/[0.04] truncate"
+                      className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-hover truncate"
                       style={{ color: "#b0b0b0", borderBottom: "1px solid #222" }}
                       onClick={async () => {
                         await fetch(`/api/workstreams/${ws.id}/items`, {
@@ -857,7 +857,7 @@ function DetailPane({
 
       {detailLoading && (
         <div className="flex justify-center py-8">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
         </div>
       )}
 
@@ -1022,12 +1022,12 @@ function DetailPane({
             <p style={{ fontSize: 13, color: "#707070" }} className="italic">No action recommended — please review.</p>
           ) : s.status === "reasoning" ? (
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-muted" />
               <p style={{ fontSize: 13, color: "#707070" }}>AI is analyzing this situation...</p>
             </div>
           ) : s.status === "executing" || s.status === "auto_executing" ? (
             <div className="flex items-center gap-2">
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-emerald-400" />
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-ok" />
               <p style={{ fontSize: 13, color: "#707070" }}>Executing action...</p>
             </div>
           ) : null}

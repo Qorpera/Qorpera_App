@@ -3,12 +3,12 @@
 type BadgeVariant = "default" | "purple" | "green" | "amber" | "red" | "blue";
 
 const variantClasses: Record<BadgeVariant, string> = {
-  default: "bg-[#222] text-[#b0b0b0] border-[#333]",
-  purple: "bg-purple-500/15 text-purple-300 border-purple-500/25",
-  green: "bg-emerald-500/15 text-emerald-300 border-emerald-500/25",
-  amber: "bg-amber-500/15 text-amber-300 border-amber-500/25",
-  red: "bg-red-500/15 text-red-300 border-red-500/25",
-  blue: "bg-blue-500/15 text-blue-300 border-blue-500/25",
+  default: "bg-surface text-muted border-border",
+  purple: "bg-accent-light text-accent border-[color-mix(in_srgb,var(--accent)_25%,transparent)]",
+  green: "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok border-[color-mix(in_srgb,var(--ok)_25%,transparent)]",
+  amber: "bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn border-[color-mix(in_srgb,var(--warn)_25%,transparent)]",
+  red: "bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger border-[color-mix(in_srgb,var(--danger)_25%,transparent)]",
+  blue: "bg-[color-mix(in_srgb,var(--info)_12%,transparent)] text-info border-[color-mix(in_srgb,var(--info)_25%,transparent)]",
 };
 
 export function Badge({

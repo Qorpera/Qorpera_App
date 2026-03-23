@@ -62,9 +62,9 @@ const ICONS: Record<string, string> = {
 };
 
 const ROLE_BADGE_COLORS: Record<string, string> = {
-  admin: "bg-purple-500/20 text-purple-300",
-  member: "bg-white/[0.06] text-white/40",
-  superadmin: "bg-amber-500/20 text-amber-300",
+  admin: "bg-accent-light text-accent",
+  member: "bg-surface text-[var(--fg3)]",
+  superadmin: "bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] text-warn",
 };
 
 export function AppNav({ pendingApprovals = 0, collapsed = false, onNavClick }: { pendingApprovals?: number; collapsed?: boolean; onNavClick?: () => void }) {
@@ -86,7 +86,7 @@ export function AppNav({ pendingApprovals = 0, collapsed = false, onNavClick }: 
         return (
           <div key={gi}>
             {group.labelKey && !collapsed && (
-              <p className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/25">
+              <p className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--fg3)]">
                 {t(group.labelKey)}
               </p>
             )}
@@ -104,8 +104,8 @@ export function AppNav({ pendingApprovals = 0, collapsed = false, onNavClick }: 
                     title={collapsed ? label : undefined}
                     className={`flex items-center ${collapsed ? "justify-center" : "gap-2.5"} rounded-lg ${collapsed ? "px-2 py-2" : "px-2.5 py-2"} text-[13px] font-medium transition min-h-[44px] ${
                       active
-                        ? "bg-purple-500/10 text-purple-300"
-                        : "text-white/50 hover:bg-white/[0.04] hover:text-white/70"
+                        ? "bg-accent-light text-accent"
+                        : "text-[var(--fg2)] hover:bg-hover hover:text-foreground"
                     }`}
                   >
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -113,7 +113,7 @@ export function AppNav({ pendingApprovals = 0, collapsed = false, onNavClick }: 
                     </svg>
                     {!collapsed && <span className="flex-1">{label}</span>}
                     {!collapsed && item.badge && pendingApprovals > 0 && (
-                      <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-purple-500 text-[10px] font-bold text-white px-1">
+                      <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-ink px-1">
                         {pendingApprovals}
                       </span>
                     )}

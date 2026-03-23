@@ -9,6 +9,7 @@ import { NotificationBell } from "./notification-bell";
 import { useUser } from "./user-provider";
 import { QorperaLogo } from "./qorpera-logo";
 import { LocaleSwitcher } from "./locale-switcher";
+import { ThemeToggle } from "./theme-toggle";
 import { useMediaQuery } from "@/hooks/use-media-query";
 
 function CollapseChevron({ collapsed }: { collapsed: boolean }) {
@@ -40,12 +41,12 @@ function AiPausedBanner() {
   if (!paused) return null;
 
   return (
-    <div className="bg-red-500/15 border-b border-red-500/20 px-4 py-1.5 flex items-center justify-between flex-shrink-0">
-      <span className="text-xs text-red-300">
+    <div className="bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border-b border-[color-mix(in_srgb,var(--danger)_20%,transparent)] px-4 py-1.5 flex items-center justify-between flex-shrink-0">
+      <span className="text-xs text-danger">
         <span className="mr-1">⚠️</span> {t("aiPaused")}
       </span>
       {isAdmin && (
-        <a href="/settings" className="text-xs text-red-400 hover:text-red-300 font-medium">
+        <a href="/settings" className="text-xs text-danger hover:text-[var(--foreground)] font-medium">
           {t("goToSettings")}
         </a>
       )}
@@ -71,12 +72,12 @@ function SuperadminBanner() {
   if (!isSuperadmin || !actingAsOperator || !companyName) return null;
 
   return (
-    <div className="bg-amber-500/15 border-b border-amber-500/20 px-4 py-1.5 flex items-center justify-between flex-shrink-0">
-      <span className="text-xs text-amber-300">
+    <div className="bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] border-b border-[color-mix(in_srgb,var(--warn)_20%,transparent)] px-4 py-1.5 flex items-center justify-between flex-shrink-0">
+      <span className="text-xs text-warn">
         {t("viewingAs")} <span className="font-medium">{companyName}</span>
       </span>
       <button
-        className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+        className="text-xs text-warn hover:text-[var(--foreground)] font-medium"
         onClick={async () => {
           await fetch("/api/admin/exit-operator", { method: "POST" });
           router.push("/admin");
@@ -132,17 +133,20 @@ function SidebarContent({
 
       {/* Footer */}
       {!collapsed && (
-        <div className="px-5 py-3 border-t border-[#1e1e1e]">
+        <div className="px-5 py-3 border-t border-border">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[#444]">{t("version")}</p>
-            <LocaleSwitcher currentLocale={locale} />
+            <p className="text-[10px] text-[var(--fg3)]">{t("version")}</p>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <LocaleSwitcher currentLocale={locale} />
+            </div>
           </div>
-          <div className="text-[10px] text-[#444] mt-1">
-            <a href="/terms" className="hover:text-[#666]">Terms</a>
+          <div className="text-[10px] text-[var(--fg3)] mt-1">
+            <a href="/terms" className="hover:text-[var(--fg2)]">Terms</a>
             {" · "}
-            <a href="/privacy" className="hover:text-[#666]">Privacy</a>
+            <a href="/privacy" className="hover:text-[var(--fg2)]">Privacy</a>
             {" · "}
-            <a href="/dpa" className="hover:text-[#666]">DPA</a>
+            <a href="/dpa" className="hover:text-[var(--fg2)]">DPA</a>
           </div>
         </div>
       )}
@@ -207,8 +211,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
       <div className="flex h-screen wf-shell">
         {/* ── Desktop sidebar (lg+) — CSS-only visibility to avoid hydration flash ── */}
           <aside
-            style={{ background: "#0c0c0c" }}
-            className={`hidden lg:flex flex-shrink-0 flex-col border-r border-[#1e1e1e] transition-[width] duration-200 ${
+            className={`hidden lg:flex flex-shrink-0 flex-col bg-sidebar border-r border-border transition-[width] duration-200 ${
               collapsed ? "w-14" : "w-60"
             }`}
           >
@@ -219,7 +222,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
                   <QorperaLogo width={44} />
                   <button
                     onClick={() => setCollapsed(false)}
-                    className="text-white/20 hover:text-white/50 transition-colors p-1 rounded-lg hover:bg-white/[0.04]"
+                    className="text-[var(--fg3)] hover:text-[var(--fg2)] transition-colors p-1 rounded-lg hover:bg-hover"
                     title={t("expandSidebar")}
                   >
                     <CollapseChevron collapsed={true} />
@@ -230,7 +233,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
                   <QorperaLogo width={80} className="flex-shrink-0" />
                   <button
                     onClick={() => setCollapsed(true)}
-                    className="ml-auto text-white/20 hover:text-white/50 transition-colors p-1 -mr-1 rounded-lg hover:bg-white/[0.04]"
+                    className="ml-auto text-[var(--fg3)] hover:text-[var(--fg2)] transition-colors p-1 -mr-1 rounded-lg hover:bg-hover"
                     title={t("collapseSidebar")}
                   >
                     <CollapseChevron collapsed={false} />
@@ -247,20 +250,19 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
           <>
             {/* Backdrop */}
             <div
-              className="fixed inset-0 bg-black/40 z-40"
+              className="fixed inset-0 bg-overlay z-40"
               onClick={() => setMobileNavOpen(false)}
             />
             {/* Drawer */}
             <div
-              className="fixed inset-y-0 left-0 w-72 z-50 flex flex-col"
-              style={{ background: "#0c0c0c" }}
+              className="fixed inset-y-0 left-0 w-72 z-50 flex flex-col bg-sidebar"
             >
               {/* Drawer header */}
               <div className="flex items-center justify-between px-5 py-4">
                 <QorperaLogo width={80} />
                 <button
                   onClick={() => setMobileNavOpen(false)}
-                  className="p-2 -mr-2 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.04] min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  className="p-2 -mr-2 rounded-lg text-[var(--fg3)] hover:text-foreground hover:bg-hover min-h-[44px] min-w-[44px] flex items-center justify-center"
                 >
                   <CloseIcon />
                 </button>
@@ -274,10 +276,10 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
         {/* ── Main content ── */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Mobile top bar (below lg) — CSS-only visibility */}
-            <div className="flex lg:hidden items-center justify-between px-3 h-14 border-b border-white/[0.06] flex-shrink-0" style={{ background: "#0c0c0c" }}>
+            <div className="flex lg:hidden items-center justify-between px-3 h-14 border-b border-border flex-shrink-0 bg-sidebar">
               <button
                 onClick={() => setMobileNavOpen(true)}
-                className="p-2 rounded-lg text-white/50 hover:text-white/80 hover:bg-white/[0.04] min-h-[44px] min-w-[44px] flex items-center justify-center"
+                className="p-2 rounded-lg text-[var(--fg2)] hover:text-foreground hover:bg-hover min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <HamburgerIcon />
               </button>
@@ -292,7 +294,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
           <AiPausedBanner />
 
           {/* Desktop top bar (lg+) — CSS-only visibility */}
-            <div className="hidden lg:flex items-center justify-end gap-3 px-5 py-2 border-b border-white/[0.04] flex-shrink-0">
+            <div className="hidden lg:flex items-center justify-end gap-3 px-5 py-2 border-b border-border flex-shrink-0">
               {topBarContent}
               <NotificationBell />
             </div>

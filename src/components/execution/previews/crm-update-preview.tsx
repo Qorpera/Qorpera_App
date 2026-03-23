@@ -58,20 +58,20 @@ export function CrmUpdatePreview(props: PreviewProps) {
   // Error or entity not found — show warning + raw values
   if (error || (!loading && entityId && !entity)) {
     return (
-      <div className="rounded-md overflow-hidden" style={{ border: "1px solid #2a2a2a", background: "#141414" }}>
-        <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: "1px solid #222", background: "#181818" }}>
-          <DatabaseIcon size={14} className="text-purple-400 flex-shrink-0" />
-          <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>{t("crmUpdate")}</span>
+      <div className="rounded-md overflow-hidden border border-border bg-surface">
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <DatabaseIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("crmUpdate")}</span>
         </div>
         <div className="px-4 py-3">
-          <p style={{ fontSize: 12, color: "#f59e0b", marginBottom: 8 }}>
+          <p style={{ fontSize: 12, color: "var(--warn)", marginBottom: 8 }}>
             {t("entityNotFound")} — {t("showingRawValues")}
           </p>
           <div className="space-y-1.5">
             {Object.entries(updates).map(([key, val]) => (
               <div key={key} className="flex items-baseline gap-2">
-                <span style={{ fontSize: 11, color: "#585858", fontWeight: 500 }}>{titleCase(key)}</span>
-                <span style={{ fontSize: 13, color: "#b0b0b0" }}>{String(val)}</span>
+                <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500 }}>{titleCase(key)}</span>
+                <span style={{ fontSize: 13, color: "var(--muted)" }}>{String(val)}</span>
               </div>
             ))}
           </div>
@@ -92,36 +92,36 @@ export function CrmUpdatePreview(props: PreviewProps) {
   const updateEntries = Object.entries(updates);
 
   return (
-    <div className="rounded-md overflow-hidden" style={{ border: "1px solid #2a2a2a", background: "#141414" }}>
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: "1px solid #222", background: "#181818" }}>
-        <DatabaseIcon size={14} className="text-purple-400 flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>{t("crmUpdate")}</span>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <DatabaseIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("crmUpdate")}</span>
       </div>
 
       <div className="px-4 py-3 space-y-3">
         {/* Entity info */}
         {loading ? (
           <div className="space-y-2">
-            <div className="h-4 w-40 rounded animate-pulse" style={{ background: "#222" }} />
-            <div className="h-3 w-24 rounded animate-pulse" style={{ background: "#1e1e1e" }} />
+            <div className="h-4 w-40 rounded animate-pulse bg-skeleton" />
+            <div className="h-3 w-24 rounded animate-pulse bg-skeleton" />
           </div>
         ) : entity ? (
           <div>
             <div className="flex items-center gap-2">
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#d0d0d0" }}>{entity.displayName}</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }}>{entity.displayName}</span>
               {entity.entityType && (
-                <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: "rgba(168,85,247,0.12)", color: "#c084fc" }}>
+                <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: "color-mix(in srgb, var(--accent) 12%, transparent)", color: "var(--accent)" }}>
                   {entity.entityType.name}
                 </span>
               )}
               {entity.sourceSystem && (
-                <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}>
+                <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: "color-mix(in srgb, var(--info) 12%, transparent)", color: "var(--info)" }}>
                   {entity.sourceSystem}
                 </span>
               )}
             </div>
-            <p style={{ fontSize: 11, color: "#484848", marginTop: 2 }}>
+            <p style={{ fontSize: 11, color: "var(--fg3)", marginTop: 2 }}>
               {t("lastSynced", { time: formatRelativeTime(entity.updatedAt, locale) })}
             </p>
           </div>
@@ -129,17 +129,17 @@ export function CrmUpdatePreview(props: PreviewProps) {
 
         {/* Diff table */}
         {updateEntries.length > 0 && (
-          <div style={{ border: "1px solid #222", borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ border: "1px solid var(--border)", borderRadius: 4, overflow: "hidden" }}>
             {/* Table header */}
-            <div className="flex" style={{ background: "#181818", borderBottom: "1px solid #222" }}>
-              <div className="flex-1 px-3 py-1.5" style={{ fontSize: 10, fontWeight: 600, color: "#585858", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            <div className="flex" style={{ background: "var(--elevated)", borderBottom: "1px solid var(--border)" }}>
+              <div className="flex-1 px-3 py-1.5" style={{ fontSize: 10, fontWeight: 600, color: "var(--fg2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 {t("field")}
               </div>
-              <div className="flex-1 px-3 py-1.5" style={{ fontSize: 10, fontWeight: 600, color: "#585858", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <div className="flex-1 px-3 py-1.5" style={{ fontSize: 10, fontWeight: 600, color: "var(--fg2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 {t("currentValue")}
               </div>
               <div style={{ width: 24 }} />
-              <div className="flex-1 px-3 py-1.5" style={{ fontSize: 10, fontWeight: 600, color: "#585858", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <div className="flex-1 px-3 py-1.5" style={{ fontSize: 10, fontWeight: 600, color: "var(--fg2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 {t("newValue")}
               </div>
             </div>
@@ -147,11 +147,11 @@ export function CrmUpdatePreview(props: PreviewProps) {
             {/* Rows */}
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex" style={{ borderBottom: i < 2 ? "1px solid #1e1e1e" : "none" }}>
-                  <div className="flex-1 px-3 py-2"><div className="h-3 w-16 rounded animate-pulse" style={{ background: "#1e1e1e" }} /></div>
-                  <div className="flex-1 px-3 py-2"><div className="h-3 w-20 rounded animate-pulse" style={{ background: "#1e1e1e" }} /></div>
+                <div key={i} className="flex" style={{ borderBottom: i < 2 ? "1px solid var(--border)" : "none" }}>
+                  <div className="flex-1 px-3 py-2"><div className="h-3 w-16 rounded animate-pulse" style={{ background: "var(--skeleton)" }} /></div>
+                  <div className="flex-1 px-3 py-2"><div className="h-3 w-20 rounded animate-pulse" style={{ background: "var(--skeleton)" }} /></div>
                   <div style={{ width: 24 }} />
-                  <div className="flex-1 px-3 py-2"><div className="h-3 w-20 rounded animate-pulse" style={{ background: "#1e1e1e" }} /></div>
+                  <div className="flex-1 px-3 py-2"><div className="h-3 w-20 rounded animate-pulse" style={{ background: "var(--skeleton)" }} /></div>
                 </div>
               ))
             ) : (
@@ -165,26 +165,26 @@ export function CrmUpdatePreview(props: PreviewProps) {
                     key={key}
                     className="flex items-center"
                     style={{
-                      borderBottom: i < updateEntries.length - 1 ? "1px solid #1e1e1e" : "none",
-                      background: isChanged ? "rgba(34,197,94,0.03)" : "transparent",
+                      borderBottom: i < updateEntries.length - 1 ? "1px solid var(--border)" : "none",
+                      background: isChanged ? "color-mix(in srgb, var(--ok) 3%, transparent)" : "transparent",
                     }}
                   >
                     <div className="flex-1 px-3 py-2">
-                      <span style={{ fontSize: 12, fontWeight: 500, color: "#909090" }}>{titleCase(key)}</span>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{titleCase(key)}</span>
                     </div>
                     <div className="flex-1 px-3 py-2">
-                      <span style={{ fontSize: 12, color: isChanged ? "#707070" : "#484848", textDecoration: isChanged ? "line-through" : "none" }}>
+                      <span style={{ fontSize: 12, color: isChanged ? "var(--fg2)" : "var(--fg3)", textDecoration: isChanged ? "line-through" : "none" }}>
                         {currentVal}
                       </span>
                     </div>
                     <div style={{ width: 24, textAlign: "center" }}>
-                      <span style={{ fontSize: 11, color: isChanged ? "#585858" : "#333" }}>&rarr;</span>
+                      <span style={{ fontSize: 11, color: isChanged ? "var(--fg2)" : "var(--fg3)" }}>&rarr;</span>
                     </div>
                     <div className="flex-1 px-3 py-2">
-                      <span style={{ fontSize: 12, fontWeight: isChanged ? 500 : 400, color: isChanged ? "#22c55e" : "#484848" }}>
+                      <span style={{ fontSize: 12, fontWeight: isChanged ? 500 : 400, color: isChanged ? "var(--ok)" : "var(--fg3)" }}>
                         {newValStr}
                         {!isChanged && (
-                          <span style={{ fontSize: 10, color: "#484848", marginLeft: 4 }}>({t("unchanged")})</span>
+                          <span style={{ fontSize: 10, color: "var(--fg3)", marginLeft: 4 }}>({t("unchanged")})</span>
                         )}
                       </span>
                     </div>

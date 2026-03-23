@@ -18,7 +18,7 @@ import type { OnboardingStep } from "@/components/onboarding/types";
 export default function OnboardingPageWrapper() {
   const tc = useTranslations("common");
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[rgba(8,12,16,1)]"><div className="text-white/30 text-sm">{tc("loading")}</div></div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-sidebar"><div className="text-[var(--fg3)] text-sm">{tc("loading")}</div></div>}>
       <OnboardingPage />
     </Suspense>
   );
@@ -108,14 +108,14 @@ function OnboardingPage() {
 
   if (step === null) {
     return (
-      <div className="min-h-screen bg-[rgba(8,12,16,1)] flex items-center justify-center">
-        <div className="w-6 h-6 rounded-full border-2 border-purple-500/40 border-t-purple-400 animate-spin" />
+      <div className="min-h-screen bg-sidebar flex items-center justify-center">
+        <div className="w-6 h-6 rounded-full border-2 border-[color-mix(in_srgb,var(--accent)_40%,transparent)] border-t-accent animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[rgba(8,12,16,1)] flex flex-col items-center px-4 py-12">
+    <div className="min-h-screen bg-sidebar flex flex-col items-center px-4 py-12">
       <OnboardingProgress step={step} />
 
       <div className={`w-full ${step === 4 ? "max-w-3xl" : "max-w-[600px]"}`}>

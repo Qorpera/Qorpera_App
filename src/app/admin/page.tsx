@@ -136,33 +136,33 @@ export default function AdminPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
-        <div className="text-white/30 text-sm">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-sidebar">
+        <div className="text-[var(--fg3)] text-sm">Loading...</div>
       </div>
     );
   }
 
   const phaseColors: Record<string, string> = {
-    active: "text-emerald-400",
-    mapping: "text-amber-400",
-    populating: "text-amber-400",
-    connecting: "text-amber-400",
-    syncing: "text-amber-400",
-    orienting: "text-purple-400",
+    active: "text-ok",
+    mapping: "text-warn",
+    populating: "text-warn",
+    connecting: "text-warn",
+    syncing: "text-warn",
+    orienting: "text-accent",
   };
 
   return (
-    <div className="min-h-screen bg-[#0e1418]">
+    <div className="min-h-screen bg-sidebar">
       {/* Header */}
-      <div className="border-b border-white/[0.06] px-8 py-5">
+      <div className="border-b border-border px-8 py-5">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <QorperaLogo width={32} />
             <div>
-              <h1 className="font-heading text-xl font-semibold tracking-[-0.02em] text-white/90">
+              <h1 className="font-heading text-xl font-semibold tracking-[-0.02em] text-foreground">
                 Qorpera Admin
               </h1>
-              <p className="text-xs text-white/40">{userName}</p>
+              <p className="text-xs text-[var(--fg2)]">{userName}</p>
             </div>
           </div>
           <Button
@@ -183,8 +183,8 @@ export default function AdminPage() {
         {/* Demo Tools */}
         <div className="mb-8 wf-soft p-5 flex items-center justify-between">
           <div>
-            <h3 className="text-white/80 font-medium text-sm">Demo Tools</h3>
-            <p className="text-xs text-white/40 mt-0.5">
+            <h3 className="text-foreground font-medium text-sm">Demo Tools</h3>
+            <p className="text-xs text-[var(--fg2)] mt-0.5">
               Create a fully-populated test operator with realistic data
             </p>
           </div>
@@ -198,7 +198,7 @@ export default function AdminPage() {
           </Button>
         </div>
         {testError && (
-          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+          <div className="mb-4 p-3 rounded-lg bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] text-danger text-sm">
             {testError}
           </div>
         )}
@@ -208,27 +208,27 @@ export default function AdminPage() {
           const realOps = operators.filter((o) => !o.isTestOperator);
           return (
             <>
-              <h2 className="text-lg font-medium text-white/70 mb-4">
+              <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">
                 Operators ({realOps.length})
               </h2>
               {realOps.length === 0 ? (
                 <div className="wf-soft p-8 text-center">
-                  <p className="text-white/40 text-sm">No operators registered yet.</p>
+                  <p className="text-[var(--fg2)] text-sm">No operators registered yet.</p>
                 </div>
               ) : (
                 <div className="grid gap-3">
                   {realOps.map((op) => (
                     <div
                       key={op.id}
-                      className="wf-soft p-5 flex items-center gap-6 hover:border-white/[0.12] transition-colors"
+                      className="wf-soft p-5 flex items-center gap-6 hover:border-border-strong transition-colors"
                     >
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-white/80 font-medium truncate">{op.companyName}</h3>
-                        <div className="flex items-center gap-4 mt-1.5 text-xs text-white/40">
+                        <h3 className="text-foreground font-medium truncate">{op.companyName}</h3>
+                        <div className="flex items-center gap-4 mt-1.5 text-xs text-[var(--fg2)]">
                           <span>{op.userCount} user{op.userCount !== 1 ? "s" : ""}</span>
                           <span>{op.departmentCount} dept{op.departmentCount !== 1 ? "s" : ""}</span>
                           <span>{op.entityCount} entities</span>
-                          <span className={phaseColors[op.onboardingPhase] || "text-white/40"}>
+                          <span className={phaseColors[op.onboardingPhase] || "text-[var(--fg2)]"}>
                             {op.onboardingPhase}
                           </span>
                           <span>
@@ -236,18 +236,18 @@ export default function AdminPage() {
                           </span>
                         </div>
                         {op.mergeStats && op.mergeStats.total > 0 && (
-                          <div className="flex items-center gap-3 mt-1 text-xs text-white/30">
+                          <div className="flex items-center gap-3 mt-1 text-xs text-[var(--fg3)]">
                             <span>Merges: {op.mergeStats.total}</span>
                             {op.mergeStats.byType.auto_identity ? <span>{op.mergeStats.byType.auto_identity} email</span> : null}
                             {op.mergeStats.byType.ml_high_confidence ? <span>{op.mergeStats.byType.ml_high_confidence} ML</span> : null}
                             {op.mergeStats.byType.admin_manual ? <span>{op.mergeStats.byType.admin_manual} manual</span> : null}
                             {op.mergeStats.pending > 0 && (
-                              <span className="px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-medium">
+                              <span className="px-1.5 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn text-[10px] font-medium">
                                 {op.mergeStats.pending} pending
                               </span>
                             )}
                             <button
-                              className="text-purple-400 hover:text-purple-300"
+                              className="text-accent hover:text-accent"
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 const res = await fetch("/api/admin/enter-operator", {
@@ -263,7 +263,7 @@ export default function AdminPage() {
                           </div>
                         )}
                         {op.aiStats && (
-                          <div className="flex items-center gap-3 mt-1 text-xs text-white/30">
+                          <div className="flex items-center gap-3 mt-1 text-xs text-[var(--fg3)]">
                             <span>AI: {op.aiStats.totalAiEntities} entit{op.aiStats.totalAiEntities !== 1 ? "ies" : "y"}</span>
                             <span>{op.aiStats.counts.supervised} supervised</span>
                             <span>{op.aiStats.counts.notify} notify</span>
@@ -293,27 +293,27 @@ export default function AdminPage() {
           if (testOps.length === 0) return null;
           return (
             <div className="mt-10">
-              <h2 className="text-lg font-medium text-white/70 mb-4">
+              <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">
                 Test Operators ({testOps.length})
               </h2>
               <div className="grid gap-3">
                 {testOps.map((op) => (
                   <div
                     key={op.id}
-                    className="wf-soft p-5 flex items-center gap-6 hover:border-white/[0.12] transition-colors"
+                    className="wf-soft p-5 flex items-center gap-6 hover:border-border-strong transition-colors"
                   >
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-white/80 font-medium truncate">
+                      <h3 className="text-foreground font-medium truncate">
                         {op.companyName}
-                        <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 align-middle">
+                        <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn align-middle">
                           test
                         </span>
                       </h3>
-                      <div className="flex items-center gap-4 mt-1.5 text-xs text-white/40">
+                      <div className="flex items-center gap-4 mt-1.5 text-xs text-[var(--fg2)]">
                         <span>{op.userCount} user{op.userCount !== 1 ? "s" : ""}</span>
                         <span>{op.departmentCount} dept{op.departmentCount !== 1 ? "s" : ""}</span>
                         <span>{op.entityCount} entities</span>
-                        <span className={phaseColors[op.onboardingPhase] || "text-white/40"}>
+                        <span className={phaseColors[op.onboardingPhase] || "text-[var(--fg2)]"}>
                           {op.onboardingPhase}
                         </span>
                         <span>
@@ -327,7 +327,7 @@ export default function AdminPage() {
                         size="sm"
                         disabled={deleting === op.id}
                         onClick={() => setConfirmDelete(op)}
-                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                        className="text-danger hover:text-danger hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
                       >
                         {deleting === op.id ? "Deleting..." : "Delete"}
                       </Button>
@@ -349,64 +349,64 @@ export default function AdminPage() {
         {/* System Status — superadmin only */}
         {systemStatus && (
           <div className="mt-10">
-            <h2 className="text-lg font-medium text-white/70 mb-4">System Status</h2>
+            <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">System Status</h2>
             <div className="wf-soft p-6 space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {/* Situation Types */}
                 <div>
-                  <p className="text-xs text-white/40 mb-1">Situation Types</p>
-                  <p className="text-lg font-medium text-white/80">{systemStatus.situationTypeCount}</p>
+                  <p className="text-xs text-[var(--fg2)] mb-1">Situation Types</p>
+                  <p className="text-lg font-medium text-foreground">{systemStatus.situationTypeCount}</p>
                 </div>
                 {/* Last Detection */}
                 <div>
-                  <p className="text-xs text-white/40 mb-1">Last Detection Run</p>
-                  <p className="text-sm text-white/70">
+                  <p className="text-xs text-[var(--fg2)] mb-1">Last Detection Run</p>
+                  <p className="text-sm text-[var(--fg2)]">
                     {systemStatus.lastDetectionRun ? formatRelativeTime(systemStatus.lastDetectionRun) : "never"}
                   </p>
                 </div>
                 {/* Total Situations */}
                 <div>
-                  <p className="text-xs text-white/40 mb-1">Total Situations</p>
-                  <p className="text-lg font-medium text-white/80">{systemStatus.totalSituationsDetected}</p>
+                  <p className="text-xs text-[var(--fg2)] mb-1">Total Situations</p>
+                  <p className="text-lg font-medium text-foreground">{systemStatus.totalSituationsDetected}</p>
                 </div>
                 {/* Active Connectors */}
                 <div>
-                  <p className="text-xs text-white/40 mb-1">Active Connectors</p>
-                  <p className="text-lg font-medium text-white/80">{systemStatus.activeConnectors}</p>
+                  <p className="text-xs text-[var(--fg2)] mb-1">Active Connectors</p>
+                  <p className="text-lg font-medium text-foreground">{systemStatus.activeConnectors}</p>
                 </div>
                 {/* AI Provider */}
                 <div>
-                  <p className="text-xs text-white/40 mb-1">AI Provider</p>
+                  <p className="text-xs text-[var(--fg2)] mb-1">AI Provider</p>
                   <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     systemStatus.aiProviderConfigured
-                      ? "bg-emerald-500/15 text-emerald-400"
-                      : "bg-red-500/15 text-red-400"
+                      ? "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok"
+                      : "bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger"
                   }`}>
                     {systemStatus.aiProviderConfigured ? "Configured" : "Not configured"}
                   </span>
                 </div>
                 {/* AI Reachable */}
                 <div>
-                  <p className="text-xs text-white/40 mb-1">AI Reachable</p>
+                  <p className="text-xs text-[var(--fg2)] mb-1">AI Reachable</p>
                   <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     systemStatus.aiReachable
-                      ? "bg-emerald-500/15 text-emerald-400"
+                      ? "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok"
                       : systemStatus.aiProviderConfigured
-                        ? "bg-amber-500/15 text-amber-400"
-                        : "bg-red-500/15 text-red-400"
+                        ? "bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn"
+                        : "bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger"
                   }`}>
                     {systemStatus.aiReachable ? "Yes" : "No"}
                   </span>
                 </div>
               </div>
               {/* Cron status - full width */}
-              <div className="pt-2 border-t border-white/[0.06]">
+              <div className="pt-2 border-t border-border">
                 <div className="flex items-center gap-2">
-                  <p className="text-xs text-white/40">Detection Cron:</p>
+                  <p className="text-xs text-[var(--fg2)]">Detection Cron:</p>
                   <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     systemStatus.cronRunning
-                      ? "bg-emerald-500/15 text-emerald-400"
-                      : "bg-red-500/15 text-red-400"
+                      ? "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok"
+                      : "bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger"
                   }`}>
                     {systemStatus.cronRunning ? "Running" : "Stopped"}
                   </span>
@@ -419,13 +419,13 @@ export default function AdminPage() {
 
       {/* Delete Confirmation Modal */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
           <div className="wf-soft max-w-sm w-full mx-4 p-6 space-y-4">
-            <h3 className="text-lg font-medium text-white/90">Delete Test Operator</h3>
-            <p className="text-sm text-white/50">
-              Delete <span className="text-white/80">{confirmDelete.companyName}</span> and all its data?
+            <h3 className="text-lg font-medium text-foreground">Delete Test Operator</h3>
+            <p className="text-sm text-[var(--fg2)]">
+              Delete <span className="text-foreground">{confirmDelete.companyName}</span> and all its data?
             </p>
-            <p className="text-xs text-white/30">
+            <p className="text-xs text-[var(--fg3)]">
               This will permanently remove all users, entities, documents, situations, and configuration for this operator.
             </p>
             <div className="flex justify-end gap-3 pt-2">
@@ -437,7 +437,7 @@ export default function AdminPage() {
                 size="sm"
                 disabled={deleting === confirmDelete.id}
                 onClick={() => deleteOperator(confirmDelete.id)}
-                className="bg-red-500/20 text-red-400 hover:bg-red-500/30 border-red-500/20"
+                className="bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] text-danger hover:bg-[color-mix(in_srgb,var(--danger)_30%,transparent)] border-[color-mix(in_srgb,var(--danger)_20%,transparent)]"
               >
                 {deleting === confirmDelete.id ? "Deleting..." : "Delete"}
               </Button>
@@ -448,23 +448,23 @@ export default function AdminPage() {
 
       {/* Success Modal */}
       {testResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
           <div className="wf-soft max-w-md w-full mx-4 p-6 space-y-4">
-            <h3 className="text-lg font-medium text-white/90">Test Company Created</h3>
-            <p className="text-sm text-white/50">
+            <h3 className="text-lg font-medium text-foreground">Test Company Created</h3>
+            <p className="text-sm text-[var(--fg2)]">
               Nordic Digital Solutions is ready. Log in with these credentials:
             </p>
-            <div className="bg-white/[0.04] rounded-lg p-4 space-y-2 font-mono text-sm">
+            <div className="bg-hover rounded-lg p-4 space-y-2 font-mono text-sm">
               <div className="flex justify-between">
-                <span className="text-white/40">Email</span>
-                <span className="text-white/80">{testResult.credentials.email}</span>
+                <span className="text-[var(--fg2)]">Email</span>
+                <span className="text-foreground">{testResult.credentials.email}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-white/40">Password</span>
-                <span className="text-white/80">{testResult.credentials.password}</span>
+                <span className="text-[var(--fg2)]">Password</span>
+                <span className="text-foreground">{testResult.credentials.password}</span>
               </div>
             </div>
-            <p className="text-xs text-white/30">
+            <p className="text-xs text-[var(--fg3)]">
               3 departments, 15 team members, 11 documents, 3 connectors,
               46 entities, 8 situation types, 15 situations, 3 policies
             </p>

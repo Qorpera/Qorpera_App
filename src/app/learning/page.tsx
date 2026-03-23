@@ -217,13 +217,13 @@ export default function LearningPage() {
     <AppShell>
       <div className="p-8 max-w-6xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3 sticky top-0 z-10 bg-[rgba(8,12,16,1)] py-3 -mt-3">
-          <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
+        <div className="flex items-center justify-between flex-wrap gap-3 sticky top-0 z-10 bg-sidebar py-3 -mt-3">
+          <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
           <div className="flex items-center gap-2 flex-wrap">
             <select
               value={period}
               onChange={(e) => setPeriod(Number(e.target.value))}
-              className="wf-soft px-3 py-1.5 text-sm text-white/70 bg-[rgba(15,20,25,0.95)] border-0 outline-none cursor-pointer [&>option]:bg-[rgb(15,20,25)] [&>option]:text-white/80"
+              className="wf-soft px-3 py-1.5 text-sm text-[var(--fg2)] bg-elevated border-0 outline-none cursor-pointer"
             >
               <option value={7}>Last 7 days</option>
               <option value={30}>Last 30 days</option>
@@ -232,7 +232,7 @@ export default function LearningPage() {
             <select
               value={departmentFilter ?? ""}
               onChange={(e) => setDepartmentFilter(e.target.value || null)}
-              className="wf-soft px-3 py-1.5 text-sm text-white/70 bg-[rgba(15,20,25,0.95)] border-0 outline-none cursor-pointer [&>option]:bg-[rgb(15,20,25)] [&>option]:text-white/80"
+              className="wf-soft px-3 py-1.5 text-sm text-[var(--fg2)] bg-elevated border-0 outline-none cursor-pointer"
             >
               <option value="">All Departments</option>
               {departments
@@ -245,7 +245,7 @@ export default function LearningPage() {
             </select>
             <button
               onClick={handleExport}
-              className="wf-soft px-3 py-1.5 text-sm text-white/60 hover:text-white/90 transition-colors"
+              className="wf-soft px-3 py-1.5 text-sm text-[var(--fg2)] hover:text-foreground transition-colors"
             >
               Export CSV
             </button>
@@ -254,7 +254,7 @@ export default function LearningPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="w-6 h-6 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+            <div className="w-6 h-6 border-2 border-[color-mix(in_srgb,var(--accent)_30%,transparent)] border-t-accent rounded-full animate-spin" />
           </div>
         ) : (
           <>
@@ -317,14 +317,14 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
 
   return (
     <section className="space-y-4">
-      <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">{t("tabs.overview")}</h2>
+      <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">{t("tabs.overview")}</h2>
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {metrics.map((m) => (
           <div key={m.label} className="wf-soft p-4">
-            <div className="text-2xl font-semibold text-white/90">{m.value}</div>
-            <div className="text-xs text-white/40 mt-1">{m.label}</div>
+            <div className="text-2xl font-semibold text-foreground">{m.value}</div>
+            <div className="text-xs text-[var(--fg2)] mt-1">{m.label}</div>
           </div>
         ))}
       </div>
@@ -333,7 +333,7 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
       <div className="flex flex-col lg:flex-row gap-4">
         {/* Approval Rate Over Time */}
         <div className="wf-soft p-4 flex-1 lg:w-[60%]">
-          <h3 className="text-xs text-white/40 mb-3">{t("approvalRateOverTime")}</h3>
+          <h3 className="text-xs text-[var(--fg2)] mb-3">{t("approvalRateOverTime")}</h3>
           {hasChartData ? (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={overview.approvalRateOverTime}>
@@ -362,7 +362,7 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex items-center justify-center h-[200px] text-sm text-white/25">
+            <div className="flex items-center justify-center h-[200px] text-sm text-[var(--fg3)]">
               Not enough data yet
             </div>
           )}
@@ -370,7 +370,7 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
 
         {/* Outcome Distribution */}
         <div className="wf-soft p-4 lg:w-[40%]">
-          <h3 className="text-xs text-white/40 mb-3">{t("outcomes")}</h3>
+          <h3 className="text-xs text-[var(--fg2)] mb-3">{t("outcomes")}</h3>
           {hasOutcomeData ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={outcomeData} layout="vertical">
@@ -390,7 +390,7 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex items-center justify-center h-[200px] text-sm text-white/25">
+            <div className="flex items-center justify-center h-[200px] text-sm text-[var(--fg3)]">
               Not enough data yet
             </div>
           )}
@@ -415,10 +415,10 @@ function DepartmentTable({
   if (departments.length === 0) {
     return (
       <section className="space-y-4">
-        <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
+        <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
           {t("departmentPerformance")}
         </h2>
-        <div className="wf-soft p-8 text-center text-sm text-white/30">
+        <div className="wf-soft p-8 text-center text-sm text-[var(--fg3)]">
           Complete onboarding to see department breakdown
         </div>
       </section>
@@ -437,13 +437,13 @@ function DepartmentTable({
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
+        <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
           {t("departmentPerformance")}
         </h2>
         {activeDepartment && (
           <button
             onClick={() => onSelectDepartment(null)}
-            className="text-xs text-purple-400 hover:text-purple-300"
+            className="text-xs text-accent hover:text-accent"
           >
             Clear filter
           </button>
@@ -452,7 +452,7 @@ function DepartmentTable({
       <div className="wf-soft overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-white/30 text-xs border-b border-white/5">
+            <tr className="text-[var(--fg3)] text-xs border-b border-border">
               <th className="text-left py-3 px-4 font-medium">Department</th>
               <th className="text-right py-3 px-4 font-medium">Situations</th>
               <th className="text-right py-3 px-4 font-medium">{t("approvalRate")}</th>
@@ -468,26 +468,26 @@ function DepartmentTable({
                 <tr
                   key={dept.id ?? "unscoped"}
                   onClick={() => dept.id && onSelectDepartment(isActive ? null : dept.id)}
-                  className={`border-b border-white/5 transition-colors ${
-                    dept.id ? "cursor-pointer hover:bg-white/[0.02]" : ""
-                  } ${isActive ? "bg-purple-500/5" : ""}`}
+                  className={`border-b border-border transition-colors ${
+                    dept.id ? "cursor-pointer hover:bg-hover" : ""
+                  } ${isActive ? "bg-accent-light" : ""}`}
                 >
-                  <td className="py-3 px-4 text-white/80">{dept.name}</td>
-                  <td className="py-3 px-4 text-right text-white/60">{dept.situationCount}</td>
+                  <td className="py-3 px-4 text-foreground">{dept.name}</td>
+                  <td className="py-3 px-4 text-right text-[var(--fg2)]">{dept.situationCount}</td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                      <div className="w-16 h-1.5 bg-hover rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-purple-500/60 rounded-full"
+                          className="h-full bg-accent/60 rounded-full"
                           style={{ width: `${dept.approvalRate * 100}%` }}
                         />
                       </div>
-                      <span className="text-white/60 w-10 text-right">
+                      <span className="text-[var(--fg2)] w-10 text-right">
                         {pct(dept.approvalRate)}
                       </span>
                     </div>
                   </td>
-                  <td className="py-3 px-4 text-right text-white/60">
+                  <td className="py-3 px-4 text-right text-[var(--fg2)]">
                     {dept.situationTypes.length}
                   </td>
                   <td className="py-3 px-4 text-right">
@@ -537,10 +537,10 @@ function SituationTypesPanel({
   if (situationTypes.length === 0) {
     return (
       <section className="space-y-4">
-        <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
+        <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
           {t("typeDetails")}
         </h2>
-        <div className="wf-soft p-8 text-center text-sm text-white/30">
+        <div className="wf-soft p-8 text-center text-sm text-[var(--fg3)]">
           No situation types created yet. Complete orientation to teach the AI what to watch for.
         </div>
       </section>
@@ -549,7 +549,7 @@ function SituationTypesPanel({
 
   return (
     <section className="space-y-4">
-      <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
+      <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
         {t("typeDetails")}
       </h2>
       <div className="space-y-3">
@@ -596,13 +596,13 @@ function SituationTypeCard({
     <div className="wf-soft overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full p-4 text-left hover:bg-white/[0.01] transition-colors"
+        className="w-full p-4 text-left hover:bg-hover transition-colors"
       >
         {/* Header row */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="text-white/90 font-medium">{st.name}</span>
-            <span className="text-xs text-white/30">{st.departmentName}</span>
+            <span className="text-foreground font-medium">{st.name}</span>
+            <span className="text-xs text-[var(--fg3)]">{st.departmentName}</span>
           </div>
           <span
             className="text-xs px-2 py-0.5 rounded-full"
@@ -615,18 +615,18 @@ function SituationTypeCard({
         {detail ? (
           <>
             {/* Metrics row */}
-            <div className="flex items-center gap-4 text-xs text-white/50 mb-2">
+            <div className="flex items-center gap-4 text-xs text-[var(--fg2)] mb-2">
               <span>{detail.metrics.totalProposed} {t("kpi.proposed")}</span>
               <span>{detail.metrics.totalApproved} {t("kpi.approved")}</span>
               <span>{detail.metrics.totalRejected} {t("kpi.rejected")}</span>
-              <span className="text-white/70">{pct(detail.metrics.approvalRate)} {t("rate")}</span>
+              <span className="text-[var(--fg2)]">{pct(detail.metrics.approvalRate)} {t("rate")}</span>
               <span>{detail.metrics.consecutiveApprovals} {t("consecutive")}</span>
             </div>
 
             {/* Approval rate bar */}
-            <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden mb-2">
+            <div className="w-full h-1.5 bg-hover rounded-full overflow-hidden mb-2">
               <div
-                className="h-full bg-purple-500/60 rounded-full transition-all"
+                className="h-full bg-accent/60 rounded-full transition-all"
                 style={{ width: `${detail.metrics.approvalRate * 100}%` }}
               />
             </div>
@@ -634,7 +634,7 @@ function SituationTypeCard({
             {/* Outcome + confidence */}
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1">
-                <span className="text-white/30">Outcomes:</span>
+                <span className="text-[var(--fg3)]">Outcomes:</span>
                 {Object.entries(detail.outcomeDistribution)
                   .filter(([, v]) => v > 0)
                   .map(([key, val]) => (
@@ -643,19 +643,19 @@ function SituationTypeCard({
                         className="inline-block w-2 h-2 rounded-sm"
                         style={{ background: OUTCOME_COLORS[key] }}
                       />
-                      <span className="text-white/40">
+                      <span className="text-[var(--fg2)]">
                         {val} {key}
                       </span>
                     </span>
                   ))}
               </div>
-              <span className="text-white/40">
+              <span className="text-[var(--fg2)]">
                 Avg confidence: {detail.metrics.avgConfidence.toFixed(2)}
               </span>
             </div>
           </>
         ) : (
-          <div className="flex items-center gap-4 text-xs text-white/50">
+          <div className="flex items-center gap-4 text-xs text-[var(--fg2)]">
             <span>{st.count} situations</span>
           </div>
         )}
@@ -663,17 +663,17 @@ function SituationTypeCard({
 
       {/* Expanded section */}
       {isExpanded && (
-        <div className="border-t border-white/5 p-4 space-y-4">
+        <div className="border-t border-border p-4 space-y-4">
           {!detail ? (
             <div className="flex items-center justify-center py-4">
-              <div className="w-4 h-4 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-[color-mix(in_srgb,var(--accent)_30%,transparent)] border-t-accent rounded-full animate-spin" />
             </div>
           ) : (
             <>
               {/* Mini approval rate chart */}
               {detail.approvalRateOverTime.length > 0 && (
                 <div>
-                  <h4 className="text-xs text-white/30 mb-2">{t("approvalRateOverTime")}</h4>
+                  <h4 className="text-xs text-[var(--fg3)] mb-2">{t("approvalRateOverTime")}</h4>
                   <ResponsiveContainer width="100%" height={120}>
                     <LineChart data={detail.approvalRateOverTime}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
@@ -710,22 +710,22 @@ function SituationTypeCard({
               {/* Recent feedback */}
               {detail.recentFeedback.length > 0 ? (
                 <div>
-                  <h4 className="text-xs text-white/30 mb-2">{t("recentFeedback")}</h4>
+                  <h4 className="text-xs text-[var(--fg3)] mb-2">{t("recentFeedback")}</h4>
                   <div className="space-y-2">
                     {detail.recentFeedback.map((f) => (
                       <div
                         key={f.id}
-                        className="flex items-start gap-2 text-xs text-white/50"
+                        className="flex items-start gap-2 text-xs text-[var(--fg2)]"
                       >
                         {f.feedbackCategory && (
-                          <span className="text-amber-400/70 shrink-0">
+                          <span className="text-warn/70 shrink-0">
                             [{f.feedbackCategory.replace(/_/g, " ")}]
                           </span>
                         )}
-                        <span className="text-white/60">
+                        <span className="text-[var(--fg2)]">
                           &quot;{f.feedback}&quot;
                         </span>
-                        <span className="text-white/20 shrink-0 ml-auto">
+                        <span className="text-[var(--fg3)] shrink-0 ml-auto">
                           {formatRelativeTime(f.createdAt, locale)}
                         </span>
                       </div>
@@ -733,7 +733,7 @@ function SituationTypeCard({
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-white/20">{t("noFeedback")}</p>
+                <p className="text-xs text-[var(--fg3)]">{t("noFeedback")}</p>
               )}
 
               {/* Admin promote button */}
@@ -780,7 +780,7 @@ function PromoteButton({
     <button
       onClick={handlePromote}
       disabled={promoting}
-      className="mt-2 text-xs px-3 py-1.5 rounded border border-purple-500/30 text-purple-300 hover:bg-purple-500/10 transition-colors disabled:opacity-50"
+      className="mt-2 text-xs px-3 py-1.5 rounded border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] text-accent hover:bg-accent-light transition-colors disabled:opacity-50"
     >
       {promoting ? "Promoting..." : label}
     </button>
@@ -797,10 +797,10 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
   if (feedback.recentFeedback.length === 0) {
     return (
       <section className="space-y-4">
-        <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
+        <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
           {t("recentFeedback")}
         </h2>
-        <div className="wf-soft p-8 text-center text-sm text-white/30">
+        <div className="wf-soft p-8 text-center text-sm text-[var(--fg3)]">
           No feedback given yet. Approve, reject, or teach on situations to help the AI learn.
         </div>
       </section>
@@ -809,58 +809,58 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
 
   return (
     <section className="space-y-4">
-      <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
+      <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
         {t("recentFeedback")}
       </h2>
-      <p className="text-xs text-white/30">
+      <p className="text-xs text-[var(--fg3)]">
         Recent feedback and its impact on AI performance:
       </p>
 
       <div className="space-y-3">
         {feedback.recentFeedback.map((f) => (
           <div key={f.id} className="wf-soft p-4 space-y-2">
-            <p className="text-sm text-white/80">
+            <p className="text-sm text-foreground">
               &quot;{f.feedback}&quot;
             </p>
-            <div className="flex items-center gap-2 text-xs text-white/40 flex-wrap">
+            <div className="flex items-center gap-2 text-xs text-[var(--fg2)] flex-wrap">
               <span>{f.situationTypeName}</span>
               {f.departmentName && (
                 <>
-                  <span className="text-white/15">&#x2022;</span>
+                  <span className="text-[var(--fg3)]">&#x2022;</span>
                   <span>{f.departmentName}</span>
                 </>
               )}
               {f.feedbackCategory && (
                 <>
-                  <span className="text-white/15">&#x2022;</span>
+                  <span className="text-[var(--fg3)]">&#x2022;</span>
                   <span>{f.feedbackCategory.replace(/_/g, " ")}</span>
                 </>
               )}
-              <span className="text-white/15">&#x2022;</span>
+              <span className="text-[var(--fg3)]">&#x2022;</span>
               <span>{formatRelativeTime(f.createdAt, locale)}</span>
             </div>
 
             {/* Before/After comparison */}
             <div className="flex items-center gap-2 text-xs">
               {f.approvalRateBefore !== null && (
-                <span className="text-white/40">
+                <span className="text-[var(--fg2)]">
                   Before: {pct(f.approvalRateBefore)}
                 </span>
               )}
               {f.approvalRateBefore !== null && f.approvalRateAfter !== null && (
-                <span className="text-white/20">&rarr;</span>
+                <span className="text-[var(--fg3)]">&rarr;</span>
               )}
               {f.approvalRateAfter !== null && (
-                <span className="text-white/40">
+                <span className="text-[var(--fg2)]">
                   After: {pct(f.approvalRateAfter)}
                 </span>
               )}
               {f.likelyLearned ? (
                 <span className="text-green-400 ml-1">&#x2713; Improved</span>
               ) : f.approvalRateBefore !== null && f.approvalRateAfter !== null ? (
-                <span className="text-white/25 ml-1">&mdash; No clear impact yet</span>
+                <span className="text-[var(--fg3)] ml-1">&mdash; No clear impact yet</span>
               ) : (
-                <span className="text-white/25 ml-1">Not enough data to compare</span>
+                <span className="text-[var(--fg3)] ml-1">Not enough data to compare</span>
               )}
             </div>
           </div>
@@ -870,8 +870,8 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
       {/* Theme summary */}
       {feedback.feedbackThemeSummary && (
         <div className="wf-soft p-4">
-          <h3 className="text-xs text-white/30 mb-2">{t("feedbackThemeSummary")}</h3>
-          <p className="text-sm text-white/50">{feedback.feedbackThemeSummary}</p>
+          <h3 className="text-xs text-[var(--fg3)] mb-2">{t("feedbackThemeSummary")}</h3>
+          <p className="text-sm text-[var(--fg2)]">{feedback.feedbackThemeSummary}</p>
         </div>
       )}
     </section>
@@ -882,26 +882,26 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
 
 function AiLearningPanel({ entries }: { entries: AiLearningEntry[] }) {
   const LEVEL_COLORS: Record<string, string> = {
-    supervised: "bg-white/[0.06] text-white/60 border-white/10",
-    notify: "bg-amber-500/15 text-amber-300 border-amber-500/20",
-    autonomous: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
+    supervised: "bg-skeleton text-[var(--fg2)] border-border",
+    notify: "bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn border-[color-mix(in_srgb,var(--warn)_20%,transparent)]",
+    autonomous: "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok border-[color-mix(in_srgb,var(--ok)_20%,transparent)]",
   };
 
   return (
     <section className="space-y-4">
-      <h2 className="text-sm font-medium text-white/40 uppercase tracking-wider">
+      <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
         AI Learning by Team Member
       </h2>
 
       {entries.length === 0 ? (
         <div className="wf-soft p-6 text-center">
-          <p className="text-sm text-white/30">No AI assistants have been created yet.</p>
+          <p className="text-sm text-[var(--fg3)]">No AI assistants have been created yet.</p>
         </div>
       ) : (
         <div className="wf-soft overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[11px] text-white/30 uppercase tracking-wider border-b border-white/[0.06]">
+              <tr className="text-[11px] text-[var(--fg3)] uppercase tracking-wider border-b border-border">
                 <th className="text-left px-4 py-3 font-medium">AI Assistant</th>
                 <th className="text-left px-4 py-3 font-medium">Owner</th>
                 <th className="text-left px-4 py-3 font-medium">Department</th>
@@ -911,23 +911,23 @@ function AiLearningPanel({ entries }: { entries: AiLearningEntry[] }) {
             </thead>
             <tbody>
               {entries.map((e) => (
-                <tr key={e.id} className="border-t border-white/[0.04]">
-                  <td className="px-4 py-3 text-white/70">{e.name}</td>
-                  <td className="px-4 py-3 text-white/50">{e.ownerName}</td>
-                  <td className="px-4 py-3 text-white/50">{e.department}</td>
-                  <td className="px-4 py-3 text-center text-white/50">
+                <tr key={e.id} className="border-t border-border">
+                  <td className="px-4 py-3 text-[var(--fg2)]">{e.name}</td>
+                  <td className="px-4 py-3 text-[var(--fg2)]">{e.ownerName}</td>
+                  <td className="px-4 py-3 text-[var(--fg2)]">{e.department}</td>
+                  <td className="px-4 py-3 text-center text-[var(--fg2)]">
                     {e.counts.supervised} / {e.counts.notify} / {e.counts.autonomous}
                   </td>
                   <td className="px-4 py-3">
                     {e.topTask ? (
                       <span className="inline-flex items-center gap-1.5">
-                        <span className="text-white/60">{e.topTask.name}</span>
+                        <span className="text-[var(--fg2)]">{e.topTask.name}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${LEVEL_COLORS[e.topTask.level] ?? LEVEL_COLORS.supervised}`}>
                           {e.topTask.level}
                         </span>
                       </span>
                     ) : (
-                      <span className="text-white/25">No tasks yet</span>
+                      <span className="text-[var(--fg3)]">No tasks yet</span>
                     )}
                   </td>
                 </tr>

@@ -25,7 +25,7 @@ function PencilIcon({ size = 11, className = "" }: { size?: number; className?: 
 function linkify(text: string): string {
   return escapeHtml(text).replace(
     /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer" class="underline text-purple-400 hover:text-purple-300">$1</a>',
+    '<a href="$1" target="_blank" rel="noopener noreferrer" class="underline text-accent hover:text-accent">$1</a>',
   );
 }
 
@@ -70,31 +70,31 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
   const showAiDisclosure = isActMode(step);
 
   return (
-    <div className="rounded-md overflow-hidden" style={{ border: "1px solid #2a2a2a", background: "#141414" }}>
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: "1px solid #222", background: "#181818" }}>
-        <MailIcon size={14} className="text-purple-400 flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>Email</span>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <MailIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>Email</span>
       </div>
 
       <div className="px-4 py-3 space-y-2.5">
         {/* From */}
         {from && (
           <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "#585858", fontWeight: 500, minWidth: 56 }}>{t("from")}</span>
-            <span style={{ fontSize: 13, color: "#909090" }}>{from}</span>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("from")}</span>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>{from}</span>
           </div>
         )}
 
         {/* To */}
         <div className="flex items-baseline gap-2">
-          <span style={{ fontSize: 11, color: "#585858", fontWeight: 500, minWidth: 56 }}>{t("to")}</span>
-          <span style={{ fontSize: 13, color: "#b0b0b0" }}>{recipient}</span>
+          <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("to")}</span>
+          <span style={{ fontSize: 13, color: "var(--muted)" }}>{recipient}</span>
         </div>
 
         {/* Subject */}
         <div className="flex items-baseline gap-2 group">
-          <span style={{ fontSize: 11, color: "#585858", fontWeight: 500, minWidth: 56 }}>{t("subject")}</span>
+          <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("subject")}</span>
           {editingField === "subject" ? (
             <input
               ref={inputRef}
@@ -103,12 +103,12 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
               onBlur={saveEdit}
               onKeyDown={handleKeyDown}
               className="flex-1 outline-none"
-              style={{ fontSize: 13, fontWeight: 500, color: "#e0e0e0", background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 3, padding: "2px 6px" }}
+              style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "2px 6px" }}
             />
           ) : (
             <span
               className={isEditable ? "cursor-pointer hover:text-[#d0d0d0]" : ""}
-              style={{ fontSize: 13, fontWeight: 500, color: "#b0b0b0" }}
+              style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)" }}
               onClick={() => startEdit("subject")}
             >
               {subject}
@@ -120,12 +120,12 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
         </div>
 
         {/* Divider */}
-        <div style={{ borderTop: "1px solid #222", margin: "8px 0" }} />
+        <div style={{ borderTop: "1px solid var(--border)", margin: "8px 0" }} />
 
         {/* Body */}
         <div className="group">
           <div className="flex items-center gap-1 mb-1">
-            <span style={{ fontSize: 11, color: "#585858", fontWeight: 500 }}>{t("body")}</span>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500 }}>{t("body")}</span>
             {isEditable && editingField !== "body" && (
               <PencilIcon size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
             )}
@@ -138,12 +138,12 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
               onBlur={saveEdit}
               rows={6}
               className="w-full outline-none resize-y"
-              style={{ fontSize: 13, lineHeight: 1.65, color: "#e0e0e0", background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 3, padding: "6px 8px", fontFamily: "inherit" }}
+              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "6px 8px", fontFamily: "inherit" }}
             />
           ) : (
             <div
               className={isEditable ? "cursor-pointer" : ""}
-              style={{ fontSize: 13, lineHeight: 1.65, color: "#909090" }}
+              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--muted)" }}
               onClick={() => startEdit("body")}
               dangerouslySetInnerHTML={{ __html: linkify(body).replace(/\n/g, "<br>") }}
             />
@@ -152,8 +152,8 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
 
         {/* AI Disclosure footer */}
         {showAiDisclosure && (
-          <div style={{ borderTop: "1px solid #222", paddingTop: 8, marginTop: 8 }}>
-            <p style={{ fontSize: 11, color: "#585858", fontStyle: "italic" }}>
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+            <p style={{ fontSize: 11, color: "var(--fg2)", fontStyle: "italic" }}>
               {t("aiDisclosure")}
             </p>
           </div>

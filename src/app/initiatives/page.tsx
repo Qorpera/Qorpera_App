@@ -249,7 +249,7 @@ export default function InitiativesPage() {
           <div className="flex-1 overflow-y-auto">
             {loading && (
               <div className="flex justify-center py-10">
-                <div className="h-4 w-4 animate-spin rounded-full border border-[#2a2a2a] border-t-[#707070]" />
+                <div className="h-4 w-4 animate-spin rounded-full border border-border border-t-muted" />
               </div>
             )}
             {filteredInitiatives.map(item => (
@@ -290,7 +290,7 @@ export default function InitiativesPage() {
         {(!isMobile || selectedId) && (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {isMobile && (
-            <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-white/50 hover:text-white/70 min-h-[44px]">
+            <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-[var(--fg2)] hover:text-[var(--fg2)] min-h-[44px]">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
               Back
             </button>
@@ -317,7 +317,7 @@ export default function InitiativesPage() {
             </>
           ) : selectedId && detailLoading ? (
             <div className="flex justify-center py-16">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
             </div>
           ) : (
             <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "#484848" }}>
@@ -389,7 +389,7 @@ function DetailPane({
 
       {detailLoading && (
         <div className="flex justify-center py-8">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
         </div>
       )}
 

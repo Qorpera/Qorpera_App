@@ -3,6 +3,7 @@ import { Inter, EB_Garamond } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { UserProvider } from "@/components/user-provider";
+import { ThemeProvider } from "@/components/theme-provider";
 import { CookieConsent } from "@/components/cookie-consent";
 import "./globals.css";
 
@@ -35,8 +36,10 @@ export default async function RootLayout({
     <html lang={locale} className={`${inter.variable} ${ebGaramond.variable}`}>
       <body className="antialiased">
         <NextIntlClientProvider messages={messages}>
-          <UserProvider>{children}</UserProvider>
-          <CookieConsent />
+          <ThemeProvider>
+            <UserProvider>{children}</UserProvider>
+            <CookieConsent />
+          </ThemeProvider>
         </NextIntlClientProvider>
       </body>
     </html>

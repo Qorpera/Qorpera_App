@@ -250,7 +250,7 @@ export default function GovernancePage() {
 
           {autoLoading ? (
             <div className="flex justify-center py-4">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
             </div>
           ) : (
             <>
@@ -294,7 +294,7 @@ export default function GovernancePage() {
               <button
                 onClick={() => setShowNewPolicy(true)}
                 style={{ fontSize: 11, color: "#b0b0b0", background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px" }}
-                className="hover:bg-[#2a2a2a] transition"
+                className="hover:bg-surface transition"
               >
                 {t("addRule")}
               </button>
@@ -303,7 +303,7 @@ export default function GovernancePage() {
 
           {policiesLoading && (
             <div className="flex justify-center py-4">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
             </div>
           )}
 
@@ -370,7 +370,7 @@ export default function GovernancePage() {
 
           {autoLoading ? (
             <div className="flex justify-center py-4">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
             </div>
           ) : sortedTypes.length === 0 ? (
             <p style={{ fontSize: 13, color: "#484848" }}>No situation types configured yet.</p>
@@ -554,7 +554,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
 
       {loading ? (
         <div className="flex justify-center py-4">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
         </div>
       ) : insights.length === 0 ? (
         <p style={{ fontSize: 13, color: "#484848" }}>
@@ -717,7 +717,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
           <button
             onClick={() => setShowForm(true)}
             style={{ fontSize: 11, color: "#b0b0b0", background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px" }}
-            className="hover:bg-[#2a2a2a] transition"
+            className="hover:bg-surface transition"
           >
             {t("addGoal")}
           </button>
@@ -731,7 +731,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
           <Input label="Description" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder={t("goalDescription")} />
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs text-white/40 mb-1 block">{t("priority")} (1-5)</label>
+              <label className="text-xs text-[var(--fg2)] mb-1 block">{t("priority")} (1-5)</label>
               <input
                 type="number"
                 min={1}
@@ -743,7 +743,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
               />
             </div>
             <div className="flex-1">
-              <label className="text-xs text-white/40 mb-1 block">{t("department")}</label>
+              <label className="text-xs text-[var(--fg2)] mb-1 block">{t("department")}</label>
               <select
                 value={formDeptId}
                 onChange={e => setFormDeptId(e.target.value)}
@@ -768,7 +768,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
 
       {loading ? (
         <div className="flex justify-center py-4">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#2a2a2a] border-t-[#707070]" />
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
         </div>
       ) : goals.length === 0 ? (
         <p style={{ fontSize: 13, color: "#484848" }}>No goals configured yet.</p>
@@ -795,7 +795,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
                   {isAdmin && (
                     <button
                       onClick={() => handleDelete(goal.id)}
-                      className="text-[11px] transition hover:text-red-400"
+                      className="text-[11px] transition hover:text-danger"
                       style={{ color: "#484848" }}
                     >
                       {tc("delete")}

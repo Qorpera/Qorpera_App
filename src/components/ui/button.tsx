@@ -10,7 +10,7 @@ const variantClasses: Record<Variant, string> = {
   success: "wf-btn-success",
   danger: "wf-btn-danger",
   muted: "wf-btn-muted",
-  ghost: "bg-transparent border border-transparent hover:bg-white/5 text-white/70 hover:text-white/90",
+  ghost: "bg-transparent border border-transparent hover:bg-hover text-[var(--fg2)] hover:text-foreground",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

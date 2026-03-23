@@ -58,7 +58,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0e1418]">
+    <div className="min-h-screen flex items-center justify-center bg-sidebar">
       <div className="w-full max-w-sm mx-auto px-4">
         {/* Logo */}
         <div className="flex justify-center mb-8">
@@ -68,21 +68,21 @@ export default function RegisterPage() {
           </svg>
         </div>
 
-        <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-white/90 text-center mb-2">
+        <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-foreground text-center mb-2">
           {t("title")}
         </h1>
-        <p className="text-sm text-white/40 text-center mb-6">
+        <p className="text-sm text-[var(--fg2)] text-center mb-6">
           {t("subtitle")}
         </p>
 
         {checking ? (
-          <p className="text-sm text-white/40 text-center">{tc("loading")}</p>
+          <p className="text-sm text-[var(--fg2)] text-center">{tc("loading")}</p>
         ) : registrationClosed ? (
           <div className="text-center space-y-4">
-            <p className="text-sm text-white/50">{t("registrationClosed")}</p>
-            <p className="text-sm text-white/30">
+            <p className="text-sm text-[var(--fg2)]">{t("registrationClosed")}</p>
+            <p className="text-sm text-[var(--fg3)]">
               {t("contactAdmin")}{" "}
-              <a href="/login" className="text-purple-400 hover:text-purple-300">{t("signIn")}</a>.
+              <a href="/login" className="text-accent hover:text-accent">{t("signIn")}</a>.
             </p>
           </div>
         ) : (
@@ -121,7 +121,7 @@ export default function RegisterPage() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-[34px] text-white/30 hover:text-white/60 transition"
+              className="absolute right-3 top-[34px] text-[var(--fg3)] hover:text-[var(--fg2)] transition"
               tabIndex={-1}
             >
               {showPassword ? (
@@ -138,21 +138,21 @@ export default function RegisterPage() {
           </div>
 
           {error && (
-            <p className="text-sm text-red-400 text-center">{error}</p>
+            <p className="text-sm text-danger text-center">{error}</p>
           )}
 
-          <label className="flex items-start gap-2.5 text-sm text-white/60 cursor-pointer">
+          <label className="flex items-start gap-2.5 text-sm text-[var(--fg2)] cursor-pointer">
             <input
               type="checkbox"
               checked={tosAccepted}
               onChange={(e) => setTosAccepted(e.target.checked)}
-              className="mt-0.5 accent-purple-500"
+              className="mt-0.5 accent-[var(--accent)]"
             />
             <span>
               {t("tosAgree")}{" "}
-              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 underline">{t("termsOfService")}</a>
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent underline">{t("termsOfService")}</a>
               {" "}{t("and")}{" "}
-              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300 underline">{t("privacyPolicy")}</a>
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent underline">{t("privacyPolicy")}</a>
             </span>
           </label>
 
@@ -169,20 +169,20 @@ export default function RegisterPage() {
         )}
 
         {!registrationClosed && !checking && (
-        <p className="text-center text-sm text-white/30 mt-6">
+        <p className="text-center text-sm text-[var(--fg3)] mt-6">
           {t("alreadyHaveAccount")}{" "}
-          <a href="/login" className="text-purple-400 hover:text-purple-300">
+          <a href="/login" className="text-accent hover:text-accent">
             {t("signIn")}
           </a>
         </p>
         )}
       </div>
-      <div className="text-center text-xs text-white/30 pb-8">
-        <a href="/terms" className="hover:text-white/50">{tc("terms")}</a>
+      <div className="text-center text-xs text-[var(--fg3)] pb-8">
+        <a href="/terms" className="hover:text-[var(--fg2)]">{tc("terms")}</a>
         {" · "}
-        <a href="/privacy" className="hover:text-white/50">{tc("privacy")}</a>
+        <a href="/privacy" className="hover:text-[var(--fg2)]">{tc("privacy")}</a>
         {" · "}
-        <a href="/dpa" className="hover:text-white/50">{tc("dpa")}</a>
+        <a href="/dpa" className="hover:text-[var(--fg2)]">{tc("dpa")}</a>
       </div>
     </div>
   );

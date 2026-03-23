@@ -39,11 +39,11 @@ export function TicketReplyPreview({ step }: PreviewProps) {
     : null;
 
   return (
-    <div className="rounded-md overflow-hidden" style={{ border: "1px solid #2a2a2a", background: "#141414" }}>
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: "1px solid #222", background: "#181818" }}>
-        <TicketIcon size={14} className="text-purple-400 flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>{t("ticketReply")}</span>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <TicketIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("ticketReply")}</span>
         {/* Internal / Public badge */}
         {!isStatusChange && !isTagAction && (
           <span style={{
@@ -51,8 +51,8 @@ export function TicketReplyPreview({ step }: PreviewProps) {
             fontWeight: 600,
             padding: "1px 6px",
             borderRadius: 3,
-            background: isInternal ? "rgba(245,158,11,0.12)" : "rgba(34,197,94,0.12)",
-            color: isInternal ? "#f59e0b" : "#22c55e",
+            background: isInternal ? "color-mix(in srgb, var(--warn) 12%, transparent)" : "color-mix(in srgb, var(--ok) 12%, transparent)",
+            color: isInternal ? "var(--warn)" : "var(--ok)",
             marginLeft: "auto",
           }}>
             {isInternal ? t("internalNote") : t("publicReply")}
@@ -64,7 +64,7 @@ export function TicketReplyPreview({ step }: PreviewProps) {
         {/* Ticket reference */}
         {refLabel && (
           <div>
-            <span style={{ fontSize: 13, fontWeight: 500, color: "#b0b0b0", background: "rgba(168,85,247,0.08)", padding: "2px 8px", borderRadius: 3 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", padding: "2px 8px", borderRadius: 3 }}>
               {refLabel}
             </span>
           </div>
@@ -73,13 +73,13 @@ export function TicketReplyPreview({ step }: PreviewProps) {
         {/* Status change */}
         {isStatusChange && currentStatus && newStatus && (
           <div>
-            <span style={{ fontSize: 11, color: "#585858", fontWeight: 500 }}>{t("statusChange")}</span>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500 }}>{t("statusChange")}</span>
             <div className="flex items-center gap-2 mt-1">
-              <span style={{ fontSize: 13, color: "#707070", padding: "2px 8px", borderRadius: 3, background: "rgba(255,255,255,0.04)" }}>
+              <span style={{ fontSize: 13, color: "var(--fg2)", padding: "2px 8px", borderRadius: 3, background: "var(--hover)" }}>
                 {currentStatus}
               </span>
-              <span style={{ fontSize: 12, color: "#484848" }}>&rarr;</span>
-              <span style={{ fontSize: 13, fontWeight: 500, color: "#22c55e", padding: "2px 8px", borderRadius: 3, background: "rgba(34,197,94,0.08)" }}>
+              <span style={{ fontSize: 12, color: "var(--fg3)" }}>&rarr;</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ok)", padding: "2px 8px", borderRadius: 3, background: "color-mix(in srgb, var(--ok) 8%, transparent)" }}>
                 {newStatus}
               </span>
             </div>
@@ -89,9 +89,9 @@ export function TicketReplyPreview({ step }: PreviewProps) {
         {/* Tag */}
         {isTagAction && tag && (
           <div>
-            <span style={{ fontSize: 11, color: "#585858", fontWeight: 500 }}>{t("tagApplied")}</span>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500 }}>{t("tagApplied")}</span>
             <div className="mt-1">
-              <span style={{ fontSize: 13, fontWeight: 500, color: "#c084fc", padding: "2px 8px", borderRadius: 3, background: "rgba(168,85,247,0.08)" }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)", padding: "2px 8px", borderRadius: 3, background: "color-mix(in srgb, var(--accent) 8%, transparent)" }}>
                 {tag}
               </span>
             </div>
@@ -102,7 +102,7 @@ export function TicketReplyPreview({ step }: PreviewProps) {
         {message && !isStatusChange && !isTagAction && (
           <div>
             <div
-              style={{ fontSize: 13, lineHeight: 1.65, color: "#909090" }}
+              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--muted)" }}
               dangerouslySetInnerHTML={{ __html: escapeHtml(message).replace(/\n/g, "<br>") }}
             />
           </div>
@@ -110,8 +110,8 @@ export function TicketReplyPreview({ step }: PreviewProps) {
 
         {/* AI Disclosure footer */}
         {showAiDisclosure && (
-          <div style={{ borderTop: "1px solid #222", paddingTop: 8, marginTop: 8 }}>
-            <p style={{ fontSize: 11, color: "#585858", fontStyle: "italic" }}>
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
+            <p style={{ fontSize: 11, color: "var(--fg2)", fontStyle: "italic" }}>
               {t("aiDisclosure")}
             </p>
           </div>

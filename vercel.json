@@ -1,5 +1,6 @@
 {
   "buildCommand": "npm run build",
+  "regions": ["fra1"],
   "crons": [
     {
       "path": "/api/cron/activity-absence",

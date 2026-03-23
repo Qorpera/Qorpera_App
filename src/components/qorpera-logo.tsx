@@ -1,15 +1,17 @@
+"use client";
+
+import { useTheme } from "./theme-provider";
+
 interface QorperaLogoProps {
   width?: number;
   className?: string;
-  /** Invert colors for dark backgrounds (default: true) */
-  invert?: boolean;
 }
 
 export function QorperaLogo({
   width = 24,
   className,
-  invert = true,
 }: QorperaLogoProps) {
+  const { theme } = useTheme();
   // Original image is 400x300 (4:3) — maintain aspect ratio
   const height = Math.round(width * (300 / 400));
 
@@ -20,7 +22,7 @@ export function QorperaLogo({
       alt="Qorpera"
       width={width}
       height={height}
-      style={invert ? { filter: "brightness(0) invert(1)" } : undefined}
+      style={theme === "dark" ? { filter: "brightness(0) invert(1)" } : undefined}
       className={className}
     />
   );

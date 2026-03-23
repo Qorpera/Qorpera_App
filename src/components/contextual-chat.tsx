@@ -112,11 +112,10 @@ export function ContextualChat({
 
   if (!expanded) {
     return (
-      <div style={{ borderTop: "1px solid #1e1e1e" }}>
+      <div className="border-t border-border">
         <button
           onClick={() => setExpanded(true)}
-          className="w-full px-4 py-3 flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300 transition-colors"
-          style={{ background: "#0c0c0c" }}
+          className="w-full px-4 py-3 flex items-center gap-2 text-sm text-accent hover:text-accent transition-colors bg-sidebar"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
@@ -129,27 +128,27 @@ export function ContextualChat({
   }
 
   return (
-    <div className="flex flex-col" style={{ borderTop: "1px solid #1e1e1e" }}>
+    <div className="flex flex-col border-t border-border">
       {/* Messages area */}
       {messages.length > 0 && (
         <div ref={scrollRef} className="overflow-y-auto px-4 py-3 space-y-3" style={{ maxHeight: 300 }}>
           {messages.map((msg, i) => (
             <div key={i}>
-              <div style={{ fontSize: 10, fontWeight: 500, color: msg.role === "user" ? "#707070" : "#c084fc", marginBottom: 2 }}>
+              <div style={{ fontSize: 10, fontWeight: 500, color: msg.role === "user" ? "var(--fg2)" : "var(--accent)", marginBottom: 2 }}>
                 {msg.role === "user" ? t("you") : t("qorpera")}
               </div>
               <div style={{
                 fontSize: 13,
                 lineHeight: 1.6,
-                color: "#b0b0b0",
+                color: "var(--muted)",
                 whiteSpace: "pre-wrap",
               }}>
                 {msg.content}
                 {streaming && i === messages.length - 1 && msg.role === "assistant" && msg.content === "" && (
                   <span className="inline-flex gap-0.5 ml-1">
-                    <span className="w-1 h-1 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_infinite]" />
-                    <span className="w-1 h-1 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
-                    <span className="w-1 h-1 rounded-full bg-purple-400/60 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+                    <span className="w-1 h-1 rounded-full bg-accent/60 animate-[pulse_1.4s_ease-in-out_infinite]" />
+                    <span className="w-1 h-1 rounded-full bg-accent/60 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+                    <span className="w-1 h-1 rounded-full bg-accent/60 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
                   </span>
                 )}
               </div>
@@ -166,7 +165,7 @@ export function ContextualChat({
               key={i}
               onClick={() => sendMessage(hint)}
               className="text-[11px] px-2.5 py-1 rounded-full transition"
-              style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.15)", color: "#c084fc" }}
+              style={{ background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)" }}
             >
               {hint}
             </button>
@@ -175,7 +174,7 @@ export function ContextualChat({
       )}
 
       {/* Input bar */}
-      <div className="px-4 py-3 flex items-end gap-2" style={{ background: "#0c0c0c" }}>
+      <div className="px-4 py-3 flex items-end gap-2 bg-sidebar">
         <textarea
           ref={inputRef}
           value={input}
@@ -190,13 +189,13 @@ export function ContextualChat({
           rows={1}
           className="flex-1 outline-none resize-none"
           style={{
-            background: "#161616",
-            border: "1px solid #222",
+            background: "var(--elevated)",
+            border: "1px solid var(--border)",
             borderRadius: 8,
             padding: "8px 12px",
             fontSize: 13,
             lineHeight: 1.5,
-            color: "#e8e8e8",
+            color: "var(--foreground)",
             fontFamily: "inherit",
             maxHeight: 120,
           }}
@@ -205,10 +204,10 @@ export function ContextualChat({
           onClick={handleSend}
           disabled={streaming || !input.trim()}
           className="flex-shrink-0 p-2 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{ background: "rgba(168,85,247,0.15)", color: "#c084fc" }}
+          style={{ background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)" }}
         >
           {streaming ? (
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-purple-300/30 border-t-purple-300" />
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
           ) : (
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
