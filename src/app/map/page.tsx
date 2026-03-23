@@ -41,19 +41,18 @@ interface Member {
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const ORG_W = 1300, ORG_H = 400;
-const DEPT_W = 760, DEPT_H = 320;
-const MEM_W = 110, MEM_H = 90;
+const ORG_W = 260, ORG_H = 100;
+const DEPT_W = 200, DEPT_H = 90;
+const MEM_W = 96, MEM_H = 72;
 const MEM_COLS = 5;
-const MEM_ROW_GAP = 10;
-const ORG_DEPT_GAP = 600;
-const DEPT_MEM_GAP = 300;
-const SIB_GAP = 14;
-const DEPT_GAP = 300;
-
-const TEXT_OUTLINE = "0 1px 3px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.5)";
-const CARD_BORDER = "1px solid var(--border-strong)";
+const MEM_ROW_GAP = 8;
+const ORG_DEPT_GAP = 160;
+const DEPT_MEM_GAP = 120;
+const SIB_GAP = 10;
+const DEPT_GAP = 80;
+const CARD_BORDER = "1px solid var(--border)";
 const CARD_BORDER_EDIT = "1px solid rgba(245,158,11,0.3)";
+const CARD_SHADOW = "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)";
 
 const POLL_MS = 30_000;
 const MIN_ZOOM = 0.02;
@@ -782,9 +781,10 @@ export default function MapPage() {
                   top: orgPos.y - ORG_H / 2,
                   width: ORG_W,
                   height: ORG_H,
-                  borderRadius: 2,
+                  borderRadius: 8,
                   background: "var(--elevated)",
                   border: editMode ? CARD_BORDER_EDIT : CARD_BORDER,
+                  boxShadow: CARD_SHADOW,
                 }}
               >
                 {editMode && (
@@ -813,13 +813,13 @@ export default function MapPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-full px-10">
-                    <span style={{ fontSize: 72, fontWeight: 600, color: "var(--foreground)", letterSpacing: "-0.02em", textShadow: TEXT_OUTLINE }} className="truncate max-w-full">{hq.displayName}</span>
-                    <span style={{ fontSize: 36, color: "var(--fg3)", textShadow: TEXT_OUTLINE }} className="mt-4">
+                  <div className="flex flex-col items-center justify-center h-full px-4">
+                    <span style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", letterSpacing: "-0.01em" }} className="truncate max-w-full">{hq.displayName}</span>
+                    <span style={{ fontSize: 11, color: "var(--fg2)" }} className="mt-1">
                       {depts.length} department{depts.length !== 1 ? "s" : ""} &middot; {totalPeople} people
                     </span>
                     {activeSituationCount > 0 && (
-                      <span style={{ fontSize: 28, color: "var(--fg4)", textShadow: TEXT_OUTLINE }} className="mt-2">
+                      <span style={{ fontSize: 10, color: "var(--fg3)" }} className="mt-0.5">
                         {activeSituationCount} active situation{activeSituationCount !== 1 ? "s" : ""}
                       </span>
                     )}
@@ -848,9 +848,10 @@ export default function MapPage() {
                     top: node.y - DEPT_H / 2,
                     width: DEPT_W,
                     height: DEPT_H,
-                    borderRadius: 2,
+                    borderRadius: 8,
                     background: "var(--elevated)",
                     border: editMode ? CARD_BORDER_EDIT : CARD_BORDER,
+                    boxShadow: CARD_SHADOW,
                   }}
                 >
                   {editMode && !isEditing && (
@@ -883,13 +884,13 @@ export default function MapPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="h-full flex flex-col items-center justify-center px-8">
-                      <span style={{ fontSize: 52, fontWeight: 600, color: "var(--foreground)", textShadow: TEXT_OUTLINE }} className="truncate max-w-full text-center">{dept.displayName}</span>
-                      <span style={{ fontSize: 28, color: "var(--fg3)", textShadow: TEXT_OUTLINE }} className="mt-3">
+                    <div className="h-full flex flex-col items-center justify-center px-3">
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }} className="truncate max-w-full text-center">{dept.displayName}</span>
+                      <span style={{ fontSize: 10, color: "var(--fg2)" }} className="mt-1">
                         {dept.memberCount} people &middot; {dept.documentCount} docs
                       </span>
                       {(deptStats[dept.id]?.situations > 0 || deptStats[dept.id]?.initiatives > 0) && (
-                        <span style={{ fontSize: 22, color: "var(--fg4)", textShadow: TEXT_OUTLINE }} className="mt-2">
+                        <span style={{ fontSize: 9, color: "var(--fg3)" }} className="mt-0.5">
                           {deptStats[dept.id].situations > 0 && <>{deptStats[dept.id].situations} situation{deptStats[dept.id].situations !== 1 ? "s" : ""}</>}
                           {deptStats[dept.id].situations > 0 && deptStats[dept.id].initiatives > 0 && " · "}
                           {deptStats[dept.id].initiatives > 0 && <>{deptStats[dept.id].initiatives} initiative{deptStats[dept.id].initiatives !== 1 ? "s" : ""}</>}
@@ -920,9 +921,10 @@ export default function MapPage() {
                       top: mNode.y - MEM_H / 2,
                       width: MEM_W,
                       height: MEM_H,
-                      borderRadius: 2,
+                      borderRadius: 6,
                       background: "var(--elevated)",
                       border: CARD_BORDER,
+                      boxShadow: CARD_SHADOW,
                     }}
                   >
                     <div className="flex flex-col items-center justify-center h-full">
@@ -934,18 +936,18 @@ export default function MapPage() {
                         display: "flex", alignItems: "center", justifyContent: "center",
                       }}>
                         {aiLevel ? (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: "var(--accent)", textShadow: TEXT_OUTLINE }}>AI</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "var(--accent)" }}>AI</span>
                         ) : (
-                          <span style={{ fontSize: 10, color: "var(--fg2)", textShadow: TEXT_OUTLINE }}>{getInitials(m.displayName)}</span>
+                          <span style={{ fontSize: 10, color: "var(--fg2)" }}>{getInitials(m.displayName)}</span>
                         )}
                       </div>
                       {/* Name */}
-                      <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--foreground)", textShadow: TEXT_OUTLINE }} className="mt-1 truncate max-w-[96px] text-center">
+                      <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--foreground)" }} className="mt-1 truncate max-w-[96px] text-center">
                         {getFirstName(m.displayName)}
                       </span>
                       {/* Role */}
                       {role && (
-                        <span style={{ fontSize: 9, color: "var(--fg3)", textShadow: TEXT_OUTLINE }} className="truncate max-w-[96px] text-center">
+                        <span style={{ fontSize: 9, color: "var(--fg3)" }} className="truncate max-w-[96px] text-center">
                           {truncRole}
                         </span>
                       )}
@@ -956,7 +958,7 @@ export default function MapPage() {
                             width: 7, height: 7, borderRadius: 3.5,
                             background: aiLevel === "act" ? "var(--ok)" : aiLevel === "propose" ? "var(--warn)" : "var(--border)",
                           }} />
-                          <span style={{ fontSize: 8, color: "var(--fg4)", textShadow: TEXT_OUTLINE }}>AI</span>
+                          <span style={{ fontSize: 8, color: "var(--fg4)" }}>AI</span>
                         </div>
                       )}
                     </div>
