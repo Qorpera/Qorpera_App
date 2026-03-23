@@ -63,15 +63,15 @@ function statusBadgeVariant(status: string): "green" | "red" | "amber" | "defaul
 function itemStatusColor(status: string): string {
   switch (status) {
     case "resolved":
-    case "completed": return "#22c55e";
+    case "completed": return "var(--ok)";
     case "rejected":
     case "failed":
-    case "dismissed": return "#ef4444";
+    case "dismissed": return "var(--danger)";
     case "proposed":
-    case "detected": return "#f59e0b";
+    case "detected": return "var(--warn)";
     case "executing":
-    case "approved": return "#c084fc";
-    default: return "#6b7280";
+    case "approved": return "var(--accent)";
+    default: return "var(--fg3)";
   }
 }
 
@@ -165,24 +165,24 @@ export default function ProjectsPage() {
 
         {/* ── Left: project list ── */}
         {(!isMobile || !selectedId) && (
-        <div className={`${isMobile ? "w-full" : "w-[300px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid #1e1e1e" }}>
-          <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "#e8e8e8" }}>{t("title")}</div>
-            <div style={{ fontSize: 11, color: "#707070" }} className="mt-0.5">
+        <div className={`${isMobile ? "w-full" : "w-[300px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid var(--border)" }}>
+          <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>{t("title")}</div>
+            <div style={{ fontSize: 11, color: "var(--fg3)" }} className="mt-0.5">
               {t("subtitle")}
             </div>
           </div>
 
-          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
+          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
             {(["active", "all"] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
                 className="text-[11px] font-medium px-2.5 py-1 rounded-full border transition"
                 style={{
-                  background: filter === f ? "#222" : "transparent",
-                  borderColor: filter === f ? "#333" : "transparent",
-                  color: filter === f ? "#e8e8e8" : "#484848",
+                  background: filter === f ? "var(--elevated)" : "transparent",
+                  borderColor: filter === f ? "var(--border)" : "transparent",
+                  color: filter === f ? "var(--foreground)" : "var(--fg4)",
                 }}
               >
                 {f === "active" ? tc("active") : tc("all")}
@@ -204,27 +204,27 @@ export default function ProjectsPage() {
                   onClick={() => setSelectedId(ws.id)}
                   className="w-full text-left px-4 py-2.5 transition"
                   style={{
-                    borderBottom: "1px solid #1e1e1e",
-                    borderLeft: selectedId === ws.id ? "2px solid #c084fc" : "2px solid transparent",
-                    background: selectedId === ws.id ? "#181818" : "transparent",
+                    borderBottom: "1px solid var(--border)",
+                    borderLeft: selectedId === ws.id ? "2px solid var(--accent)" : "2px solid transparent",
+                    background: selectedId === ws.id ? "var(--hover)" : "transparent",
                   }}
                 >
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span style={{ fontSize: 13, fontWeight: 500, color: "#e8e8e8" }} className="truncate flex-1">
+                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }} className="truncate flex-1">
                       {ws.title}
                     </span>
-                    <span style={{ fontSize: 11, color: "#484848" }} className="flex-shrink-0">
+                    <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
                       {formatRelativeTime(ws.createdAt, locale)}
                     </span>
                   </div>
-                  <div style={{ fontSize: 11, color: "#484848" }} className="truncate">
+                  <div style={{ fontSize: 11, color: "var(--fg4)" }} className="truncate">
                     {sitCount} item{sitCount !== 1 ? "s" : ""} &middot; {ws.completionPercentage}% &middot; {ws.status.charAt(0).toUpperCase() + ws.status.slice(1)}
                   </div>
                 </button>
               );
             })}
             {!loading && filteredWorkStreams.length === 0 && (
-              <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "#484848" }}>
+              <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "var(--fg4)" }}>
                 {t("empty")}
               </div>
             )}
@@ -257,7 +257,7 @@ export default function ProjectsPage() {
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "#484848" }}>
+            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
               {t("selectProject")}
             </div>
           )}
@@ -363,15 +363,15 @@ function ProjectDetail({
                 <button
                   onClick={() => onSelectWorkStream(p.id)}
                   className="hover:underline transition-colors"
-                  style={{ color: "#707070" }}
+                  style={{ color: "var(--fg3)" }}
                 >
                   {p.title}
                 </button>
-                {i < d.parentChain.length - 1 && <span style={{ color: "#484848" }}>/</span>}
+                {i < d.parentChain.length - 1 && <span style={{ color: "var(--fg4)" }}>/</span>}
               </span>
             ))}
-            <span style={{ color: "#484848" }}>/</span>
-            <span style={{ color: "#b0b0b0" }}>{d.title}</span>
+            <span style={{ color: "var(--fg4)" }}>/</span>
+            <span style={{ color: "var(--fg2)" }}>{d.title}</span>
           </div>
         )}
 
@@ -381,17 +381,17 @@ function ProjectDetail({
             <Badge variant={statusBadgeVariant(d.status)}>
               {d.status.charAt(0).toUpperCase() + d.status.slice(1)}
             </Badge>
-            <span style={{ fontSize: 12, color: "#484848" }}>{formatRelativeTime(d.createdAt, locale)}</span>
+            <span style={{ fontSize: 12, color: "var(--fg4)" }}>{formatRelativeTime(d.createdAt, locale)}</span>
           </div>
-          <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "#e8e8e8" }}>
+          <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
             {d.title}
           </h1>
         </div>
 
         {/* Description */}
         {d.description && (
-          <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-            <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0", whiteSpace: "pre-wrap" }}>{d.description}</p>
+          <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 4 }}>
+            <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{d.description}</p>
           </div>
         )}
 
@@ -404,14 +404,14 @@ function ProjectDetail({
         {/* ── Items ── */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }}>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }}>
               {t("items")} &middot; {d.items.length}
             </div>
             {isAdmin && !addingItem && (
               <button
                 onClick={() => setAddingItem(true)}
                 className="text-[11px] font-medium px-2.5 py-1 rounded-full transition"
-                style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.15)", color: "#c084fc" }}
+                style={{ background: "var(--accent-light)", border: "1px solid var(--accent-light)", color: "var(--accent)" }}
               >
                 {t("addItem")}
               </button>
@@ -429,12 +429,12 @@ function ProjectDetail({
                   placeholder={t("searchPlaceholder")}
                   autoFocus
                   className="flex-1 outline-none"
-                  style={{ background: "#161616", border: "1px solid #333", borderRadius: 4, padding: "6px 10px", fontSize: 12, color: "#e8e8e8" }}
+                  style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", fontSize: 12, color: "var(--foreground)" }}
                 />
                 <button
                   onClick={() => { setAddingItem(false); setSearchQuery(""); setSearchResults([]); }}
                   className="text-[11px] px-2 py-1 transition"
-                  style={{ color: "#707070" }}
+                  style={{ color: "var(--fg3)" }}
                 >
                   {tc("cancel")}
                 </button>
@@ -445,13 +445,13 @@ function ProjectDetail({
                 </div>
               )}
               {searchResults.length > 0 && (
-                <div style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 4, overflow: "hidden" }}>
                   {searchResults.map(r => (
                     <button
                       key={r.id}
                       onClick={() => addItem(r.type, r.id)}
                       className="w-full text-left px-3 py-2 transition hover:bg-hover"
-                      style={{ borderBottom: "1px solid #1e1e1e" }}
+                      style={{ borderBottom: "1px solid var(--border)" }}
                     >
                       <div className="flex items-center gap-2">
                         <span style={{
@@ -459,40 +459,40 @@ function ProjectDetail({
                           fontWeight: 600,
                           padding: "1px 4px",
                           borderRadius: 2,
-                          background: r.type === "situation" ? "rgba(245,158,11,0.1)" : "rgba(168,85,247,0.1)",
-                          color: r.type === "situation" ? "#f59e0b" : "#c084fc",
+                          background: r.type === "situation" ? "color-mix(in srgb, var(--warn) 12%, transparent)" : "var(--accent-light)",
+                          color: r.type === "situation" ? "var(--warn)" : "var(--accent)",
                           textTransform: "uppercase",
                         }}>
                           {r.type === "situation" ? "SIT" : "INI"}
                         </span>
-                        <span style={{ fontSize: 12, color: "#b0b0b0" }} className="truncate">{r.label}</span>
+                        <span style={{ fontSize: 12, color: "var(--fg2)" }} className="truncate">{r.label}</span>
                       </div>
                     </button>
                   ))}
                 </div>
               )}
               {searchQuery.trim() && !searching && searchResults.length === 0 && (
-                <p style={{ fontSize: 12, color: "#484848" }}>{tc("noResults")}</p>
+                <p style={{ fontSize: 12, color: "var(--fg4)" }}>{tc("noResults")}</p>
               )}
             </div>
           )}
 
           {/* Items list */}
           {d.items.length > 0 ? (
-            <div style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 4, overflow: "hidden" }}>
               {d.items.map((item, i) => (
                 <div
                   key={item.workStreamItemId}
                   className="flex items-center gap-3 px-4 py-2.5"
-                  style={{ borderBottom: i < d.items.length - 1 ? "1px solid #1e1e1e" : "none" }}
+                  style={{ borderBottom: i < d.items.length - 1 ? "1px solid var(--border)" : "none" }}
                 >
                   <span style={{
                     fontSize: 9,
                     fontWeight: 600,
                     padding: "1px 4px",
                     borderRadius: 2,
-                    background: item.itemType === "situation" ? "rgba(245,158,11,0.1)" : "rgba(168,85,247,0.1)",
-                    color: item.itemType === "situation" ? "#f59e0b" : "#c084fc",
+                    background: item.itemType === "situation" ? "color-mix(in srgb, var(--warn) 12%, transparent)" : "var(--accent-light)",
+                    color: item.itemType === "situation" ? "var(--warn)" : "var(--accent)",
                     textTransform: "uppercase",
                     flexShrink: 0,
                   }}>
@@ -502,18 +502,18 @@ function ProjectDetail({
                   <a
                     href={item.itemType === "situation" ? "/situations" : "/initiatives"}
                     className="flex-1 min-w-0 truncate hover:underline transition-colors"
-                    style={{ fontSize: 13, color: "#b0b0b0" }}
+                    style={{ fontSize: 13, color: "var(--fg2)" }}
                   >
                     {item.summary}
                   </a>
-                  <span style={{ fontSize: 11, color: "#484848", flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, color: "var(--fg4)", flexShrink: 0 }}>
                     {item.status}
                   </span>
                   {isAdmin && (
                     <button
                       onClick={() => removeItem(d.id, item.workStreamItemId)}
-                      className="flex-shrink-0 transition hover:text-red-400"
-                      style={{ fontSize: 11, color: "#484848" }}
+                      className="flex-shrink-0 transition hover:text-danger"
+                      style={{ fontSize: 11, color: "var(--fg4)" }}
                     >
                       {tc("remove")}
                     </button>
@@ -522,26 +522,26 @@ function ProjectDetail({
               ))}
             </div>
           ) : (
-            <p style={{ fontSize: 13, color: "#484848" }}>{t("noItems")}</p>
+            <p style={{ fontSize: 13, color: "var(--fg4)" }}>{t("noItems")}</p>
           )}
         </div>
 
         {/* ── Sub-projects ── */}
         {d.children.length > 0 && (
           <div>
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
               {t("subProjects")} &middot; {d.children.length}
             </div>
-            <div style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 4, overflow: "hidden" }}>
               {d.children.map((child, i) => (
                 <button
                   key={child.id}
                   onClick={() => onSelectWorkStream(child.id)}
                   className="w-full text-left px-4 py-2.5 transition hover:bg-hover"
-                  style={{ borderBottom: i < d.children.length - 1 ? "1px solid #1e1e1e" : "none" }}
+                  style={{ borderBottom: i < d.children.length - 1 ? "1px solid var(--border)" : "none" }}
                 >
                   <div className="flex items-center gap-2">
-                    <span style={{ fontSize: 13, fontWeight: 500, color: "#b0b0b0" }}>{child.title}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: "var(--fg2)" }}>{child.title}</span>
                     <Badge variant={statusBadgeVariant(child.status)}>
                       {child.status}
                     </Badge>

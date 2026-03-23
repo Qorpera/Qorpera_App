@@ -240,11 +240,11 @@ export default function GovernancePage() {
   return (
     <AppShell>
       <div className="p-8 max-w-4xl mx-auto space-y-6">
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: "#e8e8e8" }}>{t("title")}</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 600, color: "var(--foreground)" }}>{t("title")}</h1>
 
         {/* ── Section 1: Trust Gradient ── */}
-        <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }} className="mb-4">
+        <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }} className="mb-4">
             {t("trustGradient")}
           </div>
 
@@ -255,9 +255,9 @@ export default function GovernancePage() {
           ) : (
             <>
               {/* Progress bar */}
-              <div className="flex rounded overflow-hidden h-3 mb-4" style={{ background: "#1c1c1c" }}>
+              <div className="flex rounded overflow-hidden h-3 mb-4" style={{ background: "var(--elevated)" }}>
                 {supervisedCount > 0 && (
-                  <div style={{ flex: supervisedCount, background: "#222" }} />
+                  <div style={{ flex: supervisedCount, background: "var(--hover)" }} />
                 )}
                 {notifyCount > 0 && (
                   <div style={{ flex: notifyCount, background: "rgba(245,158,11,0.25)" }} />
@@ -268,7 +268,7 @@ export default function GovernancePage() {
               </div>
 
               {/* Labels */}
-              <div className="flex justify-between" style={{ fontSize: 10, color: "#484848" }}>
+              <div className="flex justify-between" style={{ fontSize: 10, color: "var(--fg4)" }}>
                 <span>{t("supervised")}</span>
                 <span>{t("notify")}</span>
                 <span>{t("autonomous")}</span>
@@ -276,24 +276,24 @@ export default function GovernancePage() {
 
               {/* Counts */}
               <div className="flex gap-6 mt-3" style={{ fontSize: 12 }}>
-                <span>Supervised: <span style={{ color: "#b0b0b0" }}>{supervisedCount}</span></span>
-                <span>Notify: <span style={{ color: "#fbbf24" }}>{notifyCount}</span></span>
-                <span>Autonomous: <span style={{ color: "#4ade80" }}>{autonomousCount}</span></span>
+                <span>Supervised: <span style={{ color: "var(--fg2)" }}>{supervisedCount}</span></span>
+                <span>Notify: <span style={{ color: "var(--warn)" }}>{notifyCount}</span></span>
+                <span>Autonomous: <span style={{ color: "var(--ok)" }}>{autonomousCount}</span></span>
               </div>
             </>
           )}
         </section>
 
         {/* ── Section 2: Rules ── */}
-        <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
+        <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
           <div className="flex items-center justify-between mb-4">
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }}>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }}>
               {t("rules")}
             </div>
             {isAdmin && (
               <button
                 onClick={() => setShowNewPolicy(true)}
-                style={{ fontSize: 11, color: "#b0b0b0", background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px" }}
+                style={{ fontSize: 11, color: "var(--fg2)", background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 10px" }}
                 className="hover:bg-surface transition"
               >
                 {t("addRule")}
@@ -308,7 +308,7 @@ export default function GovernancePage() {
           )}
 
           {!policiesLoading && policies.length === 0 && (
-            <p style={{ fontSize: 13, color: "#484848" }}>{t("noRules")}</p>
+            <p style={{ fontSize: 13, color: "var(--fg4)" }}>{t("noRules")}</p>
           )}
 
           {!policiesLoading && policies.length > 0 && (
@@ -320,12 +320,12 @@ export default function GovernancePage() {
                   <div
                     key={policy.id}
                     className={`flex items-center gap-3 ${!policy.enabled ? "opacity-50" : ""}`}
-                    style={{ background: "#161616", borderRadius: 4, padding: "10px 12px" }}
+                    style={{ background: "var(--surface)", borderRadius: 4, padding: "10px 12px" }}
                   >
                     <Badge variant={effectVariant as "amber" | "red" | "green"}>{effectLabel}</Badge>
                     <div className="flex-1 min-w-0">
-                      <div style={{ fontSize: 13, fontWeight: 500, color: "#e8e8e8" }}>{policy.name}</div>
-                      <div style={{ fontSize: 11, color: "#484848" }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>{policy.name}</div>
+                      <div style={{ fontSize: 11, color: "var(--fg4)" }}>
                         {policy.scope} &middot; {policy.actionType === "*" ? "All actions" : policy.actionType}
                       </div>
                     </div>
@@ -340,7 +340,7 @@ export default function GovernancePage() {
                           width: 36,
                           alignItems: "center",
                           borderRadius: 10,
-                          background: policy.enabled ? "#a855f7" : "#222",
+                          background: policy.enabled ? "var(--accent)" : "var(--elevated)",
                           transition: "background 150ms",
                         }}
                       >
@@ -349,7 +349,7 @@ export default function GovernancePage() {
                           height: 14,
                           width: 14,
                           borderRadius: 7,
-                          background: "#fff",
+                          background: "var(--accent-ink)",
                           transition: "transform 150ms",
                           transform: policy.enabled ? "translateX(18px)" : "translateX(2px)",
                         }} />
@@ -363,8 +363,8 @@ export default function GovernancePage() {
         </section>
 
         {/* ── Section 3: Trust Progression ── */}
-        <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }} className="mb-4">
+        <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }} className="mb-4">
             {t("trustProgression")}
           </div>
 
@@ -373,25 +373,25 @@ export default function GovernancePage() {
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
             </div>
           ) : sortedTypes.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#484848" }}>No situation types configured yet.</p>
+            <p style={{ fontSize: 13, color: "var(--fg4)" }}>No situation types configured yet.</p>
           ) : (
             <div className="space-y-2">
               {sortedTypes.map(st => {
                 const ready = isReadyForPromotion(st);
                 const levelLabel = st.autonomyLevel === "supervised" ? "supervised" : st.autonomyLevel === "notify" ? "notify" : "autonomous";
-                const levelColor = st.autonomyLevel === "supervised" ? "#b0b0b0" : st.autonomyLevel === "notify" ? "#fbbf24" : "#4ade80";
+                const levelColor = st.autonomyLevel === "supervised" ? "var(--fg2)" : st.autonomyLevel === "notify" ? "var(--warn)" : "var(--ok)";
                 return (
                   <div
                     key={st.id}
                     style={{
-                      background: ready ? "rgba(168,85,247,0.06)" : "#161616",
-                      border: ready ? "1px solid rgba(168,85,247,0.2)" : "1px solid #222",
+                      background: ready ? "rgba(168,85,247,0.06)" : "var(--surface)",
+                      border: ready ? "1px solid rgba(168,85,247,0.2)" : "1px solid var(--border)",
                       borderRadius: 4,
                       padding: "10px 14px",
                     }}
                   >
                     <div className="flex items-center justify-between">
-                      <span style={{ fontSize: 13, fontWeight: 500, color: "#e8e8e8" }}>{st.name}</span>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>{st.name}</span>
                       <div className="flex items-center gap-2">
                         <span style={{ fontSize: 11, fontWeight: 500, color: levelColor, border: `1px solid ${levelColor}33`, borderRadius: 9999, padding: "1px 8px" }}>
                           {levelLabel}
@@ -418,7 +418,7 @@ export default function GovernancePage() {
                         )}
                       </div>
                     </div>
-                    <div style={{ fontSize: 11, color: "#484848" }} className="mt-1">
+                    <div style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-1">
                       {st.totalProposed} proposed &middot; {(st.approvalRate * 100).toFixed(0)}% approved &middot; {st.consecutiveApprovals} streak
                     </div>
                   </div>
@@ -449,7 +449,7 @@ export default function GovernancePage() {
             )}
             <Select label="Action Type" options={ACTION_TYPES} value={formActionType} onChange={e => setFormActionType(e.target.value)} />
             <div>
-              <label className="text-sm font-medium mb-2 block" style={{ color: "#707070" }}>Effect</label>
+              <label className="text-sm font-medium mb-2 block" style={{ color: "var(--fg3)" }}>Effect</label>
               <div className="flex gap-2">
                 {EFFECTS.map(eff => (
                   <button
@@ -457,9 +457,9 @@ export default function GovernancePage() {
                     onClick={() => setFormEffect(eff.value)}
                     className="px-4 py-2 rounded text-sm font-medium border transition"
                     style={{
-                      borderColor: formEffect === eff.value ? "rgba(168,85,247,0.4)" : "#2a2a2a",
-                      background: formEffect === eff.value ? "rgba(168,85,247,0.1)" : "#1c1c1c",
-                      color: formEffect === eff.value ? "#c084fc" : "#707070",
+                      borderColor: formEffect === eff.value ? "rgba(168,85,247,0.4)" : "var(--border)",
+                      background: formEffect === eff.value ? "var(--accent-light)" : "var(--elevated)",
+                      color: formEffect === eff.value ? "var(--accent)" : "var(--fg3)",
                     }}
                   >
                     {eff.label}
@@ -494,9 +494,9 @@ interface InsightItem {
 }
 
 const SCOPE_STYLES: Record<string, { bg: string; color: string }> = {
-  personal: { bg: "rgba(168,85,247,0.1)", color: "#c084fc" },
-  department: { bg: "rgba(59,130,246,0.1)", color: "#60a5fa" },
-  operator: { bg: "rgba(34,197,94,0.1)", color: "#22c55e" },
+  personal: { bg: "var(--accent-light)", color: "var(--accent)" },
+  department: { bg: "rgba(59,130,246,0.1)", color: "var(--info)" },
+  operator: { bg: "rgba(34,197,94,0.1)", color: "var(--ok)" },
 };
 
 function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: string, type: "success" | "error") => void }) {
@@ -547,8 +547,8 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
   };
 
   return (
-    <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }} className="mb-4">
+    <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }} className="mb-4">
         {t("aiKnowledge")}
       </div>
 
@@ -557,7 +557,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
         </div>
       ) : insights.length === 0 ? (
-        <p style={{ fontSize: 13, color: "#484848" }}>
+        <p style={{ fontSize: 13, color: "var(--fg4)" }}>
           {t("noInsights")}
         </p>
       ) : (
@@ -565,9 +565,9 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
           {insights.map(insight => {
             const scopeStyle = SCOPE_STYLES[insight.shareScope] ?? SCOPE_STYLES.personal;
             return (
-              <div key={insight.id} style={{ background: "#1c1c1c", border: "1px solid #222", borderRadius: 4, padding: "12px 14px" }}>
+              <div key={insight.id} style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "12px 14px" }}>
                 <div className="flex items-start justify-between gap-3">
-                  <p style={{ fontSize: 13, lineHeight: 1.6, color: "#b0b0b0", flex: 1 }}>{insight.description}</p>
+                  <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", flex: 1 }}>{insight.description}</p>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: scopeStyle.bg, color: scopeStyle.color }}>
                       {insight.shareScope}
@@ -577,7 +577,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-4 mt-2" style={{ fontSize: 11, color: "#484848" }}>
+                <div className="flex items-center gap-4 mt-2" style={{ fontSize: 11, color: "var(--fg4)" }}>
                   {insight.evidence?.sampleSize && <span>Sample: {insight.evidence.sampleSize}</span>}
                   {insight.evidence?.successRate != null && <span>Success: {(insight.evidence.successRate * 100).toFixed(0)}%</span>}
                   <span>Confidence: {(insight.confidence * 100).toFixed(0)}%</span>
@@ -589,7 +589,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
                       <button
                         onClick={() => handlePromote(insight.id, insight.shareScope)}
                         className="text-[11px] px-2 py-0.5 rounded transition"
-                        style={{ background: "rgba(168,85,247,0.1)", color: "#c084fc" }}
+                        style={{ background: "var(--accent-light)", color: "var(--accent)" }}
                       >
                         Promote
                       </button>
@@ -597,7 +597,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
                     <button
                       onClick={() => handleInvalidate(insight.id)}
                       className="text-[11px] px-2 py-0.5 rounded transition"
-                      style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
+                      style={{ background: "rgba(239,68,68,0.1)", color: "var(--danger)" }}
                     >
                       Invalidate
                     </button>
@@ -708,15 +708,15 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
   };
 
   return (
-    <section style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
+    <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
       <div className="flex items-center justify-between mb-4">
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" }}>
+        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }}>
           {t("goals")}
         </div>
         {isAdmin && !showForm && (
           <button
             onClick={() => setShowForm(true)}
-            style={{ fontSize: 11, color: "#b0b0b0", background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px" }}
+            style={{ fontSize: 11, color: "var(--fg2)", background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 10px" }}
             className="hover:bg-surface transition"
           >
             {t("addGoal")}
@@ -726,7 +726,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
 
       {/* Add goal form */}
       {showForm && (
-        <div className="mb-4 space-y-3" style={{ background: "#1c1c1c", border: "1px solid #333", borderRadius: 4, padding: 14 }}>
+        <div className="mb-4 space-y-3" style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: 14 }}>
           <Input label="Title" value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder={t("goalTitle")} />
           <Input label="Description" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder={t("goalDescription")} />
           <div className="flex gap-3">
@@ -739,7 +739,7 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
                 value={formPriority}
                 onChange={e => setFormPriority(e.target.value)}
                 className="w-full outline-none text-sm"
-                style={{ background: "#161616", border: "1px solid #333", borderRadius: 4, padding: "6px 10px", color: "#e8e8e8" }}
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--foreground)" }}
               />
             </div>
             <div className="flex-1">
@@ -748,11 +748,11 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
                 value={formDeptId}
                 onChange={e => setFormDeptId(e.target.value)}
                 className="w-full outline-none text-sm"
-                style={{ background: "#161616", border: "1px solid #333", borderRadius: 4, padding: "6px 10px", color: "#e8e8e8" }}
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 10px", color: "var(--foreground)" }}
               >
-                <option value="" style={{ background: "#161616" }}>HQ-level (none)</option>
+                <option value="" style={{ background: "var(--surface)" }}>HQ-level (none)</option>
                 {departments.map(d => (
-                  <option key={d.id} value={d.id} style={{ background: "#161616" }}>{d.displayName}</option>
+                  <option key={d.id} value={d.id} style={{ background: "var(--surface)" }}>{d.displayName}</option>
                 ))}
               </select>
             </div>
@@ -771,40 +771,40 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
         </div>
       ) : goals.length === 0 ? (
-        <p style={{ fontSize: 13, color: "#484848" }}>No goals configured yet.</p>
+        <p style={{ fontSize: 13, color: "var(--fg4)" }}>No goals configured yet.</p>
       ) : (
         <div className="space-y-2">
           {goals.map(goal => (
-            <div key={goal.id} style={{ background: "#1c1c1c", border: "1px solid #222", borderRadius: 4, padding: "10px 14px" }}>
+            <div key={goal.id} style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "10px 14px" }}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "#e8e8e8" }}>{goal.title}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>{goal.title}</span>
                   <span style={{
                     fontSize: 10,
                     fontWeight: 500,
                     padding: "1px 6px",
                     borderRadius: 3,
-                    background: goal.status === "achieved" ? "rgba(34,197,94,0.1)" : goal.status === "paused" ? "rgba(245,158,11,0.1)" : "rgba(168,85,247,0.1)",
-                    color: goal.status === "achieved" ? "#22c55e" : goal.status === "paused" ? "#f59e0b" : "#c084fc",
+                    background: goal.status === "achieved" ? "rgba(34,197,94,0.1)" : goal.status === "paused" ? "rgba(245,158,11,0.1)" : "var(--accent-light)",
+                    color: goal.status === "achieved" ? "var(--ok)" : goal.status === "paused" ? "var(--warn)" : "var(--accent)",
                   }}>
                     {goal.status}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span style={{ fontSize: 11, color: "#484848" }}>P{goal.priority}</span>
+                  <span style={{ fontSize: 11, color: "var(--fg4)" }}>P{goal.priority}</span>
                   {isAdmin && (
                     <button
                       onClick={() => handleDelete(goal.id)}
                       className="text-[11px] transition hover:text-danger"
-                      style={{ color: "#484848" }}
+                      style={{ color: "var(--fg4)" }}
                     >
                       {tc("delete")}
                     </button>
                   )}
                 </div>
               </div>
-              <p style={{ fontSize: 12, color: "#707070", marginTop: 2 }}>{goal.description}</p>
-              <div style={{ fontSize: 11, color: "#484848", marginTop: 4 }}>
+              <p style={{ fontSize: 12, color: "var(--fg3)", marginTop: 2 }}>{goal.description}</p>
+              <div style={{ fontSize: 11, color: "var(--fg4)", marginTop: 4 }}>
                 {goal._count.initiatives} initiative{goal._count.initiatives !== 1 ? "s" : ""}
               </div>
             </div>

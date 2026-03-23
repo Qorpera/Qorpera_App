@@ -1951,12 +1951,12 @@ function SettingsPageInner() {
             ) : (
               <>
                 {/* Graduation Thresholds */}
-                <div style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-4">
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-4">
                     Graduation Thresholds
                   </div>
                   <div className="space-y-4">
-                    <p style={{ fontSize: 11, fontWeight: 600, color: "#707070", textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
                       Supervised &rarr; Notify
                     </p>
                     <Input
@@ -1971,7 +1971,7 @@ function SettingsPageInner() {
                       value={govAutoSupervisedRate}
                       onChange={e => setGovAutoSupervisedRate(e.target.value)}
                     />
-                    <p style={{ fontSize: 11, fontWeight: 600, color: "#707070", textTransform: "uppercase" as const, letterSpacing: "0.05em" }} className="pt-2">
+                    <p style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", textTransform: "uppercase" as const, letterSpacing: "0.05em" }} className="pt-2">
                       Notify &rarr; Autonomous
                     </p>
                     <Input
@@ -1995,8 +1995,8 @@ function SettingsPageInner() {
                 </div>
 
                 {/* General Governance Settings */}
-                <div style={{ background: "#161616", border: "1px solid #2a2a2a", borderRadius: 6, padding: 20 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-4">
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-4">
                     General Settings
                   </div>
                   <div className="space-y-4">
@@ -2009,8 +2009,8 @@ function SettingsPageInner() {
                     />
                     <div className="flex items-center justify-between">
                       <div>
-                        <div style={{ fontSize: 13, color: "#b0b0b0" }}>Auto-approve read actions</div>
-                        <div style={{ fontSize: 11, color: "#484848" }}>Allow read operations without policy checks</div>
+                        <div style={{ fontSize: 13, color: "var(--fg2)" }}>Auto-approve read actions</div>
+                        <div style={{ fontSize: 11, color: "var(--fg4)" }}>Allow read operations without policy checks</div>
                       </div>
                       <button
                         onClick={() => setGovAutoApproveReads(!govAutoApproveReads)}
@@ -2021,7 +2021,7 @@ function SettingsPageInner() {
                           width: 40,
                           alignItems: "center",
                           borderRadius: 12,
-                          background: govAutoApproveReads ? "#a855f7" : "#222",
+                          background: govAutoApproveReads ? "var(--accent)" : "var(--elevated)",
                           transition: "background 150ms",
                         }}
                       >
@@ -2355,9 +2355,9 @@ function BillingChart({ data }: { data: Array<{ month: string; supervised: numbe
     <div style={{ width: "100%", height: 200 }}>
       <ResponsiveContainer>
         <BarChart data={chartData}>
-          <XAxis dataKey="month" tick={{ fill: "#555", fontSize: 11 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: "#555", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} />
-          <Tooltip contentStyle={{ background: "#1a1a2e", border: "1px solid #333", borderRadius: 8, fontSize: 12, color: "#ccc" }} />
+          <XAxis dataKey="month" tick={{ fill: "var(--fg3)", fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "var(--fg3)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} />
+          <Tooltip contentStyle={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--fg2)" }} />
           <Bar dataKey="Observe" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
           <Bar dataKey="Propose" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
           <Bar dataKey="Act" stackId="a" fill="#22c55e" radius={[2, 2, 0, 0]} />

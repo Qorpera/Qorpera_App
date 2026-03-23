@@ -65,14 +65,14 @@ interface StepData {
 
 function statusColor(status: string): string {
   switch (status) {
-    case "proposed": return "#f59e0b";
+    case "proposed": return "var(--warn)";
     case "approved":
-    case "executing": return "#c084fc";
-    case "completed": return "#22c55e";
+    case "executing": return "var(--accent)";
+    case "completed": return "var(--ok)";
     case "rejected":
-    case "failed": return "#ef4444";
-    case "paused": return "#6b7280";
-    default: return "#6b7280";
+    case "failed": return "var(--danger)";
+    case "paused": return "var(--fg3)";
+    default: return "var(--fg3)";
   }
 }
 
@@ -86,9 +86,9 @@ function statusLabel(item: InitiativeItem): string {
 const ACTIVE_STATUSES = ["proposed", "approved", "executing"];
 
 const EXEC_MODE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
-  action: { bg: "rgba(168,85,247,0.12)", color: "#c084fc", label: "action" },
-  generate: { bg: "rgba(59,130,246,0.12)", color: "#60a5fa", label: "generate" },
-  human_task: { bg: "rgba(245,158,11,0.12)", color: "#f59e0b", label: "human task" },
+  action: { bg: "var(--accent-light)", color: "var(--accent)", label: "action" },
+  generate: { bg: "color-mix(in srgb, var(--info) 12%, transparent)", color: "var(--info)", label: "generate" },
+  human_task: { bg: "color-mix(in srgb, var(--warn) 12%, transparent)", color: "var(--warn)", label: "human task" },
 };
 
 function ExecutionModeBadge({ mode }: { mode: string }) {
@@ -218,26 +218,26 @@ export default function InitiativesPage() {
 
         {/* ── Left: initiative list ── */}
         {(!isMobile || !selectedId) && (
-        <div className={`${isMobile ? "w-full" : "w-[300px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid #1e1e1e" }}>
+        <div className={`${isMobile ? "w-full" : "w-[300px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid var(--border)" }}>
           {/* Header */}
-          <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "#e8e8e8" }}>{t("title")}</div>
-            <div style={{ fontSize: 11, color: "#707070" }} className="mt-0.5">
+          <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>{t("title")}</div>
+            <div style={{ fontSize: 11, color: "var(--fg3)" }} className="mt-0.5">
               {t("subtitle")}
             </div>
           </div>
 
           {/* Filter tabs */}
-          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
+          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
             {(["active", "all"] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
                 className="text-[11px] font-medium px-2.5 py-1 rounded-full border transition"
                 style={{
-                  background: filter === f ? "#222" : "transparent",
-                  borderColor: filter === f ? "#333" : "transparent",
-                  color: filter === f ? "#e8e8e8" : "#484848",
+                  background: filter === f ? "var(--elevated)" : "transparent",
+                  borderColor: filter === f ? "var(--border)" : "transparent",
+                  color: filter === f ? "var(--foreground)" : "var(--fg4)",
                 }}
               >
                 {f === "active" ? tc("active") : tc("all")}
@@ -258,27 +258,27 @@ export default function InitiativesPage() {
                 onClick={() => setSelectedId(item.id)}
                 className="w-full text-left px-4 py-2.5 transition"
                 style={{
-                  borderBottom: "1px solid #1e1e1e",
-                  borderLeft: selectedId === item.id ? "2px solid #c084fc" : "2px solid transparent",
-                  background: selectedId === item.id ? "#181818" : "transparent",
+                  borderBottom: "1px solid var(--border)",
+                  borderLeft: selectedId === item.id ? "2px solid var(--accent)" : "2px solid transparent",
+                  background: selectedId === item.id ? "var(--hover)" : "transparent",
                 }}
               >
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor(item.status) }} />
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "#e8e8e8" }} className="truncate flex-1">
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }} className="truncate flex-1">
                     {item.rationale.split(/[.!?\n]/)[0] || "Untitled initiative"}
                   </span>
-                  <span style={{ fontSize: 11, color: "#484848" }} className="flex-shrink-0">
+                  <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
                     {formatRelativeTime(item.createdAt, locale)}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: "#484848" }} className="pl-[15px] truncate">
+                <div style={{ fontSize: 11, color: "var(--fg4)" }} className="pl-[15px] truncate">
                   {item.aiEntityName ?? "AI"} &middot; {statusLabel(item)}
                 </div>
               </button>
             ))}
             {!loading && filteredInitiatives.length === 0 && (
-              <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "#484848" }}>
+              <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "var(--fg4)" }}>
                 {t("empty")}
               </div>
             )}
@@ -320,7 +320,7 @@ export default function InitiativesPage() {
               <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "#484848" }}>
+            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
               {t("selectInitiative")}
             </div>
           )}
@@ -372,16 +372,16 @@ function DetailPane({
           }>
             {d.status.charAt(0).toUpperCase() + d.status.slice(1)}
           </Badge>
-          <span style={{ fontSize: 12, color: "#707070" }}>{d.aiEntityName ?? "AI"}</span>
-          <span style={{ fontSize: 12, color: "#484848" }}>{formatRelativeTime(d.createdAt, locale)}</span>
+          <span style={{ fontSize: 12, color: "var(--fg3)" }}>{d.aiEntityName ?? "AI"}</span>
+          <span style={{ fontSize: 12, color: "var(--fg4)" }}>{formatRelativeTime(d.createdAt, locale)}</span>
         </div>
 
-        <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "#e8e8e8" }}>
+        <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
           {d.rationale.split(/[.!?\n]/)[0] || "Untitled initiative"}
         </h1>
 
         {d.goal && (
-          <p style={{ fontSize: 13, color: "#707070" }} className="mt-1">
+          <p style={{ fontSize: 13, color: "var(--fg3)" }} className="mt-1">
             Goal: {d.goal.title}
           </p>
         )}
@@ -395,20 +395,20 @@ function DetailPane({
 
       {/* ── Rationale ── */}
       <div>
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
+        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
           {t("rationale")}
         </div>
-        <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-          <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0", whiteSpace: "pre-wrap" }}>{d.rationale}</p>
+        <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 4 }}>
+          <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{d.rationale}</p>
         </div>
       </div>
 
       {/* ── Action buttons ── */}
       {canAct && (
-        <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+        <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
           <button
             className="rounded-full text-[13px] font-medium px-4 py-1.5 transition hover:opacity-90"
-            style={{ background: "#16a34a", color: "#fff" }}
+            style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
             onClick={() => patchInitiative(d.id, { status: "approved" })}
           >
             {tc("approve")}
@@ -427,8 +427,8 @@ function DetailPane({
         <div>
           <button
             onClick={() => setShowPlan(!showPlan)}
-            className="flex items-center gap-1.5 transition-colors hover:text-[#707070]"
-            style={{ fontSize: 12, color: "#484848" }}
+            className="flex items-center gap-1.5 transition-colors hover:text-[var(--fg3)]"
+            style={{ fontSize: 12, color: "var(--fg4)" }}
           >
             <svg className={`w-3 h-3 transition-transform ${showPlan ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -441,8 +441,8 @@ function DetailPane({
                 padding: "1px 6px",
                 borderRadius: 3,
                 marginLeft: 4,
-                background: d.planStatus === "completed" ? "rgba(34,197,94,0.1)" : d.planStatus === "failed" ? "rgba(239,68,68,0.1)" : "rgba(168,85,247,0.1)",
-                color: d.planStatus === "completed" ? "#22c55e" : d.planStatus === "failed" ? "#ef4444" : "#c084fc",
+                background: d.planStatus === "completed" ? "color-mix(in srgb, var(--ok) 12%, transparent)" : d.planStatus === "failed" ? "color-mix(in srgb, var(--danger) 12%, transparent)" : "var(--accent-light)",
+                color: d.planStatus === "completed" ? "var(--ok)" : d.planStatus === "failed" ? "var(--danger)" : "var(--accent)",
               }}>
                 {d.planStatus}
               </span>
@@ -450,7 +450,7 @@ function DetailPane({
           </button>
 
           {showPlan && (
-            <div className="mt-3" style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, overflow: "hidden" }}>
+            <div className="mt-3" style={{ background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 4, overflow: "hidden" }}>
               {d.steps.map((step, i) => {
                 const isCompleted = step.status === "completed" || step.status === "skipped";
                 const isAwaitingApproval = step.status === "awaiting_approval";
@@ -464,7 +464,7 @@ function DetailPane({
                     key={step.id}
                     style={{
                       padding: "12px 16px",
-                      borderBottom: i < d.steps.length - 1 ? "1px solid #1e1e1e" : "none",
+                      borderBottom: i < d.steps.length - 1 ? "1px solid var(--border)" : "none",
                       opacity: isPending ? 0.5 : 1,
                       background: isActive ? "rgba(168,85,247,0.04)" : "transparent",
                       borderLeft: isActive ? "3px solid rgba(168,85,247,0.4)" : "3px solid transparent",
@@ -474,11 +474,11 @@ function DetailPane({
                       {/* Step number / status */}
                       <div className="flex-shrink-0 mt-0.5" style={{ width: 20, textAlign: "center" }}>
                         {isCompleted ? (
-                          <span style={{ color: "#22c55e", fontSize: 14 }}>&#10003;</span>
+                          <span style={{ color: "var(--ok)", fontSize: 14 }}>&#10003;</span>
                         ) : isFailed ? (
-                          <span style={{ color: "#ef4444", fontSize: 14 }}>&#10007;</span>
+                          <span style={{ color: "var(--danger)", fontSize: 14 }}>&#10007;</span>
                         ) : (
-                          <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "#c084fc" : "#484848" }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "var(--accent)" : "var(--fg4)" }}>
                             {step.sequenceOrder}
                           </span>
                         )}
@@ -487,12 +487,12 @@ function DetailPane({
                       {/* Step content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span style={{ fontSize: 13, fontWeight: 500, color: isCompleted ? "#707070" : "#b0b0b0" }} className="truncate">
+                          <span style={{ fontSize: 13, fontWeight: 500, color: isCompleted ? "var(--fg3)" : "var(--fg2)" }} className="truncate">
                             {step.title}
                           </span>
                           <ExecutionModeBadge mode={step.executionMode} />
                         </div>
-                        <p style={{ fontSize: 12, color: "#707070", marginTop: 2 }}>
+                        <p style={{ fontSize: 12, color: "var(--fg3)", marginTop: 2 }}>
                           {step.description}
                         </p>
                         {/* Action preview */}
@@ -517,7 +517,7 @@ function DetailPane({
                           );
                         })()}
                         {step.errorMessage && (
-                          <p style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{step.errorMessage}</p>
+                          <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 4 }}>{step.errorMessage}</p>
                         )}
 
                         {/* Step actions for awaiting_approval */}
@@ -525,14 +525,14 @@ function DetailPane({
                           <div className="flex items-center gap-2 mt-3">
                             <button
                               className="rounded-full text-[12px] font-medium px-3 py-1 transition hover:opacity-90"
-                              style={{ background: "#16a34a", color: "#fff" }}
+                              style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
                               onClick={() => advanceStep(d.executionPlanId!, step.id, "approve")}
                             >
                               {t("approveStep")}
                             </button>
                             <button
                               className="rounded-full text-[12px] font-medium px-3 py-1 transition"
-                              style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
+                              style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
                               onClick={() => advanceStep(d.executionPlanId!, step.id, "skip")}
                             >
                               {tc("skip")}
@@ -548,12 +548,12 @@ function DetailPane({
                               onChange={e => setHumanNotes(e.target.value)}
                               placeholder={t("humanTaskPlaceholder")}
                               className="w-full outline-none"
-                              style={{ background: "#111", border: "1px solid #333", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8", resize: "vertical", fontFamily: "inherit" }}
+                              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "var(--foreground)", resize: "vertical", fontFamily: "inherit" }}
                               rows={2}
                             />
                             <button
                               className="rounded-full text-[12px] font-medium px-3 py-1 transition hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-                              style={{ background: "#16a34a", color: "#fff" }}
+                              style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
                               disabled={!humanNotes.trim()}
                               onClick={() => {
                                 completeHumanStep(d.executionPlanId!, step.id, humanNotes.trim());
@@ -579,8 +579,8 @@ function DetailPane({
         <div>
           <button
             onClick={() => setShowImpact(!showImpact)}
-            className="flex items-center gap-1.5 transition-colors hover:text-[#707070]"
-            style={{ fontSize: 12, color: "#484848" }}
+            className="flex items-center gap-1.5 transition-colors hover:text-[var(--fg3)]"
+            style={{ fontSize: 12, color: "var(--fg4)" }}
           >
             <svg className={`w-3 h-3 transition-transform ${showImpact ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -589,8 +589,8 @@ function DetailPane({
           </button>
 
           {showImpact && (
-            <div className="mt-3" style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-              <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0", whiteSpace: "pre-wrap" }}>{d.impactAssessment}</p>
+            <div className="mt-3" style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 4 }}>
+              <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{d.impactAssessment}</p>
             </div>
           )}
         </div>

@@ -17,7 +17,7 @@ export function SkeletonAccount() {
       <div className="space-y-3">
         <Skeleton className="h-5 w-40" />
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="flex items-center justify-between p-4 rounded-lg" style={{ background: "#161616", border: "1px solid #222" }}>
+          <div key={i} className="flex items-center justify-between p-4 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--elevated)" }}>
             <div className="flex items-center gap-3">
               <Skeleton className="h-8 w-8 rounded" />
               <div className="space-y-1">

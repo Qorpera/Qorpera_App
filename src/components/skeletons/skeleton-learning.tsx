@@ -8,7 +8,7 @@ export function SkeletonLearning() {
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="p-4 rounded-lg" style={{ background: "#161616", border: "1px solid #222" }}>
+          <div key={i} className="p-4 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--elevated)" }}>
             <Skeleton className="h-3 w-16 mb-2" />
             <Skeleton className="h-7 w-12" />
           </div>
@@ -16,11 +16,11 @@ export function SkeletonLearning() {
       </div>
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="p-4 rounded-lg" style={{ background: "#161616", border: "1px solid #222" }}>
+        <div className="p-4 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--elevated)" }}>
           <Skeleton className="h-4 w-28 mb-4" />
           <Skeleton className="h-40 w-full rounded" />
         </div>
-        <div className="p-4 rounded-lg" style={{ background: "#161616", border: "1px solid #222" }}>
+        <div className="p-4 rounded-lg" style={{ background: "var(--surface)", border: "1px solid var(--elevated)" }}>
           <Skeleton className="h-4 w-36 mb-4" />
           <Skeleton className="h-40 w-full rounded" />
         </div>

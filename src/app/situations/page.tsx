@@ -156,11 +156,11 @@ function extractDraftPayloads(raw: unknown): DraftPayload[] {
 }
 
 function severityDotColor(s: SituationItem): string {
-  if (s.status === "rejected") return "#6b7280";
-  if (s.status === "approved" || s.status === "resolved") return "#22c55e";
-  if (s.severity >= 0.7) return "#ef4444";
-  if (s.severity >= 0.4) return "#f59e0b";
-  return "#6b7280";
+  if (s.status === "rejected") return "var(--fg3)";
+  if (s.status === "approved" || s.status === "resolved") return "var(--ok)";
+  if (s.severity >= 0.7) return "var(--danger)";
+  if (s.severity >= 0.4) return "var(--warn)";
+  return "var(--fg3)";
 }
 
 function severityBadge(s: SituationItem): { label: string; variant: "red" | "amber" | "default" } {
@@ -179,10 +179,10 @@ function providerLabel(draft: DraftPayload): string {
 
 function providerDotColor(draft: DraftPayload): string {
   const p = draft.provider?.toLowerCase();
-  if (p === "google" || p === "gmail") return "#ef4444";
-  if (p === "slack") return "#a855f7";
-  if (p === "microsoft" || p === "outlook") return "#3b82f6";
-  return "#6b7280";
+  if (p === "google" || p === "gmail") return "var(--danger)";
+  if (p === "slack") return "var(--accent)";
+  if (p === "microsoft" || p === "outlook") return "var(--info)";
+  return "var(--fg3)";
 }
 
 const CATEGORY_OPTIONS = [
@@ -330,9 +330,9 @@ export default function SituationsPage() {
   return (
     <AppShell pendingApprovals={pendingCount}>
       {billingStatus !== "active" && (
-        <div className="px-4 py-3 flex items-center justify-between" style={{ background: "rgba(139, 92, 246, 0.08)", borderBottom: "1px solid rgba(139, 92, 246, 0.2)" }}>
+        <div className="px-4 py-3 flex items-center justify-between bg-accent-light" style={{ borderBottom: "1px solid var(--accent)" }}>
           <div>
-            <span style={{ fontSize: 13, color: "#c4b5fd", fontWeight: 500 }}>
+            <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 500 }}>
               {billingStatus === "past_due"
                 ? "Payment needs updating. Situation actions are paused."
                 : `You're viewing Qorpera's AI detections. ${detectionCount}/50 free situations detected.`}
@@ -340,8 +340,7 @@ export default function SituationsPage() {
           </div>
           <a
             href="/settings?tab=billing"
-            className="rounded-full text-[12px] font-medium px-3 py-1"
-            style={{ background: "#8b5cf6", color: "#fff" }}
+            className="rounded-full text-[12px] font-medium px-3 py-1 bg-accent text-accent-ink"
           >
             {billingStatus === "past_due" ? "Update payment" : "Activate billing"}
           </a>
@@ -351,26 +350,26 @@ export default function SituationsPage() {
 
         {/* ── Left: situation list ── */}
         {(!isMobile || !selectedId) && (
-        <div className={`${isMobile ? "w-full" : "w-[320px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid #1e1e1e" }}>
+        <div className={`${isMobile ? "w-full" : "w-[320px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid var(--border)" }}>
           {/* Header */}
-          <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "#e8e8e8" }}>{t("title")}</div>
-            <div style={{ fontSize: 11, color: "#707070" }} className="mt-0.5">
+          <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>{t("title")}</div>
+            <div style={{ fontSize: 11, color: "var(--fg3)" }} className="mt-0.5">
               {situations.length} total &middot; {pendingCount} pending
             </div>
           </div>
 
           {/* Filter tabs */}
-          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid #1e1e1e" }}>
+          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
             {(["all", "pending", "resolved"] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
                 className="text-[11px] font-medium px-2.5 py-1 rounded-full border transition"
                 style={{
-                  background: filter === f ? "#222" : "transparent",
-                  borderColor: filter === f ? "#333" : "transparent",
-                  color: filter === f ? "#e8e8e8" : "#484848",
+                  background: filter === f ? "var(--elevated)" : "transparent",
+                  borderColor: filter === f ? "var(--border)" : "transparent",
+                  color: filter === f ? "var(--foreground)" : "var(--fg4)",
                 }}
               >
                 {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -392,27 +391,27 @@ export default function SituationsPage() {
                 onClick={() => setSelectedId(s.id)}
                 className="w-full text-left px-4 py-2.5 transition"
                 style={{
-                  borderBottom: "1px solid #1e1e1e",
-                  borderLeft: selectedId === s.id ? "2px solid #c084fc" : "2px solid transparent",
-                  background: selectedId === s.id ? "#181818" : "transparent",
+                  borderBottom: "1px solid var(--border)",
+                  borderLeft: selectedId === s.id ? "2px solid var(--accent)" : "2px solid transparent",
+                  background: selectedId === s.id ? "var(--surface)" : "transparent",
                 }}
               >
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: severityDotColor(s) }} />
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "#e8e8e8" }} className="truncate flex-1">
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }} className="truncate flex-1">
                     {s.triggerEntityName ?? "Unknown"}
                   </span>
-                  <span style={{ fontSize: 11, color: "#484848" }} className="flex-shrink-0">
+                  <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
                     {formatRelativeTime(s.createdAt, locale)}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: "#484848" }} className="pl-[15px] truncate">
+                <div style={{ fontSize: 11, color: "var(--fg4)" }} className="pl-[15px] truncate">
                   {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
                 </div>
               </button>
             ))}
             {!loading && filteredSituations.length === 0 && (
-              <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "#484848" }}>
+              <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "var(--fg4)" }}>
                 {t("empty")}
               </div>
             )}
@@ -459,7 +458,7 @@ export default function SituationsPage() {
               />
             </>
           ) : (
-            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "#484848" }}>
+            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
               {t("selectSituation")}
             </div>
           )}
@@ -513,28 +512,27 @@ function DelegationFeed() {
   };
 
   return (
-    <div style={{ borderBottom: "1px solid #1e1e1e" }}>
+    <div style={{ borderBottom: "1px solid var(--border)" }}>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-4 py-2 flex items-center gap-2"
-        style={{ background: "rgba(168,85,247,0.04)" }}
+        className="w-full text-left px-4 py-2 flex items-center gap-2 bg-accent-light"
       >
-        <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-accent text-[10px] font-bold text-white px-1">
+        <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-ink px-1">
           {delegations.length}
         </span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#c084fc" }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--accent)" }}>
           task{delegations.length !== 1 ? "s" : ""} assigned to you
         </span>
-        <svg className={`w-3 h-3 ml-auto transition-transform ${expanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="#c084fc" strokeWidth={2}>
+        <svg className={`w-3 h-3 ml-auto transition-transform ${expanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="var(--accent)" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
       </button>
       {expanded && (
         <div className="px-4 pb-3 space-y-2">
           {delegations.map(d => (
-            <div key={d.id} style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "8px 12px" }}>
-              <p style={{ fontSize: 12, color: "#b0b0b0" }}>{d.instruction}</p>
-              <p style={{ fontSize: 11, color: "#484848", marginTop: 2 }}>
+            <div key={d.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 12px" }}>
+              <p style={{ fontSize: 12, color: "var(--fg2)" }}>{d.instruction}</p>
+              <p style={{ fontSize: 11, color: "var(--fg4)", marginTop: 2 }}>
                 From: {d.fromAiEntityName ?? "AI"}
               </p>
               {completingId === d.id ? (
@@ -544,7 +542,7 @@ function DelegationFeed() {
                     onChange={e => setNotes(e.target.value)}
                     placeholder="Describe what you did..."
                     className="w-full outline-none"
-                    style={{ background: "#111", border: "1px solid #333", borderRadius: 4, padding: "6px 8px", fontSize: 11, color: "#e8e8e8", resize: "vertical", fontFamily: "inherit" }}
+                    style={{ background: "var(--sidebar)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 8px", fontSize: 11, color: "var(--foreground)", resize: "vertical", fontFamily: "inherit" }}
                     rows={2}
                   />
                   <div className="flex gap-1.5">
@@ -552,14 +550,14 @@ function DelegationFeed() {
                       onClick={() => handleComplete(d.id)}
                       disabled={!notes.trim()}
                       className="text-[11px] px-2 py-0.5 rounded transition disabled:opacity-40"
-                      style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}
+                      style={{ background: "rgba(34,197,94,0.15)", color: "var(--ok)" }}
                     >
                       Submit
                     </button>
                     <button
                       onClick={() => { setCompletingId(null); setNotes(""); }}
                       className="text-[11px] px-2 py-0.5 rounded transition"
-                      style={{ color: "#484848" }}
+                      style={{ color: "var(--fg4)" }}
                     >
                       {tc("cancel")}
                     </button>
@@ -569,7 +567,7 @@ function DelegationFeed() {
                 <button
                   onClick={() => setCompletingId(d.id)}
                   className="mt-2 text-[11px] px-2 py-0.5 rounded transition"
-                  style={{ background: "rgba(34,197,94,0.1)", color: "#22c55e" }}
+                  style={{ background: "rgba(34,197,94,0.1)", color: "var(--ok)" }}
                 >
                   Mark complete
                 </button>
@@ -585,9 +583,9 @@ function DelegationFeed() {
 // ── Execution Mode Badge ─────────────────────────────────────────────────────
 
 const EXEC_MODE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
-  action: { bg: "rgba(168,85,247,0.12)", color: "#c084fc", label: "action" },
-  generate: { bg: "rgba(59,130,246,0.12)", color: "#60a5fa", label: "generate" },
-  human_task: { bg: "rgba(245,158,11,0.12)", color: "#f59e0b", label: "human task" },
+  action: { bg: "rgba(168,85,247,0.12)", color: "var(--accent)", label: "action" },
+  generate: { bg: "rgba(59,130,246,0.12)", color: "var(--info)", label: "generate" },
+  human_task: { bg: "rgba(245,158,11,0.12)", color: "var(--warn)", label: "human task" },
 };
 
 function ExecutionModeBadge({ mode }: { mode: string }) {
@@ -759,7 +757,7 @@ function DetailPane({
       {/* ── Header ── */}
       <div>
         <div className="flex items-start justify-between">
-          <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "#e8e8e8" }}>
+          <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
             {s.triggerEntityName ?? "Unknown"} &mdash; {s.situationType.name}
           </h1>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -767,7 +765,7 @@ function DetailPane({
             {/* Star/favorite — WorkStream linkage */}
             <div className="relative" ref={starDropdownRef}>
               <button
-                className={`transition-colors ${linkedWorkStream ? "text-[#f59e0b]" : "text-[#484848] hover:text-[#707070]"}`}
+                className={`transition-colors ${linkedWorkStream ? "text-warn" : "text-[var(--fg4)] hover:text-[var(--fg3)]"}`}
                 title={linkedWorkStream ? `In project: ${linkedWorkStream.title}` : "Add to project"}
                 onClick={() => {
                   if (linkedWorkStream) {
@@ -785,11 +783,11 @@ function DetailPane({
               {showStarDropdown && !linkedWorkStream && (
                 <div
                   className="absolute right-0 top-full mt-1 z-10"
-                  style={{ background: "#1c1c1c", border: "1px solid #333", borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", width: 220, overflow: "hidden" }}
+                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", width: 220, overflow: "hidden" }}
                 >
                   <button
                     className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-hover"
-                    style={{ color: "#c084fc", borderBottom: "1px solid #222" }}
+                    style={{ color: "var(--accent)", borderBottom: "1px solid var(--border)" }}
                     disabled={creatingProject}
                     onClick={async () => {
                       setCreatingProject(true);
@@ -826,7 +824,7 @@ function DetailPane({
                     <button
                       key={ws.id}
                       className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-hover truncate"
-                      style={{ color: "#b0b0b0", borderBottom: "1px solid #222" }}
+                      style={{ color: "var(--fg2)", borderBottom: "1px solid var(--border)" }}
                       onClick={async () => {
                         await fetch(`/api/workstreams/${ws.id}/items`, {
                           method: "POST",
@@ -841,7 +839,7 @@ function DetailPane({
                     </button>
                   ))}
                   {workStreams.length === 0 && (
-                    <div className="px-3 py-2 text-[11px]" style={{ color: "#484848" }}>No existing projects</div>
+                    <div className="px-3 py-2 text-[11px]" style={{ color: "var(--fg4)" }}>No existing projects</div>
                   )}
                 </div>
               )}
@@ -850,8 +848,8 @@ function DetailPane({
         </div>
         <div className="flex items-center gap-2 mt-2 flex-wrap">
           {s.departmentName && <Badge>{s.departmentName}</Badge>}
-          <span style={{ fontSize: 12, color: "#707070" }}>{(s.confidence * 100).toFixed(0)}%</span>
-          <span style={{ fontSize: 12, color: "#484848" }}>{formatRelativeTime(s.createdAt, locale)}</span>
+          <span style={{ fontSize: 12, color: "var(--fg3)" }}>{(s.confidence * 100).toFixed(0)}%</span>
+          <span style={{ fontSize: 12, color: "var(--fg4)" }}>{formatRelativeTime(s.createdAt, locale)}</span>
         </div>
       </div>
 
@@ -867,31 +865,31 @@ function DetailPane({
           {detail.editInstruction && (
             <div className="flex items-start gap-2">
               <Badge variant="blue">Revised</Badge>
-              <p style={{ fontSize: 13, color: "#707070" }} className="italic">&quot;{detail.editInstruction}&quot;</p>
+              <p style={{ fontSize: 13, color: "var(--fg3)" }} className="italic">&quot;{detail.editInstruction}&quot;</p>
             </div>
           )}
 
           {/* ── SITUATION section ── */}
           {reasoning ? (
             <div>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
                 Situation
               </div>
-              <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-                <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0" }}>{reasoning.analysis}</p>
+              <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
+                <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}>{reasoning.analysis}</p>
               </div>
             </div>
           ) : (s.status === "detected") ? (
-            <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-              <p style={{ fontSize: 13, color: "#707070" }}>
+            <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
+              <p style={{ fontSize: 13, color: "var(--fg3)" }}>
                 Situation detected — awaiting AI analysis.
               </p>
               {detail.contextSnapshot?.triggerEntity && (
                 <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1">
                   {Object.entries(detail.contextSnapshot.triggerEntity.properties).slice(0, 8).map(([k, v]) => (
-                    <div key={k} className="flex justify-between text-[13px] py-1" style={{ borderBottom: "1px solid #1e1e1e" }}>
-                      <span style={{ color: "#707070" }}>{k}</span>
-                      <span style={{ color: "#b0b0b0" }}>{v}</span>
+                    <div key={k} className="flex justify-between text-[13px] py-1" style={{ borderBottom: "1px solid var(--border)" }}>
+                      <span style={{ color: "var(--fg3)" }}>{k}</span>
+                      <span style={{ color: "var(--fg2)" }}>{v}</span>
                     </div>
                   ))}
                 </div>
@@ -903,24 +901,24 @@ function DetailPane({
           {reasoning && actionPlan && actionPlan.length === 1 ? (
             /* Single-step plan: show as simple proposed action */
             <div>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
                 Proposed Action
               </div>
-              <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-                <p style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.65, color: "#b0b0b0" }}>{actionPlan[0].title}</p>
-                <p style={{ fontSize: 12, color: "#707070" }} className="mt-1">{actionPlan[0].description}</p>
+              <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
+                <p style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.65, color: "var(--fg2)" }}>{actionPlan[0].title}</p>
+                <p style={{ fontSize: 12, color: "var(--fg3)" }} className="mt-1">{actionPlan[0].description}</p>
                 {policyNote && (
-                  <p style={{ fontSize: 11, color: "#484848" }} className="mt-1">{policyNote}</p>
+                  <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-1">{policyNote}</p>
                 )}
               </div>
             </div>
           ) : reasoning && actionPlan && actionPlan.length > 1 ? (
             /* Multi-step plan display */
             <div>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
                 Proposed Plan &middot; {actionPlan.length} steps
               </div>
-              <div style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, overflow: "hidden" }}>
                 {actionPlan.map((step, i) => {
                   const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
                   const isCompleted = planStep?.status === "completed";
@@ -931,7 +929,7 @@ function DetailPane({
                       key={i}
                       style={{
                         padding: "10px 16px",
-                        borderBottom: i < actionPlan.length - 1 ? "1px solid #1e1e1e" : "none",
+                        borderBottom: i < actionPlan.length - 1 ? "1px solid var(--border)" : "none",
                         opacity: executionPlan ? (isPending && !isActive ? 0.5 : 1) : 1,
                         background: isActive ? "rgba(168,85,247,0.04)" : "transparent",
                       }}
@@ -940,20 +938,20 @@ function DetailPane({
                       {/* Step number or status icon */}
                       <div className="flex-shrink-0 mt-0.5" style={{ width: 20, textAlign: "center" }}>
                         {isCompleted ? (
-                          <span style={{ color: "#22c55e", fontSize: 14 }}>&#10003;</span>
+                          <span style={{ color: "var(--ok)", fontSize: 14 }}>&#10003;</span>
                         ) : (
-                          <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "#c084fc" : "#484848" }}>({i + 1})</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "var(--accent)" : "var(--fg4)" }}>({i + 1})</span>
                         )}
                       </div>
                       {/* Step content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span style={{ fontSize: 13, fontWeight: 500, color: isCompleted ? "#707070" : "#b0b0b0" }} className="truncate">
+                          <span style={{ fontSize: 13, fontWeight: 500, color: isCompleted ? "var(--fg3)" : "var(--fg2)" }} className="truncate">
                             {step.title}
                           </span>
                           <ExecutionModeBadge mode={step.executionMode} />
                         </div>
-                        <p style={{ fontSize: 12, color: "#707070", marginTop: 2 }} className="line-clamp-2">
+                        <p style={{ fontSize: 12, color: "var(--fg3)", marginTop: 2 }} className="line-clamp-2">
                           {step.description}
                         </p>
                         {/* Action preview */}
@@ -989,7 +987,7 @@ function DetailPane({
                           );
                         })()}
                         {planStep?.errorMessage && (
-                          <p style={{ fontSize: 11, color: "#ef4444", marginTop: 2 }}>{planStep.errorMessage}</p>
+                          <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 2 }}>{planStep.errorMessage}</p>
                         )}
                       </div>
                     </div>
@@ -997,7 +995,7 @@ function DetailPane({
                 })}
               </div>
               {policyNote && (
-                <p style={{ fontSize: 11, color: "#484848" }} className="mt-2">{policyNote}</p>
+                <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-2">{policyNote}</p>
               )}
               {/* Execution plan status */}
               {executionPlan && (
@@ -1008,27 +1006,27 @@ function DetailPane({
                     padding: "2px 8px",
                     borderRadius: 3,
                     background: executionPlan.status === "completed" ? "rgba(34,197,94,0.1)" : executionPlan.status === "failed" ? "rgba(239,68,68,0.1)" : "rgba(168,85,247,0.1)",
-                    color: executionPlan.status === "completed" ? "#22c55e" : executionPlan.status === "failed" ? "#ef4444" : "#c084fc",
+                    color: executionPlan.status === "completed" ? "var(--ok)" : executionPlan.status === "failed" ? "var(--danger)" : "var(--accent)",
                   }}>
                     Plan {executionPlan.status}
                   </span>
-                  <span style={{ fontSize: 11, color: "#484848" }}>
+                  <span style={{ fontSize: 11, color: "var(--fg4)" }}>
                     Step {executionPlan.currentStepOrder} of {executionPlan.steps.length}
                   </span>
                 </div>
               )}
             </div>
           ) : reasoning && !actionPlan ? (
-            <p style={{ fontSize: 13, color: "#707070" }} className="italic">No action recommended — please review.</p>
+            <p style={{ fontSize: 13, color: "var(--fg3)" }} className="italic">No action recommended — please review.</p>
           ) : s.status === "reasoning" ? (
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-muted" />
-              <p style={{ fontSize: 13, color: "#707070" }}>AI is analyzing this situation...</p>
+              <p style={{ fontSize: 13, color: "var(--fg3)" }}>AI is analyzing this situation...</p>
             </div>
           ) : s.status === "executing" || s.status === "auto_executing" ? (
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-ok" />
-              <p style={{ fontSize: 13, color: "#707070" }}>Executing action...</p>
+              <p style={{ fontSize: 13, color: "var(--fg3)" }}>Executing action...</p>
             </div>
           ) : null}
 
@@ -1047,13 +1045,13 @@ function DetailPane({
               }}>
                 <div className="flex items-center gap-2">
                   <span style={{ width: 8, height: 8, borderRadius: 4, background: providerDotColor(primaryDraft) }} />
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>{providerLabel(primaryDraft)}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fg2)" }}>{providerLabel(primaryDraft)}</span>
                 </div>
                 {!editingDraft ? (
                   <button
                     onClick={startDraftEdit}
-                    style={{ background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#b0b0b0" }}
-                    className="flex items-center gap-1.5 hover:bg-[#2a2a2a] transition"
+                    style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "var(--fg2)" }}
+                    className="flex items-center gap-1.5 hover:bg-hover transition"
                   >
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
@@ -1065,14 +1063,14 @@ function DetailPane({
                     <button
                       onClick={saveDraftEdit}
                       className="transition"
-                      style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.3)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#c084fc" }}
+                      style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.3)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "var(--accent)" }}
                     >
                       {t("saveInstruction")}
                     </button>
                     <button
                       onClick={cancelDraftEdit}
-                      style={{ background: "#222", border: "1px solid #333", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "#b0b0b0" }}
-                      className="hover:bg-[#2a2a2a] transition"
+                      style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "var(--fg2)" }}
+                      className="hover:bg-hover transition"
                     >
                       {tc("cancel")}
                     </button>
@@ -1084,26 +1082,26 @@ function DetailPane({
               <div style={{ padding: "14px 16px" }}>
                 {/* Email fields */}
                 {primaryDraft.payload.to && (
-                  <div style={{ fontSize: 12, color: "#707070" }} className="mb-1">
-                    <span style={{ color: "#484848" }}>{t("to")}</span> {primaryDraft.payload.to}
-                    {primaryDraft.payload.cc && <span className="ml-3"><span style={{ color: "#484848" }}>Cc:</span> {primaryDraft.payload.cc}</span>}
+                  <div style={{ fontSize: 12, color: "var(--fg3)" }} className="mb-1">
+                    <span style={{ color: "var(--fg4)" }}>{t("to")}</span> {primaryDraft.payload.to}
+                    {primaryDraft.payload.cc && <span className="ml-3"><span style={{ color: "var(--fg4)" }}>Cc:</span> {primaryDraft.payload.cc}</span>}
                   </div>
                 )}
                 {primaryDraft.payload.subject && (
-                  <div style={{ fontSize: 12, color: "#707070" }} className="mb-2">
-                    <span style={{ color: "#484848" }}>{t("subject")}</span> {primaryDraft.payload.subject}
+                  <div style={{ fontSize: 12, color: "var(--fg3)" }} className="mb-2">
+                    <span style={{ color: "var(--fg4)" }}>{t("subject")}</span> {primaryDraft.payload.subject}
                   </div>
                 )}
                 {/* Slack channel */}
                 {primaryDraft.payload.channel && !primaryDraft.payload.to && (
-                  <div style={{ fontSize: 12, color: "#707070" }} className="mb-2">
-                    <span style={{ color: "#484848" }}>{t("channel")}</span> #{primaryDraft.payload.channel}
+                  <div style={{ fontSize: 12, color: "var(--fg3)" }} className="mb-2">
+                    <span style={{ color: "var(--fg4)" }}>{t("channel")}</span> #{primaryDraft.payload.channel}
                   </div>
                 )}
 
                 {/* Divider for email */}
                 {primaryDraft.payload.subject && (
-                  <div style={{ borderTop: "1px solid #222" }} className="mb-3" />
+                  <div style={{ borderTop: "1px solid var(--border)" }} className="mb-3" />
                 )}
 
                 {/* Body / message */}
@@ -1114,20 +1112,20 @@ function DetailPane({
                     style={{
                       width: "100%",
                       minHeight: 120,
-                      background: "#111",
+                      background: "var(--sidebar)",
                       border: "1px solid rgba(168,85,247,0.25)",
                       borderRadius: 4,
                       padding: "10px 12px",
                       fontSize: 13,
                       lineHeight: 1.7,
-                      color: "#e8e8e8",
+                      color: "var(--foreground)",
                       outline: "none",
                       resize: "vertical",
                       fontFamily: "inherit",
                     }}
                   />
                 ) : (
-                  <div style={{ fontSize: 13, lineHeight: 1.7, color: "#b0b0b0", whiteSpace: "pre-wrap" }}>
+                  <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>
                     {primaryDraft.payload.body ?? primaryDraft.payload.message ?? ""}
                   </div>
                 )}
@@ -1138,17 +1136,17 @@ function DetailPane({
           {/* Execution error */}
           {detail.actionTaken?.error && (
             <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 4 }} className="px-4 py-3">
-              <p style={{ fontSize: 13, fontWeight: 500, color: "#ef4444" }}>Execution failed</p>
-              <p style={{ fontSize: 12, color: "rgba(239,68,68,0.7)" }} className="mt-0.5">{detail.actionTaken.error}</p>
+              <p style={{ fontSize: 13, fontWeight: 500, color: "var(--danger)" }}>Execution failed</p>
+              <p style={{ fontSize: 12, color: "var(--danger)", opacity: 0.7 }} className="mt-0.5">{detail.actionTaken.error}</p>
             </div>
           )}
 
           {/* ── Action buttons ── */}
           {canAct && !currentMode && (
-            <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+            <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
               <button
                 className="rounded-full text-[13px] font-medium px-4 py-1.5 transition hover:opacity-90"
-                style={{ background: "#16a34a", color: "#fff" }}
+                style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
                 onClick={handleApprove}
               >
                 {actionPlan && actionPlan.length > 1 ? t("approvePlan") : tc("approve")}
@@ -1161,7 +1159,7 @@ function DetailPane({
               </button>
               <button
                 className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
+                style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
                 onClick={() => setActiveMode({ id: s.id, mode: "teach" })}
               >
                 Teach AI
@@ -1171,10 +1169,10 @@ function DetailPane({
 
           {/* Outcome button for resolved without outcome */}
           {detail.status === "resolved" && !detail.outcome && !currentMode && (
-            <div className="pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+            <div className="pt-2" style={{ borderTop: "1px solid var(--border)" }}>
               <button
                 className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
+                style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
                 onClick={() => setActiveMode({ id: s.id, mode: "outcome" })}
               >
                 Mark Outcome
@@ -1184,14 +1182,14 @@ function DetailPane({
 
           {/* Existing outcome display */}
           {detail.outcome && (
-            <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+            <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
               <Badge variant={detail.outcome === "positive" ? "green" : detail.outcome === "negative" ? "red" : "default"}>
                 {detail.outcome}
               </Badge>
               {detail.outcomeDetails && (() => {
                 try {
                   const parsed = JSON.parse(detail.outcomeDetails);
-                  return parsed.note ? <span style={{ fontSize: 13, color: "#707070" }}>{parsed.note}</span> : null;
+                  return parsed.note ? <span style={{ fontSize: 13, color: "var(--fg3)" }}>{parsed.note}</span> : null;
                 } catch { return null; }
               })()}
             </div>
@@ -1202,8 +1200,8 @@ function DetailPane({
             <div>
               <button
                 onClick={() => setShowEvidence(!showEvidence)}
-                className="flex items-center gap-1.5 transition-colors hover:text-[#707070]"
-                style={{ fontSize: 12, color: "#484848" }}
+                className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+                style={{ fontSize: 12, color: "var(--fg4)" }}
               >
                 <svg className={`w-3 h-3 transition-transform ${showEvidence ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -1215,22 +1213,22 @@ function DetailPane({
                 <div className="mt-3 space-y-4">
                   {/* Evidence summary */}
                   {reasoning.evidenceSummary && (
-                    <div style={{ padding: "14px 16px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-1.5">{t("evidenceSummary")}</div>
-                      <p style={{ fontSize: 13, lineHeight: 1.65, color: "#b0b0b0" }}>{reasoning.evidenceSummary}</p>
+                    <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-1.5">{t("evidenceSummary")}</div>
+                      <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}>{reasoning.evidenceSummary}</p>
                     </div>
                   )}
 
                   {/* Considered actions */}
                   {reasoning.consideredActions.length > 0 && (
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">{t("consideredActions")}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">{t("consideredActions")}</div>
                       <div className="space-y-2">
                         {reasoning.consideredActions.map((ca, i) => {
                           if (typeof ca === "string") {
                             return (
-                              <div key={i} style={{ padding: "10px 14px", background: "#161616", border: "1px solid #222", borderRadius: 4 }}>
-                                <span style={{ fontSize: 13, color: "#b0b0b0" }}>{ca}</span>
+                              <div key={i} style={{ padding: "10px 14px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
+                                <span style={{ fontSize: 13, color: "var(--fg2)" }}>{ca}</span>
                               </div>
                             );
                           }
@@ -1238,24 +1236,24 @@ function DetailPane({
                           const supportItems = hasEvidence ? (ca.evidenceFor ?? []) : (ca.pros ?? []);
                           const againstItems = hasEvidence ? (ca.evidenceAgainst ?? []) : (ca.cons ?? []);
                           return (
-                            <div key={i} style={{ padding: "10px 14px", background: "#161616", border: "1px solid #222", borderRadius: 4 }} className="space-y-1.5">
-                              <span style={{ fontSize: 13, fontWeight: 500, color: "#b0b0b0" }}>{ca.action}</span>
+                            <div key={i} style={{ padding: "10px 14px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }} className="space-y-1.5">
+                              <span style={{ fontSize: 13, fontWeight: 500, color: "var(--fg2)" }}>{ca.action}</span>
                               {supportItems.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
                                   {supportItems.map((p, j) => (
-                                    <span key={j} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 2, background: "rgba(34,197,94,0.1)", color: "rgba(34,197,94,0.85)" }}>{p}</span>
+                                    <span key={j} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 2, background: "rgba(34,197,94,0.1)", color: "var(--ok)" }}>{p}</span>
                                   ))}
                                 </div>
                               )}
                               {againstItems.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
                                   {againstItems.map((c, j) => (
-                                    <span key={j} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 2, background: "rgba(239,68,68,0.1)", color: "rgba(239,68,68,0.8)" }}>{c}</span>
+                                    <span key={j} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 2, background: "rgba(239,68,68,0.1)", color: "var(--danger)" }}>{c}</span>
                                   ))}
                                 </div>
                               )}
                               {ca.expectedOutcome && (
-                                <p style={{ fontSize: 11, color: "#707070" }}>{ca.expectedOutcome}</p>
+                                <p style={{ fontSize: 11, color: "var(--fg3)" }}>{ca.expectedOutcome}</p>
                               )}
                             </div>
                           );
@@ -1267,10 +1265,10 @@ function DetailPane({
                   {/* Missing context */}
                   {reasoning.missingContext && reasoning.missingContext.length > 0 && (
                     <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 4 }} className="p-3">
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "rgba(245,158,11,0.85)", textTransform: "uppercase" as const }} className="mb-1.5">{t("missingContext")}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--warn)", textTransform: "uppercase" as const }} className="mb-1.5">{t("missingContext")}</div>
                       <ul className="space-y-0.5">
                         {reasoning.missingContext.map((mc, i) => (
-                          <li key={i} style={{ fontSize: 13, color: "rgba(245,158,11,0.85)" }}>&bull; {mc}</li>
+                          <li key={i} style={{ fontSize: 13, color: "var(--warn)" }}>&bull; {mc}</li>
                         ))}
                       </ul>
                     </div>
@@ -1279,12 +1277,12 @@ function DetailPane({
                   {/* Entity Details */}
                   {detail.contextSnapshot?.triggerEntity && (
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Entity Details</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">Entity Details</div>
                       <div className="grid grid-cols-2 gap-x-6 gap-y-1">
                         {Object.entries(detail.contextSnapshot.triggerEntity.properties).map(([k, v]) => (
-                          <div key={k} className="flex justify-between text-[13px] py-1" style={{ borderBottom: "1px solid #1e1e1e" }}>
-                            <span style={{ color: "#707070" }}>{k}</span>
-                            <span style={{ color: "#b0b0b0" }}>{v}</span>
+                          <div key={k} className="flex justify-between text-[13px] py-1" style={{ borderBottom: "1px solid var(--border)" }}>
+                            <span style={{ color: "var(--fg3)" }}>{k}</span>
+                            <span style={{ color: "var(--fg2)" }}>{v}</span>
                           </div>
                         ))}
                       </div>
@@ -1298,14 +1296,14 @@ function DetailPane({
                     if (all.length === 0) return null;
                     return (
                       <div>
-                        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Related Entities</div>
+                        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">Related Entities</div>
                         <div className="space-y-1">
                           {all.slice(0, 5).map((e: { id: string; type: string; displayName: string; direction: string; relationship: string }) => (
                             <div key={e.id} className="flex items-center gap-2" style={{ fontSize: 13 }}>
-                              <span style={{ color: "#484848" }}>{e.direction === "outgoing" ? "\u2192" : "\u2190"}</span>
+                              <span style={{ color: "var(--fg4)" }}>{e.direction === "outgoing" ? "\u2192" : "\u2190"}</span>
                               <Badge>{e.type}</Badge>
-                              <span style={{ color: "#b0b0b0" }}>{e.displayName}</span>
-                              <span style={{ color: "#484848" }}>({e.relationship})</span>
+                              <span style={{ color: "var(--fg2)" }}>{e.displayName}</span>
+                              <span style={{ color: "var(--fg4)" }}>({e.relationship})</span>
                             </div>
                           ))}
                         </div>
@@ -1316,14 +1314,14 @@ function DetailPane({
                   {/* Event Timeline */}
                   {detail.contextSnapshot?.recentEvents && detail.contextSnapshot.recentEvents.length > 0 && (
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Event Timeline</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">Event Timeline</div>
                       <div className="space-y-1.5">
                         {detail.contextSnapshot.recentEvents.slice(0, 8).map(ev => (
                           <div key={ev.id} className="flex items-center gap-3" style={{ fontSize: 13 }}>
-                            <span style={{ fontSize: 11, color: "#484848", width: 48, textAlign: "right", flexShrink: 0 }}>{formatRelativeTime(ev.createdAt, locale)}</span>
-                            <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#333", flexShrink: 0 }} />
-                            <span style={{ color: "#b0b0b0" }}>{ev.eventType}</span>
-                            <span style={{ color: "#484848" }}>{ev.source}</span>
+                            <span style={{ fontSize: 11, color: "var(--fg4)", width: 48, textAlign: "right", flexShrink: 0 }}>{formatRelativeTime(ev.createdAt, locale)}</span>
+                            <div style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--border)", flexShrink: 0 }} />
+                            <span style={{ color: "var(--fg2)" }}>{ev.eventType}</span>
+                            <span style={{ color: "var(--fg4)" }}>{ev.source}</span>
                           </div>
                         ))}
                       </div>
@@ -1333,17 +1331,17 @@ function DetailPane({
                   {/* Prior Situations */}
                   {detail.contextSnapshot?.priorSituations && detail.contextSnapshot.priorSituations.length > 0 && (
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "#484848", textTransform: "uppercase" as const }} className="mb-2">Prior Situations</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">Prior Situations</div>
                       <div className="space-y-2">
                         {detail.contextSnapshot.priorSituations.map(ps => (
                           <div key={ps.id} className="flex items-start gap-2" style={{ fontSize: 13 }}>
-                            <span className="flex-shrink-0" style={{ color: "#484848" }}>
+                            <span className="flex-shrink-0" style={{ color: "var(--fg4)" }}>
                               {ps.outcome === "positive" ? "\u2713" : ps.outcome === "negative" ? "\u2717" : "?"}
                             </span>
                             <div>
-                              <span style={{ color: "#b0b0b0" }}>{ps.triggerEntityName}</span>
-                              <span style={{ color: "#484848" }} className="ml-2">{ps.status}</span>
-                              {ps.feedback && <p style={{ color: "#707070" }} className="mt-0.5">{ps.feedback}</p>}
+                              <span style={{ color: "var(--fg2)" }}>{ps.triggerEntityName}</span>
+                              <span style={{ color: "var(--fg4)" }} className="ml-2">{ps.status}</span>
+                              {ps.feedback && <p style={{ color: "var(--fg3)" }} className="mt-0.5">{ps.feedback}</p>}
                             </div>
                           </div>
                         ))}
@@ -1359,13 +1357,13 @@ function DetailPane({
 
           {/* Reject mode */}
           {currentMode === "reject" && (
-            <div className="space-y-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+            <div className="space-y-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
               <textarea
                 value={feedbackText}
                 onChange={e => setFeedbackText(e.target.value)}
                 placeholder="Why is this not a real situation? (optional)"
                 className="w-full outline-none"
-                style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8", resize: "vertical", fontFamily: "inherit" }}
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "var(--foreground)", resize: "vertical", fontFamily: "inherit" }}
                 rows={2}
               />
               <div className="flex gap-2">
@@ -1375,7 +1373,7 @@ function DetailPane({
                 >Reject</button>
                 <button
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                  style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
+                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
                   onClick={resetInteraction}
                 >{tc("cancel")}</button>
               </div>
@@ -1384,15 +1382,15 @@ function DetailPane({
 
           {/* Teach AI mode */}
           {currentMode === "teach" && (
-            <div className="space-y-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+            <div className="space-y-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
               <select
                 value={feedbackCategory}
                 onChange={e => setFeedbackCategory(e.target.value)}
                 className="w-full outline-none"
-                style={{ background: "#1c1c1c", border: "1px solid #222", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8" }}
+                style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "var(--foreground)" }}
               >
                 {CATEGORY_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value} style={{ background: "#1c1c1c" }}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value} style={{ background: "var(--elevated)" }}>{opt.label}</option>
                 ))}
               </select>
               <textarea
@@ -1400,13 +1398,13 @@ function DetailPane({
                 onChange={e => setFeedbackText(e.target.value)}
                 placeholder="Teach the AI about this situation — what context is it missing?"
                 className="w-full outline-none"
-                style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8", resize: "vertical", fontFamily: "inherit" }}
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "var(--foreground)", resize: "vertical", fontFamily: "inherit" }}
                 rows={2}
               />
               <div className="flex gap-2">
                 <button
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: "#16a34a", color: "#fff" }}
+                  style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
                   disabled={!feedbackText.trim()}
                   onClick={() => patchSituation(s.id, {
                     feedback: feedbackText,
@@ -1415,7 +1413,7 @@ function DetailPane({
                 >Save feedback</button>
                 <button
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                  style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
+                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
                   onClick={resetInteraction}
                 >{tc("cancel")}</button>
               </div>
@@ -1424,7 +1422,7 @@ function DetailPane({
 
           {/* Outcome mode */}
           {currentMode === "outcome" && (
-            <div className="space-y-3 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
+            <div className="space-y-3 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
               <div className="flex gap-2">
                 {(["positive", "negative", "neutral"] as const).map(v => (
                   <button
@@ -1433,14 +1431,14 @@ function DetailPane({
                     className="px-4 py-1.5 rounded text-[13px] font-medium border transition-colors"
                     style={{
                       background: outcomeValue === v
-                        ? v === "positive" ? "rgba(34,197,94,0.15)" : v === "negative" ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.08)"
-                        : "#161616",
+                        ? v === "positive" ? "rgba(34,197,94,0.15)" : v === "negative" ? "rgba(239,68,68,0.15)" : "var(--hover)"
+                        : "var(--surface)",
                       borderColor: outcomeValue === v
-                        ? v === "positive" ? "rgba(34,197,94,0.3)" : v === "negative" ? "rgba(239,68,68,0.3)" : "#333"
-                        : "#222",
+                        ? v === "positive" ? "rgba(34,197,94,0.3)" : v === "negative" ? "rgba(239,68,68,0.3)" : "var(--border)"
+                        : "var(--border)",
                       color: outcomeValue === v
-                        ? v === "positive" ? "#22c55e" : v === "negative" ? "#ef4444" : "#e8e8e8"
-                        : "#707070",
+                        ? v === "positive" ? "var(--ok)" : v === "negative" ? "var(--danger)" : "var(--foreground)"
+                        : "var(--fg3)",
                     }}
                   >
                     {v.charAt(0).toUpperCase() + v.slice(1)}
@@ -1453,18 +1451,18 @@ function DetailPane({
                 onChange={e => setOutcomeNote(e.target.value)}
                 placeholder="Optional note"
                 className="w-full outline-none"
-                style={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "#e8e8e8" }}
+                style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 12px", fontSize: 13, color: "var(--foreground)" }}
               />
               <div className="flex gap-2">
                 <button
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: "#16a34a", color: "#fff" }}
+                  style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
                   disabled={!outcomeValue}
                   onClick={() => patchSituation(s.id, { outcome: outcomeValue, outcomeNote: outcomeNote || undefined })}
                 >Save Outcome</button>
                 <button
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                  style={{ background: "#222", border: "1px solid #333", color: "#b0b0b0" }}
+                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
                   onClick={resetInteraction}
                 >{tc("cancel")}</button>
               </div>
@@ -1473,9 +1471,9 @@ function DetailPane({
 
           {/* Existing feedback display */}
           {detail.feedback && !currentMode && (
-            <div className="flex items-start gap-2 pt-2" style={{ borderTop: "1px solid #1e1e1e" }}>
-              <span style={{ fontSize: 13, color: "#707070" }}>Feedback:</span>
-              <span style={{ fontSize: 13, color: "#b0b0b0" }}>{detail.feedback}</span>
+            <div className="flex items-start gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+              <span style={{ fontSize: 13, color: "var(--fg3)" }}>Feedback:</span>
+              <span style={{ fontSize: 13, color: "var(--fg2)" }}>{detail.feedback}</span>
               {detail.feedbackCategory && (
                 <Badge>{CATEGORY_LABELS[detail.feedbackCategory] ?? detail.feedbackCategory}</Badge>
               )}

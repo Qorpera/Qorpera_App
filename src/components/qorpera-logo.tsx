@@ -22,7 +22,7 @@ export function QorperaLogo({
       alt="Qorpera"
       width={width}
       height={height}
-      style={theme === "dark" ? { filter: "brightness(0) invert(1)" } : undefined}
+      style={theme === "light" ? { filter: "brightness(0)" } : undefined}
       className={className}
     />
   );

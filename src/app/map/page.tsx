@@ -52,7 +52,7 @@ const SIB_GAP = 14;
 const DEPT_GAP = 300;
 
 const TEXT_OUTLINE = "0 1px 3px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.5)";
-const CARD_BORDER = "1px solid #3a3a3a";
+const CARD_BORDER = "1px solid var(--border-strong)";
 const CARD_BORDER_EDIT = "1px solid rgba(245,158,11,0.3)";
 
 const POLL_MS = 30_000;
@@ -636,13 +636,13 @@ export default function MapPage() {
               onClick={() => { setEditMode(!editMode); if (editMode) setEditingDept(null); }}
               className={`px-3 py-1.5 rounded text-xs font-medium transition ${
                 editMode
-                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                  ? "bg-[color-mix(in_srgb,var(--warn)_20%,transparent)] text-warn border border-[color-mix(in_srgb,var(--warn)_30%,transparent)]"
                   : "bg-surface text-muted hover:bg-elevated border border-border"
               }`}
             >
               {editMode ? t("doneEditing") : t("editMap")}
               {!editMode && unroutedCount > 0 && (
-                <span className="ml-1.5 min-w-[16px] h-[16px] inline-flex items-center justify-center rounded-full bg-amber-500 text-[9px] font-bold text-black px-1">
+                <span className="ml-1.5 min-w-[16px] h-[16px] inline-flex items-center justify-center rounded-full bg-warn text-[9px] font-bold text-black px-1">
                   {unroutedCount}
                 </span>
               )}
@@ -659,32 +659,32 @@ export default function MapPage() {
       <div className="relative flex-1">
         {/* Toast */}
         {toast && (
-          <div className="fixed top-4 right-4 z-50 bg-green-500/20 border border-green-500/30 text-green-300 text-sm px-4 py-2 rounded shadow-lg">
+          <div className="fixed top-4 right-4 z-50 bg-[color-mix(in_srgb,var(--ok)_20%,transparent)] border border-[color-mix(in_srgb,var(--ok)_30%,transparent)] text-ok text-sm px-4 py-2 rounded shadow-lg">
             {toast}
           </div>
         )}
 
         {isMobile ? (
           /* ── Mobile: vertical list of department cards ── */
-          <div className="px-4 py-4 space-y-3 overflow-y-auto absolute inset-0" style={{ background: "#101010" }}>
+          <div className="px-4 py-4 space-y-3 overflow-y-auto absolute inset-0 bg-surface">
             {loading && (
-              <p className="text-[#484848] text-sm text-center py-8">{tc("loading")}</p>
+              <p className="text-[var(--fg4)] text-sm text-center py-8">{tc("loading")}</p>
             )}
             {!loading && departments.length === 0 && (
-              <p className="text-[#484848] text-sm text-center py-8">{t("emptyMapHint")}</p>
+              <p className="text-[var(--fg4)] text-sm text-center py-8">{t("emptyMapHint")}</p>
             )}
             {hq && (
               <button
                 onClick={() => router.push(`/map/${hq.id}`)}
-                className="w-full text-left rounded-lg p-4 transition hover:brightness-110"
-                style={{ background: "#1c1c1c", border: CARD_BORDER }}
+                className="w-full text-left rounded-lg p-4 transition hover:brightness-110 bg-elevated"
+                style={{ border: CARD_BORDER }}
               >
-                <div className="text-lg font-semibold text-[#e8e8e8]">{hq.displayName}</div>
-                <div className="text-sm text-[#707070] mt-1">
+                <div className="text-lg font-semibold text-foreground">{hq.displayName}</div>
+                <div className="text-sm text-[var(--fg3)] mt-1">
                   {depts.length} department{depts.length !== 1 ? "s" : ""} &middot; {totalPeople} people
                 </div>
                 {activeSituationCount > 0 && (
-                  <div className="text-xs text-[#484848] mt-1">
+                  <div className="text-xs text-[var(--fg4)] mt-1">
                     {activeSituationCount} active situation{activeSituationCount !== 1 ? "s" : ""}
                   </div>
                 )}
@@ -694,15 +694,15 @@ export default function MapPage() {
               <button
                 key={dept.id}
                 onClick={() => router.push(`/map/${dept.id}`)}
-                className="w-full text-left rounded-lg p-4 transition hover:brightness-110"
-                style={{ background: "#1c1c1c", border: CARD_BORDER }}
+                className="w-full text-left rounded-lg p-4 transition hover:brightness-110 bg-elevated"
+                style={{ border: CARD_BORDER }}
               >
-                <div className="text-base font-semibold text-[#e8e8e8]">{dept.displayName}</div>
-                <div className="text-sm text-[#707070] mt-1">
+                <div className="text-base font-semibold text-foreground">{dept.displayName}</div>
+                <div className="text-sm text-[var(--fg3)] mt-1">
                   {dept.memberCount} people &middot; {dept.documentCount} docs
                 </div>
                 {(deptStats[dept.id]?.situations > 0 || deptStats[dept.id]?.initiatives > 0) && (
-                  <div className="text-xs text-[#484848] mt-1">
+                  <div className="text-xs text-[var(--fg4)] mt-1">
                     {deptStats[dept.id].situations > 0 && <>{deptStats[dept.id].situations} situation{deptStats[dept.id].situations !== 1 ? "s" : ""}</>}
                     {deptStats[dept.id].situations > 0 && deptStats[dept.id].initiatives > 0 && " · "}
                     {deptStats[dept.id].initiatives > 0 && <>{deptStats[dept.id].initiatives} initiative{deptStats[dept.id].initiatives !== 1 ? "s" : ""}</>}
@@ -718,21 +718,21 @@ export default function MapPage() {
           onMouseDown={onCanvasMouseDown}
           onWheel={onWheel}
           className="absolute inset-0 overflow-hidden select-none"
-          style={{ cursor: panning ? "grabbing" : "grab", background: "#101010" }}
+          style={{ cursor: panning ? "grabbing" : "grab", background: "var(--surface)" }}
         >
           {/* Edit mode indicator */}
-          <div className={`absolute inset-0 pointer-events-none transition ${editMode ? "ring-1 ring-inset ring-amber-500/20" : ""}`} style={{ zIndex: 50 }} />
+          <div className={`absolute inset-0 pointer-events-none transition ${editMode ? "ring-1 ring-inset ring-[color-mix(in_srgb,var(--warn)_20%,transparent)]" : ""}`} style={{ zIndex: 50 }} />
 
           {/* Zoom controls */}
           <div className="absolute top-3 right-3 z-40 flex flex-col gap-1">
             <button
               onClick={() => setZoom(z => Math.min(MAX_ZOOM, z * 1.2))}
-              style={{ width: 28, height: 28, borderRadius: 4, background: "#1c1c1c", border: "1px solid #2a2a2a", color: "#b0b0b0" }}
+              style={{ width: 28, height: 28, borderRadius: 4, background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
               className="flex items-center justify-center text-sm font-medium hover:bg-surface transition"
             >+</button>
             <button
               onClick={() => setZoom(z => Math.max(MIN_ZOOM, z / 1.2))}
-              style={{ width: 28, height: 28, borderRadius: 4, background: "#1c1c1c", border: "1px solid #2a2a2a", color: "#b0b0b0" }}
+              style={{ width: 28, height: 28, borderRadius: 4, background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
               className="flex items-center justify-center text-sm font-medium hover:bg-surface transition"
             >&minus;</button>
           </div>
@@ -748,7 +748,7 @@ export default function MapPage() {
             }}
           >
             {loading && (
-              <p className="text-[#484848] text-sm" style={{ transform: "translate(-50px, -10px)" }}>
+              <p className="text-[var(--fg4)] text-sm" style={{ transform: "translate(-50px, -10px)" }}>
                 Loading...
               </p>
             )}
@@ -756,14 +756,14 @@ export default function MapPage() {
             {/* SVG connecting lines */}
             <svg className="absolute top-0 left-0 pointer-events-none" style={{ overflow: "visible", width: 1, height: 1 }}>
               {lines.map((l, i) => (
-                <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#252525" strokeWidth={1} />
+                <line key={i} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="var(--border)" strokeWidth={1} />
               ))}
             </svg>
 
             {/* Empty state */}
             {!loading && depts.length === 0 && !hq && (
               <div className="text-center pointer-events-none" style={{ transform: "translate(-120px, -30px)" }}>
-                <p className="text-[#484848] text-sm">Add your first department to start mapping your business</p>
+                <p className="text-[var(--fg4)] text-sm">Add your first department to start mapping your business</p>
               </div>
             )}
 
@@ -783,7 +783,7 @@ export default function MapPage() {
                   width: ORG_W,
                   height: ORG_H,
                   borderRadius: 2,
-                  background: "#1c1c1c",
+                  background: "var(--elevated)",
                   border: editMode ? CARD_BORDER_EDIT : CARD_BORDER,
                 }}
               >
@@ -793,7 +793,7 @@ export default function MapPage() {
                       onClick={e => { e.stopPropagation(); startEditing(hq.id); }}
                       className="w-5 h-5 rounded flex items-center justify-center bg-surface hover:bg-elevated transition"
                     >
-                      <svg className="w-3 h-3 text-[#707070]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <svg className="w-3 h-3 text-[var(--fg3)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                       </svg>
                     </button>
@@ -802,24 +802,24 @@ export default function MapPage() {
                 {editingDept === hq.id ? (
                   <div className="p-3 space-y-1.5" onClick={e => e.stopPropagation()}>
                     <input value={editName} onChange={e => setEditName(e.target.value)}
-                      className="w-full bg-transparent border-b border-accent outline-none text-sm font-semibold text-[#e8e8e8]"
+                      className="w-full bg-transparent border-b border-accent outline-none text-sm font-semibold text-foreground"
                       autoFocus onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                     <input value={editDesc} onChange={e => setEditDesc(e.target.value)}
-                      className="w-full bg-transparent border-b border-[#2a2a2a] outline-none text-xs text-[#707070]"
+                      className="w-full bg-transparent border-b border-border outline-none text-xs text-[var(--fg3)]"
                       placeholder={t("description")} onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                     <div className="flex gap-1.5">
                       <button onClick={saveInlineEdit} className="text-[10px] text-accent hover:text-accent">{tc("save")}</button>
-                      <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">{tc("cancel")}</button>
+                      <button onClick={() => setEditingDept(null)} className="text-[10px] text-[var(--fg3)] hover:text-[var(--fg2)]">{tc("cancel")}</button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full px-10">
-                    <span style={{ fontSize: 72, fontWeight: 600, color: "#e8e8e8", letterSpacing: "-0.02em", textShadow: TEXT_OUTLINE }} className="truncate max-w-full">{hq.displayName}</span>
-                    <span style={{ fontSize: 36, color: "#707070", textShadow: TEXT_OUTLINE }} className="mt-4">
+                    <span style={{ fontSize: 72, fontWeight: 600, color: "var(--foreground)", letterSpacing: "-0.02em", textShadow: TEXT_OUTLINE }} className="truncate max-w-full">{hq.displayName}</span>
+                    <span style={{ fontSize: 36, color: "var(--fg3)", textShadow: TEXT_OUTLINE }} className="mt-4">
                       {depts.length} department{depts.length !== 1 ? "s" : ""} &middot; {totalPeople} people
                     </span>
                     {activeSituationCount > 0 && (
-                      <span style={{ fontSize: 28, color: "#484848", textShadow: TEXT_OUTLINE }} className="mt-2">
+                      <span style={{ fontSize: 28, color: "var(--fg4)", textShadow: TEXT_OUTLINE }} className="mt-2">
                         {activeSituationCount} active situation{activeSituationCount !== 1 ? "s" : ""}
                       </span>
                     )}
@@ -849,7 +849,7 @@ export default function MapPage() {
                     width: DEPT_W,
                     height: DEPT_H,
                     borderRadius: 2,
-                    background: "#1c1c1c",
+                    background: "var(--elevated)",
                     border: editMode ? CARD_BORDER_EDIT : CARD_BORDER,
                   }}
                 >
@@ -857,12 +857,12 @@ export default function MapPage() {
                     <div className="absolute top-1.5 right-1.5 flex gap-1">
                       <button onClick={e => { e.stopPropagation(); startEditing(dept.id); }}
                         className="w-5 h-5 rounded flex items-center justify-center bg-surface hover:bg-elevated transition">
-                        <svg className="w-3 h-3 text-[#707070]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <svg className="w-3 h-3 text-[var(--fg3)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                         </svg>
                       </button>
                       <button onClick={e => { e.stopPropagation(); setDeleteTarget(dept); }}
-                        className="w-5 h-5 rounded flex items-center justify-center bg-red-500/10 hover:bg-red-500/20 transition">
+                        className="w-5 h-5 rounded flex items-center justify-center bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] transition">
                         <svg className="w-3 h-3 text-danger" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -872,24 +872,24 @@ export default function MapPage() {
                   {isEditing ? (
                     <div className="p-3 space-y-1.5" onClick={e => e.stopPropagation()}>
                       <input value={editName} onChange={e => setEditName(e.target.value)}
-                        className="w-full bg-transparent border-b border-accent outline-none text-sm font-bold text-[#e8e8e8]"
+                        className="w-full bg-transparent border-b border-accent outline-none text-sm font-bold text-foreground"
                         autoFocus onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                       <input value={editDesc} onChange={e => setEditDesc(e.target.value)}
-                        className="w-full bg-transparent border-b border-[#2a2a2a] outline-none text-xs text-[#707070]"
+                        className="w-full bg-transparent border-b border-border outline-none text-xs text-[var(--fg3)]"
                         placeholder={t("description")} onKeyDown={e => { if (e.key === "Enter") saveInlineEdit(); if (e.key === "Escape") setEditingDept(null); }} />
                       <div className="flex gap-1.5">
                         <button onClick={saveInlineEdit} className="text-[10px] text-accent hover:text-accent">{tc("save")}</button>
-                        <button onClick={() => setEditingDept(null)} className="text-[10px] text-[#707070] hover:text-[#b0b0b0]">{tc("cancel")}</button>
+                        <button onClick={() => setEditingDept(null)} className="text-[10px] text-[var(--fg3)] hover:text-[var(--fg2)]">{tc("cancel")}</button>
                       </div>
                     </div>
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center px-8">
-                      <span style={{ fontSize: 52, fontWeight: 600, color: "#e8e8e8", textShadow: TEXT_OUTLINE }} className="truncate max-w-full text-center">{dept.displayName}</span>
-                      <span style={{ fontSize: 28, color: "#707070", textShadow: TEXT_OUTLINE }} className="mt-3">
+                      <span style={{ fontSize: 52, fontWeight: 600, color: "var(--foreground)", textShadow: TEXT_OUTLINE }} className="truncate max-w-full text-center">{dept.displayName}</span>
+                      <span style={{ fontSize: 28, color: "var(--fg3)", textShadow: TEXT_OUTLINE }} className="mt-3">
                         {dept.memberCount} people &middot; {dept.documentCount} docs
                       </span>
                       {(deptStats[dept.id]?.situations > 0 || deptStats[dept.id]?.initiatives > 0) && (
-                        <span style={{ fontSize: 22, color: "#484848", textShadow: TEXT_OUTLINE }} className="mt-2">
+                        <span style={{ fontSize: 22, color: "var(--fg4)", textShadow: TEXT_OUTLINE }} className="mt-2">
                           {deptStats[dept.id].situations > 0 && <>{deptStats[dept.id].situations} situation{deptStats[dept.id].situations !== 1 ? "s" : ""}</>}
                           {deptStats[dept.id].situations > 0 && deptStats[dept.id].initiatives > 0 && " · "}
                           {deptStats[dept.id].initiatives > 0 && <>{deptStats[dept.id].initiatives} initiative{deptStats[dept.id].initiatives !== 1 ? "s" : ""}</>}
@@ -921,7 +921,7 @@ export default function MapPage() {
                       width: MEM_W,
                       height: MEM_H,
                       borderRadius: 2,
-                      background: "#1c1c1c",
+                      background: "var(--elevated)",
                       border: CARD_BORDER,
                     }}
                   >
@@ -929,23 +929,23 @@ export default function MapPage() {
                       {/* Avatar */}
                       <div style={{
                         width: 26, height: 26, borderRadius: aiLevel ? 6 : 13,
-                        background: aiLevel ? "rgba(168,85,247,0.15)" : "#222",
-                        border: aiLevel ? "1px solid rgba(168,85,247,0.3)" : "1px solid #3a3a3a",
+                        background: aiLevel ? "var(--accent-light)" : "var(--elevated)",
+                        border: aiLevel ? "1px solid color-mix(in srgb, var(--accent) 30%, transparent)" : "1px solid var(--border-strong)",
                         display: "flex", alignItems: "center", justifyContent: "center",
                       }}>
                         {aiLevel ? (
-                          <span style={{ fontSize: 9, fontWeight: 700, color: "#c084fc", textShadow: TEXT_OUTLINE }}>AI</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "var(--accent)", textShadow: TEXT_OUTLINE }}>AI</span>
                         ) : (
-                          <span style={{ fontSize: 10, color: "#b0b0b0", textShadow: TEXT_OUTLINE }}>{getInitials(m.displayName)}</span>
+                          <span style={{ fontSize: 10, color: "var(--fg2)", textShadow: TEXT_OUTLINE }}>{getInitials(m.displayName)}</span>
                         )}
                       </div>
                       {/* Name */}
-                      <span style={{ fontSize: 10.5, fontWeight: 600, color: "#e8e8e8", textShadow: TEXT_OUTLINE }} className="mt-1 truncate max-w-[96px] text-center">
+                      <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--foreground)", textShadow: TEXT_OUTLINE }} className="mt-1 truncate max-w-[96px] text-center">
                         {getFirstName(m.displayName)}
                       </span>
                       {/* Role */}
                       {role && (
-                        <span style={{ fontSize: 9, color: "#707070", textShadow: TEXT_OUTLINE }} className="truncate max-w-[96px] text-center">
+                        <span style={{ fontSize: 9, color: "var(--fg3)", textShadow: TEXT_OUTLINE }} className="truncate max-w-[96px] text-center">
                           {truncRole}
                         </span>
                       )}
@@ -954,9 +954,9 @@ export default function MapPage() {
                         <div className="flex items-center gap-1 mt-1">
                           <div style={{
                             width: 7, height: 7, borderRadius: 3.5,
-                            background: aiLevel === "act" ? "#22c55e" : aiLevel === "propose" ? "#f59e0b" : "#333",
+                            background: aiLevel === "act" ? "var(--ok)" : aiLevel === "propose" ? "var(--warn)" : "var(--border)",
                           }} />
-                          <span style={{ fontSize: 8, color: "#484848", textShadow: TEXT_OUTLINE }}>AI</span>
+                          <span style={{ fontSize: 8, color: "var(--fg4)", textShadow: TEXT_OUTLINE }}>AI</span>
                         </div>
                       )}
                     </div>
@@ -970,10 +970,10 @@ export default function MapPage() {
 
         {/* Unrouted entities panel */}
         {editMode && unroutedEntities.length > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 z-40 border-t border-amber-500/20" style={{ background: "rgba(16,16,16,0.95)" }}>
+          <div className="absolute bottom-0 left-0 right-0 z-40 border-t border-[color-mix(in_srgb,var(--warn)_20%,transparent)]" style={{ background: "color-mix(in srgb, var(--surface) 95%, transparent)" }}>
             <button
               onClick={() => setUnroutedOpen(!unroutedOpen)}
-              className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium text-amber-300/80 hover:text-amber-300 transition"
+              className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium text-warn hover:text-warn transition"
             >
               <span>{t("unassignedEntities", { count: unroutedCount })}</span>
               <svg className={`w-3.5 h-3.5 transition ${unroutedOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -985,15 +985,15 @@ export default function MapPage() {
                 {unroutedEntities.map(entity => (
                   <div key={entity.id} className="flex items-center gap-3 px-3 py-2 rounded hover:bg-surface transition">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: entity.entityType.color ?? "#888" }} />
-                    <span className="text-sm text-[#e8e8e8] flex-1 min-w-0 truncate">{entity.displayName}</span>
-                    <span className="text-[10px] text-[#484848]">{entity.entityType.name}</span>
+                    <span className="text-sm text-foreground flex-1 min-w-0 truncate">{entity.displayName}</span>
+                    <span className="text-[10px] text-[var(--fg4)]">{entity.entityType.name}</span>
                     {entity.sourceSystem && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface text-[#484848]">{entity.sourceSystem}</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface text-[var(--fg4)]">{entity.sourceSystem}</span>
                     )}
                     <select
                       defaultValue=""
                       onChange={e => { if (e.target.value) assignToDepartment(entity.id, e.target.value); }}
-                      className="bg-transparent border border-[#2a2a2a] rounded px-2 py-1 text-[11px] text-[#707070] outline-none cursor-pointer"
+                      className="bg-transparent border border-border rounded px-2 py-1 text-[11px] text-[var(--fg3)] outline-none cursor-pointer"
                     >
                       <option value="" disabled>{t("assignTo")}</option>
                       {departments.filter(d => d.entityType.slug === "department" || d.isHQ).map(d => (
@@ -1012,10 +1012,10 @@ export default function MapPage() {
       {isAdmin && ctxMenu && (
         <div
           className="fixed z-50 shadow-xl py-1 min-w-[120px]"
-          style={{ left: ctxMenu.x, top: ctxMenu.y, background: "#1c1c1c", border: "1px solid #2a2a2a", borderRadius: 4 }}
+          style={{ left: ctxMenu.x, top: ctxMenu.y, background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4 }}
         >
           <button
-            className="w-full text-left px-3 py-1.5 text-sm text-[#b0b0b0] hover:bg-surface hover:text-[#e8e8e8]"
+            className="w-full text-left px-3 py-1.5 text-sm text-[var(--fg2)] hover:bg-surface hover:text-foreground"
             onClick={() => { openEdit(ctxMenu.dept); setCtxMenu(null); }}
           >{tc("edit")}</button>
           <button
@@ -1043,10 +1043,10 @@ export default function MapPage() {
       {/* Delete confirmation */}
       <Modal open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} title={t("deleteDepartment")}>
         <div className="space-y-4">
-          <p className="text-sm text-[#707070]">
-            Are you sure you want to delete <span className="text-[#e8e8e8] font-medium">{deleteTarget?.displayName}</span>?
+          <p className="text-sm text-[var(--fg3)]">
+            Are you sure you want to delete <span className="text-foreground font-medium">{deleteTarget?.displayName}</span>?
             {((deleteTarget?.memberCount ?? 0) > 0 || (deleteTarget?.documentCount ?? 0) > 0) && (
-              <span className="block mt-1 text-amber-400/80">
+              <span className="block mt-1 text-warn">
                 This department has {deleteTarget?.memberCount} members and {deleteTarget?.documentCount} documents that will be unlinked.
               </span>
             )}

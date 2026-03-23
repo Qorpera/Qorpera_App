@@ -874,7 +874,7 @@ function DepartmentDetailInner() {
               {t("noMembers")}
             </p>
           ) : (
-            <div className="divide-y divide-white/[0.05]">
+            <div className="divide-y divide-border">
               {members.map((m) => {
                 const isAiAgent = m.entityType?.slug === "ai-agent";
                 const role = getProp(m, "role");
@@ -937,7 +937,7 @@ function DepartmentDetailInner() {
                       </div>
                       {editError && <p className="text-xs text-danger">{editError}</p>}
                       <div className="flex gap-2">
-                        <button onClick={saveEdit} className="text-xs text-green-400 hover:text-green-300">{tc("save")}</button>
+                        <button onClick={saveEdit} className="text-xs text-ok hover:text-ok">{tc("save")}</button>
                         <button onClick={() => setEditId(null)} className="text-xs text-[var(--fg2)] hover:text-[var(--fg2)]">{tc("cancel")}</button>
                       </div>
                     </div>
@@ -970,13 +970,13 @@ function DepartmentDetailInner() {
                         {displayRole && <span className="text-sm text-[var(--fg2)]">{displayRole}</span>}
                         {email && <span className="text-xs text-[var(--fg3)]">{email}</span>}
                         {m.crossDepartment && m.homeDepartment && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/15 text-amber-400/60">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] border border-[color-mix(in_srgb,var(--warn)_20%,transparent)] text-warn">
                             Home: {m.homeDepartment}
                           </span>
                         )}
                         {/* Account status badges */}
                         {acctStatus === "account" && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">{t("hasAccount")}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok">{t("hasAccount")}</span>
                         )}
                         {acctStatus === "pending" && (
                           <span className="inline-flex items-center gap-1.5 text-[10px] px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn">
@@ -1169,7 +1169,7 @@ function DepartmentDetailInner() {
                                 <StatusBadge status={doc.status} embeddingStatus={doc.embeddingStatus} />
                               </div>
                               {isExtracting && (
-                                <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
+                                <p className="text-xs text-warn mt-1 flex items-center gap-1">
                                   <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                                   {t("extracting")}
                                 </p>
@@ -1416,7 +1416,7 @@ function DepartmentDetailInner() {
                     id: link.id,
                     displayName: link.displayName,
                     properties: {},
-                    entityType: { name: link.entityType.name, color: link.entityType.color ?? "#a855f7", slug: "" },
+                    entityType: { name: link.entityType.name, color: link.entityType.color ?? "var(--accent)", slug: "" },
                   }}
                   editMode={editMode}
                   departmentId={deptId}
@@ -1452,7 +1452,7 @@ function DepartmentDetailInner() {
                     <>
                       {creates.length > 0 && (
                         <div>
-                          <h4 className="text-[10px] uppercase tracking-wider text-green-400/70 mb-2">
+                          <h4 className="text-[10px] uppercase tracking-wider text-ok mb-2">
                             {t("newMembers")}
                           </h4>
                           {creates.map((p) => {
@@ -1482,7 +1482,7 @@ function DepartmentDetailInner() {
                       )}
                       {updates.length > 0 && (
                         <div>
-                          <h4 className="text-[10px] uppercase tracking-wider text-amber-400/70 mb-2">
+                          <h4 className="text-[10px] uppercase tracking-wider text-warn mb-2">
                             {t("updates")}
                           </h4>
                           {updates.map((p) => {

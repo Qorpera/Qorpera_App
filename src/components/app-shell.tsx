@@ -133,15 +133,16 @@ function SidebarContent({
 
       {/* Footer */}
       {!collapsed && (
-        <div className="px-5 py-3 border-t border-border">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[10px] text-[var(--fg3)]">{t("version")}</p>
+        <div className="px-5 py-3 border-t border-border space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-[var(--fg3)]">Theme</span>
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <LocaleSwitcher currentLocale={locale} />
             </div>
           </div>
-          <div className="text-[10px] text-[var(--fg3)] mt-1">
+          <p className="text-[10px] text-[var(--fg3)]">{t("version")}</p>
+          <div className="text-[10px] text-[var(--fg3)]">
             <a href="/terms" className="hover:text-[var(--fg2)]">Terms</a>
             {" · "}
             <a href="/privacy" className="hover:text-[var(--fg2)]">Privacy</a>
