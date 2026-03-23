@@ -95,26 +95,27 @@ function pct(v: number): string {
 }
 
 const OUTCOME_COLORS: Record<string, string> = {
-  positive: "#22c55e",
-  negative: "#ef4444",
-  neutral: "#6b7280",
-  unknown: "rgba(255,255,255,0.15)",
+  positive: "var(--ok)",
+  negative: "var(--danger)",
+  neutral: "var(--fg3)",
+  unknown: "var(--border)",
 };
 
 const AUTONOMY_COLORS: Record<string, string> = {
-  supervised: "#a855f7",
-  notify: "#f59e0b",
-  autonomous: "#22c55e",
+  supervised: "var(--accent)",
+  notify: "var(--warn)",
+  autonomous: "var(--ok)",
 };
 
 const CHART_TOOLTIP_STYLE = {
   contentStyle: {
-    background: "rgba(15,20,25,0.95)",
-    border: "1px solid rgba(255,255,255,0.1)",
+    background: "var(--elevated)",
+    border: "1px solid var(--border)",
     borderRadius: 8,
     fontSize: 12,
+    color: "var(--foreground)",
   },
-  labelStyle: { color: "rgba(255,255,255,0.5)" },
+  labelStyle: { color: "var(--fg2)" },
 };
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -337,15 +338,15 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
           {hasChartData ? (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={overview.approvalRateOverTime}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                  tick={{ fill: "var(--fg3)", fontSize: 10 }}
                   tickFormatter={(v: string) => v.slice(5)}
                 />
                 <YAxis
                   domain={[0, 1]}
-                  tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                  tick={{ fill: "var(--fg3)", fontSize: 10 }}
                   tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
                 />
                 <Tooltip
@@ -355,9 +356,9 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
                 <Line
                   type="monotone"
                   dataKey="rate"
-                  stroke="#a855f7"
+                  stroke="var(--accent)"
                   strokeWidth={2}
-                  dot={{ fill: "#a855f7", r: 3 }}
+                  dot={{ fill: "var(--accent)", r: 3 }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -374,11 +375,11 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
           {hasOutcomeData ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={outcomeData} layout="vertical">
-                <XAxis type="number" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} />
+                <XAxis type="number" tick={{ fill: "var(--fg3)", fontSize: 10 }} />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }}
+                  tick={{ fill: "var(--fg2)", fontSize: 11 }}
                   width={70}
                 />
                 <Tooltip {...CHART_TOOLTIP_STYLE} />
@@ -676,15 +677,15 @@ function SituationTypeCard({
                   <h4 className="text-xs text-[var(--fg3)] mb-2">{t("approvalRateOverTime")}</h4>
                   <ResponsiveContainer width="100%" height={120}>
                     <LineChart data={detail.approvalRateOverTime}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                       <XAxis
                         dataKey="date"
-                        tick={{ fill: "rgba(255,255,255,0.2)", fontSize: 9 }}
+                        tick={{ fill: "var(--fg3)", fontSize: 9 }}
                         tickFormatter={(v: string) => v.slice(5)}
                       />
                       <YAxis
                         domain={[0, 1]}
-                        tick={{ fill: "rgba(255,255,255,0.2)", fontSize: 9 }}
+                        tick={{ fill: "var(--fg3)", fontSize: 9 }}
                         tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
                         width={35}
                       />
@@ -698,9 +699,9 @@ function SituationTypeCard({
                       <Line
                         type="monotone"
                         dataKey="rate"
-                        stroke="#a855f7"
+                        stroke="var(--accent)"
                         strokeWidth={1.5}
-                        dot={{ fill: "#a855f7", r: 2 }}
+                        dot={{ fill: "var(--accent)", r: 2 }}
                       />
                     </LineChart>
                   </ResponsiveContainer>

@@ -7,26 +7,26 @@
   --surface: #FFFBF5;
   --elevated: #FFFFFF;
   --sidebar: #EDE6DA;
-  --sidebar-active: #E0D5C4;
+  --sidebar-active: #D8CBBA;
   --hover: #F0E8DC;
 
   /* Text */
   --foreground: #3B2F20;
   --fg: #3B2F20;
-  --fg2: #7A6B58;
-  --fg3: #A89882;
-  --fg4: #C4AD8F;
-  --muted: #7A6B58;
+  --fg2: #6B5C49;
+  --fg3: #96856E;
+  --fg4: #B8A487;
+  --muted: #6B5C49;
 
   /* Accent */
   --accent: #8B5E34;
   --accent-hover: #744E2A;
-  --accent-light: #F0E2D0;
+  --accent-light: #E8D5BC;
   --accent-ink: #FFFBF5;
 
-  /* Borders */
-  --border: #E0D5C4;
-  --border-strong: #C4AD8F;
+  /* Borders — darker for better card definition on cream */
+  --border: #D4C4AC;
+  --border-strong: #B8A487;
 
   /* Status */
   --ok: #5D8C3E;

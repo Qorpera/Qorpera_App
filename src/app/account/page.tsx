@@ -675,10 +675,10 @@ function NotificationPreferences() {
                 onChange={e => updatePref(type, e.target.value)}
                 disabled={saving === type}
                 className="outline-none text-xs"
-                style={{ background: "#1c1c1c", border: "1px solid #333", borderRadius: 4, padding: "4px 8px", color: "#b0b0b0" }}
+                style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "4px 8px", color: "var(--fg2)" }}
               >
                 {CHANNEL_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value} style={{ background: "#1c1c1c" }}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value} style={{ background: "var(--elevated)" }}>{opt.label}</option>
                 ))}
               </select>
             </div>

@@ -2165,7 +2165,7 @@ function BillingTab() {
         <div className="wf-soft p-5" style={{ border: "1px solid rgba(245, 158, 11, 0.3)", background: "rgba(245, 158, 11, 0.05)" }}>
           <div className="text-[15px] font-semibold text-warn mb-1">Payment Failed</div>
           <div className="text-[13px] text-[var(--fg2)] mb-3">Your last payment didn&apos;t go through. AI operations are paused until resolved.</div>
-          {isAdmin && <button onClick={handleUpdatePayment} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#f59e0b", color: "#000" }}>Update Payment Method</button>}
+          {isAdmin && <button onClick={handleUpdatePayment} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "var(--warn)", color: "var(--accent-ink)" }}>Update Payment Method</button>}
         </div>
       )}
 
