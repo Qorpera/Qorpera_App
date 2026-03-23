@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/billing-rampup",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/recover-stuck-agents",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

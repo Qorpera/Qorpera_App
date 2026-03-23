@@ -85,7 +85,7 @@ export function StepCompanyInfo({
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <p className="text-xs text-white/30 uppercase tracking-wider">Step 1 of 6</p>
+        <p className="text-xs text-white/30 uppercase tracking-wider">Step 1 of 4</p>
         <h1 className="text-2xl font-semibold text-white/90">{t("title")}</h1>
       </div>
 

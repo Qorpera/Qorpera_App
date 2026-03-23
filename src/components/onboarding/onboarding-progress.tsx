@@ -2,7 +2,7 @@
 
 import type { OnboardingStep } from "./types";
 
-const STEP_LABELS = ["Name", "Depts", "Team", "Docs", "Tools", "Sync"];
+const STEP_LABELS = ["Company", "Tools", "Analysis", "Confirm"];
 
 interface OnboardingProgressProps {
   step: OnboardingStep;

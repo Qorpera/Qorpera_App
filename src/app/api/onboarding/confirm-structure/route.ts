@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
   const { operatorId } = session;
 
-  let body: { edits?: CompanyModelEdits } = {};
+  let body: { edits?: CompanyModelEdits; uncertaintyAnswers?: Record<number, string> } = {};
   try {
     body = await request.json();
   } catch {
@@ -41,10 +41,30 @@ export async function POST(request: Request) {
     await applyStructureEdits(operatorId, body.edits);
   }
 
-  // Update analysis status to complete
+  // Store uncertainty answers alongside the analysis record
+  const updateData: Record<string, unknown> = { status: "complete" };
+  if (body.uncertaintyAnswers && Object.keys(body.uncertaintyAnswers).length > 0) {
+    // Merge answers into the existing uncertaintyLog entries
+    const analysis = await prisma.onboardingAnalysis.findUnique({
+      where: { operatorId },
+      select: { uncertaintyLog: true },
+    });
+    if (analysis?.uncertaintyLog && Array.isArray(analysis.uncertaintyLog)) {
+      const log = analysis.uncertaintyLog as Array<Record<string, unknown>>;
+      for (const [idx, answer] of Object.entries(body.uncertaintyAnswers)) {
+        const i = Number(idx);
+        if (log[i]) {
+          log[i].userAnswer = answer;
+        }
+      }
+      updateData.uncertaintyLog = log;
+    }
+  }
+
+  // Update analysis status to complete (with optional uncertainty answers)
   await prisma.onboardingAnalysis.updateMany({
     where: { operatorId },
-    data: { status: "complete" },
+    data: updateData,
   });
 
   // Trigger detection sweep (non-blocking)

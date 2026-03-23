@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 
-const PHASE_ORDER = ["mapping", "populating", "connecting", "syncing", "orienting", "active"] as const;
+const PHASE_ORDER = ["mapping", "connecting", "syncing", "analyzing", "confirming", "orienting", "active"] as const;
 
 const advanceSchema = z.object({
   context: z.string().optional(),
