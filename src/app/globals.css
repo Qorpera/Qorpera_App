@@ -125,7 +125,7 @@ select:-webkit-autofill {
   animation: spin-slow 3s linear infinite;
 }
 
-@theme inline {
+@theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
