@@ -120,36 +120,39 @@ function computeTreeLayout(
   const deptNodes: Record<string, TreePos & { w: number }> = {};
   const memberNodeMap: Record<string, TreePos> = {};
 
-  // Dept width is max of card width and member grid width
-  const deptWidths = depts.map(d => {
+  // Use uniform spacing based on the widest member grid across all depts
+  // so departments stay evenly spaced and centered under the org card
+  const maxSlotW = Math.max(DEPT_W, ...depts.map(d => {
     const members = membersByDept[d.id] ?? [];
-    return Math.max(DEPT_W, memberGridWidth(members.length));
-  });
+    return members.length > 0 ? memberGridWidth(members.length) : 0;
+  }));
 
-  const totalWidth = deptWidths.reduce((a, b) => a + b, 0) + Math.max(0, depts.length - 1) * DEPT_GAP;
+  const totalWidth = depts.length * maxSlotW + Math.max(0, depts.length - 1) * DEPT_GAP;
   let startX = -totalWidth / 2;
 
-  depts.forEach((dept, i) => {
-    const w = deptWidths[i];
-    deptNodes[dept.id] = { x: startX + w / 2, y: deptY, w };
-    startX += w + DEPT_GAP;
+  depts.forEach((dept) => {
+    deptNodes[dept.id] = { x: startX + maxSlotW / 2, y: deptY, w: maxSlotW };
+    startX += maxSlotW + DEPT_GAP;
   });
 
-  // Place members in rows of MEM_COLS
+  // Place members in rows of MEM_COLS, centered per-row under dept card
   depts.forEach(dept => {
     const dNode = deptNodes[dept.id];
     if (!dNode) return;
     const members = membersByDept[dept.id] ?? [];
     if (members.length === 0) return;
 
-    const cols = Math.min(members.length, MEM_COLS);
-    const gridW = cols * (MEM_W + SIB_GAP) - SIB_GAP;
+    const totalRows = Math.ceil(members.length / MEM_COLS);
 
     members.forEach((m, i) => {
-      const col = i % MEM_COLS;
       const row = Math.floor(i / MEM_COLS);
+      const col = i % MEM_COLS;
+      // How many members in THIS row (last row may have fewer)
+      const membersInRow = row < totalRows - 1 ? MEM_COLS : members.length - row * MEM_COLS;
+      const rowW = membersInRow * (MEM_W + SIB_GAP) - SIB_GAP;
+
       memberNodeMap[m.id] = {
-        x: dNode.x - gridW / 2 + col * (MEM_W + SIB_GAP) + MEM_W / 2,
+        x: dNode.x - rowW / 2 + col * (MEM_W + SIB_GAP) + MEM_W / 2,
         y: dNode.y + DEPT_MEM_GAP + row * (MEM_H + MEM_ROW_GAP),
       };
     });
