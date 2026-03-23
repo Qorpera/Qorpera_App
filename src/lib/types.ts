@@ -118,16 +118,3 @@ export interface ProposalView {
   expiresAt: string | null;
 }
 
-// ─── Electron API ─────────────────────────────────────────
-
-export interface ElectronAPI {
-  openFileDialog: (options?: { filters?: { name: string; extensions: string[] }[] }) => Promise<string | null>;
-  getAppVersion: () => Promise<string>;
-  getPlatform: () => Promise<string>;
-}
-
-declare global {
-  interface Window {
-    electronAPI?: ElectronAPI;
-  }
-}

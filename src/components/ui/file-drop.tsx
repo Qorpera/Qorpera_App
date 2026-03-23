@@ -43,19 +43,11 @@ export function FileDrop({ onFile, accept = ".csv,.json", label }: FileDropProps
     [onFile],
   );
 
-  const handleElectronPicker = useCallback(async () => {
-    if (!window.electronAPI) return;
-    const path = await window.electronAPI.openFileDialog();
-    if (!path) return;
-    // In Electron, we'd need to read the file via IPC - for now use file input
-  }, []);
-
   return (
     <div
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
-      onClick={handleElectronPicker}
       className={`relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-10 cursor-pointer transition ${
         dragging
           ? "border-purple-500/50 bg-purple-500/5"
