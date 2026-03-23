@@ -44,7 +44,7 @@ interface Member {
 const ORG_W = 260, ORG_H = 100;
 const DEPT_W = 200, DEPT_H = 90;
 const MEM_W = 88, MEM_H = 68;
-const MEM_COLS = 3;
+const MEM_COLS = 5;
 const MEM_ROW_GAP = 8;
 const ORG_DEPT_GAP = 140;
 const DEPT_MEM_GAP = 100;
@@ -120,12 +120,20 @@ function computeTreeLayout(
   const deptNodes: Record<string, TreePos & { w: number }> = {};
   const memberNodeMap: Record<string, TreePos> = {};
 
+  // Deduplicate members for slot width calculation — same logic as placement
+  const seenForWidth = new Set<string>();
+  const deptMemberCounts = depts.map(d => {
+    const all = membersByDept[d.id] ?? [];
+    const unique = all.filter(m => !seenForWidth.has(m.id));
+    unique.forEach(m => seenForWidth.add(m.id));
+    return unique.length;
+  });
+
   // Use uniform spacing based on the widest member grid across all depts
   // so departments stay evenly spaced and centered under the org card
-  const maxSlotW = Math.max(DEPT_W, ...depts.map(d => {
-    const members = membersByDept[d.id] ?? [];
-    return members.length > 0 ? memberGridWidth(members.length) : 0;
-  }));
+  const maxSlotW = Math.max(DEPT_W, ...deptMemberCounts.map(c =>
+    c > 0 ? memberGridWidth(c) : 0
+  ));
 
   const totalWidth = depts.length * maxSlotW + Math.max(0, depts.length - 1) * DEPT_GAP;
   let startX = -totalWidth / 2;
@@ -135,12 +143,20 @@ function computeTreeLayout(
     startX += maxSlotW + DEPT_GAP;
   });
 
-  // Place members in rows of MEM_COLS, centered per-row under dept card
+  // Place members in rows of MEM_COLS, centered per-row under dept card.
+  // Deduplicate: if a member appears in multiple depts (cross-department),
+  // only place them once (in the first dept encountered) to avoid ghost slots.
+  const placedMemberIds = new Set<string>();
+
   depts.forEach(dept => {
     const dNode = deptNodes[dept.id];
     if (!dNode) return;
-    const members = membersByDept[dept.id] ?? [];
+    const allMembers = membersByDept[dept.id] ?? [];
+    // Filter out members already placed in another department's grid
+    const members = allMembers.filter(m => !placedMemberIds.has(m.id));
     if (members.length === 0) return;
+
+    members.forEach(m => placedMemberIds.add(m.id));
 
     const totalRows = Math.ceil(members.length / MEM_COLS);
 
@@ -905,12 +921,16 @@ export default function MapPage() {
               );
             })}
 
-            {/* ── Member cards ── */}
-            {depts.map(dept => {
-              const members = membersByDept[dept.id] ?? [];
-              return members.map(m => {
-                const mNode = memberNodes[m.id];
-                if (!mNode) return null;
+            {/* ── Member cards (deduplicated — each member renders once) ── */}
+            {(() => {
+              const rendered = new Set<string>();
+              return depts.map(dept => {
+                const members = membersByDept[dept.id] ?? [];
+                return members.map(m => {
+                  if (rendered.has(m.id)) return null;
+                  rendered.add(m.id);
+                  const mNode = memberNodes[m.id];
+                  if (!mNode) return null;
                 const role = getMemberRole(m);
                 const aiLevel = getAiLevel(m);
                 const truncRole = role.length > 14 ? role.slice(0, 13) + "\u2026" : role;
@@ -968,7 +988,8 @@ export default function MapPage() {
                   </div>
                 );
               });
-            })}
+            });
+            })()}
           </div>
         </div>
         )}
