@@ -633,8 +633,8 @@ export default function MapPage() {
     const treeH = bounds.maxY - bounds.minY;
     const treeCX = (bounds.minX + bounds.maxX) / 2;
     const treeCY = (bounds.minY + bounds.maxY) / 2;
-    const pad = 60;
-    const z = Math.max(MIN_ZOOM, Math.min((rect.width - pad * 2) / treeW, (rect.height - pad * 2) / treeH, MAX_ZOOM));
+    const pad = 80;
+    const z = Math.max(MIN_ZOOM, Math.min((rect.width - pad * 2) / treeW, (rect.height - pad * 2) / treeH, 1));
 
     setPan({ x: rect.width / 2 - treeCX * z, y: rect.height / 2 - treeCY * z });
     setZoom(z);
