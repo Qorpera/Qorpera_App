@@ -19,6 +19,8 @@ const MODEL_ROUTES = {
   insightExtraction: "gpt-5.4",
   executionGenerate: "gpt-5.4",
   embedding: "text-embedding-3-small",
+  onboardingIntelligence: "gpt-5.4",
+  onboardingMemory: "gpt-5.4-mini",
 } as const;
 
 export type ModelRoute = keyof typeof MODEL_ROUTES;

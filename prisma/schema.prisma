@@ -85,6 +85,7 @@ model Operator {
   operationalInsights OperationalInsight[]
   priorityOverrides   PriorityOverride[]
   appSettings         AppSetting[]
+  onboardingAnalysis  OnboardingAnalysis?
 
   // Deletion lifecycle (GDPR)
   deletionRequestedAt  DateTime?
@@ -1015,4 +1016,76 @@ model PasswordResetToken {
 
   @@index([token])
   @@index([userId])
+}
+
+// ─── Onboarding Intelligence ────────────────────────────
+
+model OnboardingAnalysis {
+  id              String    @id @default(cuid())
+  operatorId      String
+  operator        Operator  @relation(fields: [operatorId], references: [id])
+  status          String    @default("pending") // pending, syncing, analyzing, confirming, complete, failed
+  currentPhase    String    @default("idle")     // idle, round_0, round_1, organizer_1, round_2, organizer_2, round_3, synthesis
+
+  // Progress reporting (polled by UI)
+  progressMessages Json    @default("[]")       // Array of { timestamp, message, agentName? }
+
+  // Synthesis output
+  synthesisOutput  Json?                         // Complete company model JSON
+  uncertaintyLog   Json?                         // Questions the system couldn't resolve
+
+  // Tracking
+  totalTokensUsed  Int     @default(0)
+  totalCostCents   Int     @default(0)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  notifiedAt       DateTime?                     // When "analysis complete" email was sent
+  failureReason    String?
+
+  // Relations
+  agentRuns        OnboardingAgentRun[]
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([operatorId])                         // One analysis per operator (restart = delete + recreate)
+  @@index([status])
+}
+
+model OnboardingAgentRun {
+  id              String    @id @default(cuid())
+  analysisId      String
+  analysis        OnboardingAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  agentName       String                         // temporal_analyst, org_analyst, process_analyst, relationship_analyst, knowledge_analyst, financial_analyst, organizer
+  round           Int       @default(1)          // 0, 1, 2, 3
+
+  status          String    @default("pending")  // pending, running, paused, complete, failed
+  iterationCount  Int       @default(0)
+  maxIterations   Int       @default(30)         // Safety cap per agent
+
+  // Working memory — compact summary of findings so far (kept small for context window)
+  workingMemory   Json      @default("{}")       // { findings: string, hypotheses: string[], openQuestions: string[], investigationPlan: string }
+
+  // Organizer input
+  followUpBrief   Json?                          // Cross-pollination brief from Organizer
+
+  // Final output
+  report          Json?                          // Agent's completed report
+
+  // Tool call audit log
+  toolCallLog     Json      @default("[]")       // Array of { tool, args, resultSummary, durationMs, timestamp }
+
+  // Timing
+  tokensUsed      Int       @default(0)
+  costCents       Int       @default(0)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  lastIterationAt DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([analysisId, agentName, round])
+  @@index([analysisId, status])
 }

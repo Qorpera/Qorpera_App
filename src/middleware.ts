@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   "/api/auth/intercom/callback",
   "/api/auth/zendesk/callback",
   "/api/connectors/google/callback",
+  "/api/connectors/google-workspace/callback",
   "/api/connectors/google-ads/callback",
   "/api/connectors/shopify/callback",
   "/api/connectors/linkedin/callback",
