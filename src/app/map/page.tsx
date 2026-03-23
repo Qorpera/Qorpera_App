@@ -43,13 +43,13 @@ interface Member {
 
 const ORG_W = 260, ORG_H = 100;
 const DEPT_W = 200, DEPT_H = 90;
-const MEM_W = 96, MEM_H = 72;
-const MEM_COLS = 5;
+const MEM_W = 88, MEM_H = 68;
+const MEM_COLS = 3;
 const MEM_ROW_GAP = 8;
-const ORG_DEPT_GAP = 160;
-const DEPT_MEM_GAP = 120;
-const SIB_GAP = 10;
-const DEPT_GAP = 80;
+const ORG_DEPT_GAP = 140;
+const DEPT_MEM_GAP = 100;
+const SIB_GAP = 8;
+const DEPT_GAP = 60;
 const CARD_BORDER = "1px solid var(--border)";
 const CARD_BORDER_EDIT = "1px solid rgba(245,158,11,0.3)";
 const CARD_SHADOW = "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)";

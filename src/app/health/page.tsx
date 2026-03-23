@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { fetchApi } from "@/lib/fetch-api";
 import { useUser } from "@/components/user-provider";
 
@@ -51,19 +53,30 @@ const SLOT_LABELS: Record<string, string> = {
   playbook: "Playbook",
 };
 
-const CONNECTOR_COLORS: Record<string, string> = {
-  google: "#4285f4",
-  gmail: "#ea4335",
-  slack: "#611f69",
-  hubspot: "#ff7a59",
-  stripe: "#635bff",
-  microsoft: "#00a4ef",
-  outlook: "#0078d4",
+// Connector display info with proper SVG icons
+const CONNECTOR_INFO: Record<string, { label: string; color: string; icon: string }> = {
+  google: { label: "Google", color: "#4285f4", icon: "G" },
+  gmail: { label: "Gmail", color: "#ea4335", icon: "M" },
+  "google-workspace": { label: "Google Workspace", color: "#4285f4", icon: "G" },
+  "google-ads": { label: "Google Ads", color: "#fbbc04", icon: "A" },
+  slack: { label: "Slack", color: "#611f69", icon: "#" },
+  hubspot: { label: "HubSpot", color: "#ff7a59", icon: "H" },
+  stripe: { label: "Stripe", color: "#635bff", icon: "S" },
+  microsoft: { label: "Microsoft", color: "#00a4ef", icon: "M" },
+  outlook: { label: "Outlook", color: "#0078d4", icon: "O" },
+  shopify: { label: "Shopify", color: "#96bf48", icon: "S" },
+  linkedin: { label: "LinkedIn", color: "#0a66c2", icon: "in" },
+  "meta-ads": { label: "Meta Ads", color: "#1877f2", icon: "f" },
+  salesforce: { label: "Salesforce", color: "#00a1e0", icon: "SF" },
+  pipedrive: { label: "Pipedrive", color: "#1b1b1b", icon: "P" },
+  intercom: { label: "Intercom", color: "#286efa", icon: "I" },
+  zendesk: { label: "Zendesk", color: "#03363d", icon: "Z" },
 };
 
 // ── Page ─────────────────────────────────────────────────
 
 export default function HealthPage() {
+  const router = useRouter();
   const { isAdmin } = useUser();
   const [connectors, setConnectors] = useState<ConnectorItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -94,11 +107,14 @@ export default function HealthPage() {
     slotCounts[slot] = deptOnly.filter(d => d.filledSlots?.includes(slot)).length;
   });
 
+  const activeConnectors = connectors.filter(c => c.status === "active").length;
+  const errorConnectors = connectors.filter(c => c.status === "error").length;
+
   if (loading) {
     return (
       <AppShell>
         <div className="flex items-center justify-center h-full">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-[var(--fg2)]" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-accent" />
         </div>
       </AppShell>
     );
@@ -107,58 +123,77 @@ export default function HealthPage() {
   return (
     <AppShell>
       <div className="p-8 max-w-4xl mx-auto space-y-6">
-        <div>
-          <h1 style={{ fontSize: 20, fontWeight: 600 }} className="text-foreground">Setup Health</h1>
-          <p style={{ fontSize: 12 }} className="mt-1 text-[var(--fg2)]">System setup overview and diagnostics</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Setup Health</h1>
+            <p className="text-sm text-[var(--fg2)] mt-1">System setup overview and diagnostics</p>
+          </div>
         </div>
 
         {/* ── Section 1: Connectors ── */}
-        <section style={{ borderRadius: 6, padding: 20 }} className="bg-surface border border-border">
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }} className="mb-4 text-[var(--fg3)]">
-            Connectors
+        <section className="bg-surface border border-border rounded-lg p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--fg2)]">
+              Connectors
+            </h2>
+            {connectors.length > 0 && (
+              <span className="text-xs text-[var(--fg2)]">
+                {activeConnectors} active{errorConnectors > 0 && <span className="text-danger ml-1">&middot; {errorConnectors} error</span>}
+              </span>
+            )}
           </div>
 
           {connectors.length === 0 ? (
-            <p style={{ fontSize: 13 }} className="text-[var(--fg3)]">No connectors configured.</p>
+            <div className="text-center py-6">
+              <p className="text-sm text-[var(--fg2)] mb-3">No connectors configured yet.</p>
+              <Button variant="primary" size="sm" onClick={() => router.push("/settings?tab=connections")}>
+                Connect a tool
+              </Button>
+            </div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {connectors.map(c => {
                 const isError = c.status === "error";
                 const isActive = c.status === "active";
-                const brandColor = CONNECTOR_COLORS[c.provider?.toLowerCase()] ?? "var(--fg2)";
+                const info = CONNECTOR_INFO[c.provider?.toLowerCase()] ?? { label: c.providerName, color: "var(--fg2)", icon: "?" };
                 return (
-                  <div
+                  <button
                     key={c.id}
-                    style={{
-                      background: isError ? "color-mix(in srgb, var(--danger) 6%, transparent)" : undefined,
-                      border: isError ? "1px solid color-mix(in srgb, var(--danger) 15%, transparent)" : undefined,
-                      borderRadius: 4,
-                      padding: "10px 12px",
-                    }}
-                    className={`flex items-center gap-3 ${!isError ? "bg-surface border border-border" : ""}`}
+                    onClick={() => router.push("/settings?tab=connections")}
+                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-hover ${
+                      isError
+                        ? "bg-[color-mix(in_srgb,var(--danger)_5%,transparent)] border border-[color-mix(in_srgb,var(--danger)_15%,transparent)]"
+                        : "bg-surface border border-border"
+                    }`}
                   >
-                    {/* Icon */}
-                    <div style={{
-                      width: 26, height: 26, borderRadius: 4,
-                      background: `${brandColor}1a`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 12, fontWeight: 600, color: brandColor,
-                    }}>
-                      {c.providerName?.[0]?.toUpperCase() ?? "?"}
+                    {/* Provider icon */}
+                    <div
+                      className="flex items-center justify-center rounded-md flex-shrink-0"
+                      style={{
+                        width: 32, height: 32,
+                        background: `color-mix(in srgb, ${info.color} 12%, transparent)`,
+                        color: info.color,
+                        fontSize: info.icon.length > 1 ? 10 : 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {info.icon}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div style={{ fontSize: 12, fontWeight: 500 }} className="truncate text-foreground">{c.name || c.providerName}</div>
-                      <div style={{ fontSize: 11 }} className={isError ? "text-danger" : isActive ? "text-ok" : "text-[var(--fg3)]"}>
-                        {isError ? `Error \u2014 ${timeAgo(c.lastSyncAt)}` : isActive ? `Synced ${timeAgo(c.lastSyncAt)}` : "Not connected"}
+                      <div className="text-[13px] font-medium truncate text-foreground">{c.name || info.label}</div>
+                      <div className={`text-[11px] ${isError ? "text-danger" : isActive ? "text-ok" : "text-[var(--fg3)]"}`}>
+                        {isError ? "Sync error" : isActive ? `Synced ${timeAgo(c.lastSyncAt)}` : "Not connected"}
                       </div>
                     </div>
                     {/* Status dot */}
-                    <div style={{
-                      width: 6, height: 6, borderRadius: 3,
-                      background: isError ? "var(--danger)" : isActive ? "var(--ok)" : "var(--fg3)",
-                      flexShrink: 0,
-                    }} />
-                  </div>
+                    <div
+                      className="flex-shrink-0 rounded-full"
+                      style={{
+                        width: 7, height: 7,
+                        background: isError ? "var(--danger)" : isActive ? "var(--ok)" : "var(--fg3)",
+                      }}
+                    />
+                  </button>
                 );
               })}
             </div>
@@ -166,12 +201,12 @@ export default function HealthPage() {
         </section>
 
         {/* ── Section 2: Knowledge Base + Departments ── */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Knowledge Base */}
-          <section style={{ borderRadius: 6, padding: 20 }} className="bg-surface border border-border">
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }} className="mb-3 text-[var(--fg3)]">
+          <section className="bg-surface border border-border rounded-lg p-5">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--fg2)] mb-3">
               Knowledge Base
-            </div>
+            </h2>
             <div className="space-y-2">
               {allSlots.map(slot => {
                 const count = slotCounts[slot];
@@ -179,17 +214,17 @@ export default function HealthPage() {
                 return (
                   <div
                     key={slot}
-                    className={`flex items-center justify-between rounded px-3 py-2 ${!missing ? "bg-surface border border-border" : ""}`}
-                    style={missing ? {
-                      background: "color-mix(in srgb, var(--warn) 6%, transparent)",
-                      border: "1px solid color-mix(in srgb, var(--warn) 15%, transparent)",
-                    } : undefined}
+                    className={`flex items-center justify-between rounded-md px-3 py-2 ${
+                      missing
+                        ? "bg-[color-mix(in_srgb,var(--warn)_6%,transparent)] border border-[color-mix(in_srgb,var(--warn)_15%,transparent)]"
+                        : "bg-elevated border border-border"
+                    }`}
                   >
-                    <span style={{ fontSize: 12 }} className="text-foreground">{SLOT_LABELS[slot] ?? slot}</span>
+                    <span className="text-[13px] text-foreground">{SLOT_LABELS[slot] ?? slot}</span>
                     {missing ? (
                       <Badge variant="amber">Missing</Badge>
                     ) : (
-                      <span style={{ fontSize: 11 }} className="text-ok">{count} dept{count !== 1 ? "s" : ""}</span>
+                      <span className="text-[12px] font-medium text-ok">{count} dept{count !== 1 ? "s" : ""}</span>
                     )}
                   </div>
                 );
@@ -198,19 +233,31 @@ export default function HealthPage() {
           </section>
 
           {/* Departments */}
-          <section style={{ borderRadius: 6, padding: 20 }} className="bg-surface border border-border">
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }} className="mb-3 text-[var(--fg3)]">
-              Departments
+          <section className="bg-surface border border-border rounded-lg p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--fg2)]">
+                Departments
+              </h2>
+              <span className="text-xs text-[var(--fg2)]">{deptOnly.length} total</span>
             </div>
             {deptOnly.length === 0 ? (
-              <p style={{ fontSize: 13 }} className="text-[var(--fg3)]">No departments created.</p>
+              <div className="text-center py-4">
+                <p className="text-sm text-[var(--fg2)] mb-3">No departments created.</p>
+                <Button variant="primary" size="sm" onClick={() => router.push("/map")}>
+                  Create department
+                </Button>
+              </div>
             ) : (
               <div className="space-y-1.5">
                 {deptOnly.map(d => (
-                  <div key={d.id} className="flex items-center justify-between bg-surface" style={{ borderRadius: 4, padding: "6px 10px" }}>
-                    <span style={{ fontSize: 12 }} className="text-foreground">{d.displayName}</span>
-                    <span style={{ fontSize: 11 }} className="text-[var(--fg3)]">{d.memberCount} member{d.memberCount !== 1 ? "s" : ""}</span>
-                  </div>
+                  <button
+                    key={d.id}
+                    onClick={() => router.push(`/map/${d.id}`)}
+                    className="w-full flex items-center justify-between rounded-md px-3 py-2 bg-elevated border border-border hover:bg-hover transition text-left"
+                  >
+                    <span className="text-[13px] font-medium text-foreground">{d.displayName}</span>
+                    <span className="text-[12px] text-[var(--fg2)]">{d.memberCount} member{d.memberCount !== 1 ? "s" : ""}</span>
+                  </button>
                 ))}
               </div>
             )}
@@ -218,13 +265,15 @@ export default function HealthPage() {
         </div>
 
         {/* ── Section 3: Detection Health ── */}
-        <section style={{ borderRadius: 6, padding: 20 }} className="bg-surface border border-border">
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }} className="mb-4 text-[var(--fg3)]">
+        <section className="bg-surface border border-border rounded-lg p-5">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--fg2)] mb-4">
             Detection Health
-          </div>
+          </h2>
 
           {situationTypes.length === 0 ? (
-            <p style={{ fontSize: 13 }} className="text-[var(--fg3)]">No situation types configured.</p>
+            <div className="text-center py-4">
+              <p className="text-sm text-[var(--fg2)]">No situation types configured.</p>
+            </div>
           ) : (
             <div className="space-y-1.5">
               {situationTypes.map(st => {
@@ -232,15 +281,15 @@ export default function HealthPage() {
                 return (
                   <div
                     key={st.id}
-                    className={`flex items-center justify-between rounded px-3 py-2 ${!zeroDetections ? "bg-surface border border-border" : ""}`}
-                    style={zeroDetections ? {
-                      background: "color-mix(in srgb, var(--warn) 6%, transparent)",
-                      border: "1px solid color-mix(in srgb, var(--warn) 15%, transparent)",
-                    } : undefined}
+                    className={`flex items-center justify-between rounded-md px-3 py-2 ${
+                      zeroDetections
+                        ? "bg-[color-mix(in_srgb,var(--warn)_6%,transparent)] border border-[color-mix(in_srgb,var(--warn)_15%,transparent)]"
+                        : "bg-elevated border border-border"
+                    }`}
                   >
-                    <div>
-                      <span style={{ fontSize: 12, fontWeight: 500 }} className="text-foreground">{st.name}</span>
-                      <span style={{ fontSize: 11 }} className="ml-3 text-[var(--fg3)]">
+                    <div className="flex items-center gap-3">
+                      <span className="text-[13px] font-medium text-foreground">{st.name}</span>
+                      <span className="text-[12px] text-[var(--fg2)]">
                         {st.totalProposed} detection{st.totalProposed !== 1 ? "s" : ""}
                       </span>
                     </div>
@@ -253,22 +302,17 @@ export default function HealthPage() {
         </section>
 
         {/* ── Section 4: Weekly AI Diagnostic ── */}
-        <section style={{
-          background: "transparent",
-          border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
-          borderRadius: 6,
-          padding: 20,
-        }}>
+        <section className="border border-[color-mix(in_srgb,var(--accent)_20%,transparent)] rounded-lg p-5">
           <div className="flex items-center gap-2 mb-3">
             <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
             </svg>
-            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }} className="text-accent">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-accent">
               Weekly AI Diagnostic
             </span>
-            <span style={{ fontSize: 11 }} className="ml-auto text-[var(--fg3)]">Coming soon</span>
+            <span className="text-[12px] ml-auto text-[var(--fg3)]">Coming soon</span>
           </div>
-          <p style={{ fontSize: 13, lineHeight: 1.65 }} className="text-[var(--fg2)]">
+          <p className="text-sm text-[var(--fg2)] leading-relaxed">
             This section will show a weekly AI-generated report analyzing your setup completeness,
             detection gaps, and recommendations for improvement.
           </p>
