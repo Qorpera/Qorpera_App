@@ -77,6 +77,7 @@ export async function runConnectorSync(
 
   const config = (connector.config ? decryptConfig(connector.config) : {}) as Record<string, any>;
   config._operatorId = operatorId; // Available to providers that need it (e.g. Gmail entity creation)
+  config._connectorId = connectorId; // Available for channel mapping lookups
   let syncStatus: "success" | "partial" | "failed" = "success";
 
   const communicationBatch: CommunicationItem[] = [];
@@ -126,6 +127,11 @@ export async function runConnectorSync(
               operatorId,
               item.data.participantEmails,
             );
+            // Merge channel-mapped departmentId if present (Slack channel→department mapping)
+            const mappedDeptId = (item.data.metadata as Record<string, unknown> | undefined)?.departmentId as string | null;
+            if (mappedDeptId && !deptIds.includes(mappedDeptId)) {
+              deptIds.push(mappedDeptId);
+            }
             await ingestContent({
               operatorId,
               userId: connector.userId ?? null,

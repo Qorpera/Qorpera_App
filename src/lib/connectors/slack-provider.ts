@@ -250,6 +250,22 @@ async function* syncSlack(
   config: ConnectorConfig
 ): AsyncGenerator<SyncYield> {
   const operatorId = config._operatorId as string | undefined;
+  const connectorId = config._connectorId as string | undefined;
+
+  // Pre-load channel→department mappings for content scoping
+  const channelDeptMap = new Map<string, string>();
+  if (connectorId) {
+    try {
+      const { prisma } = await import("@/lib/db");
+      const mappings = await prisma.slackChannelMapping.findMany({
+        where: { connectorId },
+        select: { channelId: true, departmentId: true },
+      });
+      for (const m of mappings) channelDeptMap.set(m.channelId, m.departmentId);
+    } catch {
+      // Non-fatal — proceed without mappings
+    }
+  }
 
   // Import entity creation utilities
   const { ensureHardcodedEntityType } = await import("@/lib/event-materializer");
@@ -364,6 +380,7 @@ async function* syncSlack(
                 authorEmail: senderEmail,
                 isThread: true,
                 messageCount,
+                departmentId: channelDeptMap.get(channel.id) || null,
               },
               participantEmails,
             },
@@ -406,6 +423,7 @@ async function* syncSlack(
                   authorEmail: senderEmail,
                   isThread: false,
                   messageCount: 1,
+                  departmentId: channelDeptMap.get(channel.id) || null,
                 },
                 participantEmails: senderEmail ? [senderEmail] : [],
               },

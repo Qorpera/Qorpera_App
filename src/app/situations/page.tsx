@@ -8,6 +8,7 @@ import { ContextualChat } from "@/components/contextual-chat";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
+import { getPreviewComponent } from "@/components/execution/previews/get-preview-component";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,8 @@ interface ExecutionPlanData {
     executionMode: string;
     status: string;
     assignedUserId: string | null;
+    parameters: Record<string, unknown> | null;
+    actionCapability: { id: string; slug: string | null; name: string } | null;
     outputResult: string | null;
     approvedAt: string | null;
     executedAt: string | null;
@@ -953,6 +956,38 @@ function DetailPane({
                         <p style={{ fontSize: 12, color: "#707070", marginTop: 2 }} className="line-clamp-2">
                           {step.description}
                         </p>
+                        {/* Action preview */}
+                        {planStep?.parameters && (() => {
+                          const enrichedStep = {
+                            ...planStep,
+                            plan: {
+                              sourceType: "situation" as const,
+                              situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } },
+                            },
+                          };
+                          const PreviewComponent = getPreviewComponent(enrichedStep);
+                          return (
+                            <div className="mt-2">
+                              <PreviewComponent
+                                step={enrichedStep}
+                                isEditable={planStep.status === "pending"}
+                                onParametersUpdate={async (params) => {
+                                  await fetch(`/api/execution-steps/${planStep.id}/parameters`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ parameters: params }),
+                                  });
+                                  // Refetch execution plan
+                                  if (detail?.executionPlanId) {
+                                    const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
+                                    if (res.ok) setExecutionPlan(await res.json());
+                                  }
+                                }}
+                                locale={locale}
+                              />
+                            </div>
+                          );
+                        })()}
                         {planStep?.errorMessage && (
                           <p style={{ fontSize: 11, color: "#ef4444", marginTop: 2 }}>{planStep.errorMessage}</p>
                         )}

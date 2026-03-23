@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { useUser } from "@/components/user-provider";
+import { formatRelativeTime } from "@/lib/format-helpers";
 import { NotificationPreferences } from "@/components/settings/notification-preferences";
 
 type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing";
@@ -22,6 +23,7 @@ type ConnectorItem = {
   lastSyncAt: string | null;
   spreadsheetCount?: number;
   healthStatus?: string;
+  consecutiveFailures?: number;
   lastError?: string | null;
   lastSyncResult?: {
     eventsCreated: number;
@@ -99,6 +101,7 @@ export default function SettingsPage() {
 
 function SettingsPageInner() {
   const t = useTranslations("settings");
+  const locale = useLocale();
   const { toast } = useToast();
   const { isAdmin, isSuperadmin } = useUser();
   const searchParams = useSearchParams();
@@ -106,6 +109,7 @@ function SettingsPageInner() {
   const googleParam = searchParams.get("google");
   const hubspotParam = searchParams.get("hubspot");
   const stripeParam = searchParams.get("stripe");
+  const reconnectedParam = searchParams.get("reconnected");
 
   const [activeTab, setActiveTab] = useState<Tab>(
     tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "notifications" ? "notifications" : tabParam === "billing" ? "billing" : "ai"
@@ -152,6 +156,14 @@ function SettingsPageInner() {
   const [sheetsByConnector, setSheetsByConnector] = useState<Record<string, SheetEntry[]>>({});
   const [savingSheets, setSavingSheets] = useState<string | null>(null);
   const [manualSheetUrl, setManualSheetUrl] = useState("");
+
+  // Slack channel mapping
+  type ChannelMapping = { id: string; channelId: string; channelName: string; departmentId: string; department: { id: string; displayName: string } };
+  type SlackChannel = { id: string; name: string; is_private: boolean };
+  const [slackMappingExpanded, setSlackMappingExpanded] = useState<string | null>(null);
+  const [slackMappings, setSlackMappings] = useState<Record<string, ChannelMapping[]>>({});
+  const [slackChannels, setSlackChannels] = useState<Record<string, SlackChannel[]>>({});
+  const [addingMapping, setAddingMapping] = useState<{ connectorId: string; channelId: string; channelName: string; departmentId: string } | null>(null);
 
   // Team state
   type TeamUserScope = { id: string; departmentEntityId: string; departmentName: string };
@@ -473,6 +485,12 @@ function SettingsPageInner() {
     }
   }, [stripeParam]);
 
+  useEffect(() => {
+    if (reconnectedParam === "true") {
+      toast(t("connections.reconnected"), "success");
+      loadConnectors();
+    }
+  }, [reconnectedParam]);
 
   // Helper to update a single function config
   const updateFnConfig = (fn: AIFn, patch: Partial<FnConfig>) => {
@@ -1005,38 +1023,45 @@ function SettingsPageInner() {
                               : c.name || c.providerName}
                           </span>
                           {statusBadge(c.status)}
-                          {/* Health dot */}
+                          {/* Health status dot */}
                           {c.healthStatus && (
                             <span className={`w-2 h-2 rounded-full ${
                               c.healthStatus === "healthy" ? "bg-emerald-400"
                               : c.healthStatus === "degraded" ? "bg-amber-400"
                               : c.healthStatus === "error" ? "bg-red-400"
                               : "bg-white/30"
-                            }`} title={`Health: ${c.healthStatus}`} />
+                            }`} title={
+                              c.healthStatus === "healthy" ? t("connections.statusHealthy")
+                              : c.healthStatus === "degraded" ? t("connections.statusDegraded")
+                              : c.healthStatus === "error" ? t("connections.statusError")
+                              : t("connections.statusDisconnected")
+                            } />
                           )}
                         </div>
                         <div className="text-xs text-white/35">
                           {c.providerName}
                           {c.lastSyncAt && (
                             <>
-                              {" "}
-                              &middot; Last sync:{" "}
-                              {new Date(c.lastSyncAt).toLocaleString()}
+                              {" "}&middot;{" "}
+                              {t("connections.lastSynced", { time: formatRelativeTime(c.lastSyncAt, locale) })}
                             </>
-                          )}
-                          {c.lastSyncResult && (
-                            <>
-                              {" "}
-                              &middot; {c.lastSyncResult.eventsCreated} events
-                            </>
-                          )}
-                          {c.lastError && (
-                            <span className="text-red-400/70" title={c.lastError}>
-                              {" "}
-                              &middot; {c.lastError.length > 60 ? c.lastError.slice(0, 60) + "..." : c.lastError}
-                            </span>
                           )}
                         </div>
+                        {/* Error/disconnected guidance */}
+                        {c.healthStatus === "disconnected" && (
+                          <p className="text-xs text-amber-400/80 mt-0.5">{t("connections.authExpired")}</p>
+                        )}
+                        {c.healthStatus === "error" && (c.consecutiveFailures ?? 0) < 5 && (
+                          <p className="text-xs text-red-400/60 mt-0.5">{t("connections.autoRetry")}</p>
+                        )}
+                        {c.healthStatus === "error" && (c.consecutiveFailures ?? 0) >= 5 && (
+                          <p className="text-xs text-red-400/80 mt-0.5">{t("connections.multipleFails")}</p>
+                        )}
+                        {c.lastError && c.healthStatus !== "disconnected" && (
+                          <p className="text-[10px] text-red-400/50 mt-0.5 truncate" title={c.lastError}>
+                            {c.lastError.length > 80 ? c.lastError.slice(0, 80) + "..." : c.lastError}
+                          </p>
+                        )}
                       </div>
                       {isGoogle && (
                         <button
@@ -1061,6 +1086,158 @@ function SettingsPageInner() {
                         </button>
                       )}
                     </div>
+
+                    {/* Slack channel mapping sub-panel */}
+                    {c.provider === "slack" && (c.healthStatus === "healthy" || c.healthStatus === "degraded") && (
+                      <div>
+                        <button
+                          className="flex items-center gap-1.5 text-xs transition-colors hover:text-white/60"
+                          style={{ color: "#585858" }}
+                          onClick={async () => {
+                            if (slackMappingExpanded === c.id) {
+                              setSlackMappingExpanded(null);
+                              return;
+                            }
+                            setSlackMappingExpanded(c.id);
+                            if (!slackMappings[c.id]) {
+                              try {
+                                const res = await fetch(`/api/connectors/${c.id}/channel-mappings`);
+                                if (res.ok) {
+                                  const data = await res.json();
+                                  setSlackMappings(prev => ({ ...prev, [c.id]: data.mappings || [] }));
+                                  setSlackChannels(prev => ({ ...prev, [c.id]: data.availableChannels || [] }));
+                                }
+                              } catch {}
+                            }
+                            // Load departments if not yet loaded
+                            if (teamDepts.length === 0) {
+                              try {
+                                const dRes = await fetch("/api/departments");
+                                if (dRes.ok) {
+                                  const dData = await dRes.json();
+                                  setTeamDepts((dData || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
+                                }
+                              } catch {}
+                            }
+                          }}
+                        >
+                          <svg className={`w-3 h-3 transition-transform ${slackMappingExpanded === c.id ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                          </svg>
+                          {t("connections.channelMapping")}
+                        </button>
+
+                        {slackMappingExpanded === c.id && (
+                          <div className="mt-2 bg-white/[0.02] rounded-lg p-4 space-y-3 border border-white/[0.06]">
+                            <p className="text-xs text-white/40">{t("connections.channelMappingHint")}</p>
+
+                            {(slackMappings[c.id] || []).length === 0 && !addingMapping && (
+                              <p className="text-xs text-white/25 italic">{t("connections.noChannelsMapped")}</p>
+                            )}
+
+                            {/* Existing mappings */}
+                            <div className="space-y-1.5">
+                              {(slackMappings[c.id] || []).map((m) => (
+                                <div key={m.channelId} className="flex items-center gap-2 py-1">
+                                  <span className="text-sm text-white/70 font-medium" style={{ minWidth: 120 }}>#{m.channelName}</span>
+                                  <span className="text-xs text-white/30">&rarr;</span>
+                                  <span className="text-sm text-white/60 flex-1">{m.department.displayName}</span>
+                                  <button
+                                    className="text-xs text-red-400/60 hover:text-red-400 transition-colors"
+                                    onClick={async () => {
+                                      const res = await fetch(`/api/connectors/${c.id}/channel-mappings`, {
+                                        method: "DELETE",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ channelId: m.channelId }),
+                                      });
+                                      if (res.ok) {
+                                        setSlackMappings(prev => ({
+                                          ...prev,
+                                          [c.id]: (prev[c.id] || []).filter(x => x.channelId !== m.channelId),
+                                        }));
+                                      }
+                                    }}
+                                  >
+                                    &times;
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Add mapping form */}
+                            {addingMapping?.connectorId === c.id ? (
+                              <div className="flex items-center gap-2">
+                                <select
+                                  className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-sm text-white/80"
+                                  value={addingMapping.channelId}
+                                  onChange={(e) => {
+                                    const ch = (slackChannels[c.id] || []).find(x => x.id === e.target.value);
+                                    setAddingMapping(prev => prev ? { ...prev, channelId: e.target.value, channelName: ch?.name || "" } : null);
+                                  }}
+                                >
+                                  <option value="">{t("connections.selectChannel")}</option>
+                                  {(slackChannels[c.id] || [])
+                                    .filter(ch => !(slackMappings[c.id] || []).some(m => m.channelId === ch.id))
+                                    .map(ch => (
+                                      <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                                    ))}
+                                </select>
+                                <span className="text-xs text-white/30">&rarr;</span>
+                                <select
+                                  className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1.5 text-sm text-white/80"
+                                  value={addingMapping.departmentId}
+                                  onChange={(e) => setAddingMapping(prev => prev ? { ...prev, departmentId: e.target.value } : null)}
+                                >
+                                  <option value="">{t("connections.selectDepartment")}</option>
+                                  {teamDepts.map(d => (
+                                    <option key={d.id} value={d.id}>{d.displayName}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  className="text-xs font-medium px-2.5 py-1.5 rounded bg-purple-600 text-white hover:bg-purple-500 disabled:opacity-40 transition"
+                                  disabled={!addingMapping.channelId || !addingMapping.departmentId}
+                                  onClick={async () => {
+                                    if (!addingMapping.channelId || !addingMapping.departmentId) return;
+                                    const res = await fetch(`/api/connectors/${c.id}/channel-mappings`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        channelId: addingMapping.channelId,
+                                        channelName: addingMapping.channelName,
+                                        departmentId: addingMapping.departmentId,
+                                      }),
+                                    });
+                                    if (res.ok) {
+                                      const created = await res.json();
+                                      setSlackMappings(prev => ({
+                                        ...prev,
+                                        [c.id]: [...(prev[c.id] || []), created],
+                                      }));
+                                      setAddingMapping(null);
+                                    }
+                                  }}
+                                >
+                                  {t("connections.save")}
+                                </button>
+                                <button
+                                  className="text-xs text-white/40 hover:text-white/60 transition"
+                                  onClick={() => setAddingMapping(null)}
+                                >
+                                  {t("connections.cancel")}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                className="text-xs text-purple-400 hover:text-purple-300 transition"
+                                onClick={() => setAddingMapping({ connectorId: c.id, channelId: "", channelName: "", departmentId: "" })}
+                              >
+                                + {t("connections.addChannelMapping")}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Google Sheets spreadsheet picker */}
                     {isGoogle && isExpanded && (

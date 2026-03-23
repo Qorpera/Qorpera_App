@@ -56,8 +56,9 @@ model Operator {
   entityTypes       EntityType[]
   entities          Entity[]
   relationshipTypes RelationshipType[]
-  connectors        SourceConnector[]
-  policyRules       PolicyRule[]
+  connectors             SourceConnector[]
+  slackChannelMappings   SlackChannelMapping[]
+  policyRules            PolicyRule[]
   // v2: Situation-driven architecture
   events              Event[]
   situationTypes      SituationType[]
@@ -221,8 +222,9 @@ model Entity {
   parentDepartment  Entity?             @relation("DepartmentMembers", fields: [parentDepartmentId], references: [id])
   departmentMembers Entity[]            @relation("DepartmentMembers")
   propertyValues    PropertyValue[]
-  mentions          EntityMention[]
-  fromRelations     Relationship[] @relation("FromEntity")
+  mentions               EntityMention[]
+  slackChannelMappings   SlackChannelMapping[]
+  fromRelations          Relationship[] @relation("FromEntity")
   toRelations       Relationship[] @relation("ToEntity")
   internalDocument  InternalDocument? @relation("DocumentEntity")
   user              User?   // A base entity can have at most one user account
@@ -325,6 +327,26 @@ model SourceConnector {
   syncLogs SyncLog[]
   actionCapabilities ActionCapability[]
   contentChunks ContentChunk[]
+  slackChannelMappings SlackChannelMapping[]
+}
+
+model SlackChannelMapping {
+  id            String   @id @default(cuid())
+  operatorId    String
+  connectorId   String
+  channelId     String   // Slack channel ID (e.g., "C012345")
+  channelName   String   // Display name (e.g., "#general")
+  departmentId  String   // Entity ID of the department (category = "foundational")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  operator      Operator         @relation(fields: [operatorId], references: [id])
+  connector     SourceConnector  @relation(fields: [connectorId], references: [id])
+  department    Entity           @relation(fields: [departmentId], references: [id])
+
+  @@unique([connectorId, channelId])
+  @@index([operatorId])
+  @@index([connectorId])
 }
 
 model SyncLog {
@@ -798,6 +820,7 @@ model ExecutionStep {
   executionMode         String    // "action" | "generate" | "human_task"
   actionCapabilityId    String?
   assignedUserId        String?
+  parameters            String?   // JSON — structured action parameters for preview UI
   inputContext          String?   // JSON
   outputResult          String?   // JSON — typed StepOutput
   status                String    @default("pending") // pending, awaiting_approval, approved, executing, completed, failed, skipped, amended, awaiting_situation

@@ -1,0 +1,93 @@
+import { ComponentType } from "react";
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface ExecutionStepForPreview {
+  id: string;
+  sequenceOrder: number;
+  title: string;
+  description: string;
+  executionMode: string;
+  status: string;
+  assignedUserId: string | null;
+  parameters: Record<string, unknown> | null;
+  actionCapability?: { id: string; slug: string | null; name: string } | null;
+  plan?: {
+    sourceType: string;
+    situation?: { situationType?: { autonomyLevel?: string } } | null;
+  } | null;
+}
+
+export interface PreviewProps {
+  step: ExecutionStepForPreview;
+  isEditable: boolean;
+  onParametersUpdate?: (params: Record<string, unknown>) => void;
+  locale: string;
+}
+
+// ── Lazy imports (code-split per preview) ────────────────────────────────────
+
+type PreviewComponent = ComponentType<PreviewProps>;
+
+// We use dynamic imports resolved at call-site; for SSR/client bundle we import eagerly
+// since these are small leaf components.
+import { EmailPreview } from "./email-preview";
+import { CalendarEventPreview } from "./calendar-event-preview";
+import { SlackMessagePreview } from "./slack-message-preview";
+import { CrmUpdatePreview } from "./crm-update-preview";
+import { TicketReplyPreview } from "./ticket-reply-preview";
+import { GenericStepPreview } from "./generic-step-preview";
+
+// ── Prefix → Component mapping ──────────────────────────────────────────────
+
+const EXACT_MATCHES: Record<string, PreviewComponent> = {
+  // CRM capabilities (exact slug matches from write-back infrastructure)
+  update_deal_stage: CrmUpdatePreview,
+  update_contact: CrmUpdatePreview,
+  update_opportunity: CrmUpdatePreview,
+  create_task: CrmUpdatePreview,
+  log_activity: CrmUpdatePreview,
+  // Ticket/conversation capabilities
+  reply_to_ticket: TicketReplyPreview,
+  add_internal_note: TicketReplyPreview,
+  update_ticket_status: TicketReplyPreview,
+  reply_to_conversation: TicketReplyPreview,
+  add_note: TicketReplyPreview,
+  tag_conversation: TicketReplyPreview,
+};
+
+const PREFIX_MATCHES: Array<{ prefixes: string[]; component: PreviewComponent }> = [
+  { prefixes: ["email"], component: EmailPreview },
+  { prefixes: ["calendar"], component: CalendarEventPreview },
+  { prefixes: ["slack"], component: SlackMessagePreview },
+  { prefixes: ["crm"], component: CrmUpdatePreview },
+];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+export function isActMode(step: ExecutionStepForPreview): boolean {
+  return step.plan?.sourceType === "situation" &&
+    step.plan?.situation?.situationType?.autonomyLevel === "autonomous";
+}
+
+// ── Resolver ─────────────────────────────────────────────────────────────────
+
+export function getPreviewComponent(step: ExecutionStepForPreview): PreviewComponent {
+  const slug = step.actionCapability?.slug;
+  if (!slug) return GenericStepPreview;
+
+  // 1. Exact match
+  if (EXACT_MATCHES[slug]) return EXACT_MATCHES[slug];
+
+  // 2. Prefix match (check if slug starts with any registered prefix)
+  for (const { prefixes, component } of PREFIX_MATCHES) {
+    for (const prefix of prefixes) {
+      if (slug === prefix || slug.startsWith(prefix + ".") || slug.startsWith(prefix + "_")) {
+        return component;
+      }
+    }
+  }
+
+  // 3. Fallback
+  return GenericStepPreview;
+}

@@ -30,8 +30,10 @@ export async function GET(
           title: true,
           description: true,
           executionMode: true,
+          actionCapabilityId: true,
           status: true,
           assignedUserId: true,
+          parameters: true,
           outputResult: true,
           approvedAt: true,
           approvedById: true,
@@ -47,5 +49,21 @@ export async function GET(
 
   if (!plan) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json(plan);
+  // Batch-load action capabilities for preview component mapping
+  const capIds = [...new Set(plan.steps.map(s => s.actionCapabilityId).filter(Boolean))] as string[];
+  const capabilities = capIds.length > 0
+    ? await prisma.actionCapability.findMany({
+        where: { id: { in: capIds } },
+        select: { id: true, slug: true, name: true },
+      })
+    : [];
+  const capMap = new Map(capabilities.map(c => [c.id, c]));
+
+  const stepsWithCapability = plan.steps.map(s => ({
+    ...s,
+    parameters: s.parameters ? (() => { try { return JSON.parse(s.parameters); } catch { return null; } })() : null,
+    actionCapability: s.actionCapabilityId ? capMap.get(s.actionCapabilityId) ?? null : null,
+  }));
+
+  return NextResponse.json({ ...plan, steps: stepsWithCapability });
 }

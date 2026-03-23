@@ -658,17 +658,29 @@ async function* syncDrive(
             `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
             { headers: { Authorization: `Bearer ${accessToken}` } }
           );
-          if (dlResp.ok) {
-            try {
-              const buffer = Buffer.from(await dlResp.arrayBuffer());
-              const { PDFParse } = await import("pdf-parse");
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const parser = new PDFParse({ data: buffer, verbosity: 0 }) as any;
-              await parser.load();
-              const result = await parser.getText();
-              extractedText = typeof result === "string" ? result : result?.text ?? "";
-            } catch (pdfErr) {
-              console.warn(`[google-sync] Drive: PDF parse failed for ${file.name}:`, pdfErr);
+          if (!dlResp.ok) {
+            console.warn(`[google-sync] Drive: failed to download PDF ${file.name}: ${dlResp.status}`);
+          } else {
+            const pdfBuffer = Buffer.from(await dlResp.arrayBuffer());
+            // Size guard: skip files > 5MB to prevent memory issues
+            if (pdfBuffer.byteLength > 5 * 1024 * 1024) {
+              console.warn(`[google-sync] Drive: PDF too large, skipping text extraction: ${file.name} (${pdfBuffer.byteLength} bytes)`);
+            } else {
+              try {
+                const { PDFParse } = await import("pdf-parse");
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const parser = new PDFParse({ data: pdfBuffer, verbosity: 0 }) as any;
+                await parser.load();
+                const result = await parser.getText();
+                extractedText = typeof result === "string" ? result : result?.text ?? "";
+                // Minimum text threshold: scanned PDFs produce near-empty text
+                if (extractedText && extractedText.trim().length < 50) {
+                  console.warn(`[google-sync] Drive: PDF text too short (likely scanned), skipping: ${file.name}`);
+                  extractedText = "";
+                }
+              } catch (pdfErr) {
+                console.warn(`[google-sync] Drive: PDF parse failed for ${file.name}:`, pdfErr);
+              }
             }
           }
         }

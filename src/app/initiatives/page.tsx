@@ -7,6 +7,7 @@ import { ContextualChat } from "@/components/contextual-chat";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
+import { getPreviewComponent } from "@/components/execution/previews/get-preview-component";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,8 @@ interface StepData {
   executionMode: string;
   status: string;
   assignedUserId: string | null;
+  parameters: Record<string, unknown> | null;
+  actionCapability: { id: string; slug: string | null; name: string } | null;
   outputResult: unknown;
   approvedAt: string | null;
   approvedById: string | null;
@@ -302,6 +305,7 @@ export default function InitiativesPage() {
                   patchInitiative={patchInitiative}
                   advanceStep={advanceStep}
                   completeHumanStep={completeHumanStep}
+                  onRefresh={() => { if (selectedId) fetchDetail(selectedId); }}
                 />
               </div>
               <ContextualChat
@@ -336,12 +340,14 @@ function DetailPane({
   patchInitiative,
   advanceStep,
   completeHumanStep,
+  onRefresh,
 }: {
   detail: InitiativeDetail;
   detailLoading: boolean;
   patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
   advanceStep: (planId: string, stepId: string, action: "approve" | "skip") => Promise<void>;
   completeHumanStep: (planId: string, stepId: string, notes: string) => Promise<void>;
+  onRefresh: () => void;
 }) {
   const t = useTranslations("initiatives");
   const tc = useTranslations("common");
@@ -489,6 +495,27 @@ function DetailPane({
                         <p style={{ fontSize: 12, color: "#707070", marginTop: 2 }}>
                           {step.description}
                         </p>
+                        {/* Action preview */}
+                        {step.parameters && (() => {
+                          const PreviewComponent = getPreviewComponent(step);
+                          return (
+                            <div className="mt-2">
+                              <PreviewComponent
+                                step={step}
+                                isEditable={step.status === "pending"}
+                                onParametersUpdate={async (params) => {
+                                  await fetch(`/api/execution-steps/${step.id}/parameters`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ parameters: params }),
+                                  });
+                                  onRefresh();
+                                }}
+                                locale={locale}
+                              />
+                            </div>
+                          );
+                        })()}
                         {step.errorMessage && (
                           <p style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{step.errorMessage}</p>
                         )}

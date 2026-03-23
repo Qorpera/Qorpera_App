@@ -45,8 +45,19 @@ export async function GET(
     select: { displayName: true },
   });
 
+  // Batch-load action capabilities for preview component mapping
+  const rawSteps = initiative.executionPlan?.steps ?? [];
+  const capIds = [...new Set(rawSteps.map(s => s.actionCapabilityId).filter(Boolean))] as string[];
+  const capabilities = capIds.length > 0
+    ? await prisma.actionCapability.findMany({
+        where: { id: { in: capIds } },
+        select: { id: true, slug: true, name: true },
+      })
+    : [];
+  const capMap = new Map(capabilities.map(c => [c.id, c]));
+
   // Parse step outputs for completed steps
-  const steps = initiative.executionPlan?.steps.map(s => ({
+  const steps = rawSteps.map(s => ({
     id: s.id,
     sequenceOrder: s.sequenceOrder,
     title: s.title,
@@ -54,13 +65,15 @@ export async function GET(
     executionMode: s.executionMode,
     status: s.status,
     assignedUserId: s.assignedUserId,
+    parameters: s.parameters ? (() => { try { return JSON.parse(s.parameters); } catch { return null; } })() : null,
+    actionCapability: s.actionCapabilityId ? capMap.get(s.actionCapabilityId) ?? null : null,
     outputResult: s.outputResult ? (() => { try { return JSON.parse(s.outputResult); } catch { return null; } })() : null,
     approvedAt: s.approvedAt?.toISOString() ?? null,
     approvedById: s.approvedById,
     executedAt: s.executedAt?.toISOString() ?? null,
     errorMessage: s.errorMessage,
     createdAt: s.createdAt.toISOString(),
-  })) ?? [];
+  }));
 
   return NextResponse.json({
     id: initiative.id,

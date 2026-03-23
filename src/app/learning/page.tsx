@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
+import { formatRelativeTime } from "@/lib/format-helpers";
 import { useUser } from "@/components/user-provider";
 import { AppShell } from "@/components/app-shell";
 import {
@@ -91,13 +92,6 @@ interface TypeDetail {
 
 function pct(v: number): string {
   return `${Math.round(v * 100)}%`;
-}
-
-function daysAgo(dateStr: string): string {
-  const d = Math.round((Date.now() - new Date(dateStr).getTime()) / 86400000);
-  if (d === 0) return "today";
-  if (d === 1) return "1d ago";
-  return `${d}d ago`;
 }
 
 const OUTCOME_COLORS: Record<string, string> = {
@@ -301,6 +295,7 @@ export default function LearningPage() {
 
 function OverviewPanel({ overview }: { overview: OverviewData | null }) {
   const t = useTranslations("learning");
+  const locale = useLocale();
   if (!overview) return null;
 
   const metrics = [
@@ -595,6 +590,8 @@ function SituationTypeCard({
   const t = useTranslations("learning");
   const autonomyColor = AUTONOMY_COLORS[st.autonomyLevel] ?? AUTONOMY_COLORS.supervised;
 
+  const locale = useLocale();
+
   return (
     <div className="wf-soft overflow-hidden">
       <button
@@ -729,7 +726,7 @@ function SituationTypeCard({
                           &quot;{f.feedback}&quot;
                         </span>
                         <span className="text-white/20 shrink-0 ml-auto">
-                          {daysAgo(f.createdAt)}
+                          {formatRelativeTime(f.createdAt, locale)}
                         </span>
                       </div>
                     ))}
@@ -794,6 +791,7 @@ function PromoteButton({
 
 function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
   const t = useTranslations("learning");
+  const locale = useLocale();
   if (!feedback) return null;
 
   if (feedback.recentFeedback.length === 0) {
@@ -839,7 +837,7 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
                 </>
               )}
               <span className="text-white/15">&#x2022;</span>
-              <span>{daysAgo(f.createdAt)}</span>
+              <span>{formatRelativeTime(f.createdAt, locale)}</span>
             </div>
 
             {/* Before/After comparison */}
