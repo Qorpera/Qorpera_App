@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { fetchApi } from "@/lib/fetch-api";
 import { useTranslations } from "next-intl";
+import { ConnectorLogo } from "@/components/connector-logo";
 
 interface UserProfile {
   user: { id: string; name: string; email: string; role: string };
@@ -281,12 +282,9 @@ function AccountPageInner() {
           </p>
 
           <div className="wf-soft px-5 py-4 flex items-center gap-3">
-            <span
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-              style={{ backgroundColor: "#4285f4" }}
-            >
-              G
-            </span>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0">
+              <ConnectorLogo provider="google" size={24} />
+            </div>
             <div className="flex-1 min-w-0">
               <span className="text-sm text-foreground">{t("google")}</span>
               <p className="text-[11px] text-[var(--fg3)] mt-0.5">
@@ -355,12 +353,9 @@ function AccountPageInner() {
 
           {/* Microsoft 365 */}
           <div className="wf-soft px-5 py-4 flex items-center gap-3 mt-3">
-            <span
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-              style={{ backgroundColor: "#00a4ef" }}
-            >
-              M
-            </span>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0">
+              <ConnectorLogo provider="microsoft" size={24} />
+            </div>
             <div className="flex-1 min-w-0">
               <span className="text-sm text-foreground">{t("microsoft")}</span>
               <p className="text-[11px] text-[var(--fg3)] mt-0.5">
@@ -429,12 +424,9 @@ function AccountPageInner() {
 
           {/* e-conomic */}
           <div className="wf-soft px-5 py-4 flex items-center gap-3 mt-3">
-            <span
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-[11px] font-bold text-white shrink-0"
-              style={{ backgroundColor: "#1e3a5f" }}
-            >
-              EC
-            </span>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0">
+              <ConnectorLogo provider="economic" size={24} />
+            </div>
             <div className="flex-1 min-w-0">
               <span className="text-sm text-foreground">{t("economic")}</span>
               <p className="text-[11px] text-[var(--fg3)] mt-0.5">
