@@ -1,6 +1,6 @@
 vi.mock("@/lib/db", () => ({ prisma: {} }));
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { prisma } from "@/lib/db";
 
 // We need to mock OpenAI SDK before importing ai-provider
@@ -14,7 +14,7 @@ vi.mock("openai", () => {
   };
 });
 
-import { callLLM, streamLLM, getModel, getAIConfig } from "@/lib/ai-provider";
+import { callLLM, streamLLM, getModel, getAIConfig, withRetry } from "@/lib/ai-provider";
 
 // ── Setup ────────────────────────────────────────────────────────────────────
 
@@ -331,5 +331,93 @@ describe("streamLLM", () => {
     }
 
     expect(chunks).toEqual(["Hello", " world"]);
+  });
+});
+
+// ── withRetry ─────────────────────────────────────────────────────────────────
+
+describe("withRetry", () => {
+  let randomSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    // Zero jitter so delays are deterministic and tiny with baseDelayMs: 1
+    randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+  });
+
+  afterEach(() => {
+    randomSpy.mockRestore();
+  });
+
+  it("succeeds on first try without retrying", async () => {
+    const fn = vi.fn().mockResolvedValue("ok");
+
+    const result = await withRetry(fn);
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("retries on 429 then succeeds", async () => {
+    const err429 = Object.assign(new Error("rate limited"), { status: 429 });
+    const fn = vi.fn()
+      .mockRejectedValueOnce(err429)
+      .mockResolvedValueOnce("ok");
+
+    const result = await withRetry(fn, { baseDelayMs: 1 });
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on 500/502/503/504", async () => {
+    for (const status of [500, 502, 503, 504]) {
+      const err = Object.assign(new Error(`error ${status}`), { status });
+      const fn = vi.fn()
+        .mockRejectedValueOnce(err)
+        .mockResolvedValueOnce("ok");
+
+      const result = await withRetry(fn, { baseDelayMs: 1 });
+
+      expect(result).toBe("ok");
+      expect(fn).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("gives up after maxRetries", async () => {
+    const err429 = Object.assign(new Error("rate limited"), { status: 429 });
+    const fn = vi.fn().mockRejectedValue(err429);
+
+    await expect(withRetry(fn, { maxRetries: 2, baseDelayMs: 1 })).rejects.toThrow("rate limited");
+    expect(fn).toHaveBeenCalledTimes(3); // initial + 2 retries
+  });
+
+  it("does not retry non-retryable errors (400, 401, 403)", async () => {
+    for (const status of [400, 401, 403]) {
+      const err = Object.assign(new Error(`error ${status}`), { status });
+      const fn = vi.fn().mockRejectedValue(err);
+
+      await expect(withRetry(fn, { baseDelayMs: 1 })).rejects.toThrow(`error ${status}`);
+      expect(fn).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("does not retry errors without a status property", async () => {
+    const fn = vi.fn().mockRejectedValue(new Error("network failure"));
+
+    await expect(withRetry(fn, { baseDelayMs: 1 })).rejects.toThrow("network failure");
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("respects Retry-After header", async () => {
+    const headers = { get: (k: string) => k === "retry-after" ? "1" : null };
+    const err429 = Object.assign(new Error("rate limited"), { status: 429, headers });
+    const fn = vi.fn()
+      .mockRejectedValueOnce(err429)
+      .mockResolvedValueOnce("ok");
+
+    const result = await withRetry(fn, { baseDelayMs: 1 });
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

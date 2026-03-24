@@ -180,6 +180,38 @@ async function resolveStoreSetting(options: LLMRequestOptions): Promise<boolean>
   }
 }
 
+// ── Retry with Exponential Backoff ────────────────────────────────────────────
+
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  options: { maxRetries?: number; baseDelayMs?: number; retryableStatuses?: number[] } = {},
+): Promise<T> {
+  const { maxRetries = 3, baseDelayMs = 1000, retryableStatuses = [429, 500, 502, 503, 504] } = options;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: unknown) {
+      const status = (error as { status?: number })?.status;
+      const isRetryable = status && retryableStatuses.includes(status);
+
+      if (!isRetryable || attempt === maxRetries) throw error;
+
+      // Exponential backoff with jitter
+      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 500;
+
+      // Respect Retry-After header if present
+      const retryAfter = (error as { headers?: { get?: (k: string) => string | null } })?.headers?.get?.("retry-after");
+      const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : null;
+
+      const waitMs = retryAfterMs && retryAfterMs > 0 ? Math.min(retryAfterMs, 60000) : delay;
+      console.warn(`[ai-provider] Retrying after ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${maxRetries}, status ${status})`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+  throw new Error("withRetry: unreachable");
+}
+
 // ── Main Call ─────────────────────────────────────────────────────────────────
 
 export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> {
@@ -322,7 +354,7 @@ async function callOpenAIResponses(
 
   const responsesTools = buildResponsesTools(options);
 
-  const response = await client.responses.create({
+  const response = await withRetry(() => client.responses.create({
     model,
     input: buildResponsesInput(options) as unknown as ResponseCreateParamsNonStreaming["input"],
     store,
@@ -342,7 +374,7 @@ async function callOpenAIResponses(
     ...(options.maxTokens !== undefined && { max_output_tokens: options.maxTokens }),
     // Include web search sources in output when web search is enabled
     ...(options.webSearch && { include: ["web_search_call.action.sources" as const] }),
-  });
+  }));
 
   // Parse response
   const text = response.output_text ?? "";
@@ -488,27 +520,32 @@ async function callAnthropic(
   if (tools) body.tools = tools;
 
   const url = `${baseUrl}/messages`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": config.apiKey ?? "",
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (fetchErr) {
-    throw new Error(`Anthropic unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
-  }
+  const data = await withRetry(async () => {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": config.apiKey ?? "",
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (fetchErr) {
+      throw new Error(`Anthropic unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+    }
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Anthropic API error ${res.status}: ${text}`);
-  }
+    if (!res.ok) {
+      const text = await res.text();
+      const err = new Error(`Anthropic API error ${res.status}: ${text}`);
+      (err as Error & { status: number }).status = res.status;
+      (err as Error & { headers: Headers }).headers = res.headers;
+      throw err;
+    }
 
-  const data = await res.json();
+    return res.json();
+  });
   let content = "";
   const toolCalls: NonNullable<LLMResponse["toolCalls"]> = [];
 
