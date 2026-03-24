@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { ONBOARDING_SCRIPT } from "@/lib/demo/onboarding-script";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 
@@ -26,6 +27,7 @@ interface AnalysisProgress {
 
 interface StepAnalysisProps {
   onComplete: () => void;
+  demoMode?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -77,7 +79,7 @@ function getEstimateLabel(phase: string, t: ReturnType<typeof useTranslations>) 
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function StepAnalysis({ onComplete }: StepAnalysisProps) {
+export function StepAnalysis({ onComplete, demoMode }: StepAnalysisProps) {
   const t = useTranslations("onboarding.analysis");
   const [progress, setProgress] = useState<AnalysisProgress | null>(null);
   const [syncPhase, setSyncPhase] = useState<"syncing" | "analyzing" | "done">("syncing");
@@ -114,8 +116,64 @@ export function StepAnalysis({ onComplete }: StepAnalysisProps) {
     } catch { /* ignore */ }
   }, [onComplete]);
 
+  // Demo mode: scripted messages
+  const demoStartRef = useRef<number | null>(null);
+  const demoIndexRef = useRef(0);
+
+  useEffect(() => {
+    if (!demoMode) return;
+
+    // Skip all real API calls in demo mode
+    setSyncPhase("done");
+    demoStartRef.current = Date.now();
+    demoIndexRef.current = 0;
+
+    const demoMessages: ProgressMessage[] = [];
+
+    const interval = setInterval(() => {
+      if (!demoStartRef.current) return;
+      const elapsed = Date.now() - demoStartRef.current;
+
+      let added = false;
+      while (demoIndexRef.current < ONBOARDING_SCRIPT.length && ONBOARDING_SCRIPT[demoIndexRef.current].delayMs <= elapsed) {
+        const msg = ONBOARDING_SCRIPT[demoIndexRef.current];
+        demoMessages.push({
+          timestamp: new Date().toISOString(),
+          message: msg.message,
+          agentName: msg.agentName === "System" ? undefined : msg.agentName,
+        });
+        demoIndexRef.current++;
+        added = true;
+      }
+
+      if (added) {
+        setProgress({
+          status: "analyzing",
+          currentPhase: getCurrentDemoPhase(elapsed),
+          progressMessages: [...demoMessages],
+        });
+      }
+
+      if (demoIndexRef.current >= ONBOARDING_SCRIPT.length) {
+        clearInterval(interval);
+        // Brief pause then complete
+        setTimeout(() => onComplete(), 1500);
+      }
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [demoMode, onComplete]);
+
+  function getCurrentDemoPhase(elapsed: number): string {
+    if (elapsed < 15000) return "round_0";
+    if (elapsed < 63000) return "round_1";
+    if (elapsed < 85000) return "organizer_1";
+    return "synthesis";
+  }
+
   // On mount: trigger sync, then analysis
   useEffect(() => {
+    if (demoMode) return; // Demo mode handles its own flow
     if (startedRef.current) return;
     startedRef.current = true;
 

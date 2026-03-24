@@ -83,19 +83,23 @@ type Connector = {
 interface StepConnectToolsProps {
   onContinue: () => void;
   onBack: () => void;
+  demoMode?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) {
+export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectToolsProps) {
   const t = useTranslations("onboarding.connectTools");
   const tc = useTranslations("common");
   const searchParams = useSearchParams();
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  const [demoConnected, setDemoConnected] = useState<Set<string>>(new Set());
+  const [demoAnimating, setDemoAnimating] = useState<string | null>(null);
+  const [demoSubSteps, setDemoSubSteps] = useState<string[]>([]);
 
   const loadConnectors = useCallback(async () => {
     const res = await fetch("/api/connectors");
@@ -129,21 +133,49 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
 
   const activeConnectors = connectors.filter(c => c.status !== "error" && c.status !== "disconnected");
 
+  async function handleDemoConnect(providerId: string, subConnectors?: string[]) {
+    setDemoAnimating(providerId);
+    setDemoSubSteps([]);
+
+    // Initial loading delay
+    await new Promise(r => setTimeout(r, 1000));
+
+    if (subConnectors) {
+      // Animate sub-connectors appearing one by one
+      for (const sub of subConnectors) {
+        setDemoSubSteps(prev => [...prev, sub]);
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    setDemoConnected(prev => new Set([...prev, providerId]));
+    setDemoAnimating(null);
+    setDemoSubSteps([]);
+  }
+
   function isGoogleWorkspaceConnected() {
+    if (demoMode && demoConnected.has("google-workspace")) return true;
     return GOOGLE_WORKSPACE_PROVIDERS.some(p => activeConnectors.some(c => c.provider === p));
   }
 
   function isMicrosoftConnected() {
+    if (demoMode && demoConnected.has("microsoft")) return true;
     return MICROSOFT_PROVIDERS.some(p => activeConnectors.some(c => c.provider === p));
   }
 
   function isProviderConnected(providerId: string) {
+    if (demoMode && demoConnected.has(providerId)) return true;
     return activeConnectors.some(c => c.provider === providerId);
   }
 
-  const totalConnected = new Set(activeConnectors.map(c => c.provider)).size;
+  const realConnected = new Set(activeConnectors.map(c => c.provider)).size;
+  const totalConnected = demoMode ? realConnected + demoConnected.size : realConnected;
 
   async function handleConnectGoogleWorkspace() {
+    if (demoMode) {
+      await handleDemoConnect("google-workspace", ["Gmail", "Google Drive", "Google Calendar", "Google Sheets"]);
+      return;
+    }
     setConnecting("google-workspace");
     try {
       const res = await fetch("/api/connectors/google-workspace/auth-url", { method: "POST" });
@@ -155,6 +187,10 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
   }
 
   async function handleConnectMicrosoft() {
+    if (demoMode) {
+      await handleDemoConnect("microsoft", ["Outlook", "OneDrive", "Teams Calendar"]);
+      return;
+    }
     setConnecting("microsoft");
     try {
       const res = await fetch("/api/connectors/microsoft/auth?from=onboarding");
@@ -166,6 +202,14 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
   }
 
   async function handleConnectTier2(def: ConnectorDef) {
+    if (demoMode) {
+      const delay = def.id === "e-conomic" || def.id === "stripe" ? 500 : 1000;
+      setDemoAnimating(def.id);
+      await new Promise(r => setTimeout(r, delay));
+      setDemoConnected(prev => new Set([...prev, def.id]));
+      setDemoAnimating(null);
+      return;
+    }
     setConnecting(def.id);
     try {
       const sep = def.authEndpoint.includes("?") ? "&" : "?";
@@ -178,6 +222,7 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
   }
 
   async function handleContinue() {
+    if (demoMode) { onContinue(); return; }
     setAdvancing(true);
     try {
       await fetch("/api/orientation/advance", {
@@ -220,13 +265,14 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
             subtitle={t("googleSubtitle")}
             connected={googleConnected}
             connectedLabel={t("toolsConnected", { count: 4 })}
-            connecting={connecting === "google-workspace"}
+            connecting={connecting === "google-workspace" || demoAnimating === "google-workspace"}
             connectLabel={t("connect")}
             connectingLabel={t("connecting")}
             connectedTextLabel={t("connected")}
             color="#4285f4"
             icon={<GoogleIcon />}
             onConnect={handleConnectGoogleWorkspace}
+            demoSubSteps={demoAnimating === "google-workspace" ? demoSubSteps : undefined}
           />
           {/* Microsoft 365 */}
           <WorkspaceCard
@@ -234,13 +280,14 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
             subtitle={t("microsoftSubtitle")}
             connected={microsoftConnected}
             connectedLabel={t("toolsConnected", { count: 4 })}
-            connecting={connecting === "microsoft"}
+            connecting={connecting === "microsoft" || demoAnimating === "microsoft"}
             connectLabel={t("connect")}
             connectingLabel={t("connecting")}
             connectedTextLabel={t("connected")}
             color="#00a4ef"
             icon={<MicrosoftIcon />}
             onConnect={handleConnectMicrosoft}
+            demoSubSteps={demoAnimating === "microsoft" ? demoSubSteps : undefined}
           />
         </div>
       </div>
@@ -257,7 +304,7 @@ export function StepConnectTools({ onContinue, onBack }: StepConnectToolsProps) 
                   key={item.id}
                   def={item}
                   connected={isProviderConnected(item.id)}
-                  connecting={connecting === item.id}
+                  connecting={connecting === item.id || demoAnimating === item.id}
                   connectLabel={t("connect")}
                   connectedLabel={t("connected")}
                   onConnect={() => handleConnectTier2(item)}
@@ -315,6 +362,7 @@ function WorkspaceCard({
   color,
   icon,
   onConnect,
+  demoSubSteps,
 }: {
   name: string;
   subtitle: string;
@@ -327,6 +375,7 @@ function WorkspaceCard({
   color: string;
   icon: React.ReactNode;
   onConnect: () => void;
+  demoSubSteps?: string[];
 }) {
   return (
     <div className="wf-soft p-5 flex flex-col gap-3">
@@ -348,20 +397,34 @@ function WorkspaceCard({
           <span className="text-xs text-[var(--fg3)] ml-auto">{connectedLabel}</span>
         </div>
       ) : (
-        <button
-          onClick={onConnect}
-          disabled={connecting}
-          className="w-full px-4 py-2.5 rounded-lg border border-border bg-hover text-sm text-[var(--fg2)] hover:bg-skeleton hover:text-foreground transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[44px]"
-        >
-          {connecting ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
-              {connectingLabel}
-            </span>
-          ) : (
-            connectLabel
+        <>
+          <button
+            onClick={onConnect}
+            disabled={connecting}
+            className="w-full px-4 py-2.5 rounded-lg border border-border bg-hover text-sm text-[var(--fg2)] hover:bg-skeleton hover:text-foreground transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[44px]"
+          >
+            {connecting ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
+                {connectingLabel}
+              </span>
+            ) : (
+              connectLabel
+            )}
+          </button>
+          {demoSubSteps && demoSubSteps.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {demoSubSteps.map(sub => (
+                <span
+                  key={sub}
+                  className="px-2 py-0.5 rounded-full bg-accent-light text-[10px] text-accent/70 animate-[fadeIn_0.3s_ease-in]"
+                >
+                  {sub}
+                </span>
+              ))}
+            </div>
           )}
-        </button>
+        </>
       )}
     </div>
   );

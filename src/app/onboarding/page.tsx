@@ -32,6 +32,7 @@ function OnboardingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [step, setStep] = useState<OnboardingStep | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
 
   // Shared state for Step 1
   const [companyName, setCompanyName] = useState("");
@@ -99,6 +100,14 @@ function OnboardingPage() {
       setStep(1);
     }
     detectStep();
+
+    // Check demo mode
+    fetch("/api/onboarding/demo-mode").then(async (r) => {
+      if (r.ok) {
+        const d = await r.json();
+        setDemoMode(d.demoMode === true);
+      }
+    }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -117,6 +126,12 @@ function OnboardingPage() {
   return (
     <div className="min-h-screen bg-sidebar flex flex-col items-center px-4 py-12">
       <OnboardingProgress step={step} />
+
+      {demoMode && searchParams.get("hideBadge") !== "true" && (
+        <div className="fixed top-3 right-3 px-2 py-1 rounded text-[10px] text-[var(--fg3)] bg-[var(--elevated)] border border-[var(--border)] z-50 opacity-60">
+          Demo Mode
+        </div>
+      )}
 
       <div className={`w-full ${step === 4 ? "max-w-3xl" : "max-w-[600px]"}`}>
         {step === 1 && (
@@ -137,17 +152,19 @@ function OnboardingPage() {
           <StepConnectTools
             onContinue={() => setStep(3)}
             onBack={() => setStep(1)}
+            demoMode={demoMode}
           />
         )}
 
         {step === 3 && (
           <StepAnalysis
             onComplete={() => setStep(4)}
+            demoMode={demoMode}
           />
         )}
 
         {step === 4 && (
-          <StepConfirmStructure />
+          <StepConfirmStructure demoMode={demoMode} />
         )}
       </div>
     </div>

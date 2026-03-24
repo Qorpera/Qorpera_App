@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { DEMO_SYNTHESIS_OUTPUT, DEMO_UNCERTAINTY_LOG } from "@/lib/demo/company-model";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -82,7 +83,11 @@ interface CompanyModelEdits {
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function StepConfirmStructure() {
+interface StepConfirmStructureProps {
+  demoMode?: boolean;
+}
+
+export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
   const t = useTranslations("onboarding.confirm");
   const tc = useTranslations("common");
   const router = useRouter();
@@ -102,6 +107,11 @@ export function StepConfirmStructure() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      if (demoMode) {
+        setSynthesis(DEMO_SYNTHESIS_OUTPUT as unknown as SynthesisOutput);
+        setQuestions(DEMO_UNCERTAINTY_LOG as unknown as UncertaintyQuestion[]);
+        return;
+      }
       const res = await fetch("/api/onboarding/analysis-progress");
       if (!res.ok) return;
       const data: AnalysisProgress = await res.json();
@@ -114,7 +124,7 @@ export function StepConfirmStructure() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [demoMode]);
 
   useEffect(() => {
     loadData();
@@ -177,6 +187,24 @@ export function StepConfirmStructure() {
   async function handleConfirm() {
     setConfirming(true);
     try {
+      if (demoMode) {
+        // Call test company generator instead of confirm-structure
+        const res = await fetch("/api/admin/create-test-company", { method: "POST" });
+        if (!res.ok) {
+          console.error("Failed to create test company");
+          setConfirming(false);
+          return;
+        }
+        // Advance orientation to active
+        await fetch("/api/orientation/advance", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetPhase: "active" }),
+        });
+        router.replace("/situations");
+        return;
+      }
+
       // Submit edits and answers first — if this fails, phase stays at confirming
       const confirmRes = await fetch("/api/onboarding/confirm-structure", {
         method: "POST",

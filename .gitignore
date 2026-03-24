@@ -9,3 +9,4 @@ _standalone/
 .data/
 uploads/
 .vercel
+vercel-env-setup.md

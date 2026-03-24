@@ -1813,7 +1813,7 @@ function UsageTab() {
                   <YAxis tick={{ fontSize: 11, fill: "var(--fg3)" }} tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
                   <Tooltip
                     contentStyle={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: number) => [`$${v.toFixed(2)}`, undefined]}
+                    formatter={(v) => [`$${Number(v).toFixed(2)}`, undefined]}
                   />
                   <Bar dataKey="Observe" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
                   <Bar dataKey="Propose" stackId="a" fill="#f59e0b" />
@@ -2185,11 +2185,11 @@ function BillingTab() {
   const isAdmin = user?.role === "admin" || user?.role === "superadmin";
 
   useEffect(() => {
-    fetch("/api/billing/balance").then((r) => (r.ok ? r.json() : null)).then((d) => { setBalance(d); setBalanceLoaded(true); }).catch(() => setBalanceLoaded(true));
-    fetch("/api/billing/usage").then((r) => (r.ok ? r.json() : null)).then(setUsage).catch(() => {});
-    fetch("/api/billing/payment-method").then((r) => (r.ok ? r.json() : null)).then((d) => setPaymentMethod(d?.paymentMethod ?? null)).catch(() => {});
+    fetch("/api/billing/balance").then((r) => r.ok ? r.json() : null).then((d) => { setBalance(d); setBalanceLoaded(true); }).catch(() => setBalanceLoaded(true));
+    fetch("/api/billing/usage").then((r) => r.ok ? r.json() : null).then(setUsage).catch(() => {});
+    fetch("/api/billing/payment-method").then((r) => r.ok ? r.json() : null).then((d) => setPaymentMethod(d?.paymentMethod ?? null)).catch(() => {});
     if (isAdmin) {
-      fetch("/api/billing/transactions?limit=20").then((r) => (r.ok ? r.json() : null)).then((d) => setTransactions(d?.transactions ?? [])).catch(() => {});
+      fetch("/api/billing/transactions?limit=20").then((r) => r.ok ? r.json() : null).then((d) => setTransactions(d?.transactions ?? [])).catch(() => {});
     }
   }, [isAdmin]);
 
