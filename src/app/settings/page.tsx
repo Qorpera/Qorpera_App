@@ -112,7 +112,7 @@ function SettingsPageInner() {
   const reconnectedParam = searchParams.get("reconnected");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "billing" ? "billing" : tabParam === "usage" ? "usage" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "billing" ? "billing" : tabParam === "usage" ? "usage" : "connections"
   );
 
   // AI state
@@ -569,7 +569,6 @@ function SettingsPageInner() {
   };
 
   const allTabs: { key: Tab; label: string; adminOnly?: boolean }[] = [
-    { key: "ai", label: t("tabs.ai") },
     { key: "connections", label: t("tabs.connections"), adminOnly: true },
     { key: "team", label: t("tabs.team"), adminOnly: true },
     { key: "billing", label: t("tabs.billing"), adminOnly: true },
