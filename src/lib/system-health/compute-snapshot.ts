@@ -448,9 +448,6 @@ async function computeDetection(
   });
   const entityTypeSlugs = new Set(entityTypes.map((et) => et.slug));
 
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
   const situationTypeHealthList: SituationTypeHealth[] = await Promise.all(
     situationTypes.map(async (st) => {
       const lastDetection = lastDetectionMap.get(st.id) ?? null;
@@ -790,7 +787,7 @@ export async function recomputeHealthSnapshots(
 ): Promise<void> {
   try {
     if (departmentEntityId) {
-      // Single-department recompute + full operator aggregate
+      // Single-department recompute
       const deptSnapshot = await computeDepartmentSnapshot(
         operatorId,
         departmentEntityId,
@@ -817,8 +814,36 @@ export async function recomputeHealthSnapshots(
         },
       });
 
-      // Recompute operator aggregate (reads all departments)
-      const operatorSnapshot = await computeOperatorSnapshot(operatorId);
+      // Rebuild operator aggregate from persisted department snapshots
+      // instead of recomputing every department
+      const allRows = await prisma.departmentHealth.findMany({
+        where: { operatorId, departmentEntityId: { not: null } },
+        select: { snapshot: true },
+      });
+      const departmentSnapshots = allRows.map(
+        (r) => r.snapshot as unknown as DepartmentSnapshot,
+      );
+
+      const criticalIssueCount = departmentSnapshots.reduce(
+        (sum, d) => sum + d.criticalIssueCount,
+        0,
+      );
+      let overallStatus: OperatorSnapshot["overallStatus"];
+      if (departmentSnapshots.some((d) => d.overallStatus === "critical")) {
+        overallStatus = "critical";
+      } else if (departmentSnapshots.some((d) => d.overallStatus === "attention")) {
+        overallStatus = "attention";
+      } else {
+        overallStatus = "healthy";
+      }
+
+      const operatorSnapshot: OperatorSnapshot = {
+        operatorId,
+        departments: departmentSnapshots,
+        overallStatus,
+        criticalIssueCount,
+        computedAt: now.toISOString(),
+      };
       const snapshotJson = JSON.stringify(operatorSnapshot);
       await prisma.$executeRaw`
         INSERT INTO "DepartmentHealth" ("id", "operatorId", "departmentEntityId", "snapshot", "computedAt")
@@ -845,17 +870,3 @@ export async function recomputeHealthSnapshots(
   }
 }
 
-// ─── Helpers ─────────────────────────────────────────────
-
-function formatTimeAgo(date: Date): string {
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
-}

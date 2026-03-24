@@ -17,7 +17,7 @@ vi.mock("@/lib/db", () => ({
     situationType: { findMany: vi.fn() },
     situation: { findMany: vi.fn() },
     entityType: { findMany: vi.fn() },
-    departmentHealth: { upsert: vi.fn(), deleteMany: vi.fn() },
+    departmentHealth: { upsert: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -318,6 +318,71 @@ describe("computeDepartmentSnapshot", () => {
     expect(snap.knowledge.documents.staleCount).toBe(0);
     expect(snap.knowledge.status).toBe("minimal"); // people only
   });
+  // Content-mode situation type diagnosed correctly
+  it("content-mode situation type with no detections diagnoses as no_data", async () => {
+    setupEmptyDepartment();
+
+    const st = makeSituationType({
+      detectedCount: 0,
+      detectionLogic: JSON.stringify({ mode: "content" }),
+      createdAt: new Date("2026-01-01"),
+    });
+    p.situationType.findMany
+      .mockResolvedValueOnce([st])
+      .mockResolvedValueOnce([st]);
+    p.entityType.findMany.mockResolvedValue([]);
+
+    const snap = await computeDepartmentSnapshot(OP, DEPT);
+
+    const stHealth = snap.detection.situationTypes[0];
+    expect(stHealth.diagnosis).toBe("no_data");
+    expect(stHealth.diagnosisDetail).toContain("communication connectors");
+  });
+
+  // Unknown entity type slug → "inactive"
+  it("unknown entity type slug diagnoses as inactive", async () => {
+    setupEmptyDepartment();
+
+    const st = makeSituationType({
+      detectionLogic: JSON.stringify({
+        mode: "structured",
+        structured: { entityType: "nonexistent-type" },
+      }),
+    });
+    p.situationType.findMany
+      .mockResolvedValueOnce([st])
+      .mockResolvedValueOnce([st]);
+    // Entity type slugs do NOT include "nonexistent-type"
+    p.entityType.findMany.mockResolvedValue([{ slug: "invoice" }]);
+
+    const snap = await computeDepartmentSnapshot(OP, DEPT);
+
+    const stHealth = snap.detection.situationTypes[0];
+    expect(stHealth.diagnosis).toBe("inactive");
+    expect(stHealth.diagnosisDetail).toContain("unknown entity type");
+    expect(stHealth.diagnosisDetail).toContain("nonexistent-type");
+  });
+
+  // Natural language only situation type (no target slug) with zero detections
+  it("natural-language situation type with zero detections diagnoses as no_matches", async () => {
+    setupEmptyDepartment();
+
+    const st = makeSituationType({
+      detectedCount: 0,
+      detectionLogic: JSON.stringify({ mode: "natural", naturalLanguage: "Customer at risk of churn" }),
+      createdAt: new Date("2026-01-01"),
+    });
+    p.situationType.findMany
+      .mockResolvedValueOnce([st])
+      .mockResolvedValueOnce([st]);
+    p.entityType.findMany.mockResolvedValue([]);
+
+    const snap = await computeDepartmentSnapshot(OP, DEPT);
+
+    const stHealth = snap.detection.situationTypes[0];
+    expect(stHealth.diagnosis).toBe("no_matches");
+    expect(stHealth.diagnosisDetail).toContain("review detection description");
+  });
 });
 
 // 9. Operator aggregate: worst department status bubbles up
@@ -394,9 +459,8 @@ describe("recomputeHealthSnapshots", () => {
     expect(p.$transaction).toHaveBeenCalledTimes(2);
   });
 
-  it("single-department recompute upserts department + operator aggregate", async () => {
+  it("single-department recompute upserts department + rebuilds aggregate from persisted rows", async () => {
     p.entity.findFirst.mockResolvedValue({ displayName: DEPT_NAME });
-    p.entity.findMany.mockResolvedValue([{ id: DEPT }]);
     p.sourceConnector.findMany.mockResolvedValue([]);
     mockEntityCount({});
     p.entity.groupBy.mockResolvedValue([]);
@@ -413,11 +477,22 @@ describe("recomputeHealthSnapshots", () => {
     p.situation.findMany.mockResolvedValue([]);
     p.entityType.findMany.mockResolvedValue([]);
     p.departmentHealth.upsert.mockResolvedValue({});
+    // Return persisted department snapshots for aggregate rebuild
+    p.departmentHealth.findMany.mockResolvedValue([
+      {
+        snapshot: {
+          departmentId: DEPT,
+          departmentName: DEPT_NAME,
+          overallStatus: "unconfigured",
+          criticalIssueCount: 0,
+        },
+      },
+    ]);
     p.$executeRaw.mockResolvedValue(1);
 
     await recomputeHealthSnapshots(OP, DEPT);
 
-    // Single department → upserts directly (no $transaction)
+    // Upserts the single department
     expect(p.departmentHealth.upsert).toHaveBeenCalledTimes(1);
     expect(p.departmentHealth.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -429,8 +504,12 @@ describe("recomputeHealthSnapshots", () => {
         },
       }),
     );
-    // Operator aggregate via raw SQL
+    // Reads persisted rows for aggregate (no full recompute)
+    expect(p.departmentHealth.findMany).toHaveBeenCalledTimes(1);
+    // Writes operator aggregate via raw SQL
     expect(p.$executeRaw).toHaveBeenCalledTimes(1);
+    // Should NOT call entity.findMany for departments (no full recompute)
+    expect(p.entity.findMany).not.toHaveBeenCalled();
   });
 
   it("never throws even on database error", async () => {
