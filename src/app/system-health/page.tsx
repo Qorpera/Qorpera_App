@@ -220,9 +220,12 @@ function KnowledgeSection({ knowledge, departmentId, t }: {
           })}
         </p>
         {knowledge.people.gaps.map((gap, i) => (
-          <p key={i} className="text-xs text-amber-400 mt-1 flex items-center gap-1">
-            <Link href={`/map/${departmentId}`} className="hover:underline">{gap}</Link>
-          </p>
+          <div key={i} className="text-xs text-amber-400 mt-1 flex items-center gap-2">
+            <span>{gap}</span>
+            <Link href={`/map/${departmentId}`} className="text-accent hover:underline flex-shrink-0">
+              {gap.includes("reporting") ? t("editHierarchy") : t("editRoles")}
+            </Link>
+          </div>
         ))}
       </div>
 
@@ -369,6 +372,104 @@ function DiagnosisIcon({ diagnosis }: { diagnosis: string }) {
   }
 }
 
+// ─── Operator Summary Card ────────────────────────────────
+
+function OperatorSummaryCard({ snapshot, summaryText, summaryColor, refreshing, refreshDisabled, onRefresh, locale, t }: {
+  snapshot: OperatorSnapshotWithLive;
+  summaryText: string;
+  summaryColor: string;
+  refreshing: boolean;
+  refreshDisabled: boolean;
+  onRefresh: () => void;
+  locale: string;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const [issuesExpanded, setIssuesExpanded] = useState(false);
+
+  // Collect all critical issues across departments
+  const criticalIssues: { department: string; issue: string; action?: { label: string; href: string } }[] = [];
+  for (const dept of snapshot.departments) {
+    for (const c of dept.dataPipeline.connectors) {
+      if (c.status === "disconnected") {
+        criticalIssues.push({
+          department: dept.departmentName,
+          issue: `${c.name}: ${c.issue ?? "Disconnected"}`,
+          action: c.action ?? undefined,
+        });
+      }
+    }
+    if (dept.knowledge.status === "empty") {
+      criticalIssues.push({
+        department: dept.departmentName,
+        issue: "No knowledge base — no team members, documents, or patterns",
+        action: { label: "Go to department", href: `/map/${dept.departmentId}` },
+      });
+    }
+    for (const st of dept.detection.situationTypes) {
+      if (st.diagnosis === "no_data") {
+        criticalIssues.push({
+          department: dept.departmentName,
+          issue: `${st.name}: ${st.diagnosisDetail}`,
+          action: st.action ?? undefined,
+        });
+      }
+    }
+  }
+
+  return (
+    <div className="bg-surface border border-border rounded-lg p-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className={`w-3 h-3 rounded-full ${summaryColor}`} />
+          <h1 className="text-lg font-semibold text-foreground">{summaryText}</h1>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={refreshDisabled}
+          className="flex items-center gap-2 border border-border text-[var(--fg2)] hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-1.5 rounded transition"
+        >
+          <RefreshCw className={refreshing ? "animate-spin" : ""} />
+          {refreshing ? t("refreshing") : t("refresh")}
+        </button>
+      </div>
+      <p className="text-xs text-[var(--fg3)] mt-2">
+        {t("lastChecked", { time: formatRelativeTime(snapshot.computedAt, locale) })}
+      </p>
+
+      {/* Expandable critical issues list */}
+      {criticalIssues.length > 0 && (
+        <div className="mt-4 border-t border-border pt-3">
+          <button
+            onClick={() => setIssuesExpanded(!issuesExpanded)}
+            className="flex items-center gap-2 text-xs font-medium text-red-500 hover:text-red-400 transition"
+          >
+            <ChevronDown className={`transition-transform duration-200 ${issuesExpanded ? "rotate-180" : ""}`} />
+            {criticalIssues.length} critical issue{criticalIssues.length !== 1 ? "s" : ""}
+          </button>
+          {issuesExpanded && (
+            <div className="mt-2 space-y-2">
+              {criticalIssues.map((ci, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium text-foreground">{ci.department}</span>
+                    <span className="text-[var(--fg3)]"> — {ci.issue}</span>
+                  </div>
+                  {ci.action && (
+                    <Link href={ci.action.href} className="text-accent hover:underline flex-shrink-0">
+                      {ci.action.label}
+                    </Link>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Department Card ─────────────────────────────────────
 
 function DepartmentCard({ dept, locale, t, defaultExpanded }: {
@@ -396,32 +497,34 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
       </button>
 
       {expanded && (
-        <div className="px-5 pb-5">
-          {/* Data Pipeline */}
-          <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("dataPipeline")}</h3>
-              <StatusPill status={dept.dataPipeline.status} />
+        <div className="border-t border-border">
+          <div className="grid grid-cols-1 lg:grid-cols-3">
+            {/* Data Pipeline */}
+            <div className="p-5 lg:border-r lg:border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("dataPipeline")}</h3>
+                <StatusPill status={dept.dataPipeline.status} />
+              </div>
+              <DataPipelineSection pipeline={dept.dataPipeline} departmentId={dept.departmentId} locale={locale} t={t} />
             </div>
-            <DataPipelineSection pipeline={dept.dataPipeline} departmentId={dept.departmentId} locale={locale} t={t} />
-          </div>
 
-          {/* Knowledge */}
-          <div className="border-t border-border pt-4 mt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("knowledge")}</h3>
-              <StatusPill status={dept.knowledge.status} />
+            {/* Knowledge */}
+            <div className="p-5 border-t lg:border-t-0 lg:border-r border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("knowledge")}</h3>
+                <StatusPill status={dept.knowledge.status} />
+              </div>
+              <KnowledgeSection knowledge={dept.knowledge} departmentId={dept.departmentId} t={t} />
             </div>
-            <KnowledgeSection knowledge={dept.knowledge} departmentId={dept.departmentId} t={t} />
-          </div>
 
-          {/* Detection */}
-          <div className="border-t border-border pt-4 mt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("detection")}</h3>
-              <StatusPill status={dept.detection.status} />
+            {/* Detection */}
+            <div className="p-5 border-t lg:border-t-0 border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("detection")}</h3>
+                <StatusPill status={dept.detection.status} />
+              </div>
+              <DetectionSection detection={dept.detection} t={t} />
             </div>
-            <DetectionSection detection={dept.detection} t={t} />
           </div>
         </div>
       )}
@@ -560,27 +663,18 @@ export default function SystemHealthPage() {
           </Link>
         </div>
       ) : (
-        <div className="p-6 space-y-6 max-w-4xl mx-auto">
+        <div className="p-6 space-y-6">
           {/* Operator Summary */}
-          <div className="bg-surface border border-border rounded-lg p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className={`w-3 h-3 rounded-full ${summaryColor}`} />
-                <h1 className="text-lg font-semibold text-foreground">{summaryText}</h1>
-              </div>
-              <button
-                onClick={handleRefresh}
-                disabled={refreshDisabled}
-                className="flex items-center gap-2 border border-border text-[var(--fg2)] hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-1.5 rounded transition"
-              >
-                <RefreshCw className={refreshing ? "animate-spin" : ""} />
-                {refreshing ? t("refreshing") : t("refresh")}
-              </button>
-            </div>
-            <p className="text-xs text-[var(--fg3)] mt-2">
-              {t("lastChecked", { time: formatRelativeTime(snapshot.computedAt, locale) })}
-            </p>
-          </div>
+          <OperatorSummaryCard
+            snapshot={snapshot}
+            summaryText={summaryText!}
+            summaryColor={summaryColor!}
+            refreshing={refreshing}
+            refreshDisabled={refreshDisabled}
+            onRefresh={handleRefresh}
+            locale={locale}
+            t={t}
+          />
 
           {/* Department Cards */}
           {sortedDepartments.map((dept) => (
@@ -593,7 +687,19 @@ export default function SystemHealthPage() {
             />
           ))}
 
-          {/* Contextual Chat */}
+          {/* Weekly AI Diagnostic */}
+          <div className="bg-[color-mix(in_srgb,var(--accent)_4%,transparent)] border border-[color-mix(in_srgb,var(--accent)_15%,transparent)] rounded-lg p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              </svg>
+              <h2 className="text-[13px] font-semibold text-accent">{t("weeklyDiagnosticTitle")}</h2>
+              <span className="text-[10px] font-medium ml-auto px-2 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-accent">{t("comingSoon")}</span>
+            </div>
+            <p className="text-sm text-[var(--fg2)] leading-relaxed">{t("weeklyDiagnosticDescription")}</p>
+          </div>
+
+          {/* Contextual Chat — no card wrapper */}
           <ContextualChat
             contextType="system-health"
             contextId={snapshot.operatorId}

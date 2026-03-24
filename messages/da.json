@@ -715,6 +715,11 @@
     "chatHint1": "Hvorfor viser denne afdeling ingen detektioner?",
     "chatHint2": "Hvordan forbedrer jeg detektionsnøjagtighed?",
     "chatHint3": "Hvad skal jeg forbinde næste gang?",
+    "editHierarchy": "Rediger hierarki",
+    "editRoles": "Rediger roller",
+    "weeklyDiagnosticTitle": "Ugentlig AI-diagnostik",
+    "weeklyDiagnosticDescription": "En ugentlig AI-genereret rapport der analyserer din opsætningsfuldstændighed, detektionshuller og anbefalinger til forbedring.",
+    "comingSoon": "Kommer snart",
     "errorLoading": "Kunne ikke indlæse systemstatusdata",
     "retry": "Prøv igen"
   },

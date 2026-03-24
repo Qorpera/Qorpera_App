@@ -715,6 +715,11 @@
     "chatHint1": "Why is this department showing no detections?",
     "chatHint2": "How do I improve detection accuracy?",
     "chatHint3": "What should I connect next?",
+    "editHierarchy": "Edit hierarchy",
+    "editRoles": "Edit roles",
+    "weeklyDiagnosticTitle": "Weekly AI Diagnostic",
+    "weeklyDiagnosticDescription": "A weekly AI-generated report analyzing your setup completeness, detection gaps, and recommendations for improvement.",
+    "comingSoon": "Coming soon",
     "errorLoading": "Failed to load system health data",
     "retry": "Retry"
   },

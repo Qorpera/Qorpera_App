@@ -38,7 +38,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin", labelKey: "admin", icon: "shield", superadminOnly: true },
       { href: "/settings", labelKey: "settings", icon: "settings" },
-      { href: "/health", labelKey: "setup", icon: "check-circle", badgeKey: "health" },
       { href: "/account", labelKey: "account", icon: "user" },
     ],
   },
