@@ -715,6 +715,8 @@
     "chatHint1": "Why is this department showing no detections?",
     "chatHint2": "How do I improve detection accuracy?",
     "chatHint3": "What should I connect next?",
+    "criticalEmptyKnowledge": "No knowledge base — no team members, documents, or patterns",
+    "goToDepartment": "Go to department",
     "editHierarchy": "Edit hierarchy",
     "editRoles": "Edit roles",
     "weeklyDiagnosticTitle": "Weekly AI Diagnostic",

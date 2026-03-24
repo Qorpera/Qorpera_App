@@ -715,6 +715,8 @@
     "chatHint1": "Hvorfor viser denne afdeling ingen detektioner?",
     "chatHint2": "Hvordan forbedrer jeg detektionsnøjagtighed?",
     "chatHint3": "Hvad skal jeg forbinde næste gang?",
+    "criticalEmptyKnowledge": "Ingen videnbase — ingen teammedlemmer, dokumenter eller mønstre",
+    "goToDepartment": "Gå til afdeling",
     "editHierarchy": "Rediger hierarki",
     "editRoles": "Rediger roller",
     "weeklyDiagnosticTitle": "Ugentlig AI-diagnostik",

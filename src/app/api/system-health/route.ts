@@ -5,19 +5,9 @@ import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import type {
   OperatorSnapshot,
   DepartmentSnapshot,
-  SituationTypeHealth,
+  SituationTypeHealthWithLive,
 } from "@/lib/system-health/compute-snapshot";
 import { computeOperatorSnapshot, recomputeHealthSnapshots } from "@/lib/system-health/compute-snapshot";
-
-// Extended type with live stats
-type SituationTypeHealthWithLive = SituationTypeHealth & {
-  detectedCount: number;
-  confirmedCount: number;
-  dismissedCount: number;
-  confirmationRate: number | null;
-  last7d: { detected: number; confirmed: number; dismissed: number };
-  last30d: { detected: number; confirmed: number; dismissed: number };
-};
 
 export async function GET() {
   const su = await getSessionUser();

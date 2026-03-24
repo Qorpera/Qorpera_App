@@ -87,6 +87,29 @@ export type OperatorSnapshot = {
   computedAt: string;
 };
 
+// ─── Extended types with live data (used by API route + UI) ──
+
+export type SituationTypeHealthWithLive = SituationTypeHealth & {
+  detectedCount: number;
+  confirmedCount: number;
+  dismissedCount: number;
+  confirmationRate: number | null;
+  last7d: { detected: number; confirmed: number; dismissed: number };
+  last30d: { detected: number; confirmed: number; dismissed: number };
+};
+
+export type DetectionHealthWithLive = Omit<DetectionHealth, "situationTypes"> & {
+  situationTypes: SituationTypeHealthWithLive[];
+};
+
+export type DepartmentSnapshotWithLive = Omit<DepartmentSnapshot, "detection"> & {
+  detection: DetectionHealthWithLive;
+};
+
+export type OperatorSnapshotWithLive = Omit<OperatorSnapshot, "departments"> & {
+  departments: DepartmentSnapshotWithLive[];
+};
+
 // ─── Detection logic types (mirrors situation-detector.ts) ───
 
 type DetectionLogic = {

@@ -11,35 +11,13 @@ import { ConnectorLogo } from "@/components/connector-logo";
 import { ContextualChat } from "@/components/contextual-chat";
 import { useUser } from "@/components/user-provider";
 import type {
-  OperatorSnapshot,
-  DepartmentSnapshot,
   ConnectorHealth,
   KnowledgeHealth,
-  DetectionHealth,
-  SituationTypeHealth,
+  SituationTypeHealthWithLive,
+  DetectionHealthWithLive,
+  DepartmentSnapshotWithLive,
+  OperatorSnapshotWithLive,
 } from "@/lib/system-health/compute-snapshot";
-
-// Extended types with live data from API (prompt 2)
-type SituationTypeHealthWithLive = SituationTypeHealth & {
-  detectedCount?: number;
-  confirmedCount?: number;
-  dismissedCount?: number;
-  confirmationRate?: number | null;
-  last7d?: { detected: number; confirmed: number; dismissed: number };
-  last30d?: { detected: number; confirmed: number; dismissed: number };
-};
-
-type DetectionHealthWithLive = Omit<DetectionHealth, "situationTypes"> & {
-  situationTypes: SituationTypeHealthWithLive[];
-};
-
-type DepartmentSnapshotWithLive = Omit<DepartmentSnapshot, "detection"> & {
-  detection: DetectionHealthWithLive;
-};
-
-type OperatorSnapshotWithLive = Omit<OperatorSnapshot, "departments"> & {
-  departments: DepartmentSnapshotWithLive[];
-};
 
 // ─── Status helpers ──────────────────────────────────────
 
@@ -401,8 +379,8 @@ function OperatorSummaryCard({ snapshot, summaryText, summaryColor, refreshing, 
     if (dept.knowledge.status === "empty") {
       criticalIssues.push({
         department: dept.departmentName,
-        issue: "No knowledge base — no team members, documents, or patterns",
-        action: { label: "Go to department", href: `/map/${dept.departmentId}` },
+        issue: t("criticalEmptyKnowledge"),
+        action: { label: t("goToDepartment"), href: `/map/${dept.departmentId}` },
       });
     }
     for (const st of dept.detection.situationTypes) {
