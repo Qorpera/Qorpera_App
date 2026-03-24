@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { QorperaLogo } from "@/components/qorpera-logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,7 +46,6 @@ export default function LoginPage() {
 
       if (res.ok) {
         const data = await res.json();
-        // Superadmin → /admin, others → check onboarding
         if (data.user?.role === "superadmin") {
           router.push("/admin");
         } else {
@@ -67,18 +65,29 @@ export default function LoginPage() {
 
   if (!ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-sidebar">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-[var(--fg3)] text-sm">{tc("loading")}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-sidebar">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background">
       <div className="w-full max-w-sm mx-auto px-4">
         {/* Logo */}
-        <div className="flex justify-center mb-8">
-          <QorperaLogo width={64} />
+        <div className="flex flex-col items-center mb-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo-mark.png"
+            alt="Qorpera"
+            width={72}
+            height={54}
+            className="dark:invert-0"
+            style={{ filter: "brightness(0)" }}
+          />
+          <span className="font-heading text-lg font-semibold tracking-[-0.02em] text-foreground mt-2">
+            qorpera
+          </span>
         </div>
 
         <h1 className="font-heading text-2xl font-semibold tracking-[-0.02em] text-foreground text-center mb-6">
@@ -139,12 +148,12 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-[var(--fg3)] mt-6">
           {t("newCompany")}{" "}
-          <a href="/register" className="text-accent hover:text-accent">
+          <a href="/register" className="text-accent hover:text-accent font-medium">
             {t("registerHere")}
           </a>
         </p>
       </div>
-      <div className="text-center text-xs text-[var(--fg3)] pb-8">
+      <div className="fixed bottom-4 right-4 text-xs text-[var(--fg3)]">
         <a href="/terms" className="hover:text-[var(--fg2)]">{tc("terms")}</a>
         {" · "}
         <a href="/privacy" className="hover:text-[var(--fg2)]">{tc("privacy")}</a>
