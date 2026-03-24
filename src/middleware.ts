@@ -61,8 +61,10 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  // Rate limiting for API routes
-  if (pathname.startsWith("/api/")) {
+  // Rate limiting for API routes — skip session/auth-check routes so
+  // rate-limited users don't get false "not authenticated" redirects
+  const RATE_LIMIT_EXEMPT = ["/api/auth/check", "/api/auth/me", "/api/auth/logout"];
+  if (pathname.startsWith("/api/") && !RATE_LIMIT_EXEMPT.some(p => pathname === p)) {
     const tier = pathname.startsWith("/api/auth/") ? "auth" as const
       : pathname.startsWith("/api/billing/") ? "billing" as const
       : pathname.startsWith("/api/copilot/") ? "copilot" as const

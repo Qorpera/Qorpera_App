@@ -19,7 +19,7 @@ export { redis };
 
 // Tiered rate limiters (only created when Redis is available)
 const globalLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(100, "1 m"), prefix: "rl:global" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(300, "1 m"), prefix: "rl:global" })
   : null;
 
 const authLimiter = redis
@@ -63,7 +63,7 @@ if (typeof setInterval !== "undefined") {
 }
 
 const TIER_DEFAULTS: Record<Tier, { maxRequests: number; windowMs: number }> = {
-  global: { maxRequests: 100, windowMs: 60_000 },
+  global: { maxRequests: 300, windowMs: 60_000 },
   auth: { maxRequests: 10, windowMs: 60_000 },
   billing: { maxRequests: 5, windowMs: 60_000 },
   copilot: { maxRequests: 30, windowMs: 60_000 },
