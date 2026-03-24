@@ -111,11 +111,13 @@ function CloseIcon() {
 
 function SidebarContent({
   pendingApprovals,
+  healthIssues,
   collapsed,
   locale,
   onNavClick,
 }: {
   pendingApprovals: number;
+  healthIssues: number;
   collapsed: boolean;
   locale: string;
   onNavClick?: () => void;
@@ -127,7 +129,7 @@ function SidebarContent({
       {/* Navigation */}
       <nav className={`flex-1 overflow-y-auto ${collapsed ? "px-1.5" : "px-3"} pb-4`}>
         <Suspense>
-          <AppNav pendingApprovals={pendingApprovals} collapsed={collapsed} onNavClick={onNavClick} />
+          <AppNav pendingApprovals={pendingApprovals} healthIssues={healthIssues} collapsed={collapsed} onNavClick={onNavClick} />
         </Suspense>
       </nav>
 
@@ -157,11 +159,39 @@ function SidebarContent({
 
 // ── Main AppShell ───────────────────────────────────────────────────────────
 
-export function AppShell({ children, pendingApprovals = 0, topBarContent }: { children: ReactNode; pendingApprovals?: number; topBarContent?: ReactNode }) {
+export function AppShell({ children, pendingApprovals, topBarContent }: { children: ReactNode; pendingApprovals?: number; topBarContent?: ReactNode }) {
   const t = useTranslations("shell");
   const locale = useLocale();
   const pathname = usePathname();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  // Fetch badge counts for nav — situations pending + health issues
+  const [navBadges, setNavBadges] = useState<{ situations: number; health: number }>({ situations: 0, health: 0 });
+  useEffect(() => {
+    // Situations: count pending proposals
+    fetch("/api/situations?status=detected,proposed")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => {
+        const count = Array.isArray(data) ? data.length : (data.situations?.length ?? 0);
+        setNavBadges(prev => ({ ...prev, situations: count }));
+      })
+      .catch(() => {});
+
+    // Health: count connector errors + zero-detection situation types
+    Promise.all([
+      fetch("/api/connectors").then(r => r.ok ? r.json() : { connectors: [] }),
+      fetch("/api/situation-types").then(r => r.ok ? r.json() : []),
+    ])
+      .then(([connRes, stTypes]) => {
+        const connectors = connRes.connectors ?? [];
+        const errors = connectors.filter((c: { status: string }) => c.status === "error").length;
+        const zeroDetections = (Array.isArray(stTypes) ? stTypes : []).filter((st: { totalProposed: number }) => st.totalProposed === 0).length;
+        setNavBadges(prev => ({ ...prev, health: errors + zeroDetections }));
+      })
+      .catch(() => {});
+  }, [pathname]); // Refresh on navigation
+
+  const effectiveSituationsBadge = pendingApprovals ?? navBadges.situations;
 
   // Desktop sidebar collapse
   const [collapsed, setCollapsed] = useState(() => {
@@ -243,7 +273,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
               )}
             </div>
 
-            <SidebarContent pendingApprovals={pendingApprovals} collapsed={collapsed} locale={locale} />
+            <SidebarContent pendingApprovals={effectiveSituationsBadge} healthIssues={navBadges.health} collapsed={collapsed} locale={locale} />
           </aside>
 
         {/* ── Mobile drawer overlay (below lg) ── */}
@@ -269,7 +299,7 @@ export function AppShell({ children, pendingApprovals = 0, topBarContent }: { ch
                 </button>
               </div>
 
-              <SidebarContent pendingApprovals={pendingApprovals} collapsed={false} locale={locale} onNavClick={handleNavClick} />
+              <SidebarContent pendingApprovals={effectiveSituationsBadge} healthIssues={navBadges.health} collapsed={false} locale={locale} onNavClick={handleNavClick} />
             </div>
           </>
         )}

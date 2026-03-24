@@ -5,17 +5,17 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useUser } from "./user-provider";
 
-type NavItem = { href: string; labelKey: string; icon: string; badge?: boolean; superadminOnly?: boolean; adminOnly?: boolean };
+type BadgeKey = "situations" | "health";
+type NavItem = { href: string; labelKey: string; icon: string; badgeKey?: BadgeKey; superadminOnly?: boolean; adminOnly?: boolean };
 type NavGroup = { labelKey: string; items: NavItem[] };
 
 const NAV_GROUPS: NavGroup[] = [
   {
     labelKey: "operations",
     items: [
-      { href: "/map", labelKey: "map", icon: "map" },
-      { href: "/situations", labelKey: "situations", icon: "alert-triangle", badge: true },
+      { href: "/situations", labelKey: "situations", icon: "alert-triangle", badgeKey: "situations" },
       { href: "/initiatives", labelKey: "initiatives", icon: "lightbulb", adminOnly: true },
-      { href: "/projects", labelKey: "projects", icon: "layers", adminOnly: true },
+      { href: "/map", labelKey: "map", icon: "map" },
     ],
   },
   {
@@ -36,7 +36,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin", labelKey: "admin", icon: "shield", superadminOnly: true },
       { href: "/settings", labelKey: "settings", icon: "settings" },
-      { href: "/health", labelKey: "setup", icon: "check-circle" },
+      { href: "/health", labelKey: "setup", icon: "check-circle", badgeKey: "health" },
       { href: "/account", labelKey: "account", icon: "user" },
     ],
   },
@@ -67,7 +67,11 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
   superadmin: "bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] text-warn",
 };
 
-export function AppNav({ pendingApprovals = 0, collapsed = false, onNavClick }: { pendingApprovals?: number; collapsed?: boolean; onNavClick?: () => void }) {
+export function AppNav({ pendingApprovals = 0, healthIssues = 0, collapsed = false, onNavClick }: { pendingApprovals?: number; healthIssues?: number; collapsed?: boolean; onNavClick?: () => void }) {
+  const badgeCounts: Record<BadgeKey, number> = {
+    situations: pendingApprovals,
+    health: healthIssues,
+  };
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const fullPath = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
@@ -112,9 +116,11 @@ export function AppNav({ pendingApprovals = 0, collapsed = false, onNavClick }: 
                       <path strokeLinecap="round" strokeLinejoin="round" d={ICONS[item.icon] || ICONS.grid} />
                     </svg>
                     {!collapsed && <span className="flex-1">{label}</span>}
-                    {!collapsed && item.badge && pendingApprovals > 0 && (
-                      <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-ink px-1">
-                        {pendingApprovals}
+                    {!collapsed && item.badgeKey && badgeCounts[item.badgeKey] > 0 && (
+                      <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold px-1 ${
+                        item.badgeKey === "health" ? "bg-warn text-white" : "bg-accent text-accent-ink"
+                      }`}>
+                        {badgeCounts[item.badgeKey]}
                       </span>
                     )}
                   </Link>
