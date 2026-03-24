@@ -4,7 +4,7 @@ import { chat, type OrientationInfo } from "@/lib/ai-copilot";
 import { prisma } from "@/lib/db";
 import type { AIMessage } from "@/lib/ai-provider";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
-import { loadContextForCopilot, getContextRoleInstruction } from "@/lib/copilot-context-loaders";
+import { loadContextForCopilot, getContextRoleInstruction, loadSystemHealthContext } from "@/lib/copilot-context-loaders";
 import { canMemberAccessWorkStream } from "@/lib/workstreams";
 import { captureApiError } from "@/lib/api-error";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limiter";
@@ -102,7 +102,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (ctxType && ctxId) {
+  // System-health context: scope filtering done inside the loader
+  if (ctxType === "system-health") {
+    try {
+      const contextText = await loadSystemHealthContext(operatorId, visibleDepts);
+      if (contextText) {
+        const roleInstruction = getContextRoleInstruction(ctxType);
+        contextInfo = {
+          contextType: ctxType,
+          contextText: `${roleInstruction}\n\n${contextText}`,
+        };
+      }
+    } catch (err) {
+      console.warn(`[copilot] System health context loading failed:`, err);
+    }
+  } else if (ctxType && ctxId) {
     try {
       const contextText = await loadContextForCopilot(ctxType, ctxId, operatorId);
       if (contextText) {

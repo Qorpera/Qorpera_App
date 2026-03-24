@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getWorkStreamContext } from "@/lib/workstreams";
+import type { OperatorSnapshot, DepartmentSnapshot } from "@/lib/system-health/compute-snapshot";
 
 // ── Situation Context ────────────────────────────────────────────────────────
 
@@ -288,6 +289,94 @@ export async function loadWorkStreamContext(
   ].filter(Boolean).join("\n");
 }
 
+// ── System Health Context ────────────────────────────────────────────────────
+
+export async function loadSystemHealthContext(
+  operatorId: string,
+  visibleDepts: string[] | "all",
+): Promise<string | null> {
+  const healthRows = await prisma.departmentHealth.findMany({
+    where: { operatorId },
+    select: { departmentEntityId: true, snapshot: true, computedAt: true },
+  });
+
+  if (healthRows.length === 0) return null;
+
+  // Scope filter: members only see their departments
+  const filteredRows = visibleDepts === "all"
+    ? healthRows
+    : healthRows.filter(
+        (r) => r.departmentEntityId === null || visibleDepts.includes(r.departmentEntityId),
+      );
+
+  return formatHealthContext(filteredRows);
+}
+
+function formatHealthContext(
+  healthRows: { departmentEntityId: string | null; snapshot: unknown; computedAt: Date }[],
+): string {
+  const lines: string[] = ["## Current System Health Status\n"];
+
+  const operatorRow = healthRows.find((r) => r.departmentEntityId === null);
+  if (operatorRow) {
+    const snap = operatorRow.snapshot as OperatorSnapshot;
+    lines.push(`Overall: ${snap.overallStatus} (${snap.criticalIssueCount} critical issues)`);
+    lines.push(`Last computed: ${operatorRow.computedAt.toISOString()}\n`);
+  }
+
+  const deptRows = healthRows.filter((r) => r.departmentEntityId !== null);
+  for (const row of deptRows) {
+    const dept = row.snapshot as DepartmentSnapshot;
+
+    if (dept.overallStatus === "healthy") continue;
+
+    lines.push(`### ${dept.departmentName} — ${dept.overallStatus}`);
+
+    if (dept.dataPipeline.status !== "healthy") {
+      lines.push(`Data Pipeline: ${dept.dataPipeline.status}`);
+      for (const conn of dept.dataPipeline.connectors) {
+        if (conn.issue) {
+          lines.push(`  - ${conn.name} (${conn.provider}): ${conn.issue}`);
+        }
+      }
+    }
+
+    if (dept.knowledge.status !== "complete") {
+      lines.push(`Knowledge: ${dept.knowledge.status}`);
+      for (const gap of dept.knowledge.people.gaps) {
+        lines.push(`  - ${gap}`);
+      }
+      if (dept.knowledge.documents.count === 0) {
+        lines.push("  - No operational documents uploaded");
+      }
+      if (dept.knowledge.operationalInsights.count === 0) {
+        lines.push("  - No operational patterns learned yet");
+      }
+    }
+
+    if (dept.detection.status !== "active") {
+      lines.push(`Detection: ${dept.detection.status}`);
+      for (const st of dept.detection.situationTypes) {
+        if (st.diagnosis !== "healthy") {
+          lines.push(`  - ${st.name}: ${st.diagnosis} — ${st.diagnosisDetail}`);
+        }
+      }
+    }
+
+    lines.push("");
+  }
+
+  const healthyDepts = deptRows
+    .filter((r) => (r.snapshot as DepartmentSnapshot).overallStatus === "healthy")
+    .map((r) => (r.snapshot as DepartmentSnapshot).departmentName);
+
+  if (healthyDepts.length > 0) {
+    lines.push(`Healthy departments (no issues): ${healthyDepts.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
 // ── Context Loader Dispatcher ────────────────────────────────────────────────
 
 export async function loadContextForCopilot(
@@ -317,6 +406,8 @@ export function getContextRoleInstruction(contextType: string): string {
       return "You are advising on this specific initiative proposed by the department AI. You have full context about the goal it serves, the rationale, and the execution plan. Help the user evaluate whether this initiative makes sense, discuss the approach, or understand the expected impact.";
     case "workstream":
       return "You are advising on this project. You have full context about all the items grouped in this work stream, their current statuses, and the goal being served. Help the user understand project progress, identify blockers, or plan next steps.";
+    case "system-health":
+      return "The user is viewing the System Health page. Help them understand and resolve any issues shown. When suggesting fixes, provide specific navigation paths (e.g., \"Go to Settings → Connections to reconnect Gmail\"). If a department has no issues, say so briefly. Focus on actionable advice — what specifically should the user do next to improve their system health.";
     default:
       return "";
   }
