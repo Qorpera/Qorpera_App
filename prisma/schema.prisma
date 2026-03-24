@@ -75,6 +75,13 @@ model Operator {
   aiPausedById    String?
   aiPausedReason  String?
 
+  // Usage budget (Limits page)
+  monthlyBudgetCents          Int?
+  budgetAlertThresholds       Json?
+  budgetHardStop              Boolean   @default(false)
+  budgetAlertsSentThisPeriod  Json?
+  budgetPeriodStart           DateTime?
+
   invites           Invite[]
   entityTypes       EntityType[]
   entities          Entity[]
