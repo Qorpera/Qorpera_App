@@ -12,7 +12,7 @@ import { useUser } from "@/components/user-provider";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { NotificationPreferences } from "@/components/settings/notification-preferences";
 
-type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing";
+type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing" | "usage";
 
 type ConnectorItem = {
   id: string;
@@ -112,7 +112,7 @@ function SettingsPageInner() {
   const reconnectedParam = searchParams.get("reconnected");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "notifications" ? "notifications" : tabParam === "billing" ? "billing" : "ai"
+    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "billing" ? "billing" : tabParam === "usage" ? "usage" : "ai"
   );
 
   // AI state
@@ -570,10 +570,10 @@ function SettingsPageInner() {
 
   const allTabs: { key: Tab; label: string; adminOnly?: boolean }[] = [
     { key: "ai", label: t("tabs.ai") },
-    { key: "notifications", label: t("tabs.notifications") },
     { key: "connections", label: t("tabs.connections"), adminOnly: true },
     { key: "team", label: t("tabs.team"), adminOnly: true },
-    { key: "billing", label: t("tabs.billing") },
+    { key: "billing", label: t("tabs.billing"), adminOnly: true },
+    { key: "usage", label: "Usage", adminOnly: true },
     { key: "merges", label: t("tabs.merges"), adminOnly: true },
     { key: "governance", label: t("tabs.governance"), adminOnly: true },
   ];
@@ -928,6 +928,24 @@ function SettingsPageInner() {
 
         {/* Billing Tab */}
         {activeTab === "billing" && <BillingTab />}
+
+        {/* Usage Tab */}
+        {activeTab === "usage" && (
+          <div className="space-y-5">
+            <div className="bg-surface border border-border rounded-lg overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-hover">
+                <svg className="w-4 h-4 text-[var(--fg2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                </svg>
+                <h2 className="text-[13px] font-semibold text-foreground">Usage</h2>
+              </div>
+              <div className="px-5 py-8 text-center">
+                <p className="text-sm text-[var(--fg2)]">Usage analytics coming soon.</p>
+                <p className="text-xs text-[var(--fg3)] mt-1">Track AI usage, API calls, storage, and connector sync activity.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Notifications Tab */}
         {activeTab === "notifications" && (

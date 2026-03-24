@@ -15,6 +15,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/situations", labelKey: "situations", icon: "alert-triangle", badgeKey: "situations" },
       { href: "/initiatives", labelKey: "initiatives", icon: "lightbulb", adminOnly: true },
+      { href: "/projects", labelKey: "projects", icon: "layers", adminOnly: true },
       { href: "/map", labelKey: "map", icon: "map" },
     ],
   },
