@@ -15,8 +15,7 @@ import { NextRequest } from "next/server";
 const mockAuth = getSessionUser as ReturnType<typeof vi.fn>;
 const mockPrisma = prisma as unknown as {
   operator: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
-  situation: { aggregate: ReturnType<typeof vi.fn> };
-  copilotMessage: { aggregate: ReturnType<typeof vi.fn> };
+  creditTransaction: { aggregate: ReturnType<typeof vi.fn> };
   appSetting: { findMany: ReturnType<typeof vi.fn> };
 };
 
@@ -44,11 +43,8 @@ beforeEach(() => {
     findUnique: vi.fn().mockResolvedValue(baseOperator),
     update: vi.fn().mockResolvedValue({}),
   };
-  mockPrisma.situation = {
-    aggregate: vi.fn().mockResolvedValue({ _sum: { billedCents: 12340 } }),
-  };
-  mockPrisma.copilotMessage = {
-    aggregate: vi.fn().mockResolvedValue({ _sum: { apiCostCents: 0 } }),
+  mockPrisma.creditTransaction = {
+    aggregate: vi.fn().mockResolvedValue({ _sum: { amountCents: -12340 } }),
   };
   mockPrisma.appSetting = {
     findMany: vi.fn().mockResolvedValue([]),

@@ -12,10 +12,9 @@ import { prisma } from "@/lib/db";
 import { emitSituationBillingEvent, emitCopilotBillingEvent } from "@/lib/billing-events";
 
 const mockPrisma = prisma as unknown as {
-  situation: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; aggregate: ReturnType<typeof vi.fn> };
+  situation: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
   operator: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
-  copilotMessage: { aggregate: ReturnType<typeof vi.fn> };
-  creditTransaction: { create: ReturnType<typeof vi.fn> };
+  creditTransaction: { create: ReturnType<typeof vi.fn>; aggregate: ReturnType<typeof vi.fn> };
 };
 
 beforeEach(() => {
@@ -23,17 +22,14 @@ beforeEach(() => {
   mockPrisma.situation = {
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue({}),
-    aggregate: vi.fn().mockResolvedValue({ _sum: { billedCents: 0 } }),
   };
   mockPrisma.operator = {
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue({ balanceCents: 100, autoReloadEnabled: false, stripePaymentMethodId: null, autoReloadAmountCents: 2500, autoReloadThresholdCents: 500, stripeCustomerId: null }),
   };
-  mockPrisma.copilotMessage = {
-    aggregate: vi.fn().mockResolvedValue({ _sum: { apiCostCents: 0 } }),
-  };
   mockPrisma.creditTransaction = {
     create: vi.fn().mockResolvedValue({}),
+    aggregate: vi.fn().mockResolvedValue({ _sum: { amountCents: 0 } }),
   };
 });
 

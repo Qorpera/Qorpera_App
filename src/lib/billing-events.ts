@@ -7,24 +7,24 @@ import { prisma } from "@/lib/db";
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Compute current-period spend for an operator (situations + copilot).
- * Uses budgetPeriodStart if set, otherwise start of current month.
+ * Compute current-period spend for an operator from CreditTransaction.
+ * Uses actual deductions (negative amountCents) as source of truth —
+ * this excludes budget-blocked situations and includes fee markup on copilot.
  */
 export async function getCurrentPeriodSpendCents(operatorId: string, budgetPeriodStart: Date | null): Promise<number> {
   const periodStart = budgetPeriodStart ?? new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
-  const [sitAgg, copilotAgg] = await Promise.all([
-    prisma.situation.aggregate({
-      where: { operatorId, billedAt: { gte: periodStart }, billedCents: { not: null } },
-      _sum: { billedCents: true },
-    }),
-    prisma.copilotMessage.aggregate({
-      where: { operatorId, createdAt: { gte: periodStart }, apiCostCents: { not: null } },
-      _sum: { apiCostCents: true },
-    }),
-  ]);
+  const agg = await prisma.creditTransaction.aggregate({
+    where: {
+      operatorId,
+      createdAt: { gte: periodStart },
+      type: { in: ["situation_deduction", "copilot_deduction"] },
+    },
+    _sum: { amountCents: true },
+  });
 
-  return (sitAgg._sum.billedCents ?? 0) + (copilotAgg._sum.apiCostCents ?? 0);
+  // amountCents is negative for deductions, so negate to get positive spend
+  return Math.abs(agg._sum.amountCents ?? 0);
 }
 
 // ── Budget Alerts ────────────────────────────────────────────────────────────
@@ -121,18 +121,12 @@ export async function emitSituationBillingEvent(situationId: string): Promise<vo
     currentPeriodSpendCents,
   });
 
-  // Always record billedCents for accurate tracking
-  await prisma.situation.update({
-    where: { id: situationId },
-    data: { billedCents, billedAt: new Date() },
-  });
-
   if (!gate.allowed) {
     console.warn(`[billing] Budget gate blocked situation ${situationId}: ${gate.reason}`);
     return;
   }
 
-  // Deduct from prepaid balance
+  // Deduct first — if this fails, we don't record billedCents (keeps state consistent)
   try {
     await deductBalance(
       situation.operatorId,
@@ -144,6 +138,12 @@ export async function emitSituationBillingEvent(situationId: string): Promise<vo
     console.error(`[billing] Failed to deduct balance for situation ${situationId}:`, err);
     return;
   }
+
+  // Record on situation only after successful deduction
+  await prisma.situation.update({
+    where: { id: situationId },
+    data: { billedCents, billedAt: new Date() },
+  });
 
   // Check budget alerts after billing
   checkBudgetAlerts(situation.operatorId).catch((err) =>

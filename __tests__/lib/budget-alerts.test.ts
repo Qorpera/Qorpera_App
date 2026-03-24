@@ -10,8 +10,7 @@ import { checkBudgetAlerts } from "@/lib/billing-events";
 
 const mockPrisma = prisma as unknown as {
   operator: { findUnique: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
-  situation: { aggregate: ReturnType<typeof vi.fn> };
-  copilotMessage: { aggregate: ReturnType<typeof vi.fn> };
+  creditTransaction: { aggregate: ReturnType<typeof vi.fn> };
 };
 
 const mockSendNotification = sendNotificationToAdmins as ReturnType<typeof vi.fn>;
@@ -22,11 +21,8 @@ beforeEach(() => {
     findUnique: vi.fn(),
     update: vi.fn().mockResolvedValue({}),
   };
-  mockPrisma.situation = {
-    aggregate: vi.fn().mockResolvedValue({ _sum: { billedCents: 0 } }),
-  };
-  mockPrisma.copilotMessage = {
-    aggregate: vi.fn().mockResolvedValue({ _sum: { apiCostCents: 0 } }),
+  mockPrisma.creditTransaction = {
+    aggregate: vi.fn().mockResolvedValue({ _sum: { amountCents: 0 } }),
   };
 });
 
@@ -38,9 +34,8 @@ describe("checkBudgetAlerts", () => {
       budgetAlertsSentThisPeriod: [],
       budgetPeriodStart: new Date(),
     });
-    // 80% of 10000 = 8000
-    mockPrisma.situation.aggregate.mockResolvedValue({ _sum: { billedCents: 7500 } });
-    mockPrisma.copilotMessage.aggregate.mockResolvedValue({ _sum: { apiCostCents: 600 } });
+    // 8100 spend = 81% → triggers 80% threshold
+    mockPrisma.creditTransaction.aggregate.mockResolvedValue({ _sum: { amountCents: -8100 } });
 
     await checkBudgetAlerts("op1");
 
@@ -66,8 +61,7 @@ describe("checkBudgetAlerts", () => {
       budgetPeriodStart: new Date(),
     });
     // 85% — 80 already sent, 100 not reached
-    mockPrisma.situation.aggregate.mockResolvedValue({ _sum: { billedCents: 8500 } });
-    mockPrisma.copilotMessage.aggregate.mockResolvedValue({ _sum: { apiCostCents: 0 } });
+    mockPrisma.creditTransaction.aggregate.mockResolvedValue({ _sum: { amountCents: -8500 } });
 
     await checkBudgetAlerts("op1");
 
@@ -83,8 +77,7 @@ describe("checkBudgetAlerts", () => {
       budgetPeriodStart: new Date(),
     });
     // 100% reached
-    mockPrisma.situation.aggregate.mockResolvedValue({ _sum: { billedCents: 10000 } });
-    mockPrisma.copilotMessage.aggregate.mockResolvedValue({ _sum: { apiCostCents: 0 } });
+    mockPrisma.creditTransaction.aggregate.mockResolvedValue({ _sum: { amountCents: -10000 } });
 
     await checkBudgetAlerts("op1");
 
@@ -106,7 +99,7 @@ describe("checkBudgetAlerts", () => {
     await checkBudgetAlerts("op1");
 
     expect(mockSendNotification).not.toHaveBeenCalled();
-    expect(mockPrisma.situation.aggregate).not.toHaveBeenCalled();
+    expect(mockPrisma.creditTransaction.aggregate).not.toHaveBeenCalled();
   });
 
   it("handles empty thresholds array", async () => {
@@ -116,8 +109,7 @@ describe("checkBudgetAlerts", () => {
       budgetAlertsSentThisPeriod: [],
       budgetPeriodStart: new Date(),
     });
-    mockPrisma.situation.aggregate.mockResolvedValue({ _sum: { billedCents: 9000 } });
-    mockPrisma.copilotMessage.aggregate.mockResolvedValue({ _sum: { apiCostCents: 0 } });
+    mockPrisma.creditTransaction.aggregate.mockResolvedValue({ _sum: { amountCents: -9000 } });
 
     await checkBudgetAlerts("op1");
 
