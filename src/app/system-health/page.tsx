@@ -6,6 +6,7 @@ import { useLocale } from "next-intl";
 import Link from "next/link";
 import { fetchApi } from "@/lib/fetch-api";
 import { formatRelativeTime } from "@/lib/format-helpers";
+import { AppShell } from "@/components/app-shell";
 import { ConnectorLogo } from "@/components/connector-logo";
 import { ContextualChat } from "@/components/contextual-chat";
 import { useUser } from "@/components/user-provider";
@@ -71,7 +72,7 @@ const PILL_STYLES: Record<string, string> = {
   disconnected: "bg-red-500/10 text-red-400",
   silent: "bg-red-500/10 text-red-400",
   empty: "bg-red-500/10 text-red-400",
-  unconfigured: "bg-white/5 text-white/50",
+  unconfigured: "bg-hover text-[var(--fg3)]",
 };
 
 function StatusDot({ status }: { status: string }) {
@@ -96,7 +97,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 function StatusPill({ status }: { status: string }) {
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full ${PILL_STYLES[status] ?? "bg-white/5 text-white/50"}`}>
+    <span className={`text-xs px-2 py-0.5 rounded-full ${PILL_STYLES[status] ?? "bg-hover text-[var(--fg3)]"}`}>
       {STATUS_LABELS[status] ?? status}
     </span>
   );
@@ -137,7 +138,7 @@ function SearchIcon() {
 
 function ActionButton({ label, href }: { label: string; href: string }) {
   return (
-    <Link href={href} className="border border-white/20 text-white/70 hover:bg-white/10 text-xs px-3 py-1 rounded inline-block">
+    <Link href={href} className="border border-border text-[var(--fg2)] hover:bg-hover text-xs px-3 py-1 rounded inline-block">
       {label}
     </Link>
   );
@@ -154,8 +155,8 @@ function DataPipelineSection({ pipeline, departmentId, locale, t }: {
   if (pipeline.connectors.length === 0) {
     return (
       <div className="flex flex-col items-center py-8 text-center">
-        <div className="text-white/30 mb-3"><UnplugIcon /></div>
-        <p className="text-sm text-white/50 mb-3">{t("noConnectors")}</p>
+        <div className="text-[var(--fg3)] mb-3"><UnplugIcon /></div>
+        <p className="text-sm text-[var(--fg3)] mb-3">{t("noConnectors")}</p>
         <ActionButton label={t("connectTools")} href="/settings?tab=connections" />
       </div>
     );
@@ -183,12 +184,12 @@ function ConnectorRow({ connector: c, locale, t }: {
     <div className="px-1 py-2">
       <div className="flex items-center gap-3">
         <ConnectorLogo provider={c.provider} size={20} />
-        <span className="text-sm text-white/90 flex-1 min-w-0 truncate">{c.name}</span>
-        <div className="flex items-center gap-2 text-xs text-white/50">
+        <span className="text-sm text-foreground flex-1 min-w-0 truncate">{c.name}</span>
+        <div className="flex items-center gap-2 text-xs text-[var(--fg3)]">
           <StatusDot status={c.status} />
           <span>{syncText}</span>
         </div>
-        <span className="text-xs text-white/40">{t("entityCount", { count: c.entityCount })}</span>
+        <span className="text-xs text-[var(--fg3)]">{t("entityCount", { count: c.entityCount })}</span>
       </div>
       {c.issue && (
         <div className="ml-8 mt-1 flex items-center gap-2">
@@ -211,7 +212,7 @@ function KnowledgeSection({ knowledge, departmentId, t }: {
     <div className="space-y-4">
       {/* People */}
       <div>
-        <p className="text-sm text-white/70">
+        <p className="text-sm text-[var(--fg2)]">
           {t("people", {
             count: knowledge.people.count,
             withRoles: knowledge.people.withRoles,
@@ -227,7 +228,7 @@ function KnowledgeSection({ knowledge, departmentId, t }: {
 
       {/* Documents */}
       <div>
-        <p className="text-sm text-white/70">
+        <p className="text-sm text-[var(--fg2)]">
           {t("documents", { count: knowledge.documents.count, ragChunks: knowledge.documents.ragChunks })}
         </p>
         {knowledge.documents.count === 0 && (
@@ -242,11 +243,11 @@ function KnowledgeSection({ knowledge, departmentId, t }: {
 
       {/* Operational Knowledge */}
       <div>
-        <p className="text-sm text-white/70">
+        <p className="text-sm text-[var(--fg2)]">
           {t("insights", { count: knowledge.operationalInsights.count, withPromptMods: knowledge.operationalInsights.withPromptMods })}
         </p>
         {knowledge.operationalInsights.count === 0 ? (
-          <p className="text-xs text-white/40 mt-1">{t("noInsights")}</p>
+          <p className="text-xs text-[var(--fg3)] mt-1">{t("noInsights")}</p>
         ) : (
           <div className="mt-1 space-y-0.5">
             {knowledge.operationalInsights.situationTypeCoverage.map((st) => (
@@ -254,10 +255,10 @@ function KnowledgeSection({ knowledge, departmentId, t }: {
                 {st.hasInsights && st.insightCount > 0 ? (
                   <span className="text-green-400"><CheckIcon /></span>
                 ) : (
-                  <span className="text-white/30"><MinusIcon /></span>
+                  <span className="text-[var(--fg3)]"><MinusIcon /></span>
                 )}
-                <span className="text-white/70">{st.typeName}</span>
-                {!st.hasInsights && <span className="text-white/40">({t("noPatterns")})</span>}
+                <span className="text-[var(--fg2)]">{st.typeName}</span>
+                {!st.hasInsights && <span className="text-[var(--fg3)]">({t("noPatterns")})</span>}
               </div>
             ))}
           </div>
@@ -274,9 +275,9 @@ function DetectionSection({ detection, t }: {
   if (detection.situationTypes.length === 0) {
     return (
       <div className="flex flex-col items-center py-8 text-center">
-        <div className="text-white/30 mb-3"><SearchIcon /></div>
-        <p className="text-sm text-white/50 mb-1">{t("noSituationTypes")}</p>
-        <p className="text-xs text-white/40">{t("noSituationTypesHint")}</p>
+        <div className="text-[var(--fg3)] mb-3"><SearchIcon /></div>
+        <p className="text-sm text-[var(--fg3)] mb-1">{t("noSituationTypes")}</p>
+        <p className="text-xs text-[var(--fg3)]">{t("noSituationTypesHint")}</p>
       </div>
     );
   }
@@ -305,7 +306,7 @@ function SituationTypeRow({ st, t }: { st: SituationTypeHealthWithLive; t: Retur
   const last30d = st.last30d;
   const rate = st.confirmationRate;
 
-  let rateColor = "text-white/50";
+  let rateColor = "text-[var(--fg3)]";
   if (rate !== null && rate !== undefined) {
     if (rate < 0.3) rateColor = "text-red-400";
     else if (rate < 0.5) rateColor = "text-amber-400";
@@ -315,14 +316,14 @@ function SituationTypeRow({ st, t }: { st: SituationTypeHealthWithLive; t: Retur
     <div className="py-2">
       {/* Top line */}
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-white/90">{st.name}</span>
-        <span className={`text-xs px-2 py-0.5 rounded-full ${AUTONOMY_PILL[st.autonomyLevel] ?? "bg-white/5 text-white/50"}`}>
+        <span className="text-sm font-medium text-foreground">{st.name}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full ${AUTONOMY_PILL[st.autonomyLevel] ?? "bg-hover text-[var(--fg3)]"}`}>
           {t(AUTONOMY_LABEL[st.autonomyLevel] ?? "autonomyObserve")}
         </span>
       </div>
 
       {/* Stats line */}
-      <div className="text-xs text-white/50 mt-1">
+      <div className="text-xs text-[var(--fg3)] mt-1">
         {last30d && last30d.detected > 0 ? (
           <span>
             {t("last30d", {
@@ -347,7 +348,7 @@ function SituationTypeRow({ st, t }: { st: SituationTypeHealthWithLive; t: Retur
       {st.diagnosis !== "healthy" && (
         <div className="flex items-center gap-2 mt-1.5">
           <DiagnosisIcon diagnosis={st.diagnosis} />
-          <span className={`text-xs ${st.diagnosis === "no_data" ? "text-red-400" : st.diagnosis === "inactive" ? "text-white/40" : st.diagnosis === "new" ? "text-blue-400" : "text-amber-400"}`}>
+          <span className={`text-xs ${st.diagnosis === "no_data" ? "text-red-400" : st.diagnosis === "inactive" ? "text-[var(--fg3)]" : st.diagnosis === "new" ? "text-blue-400" : "text-amber-400"}`}>
             {st.diagnosisDetail}
           </span>
           {st.action && <ActionButton label={st.action.label} href={st.action.href} />}
@@ -362,7 +363,7 @@ function DiagnosisIcon({ diagnosis }: { diagnosis: string }) {
     case "no_data": return <span className="text-red-400"><AlertTriangle /></span>;
     case "no_matches": return <span className="text-amber-400"><InfoIcon /></span>;
     case "low_accuracy": return <span className="text-amber-400"><AlertTriangle /></span>;
-    case "inactive": return <span className="text-white/40"><MinusCircle /></span>;
+    case "inactive": return <span className="text-[var(--fg3)]"><MinusCircle /></span>;
     case "new": return <span className="text-blue-400"><ClockIcon /></span>;
     default: return null;
   }
@@ -379,45 +380,45 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/[0.02] transition"
+        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-hover transition"
       >
-        <span className="text-sm font-semibold text-white/90 flex-1">{dept.departmentName}</span>
+        <span className="text-sm font-semibold text-foreground flex-1">{dept.departmentName}</span>
         <StatusPill status={dept.overallStatus} />
         {dept.criticalIssueCount > 0 && (
           <span className="bg-red-500/10 text-red-400 text-xs px-2 py-0.5 rounded-full">
             {dept.criticalIssueCount}
           </span>
         )}
-        <ChevronDown className={`text-white/40 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+        <ChevronDown className={`text-[var(--fg3)] transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
       </button>
 
       {expanded && (
         <div className="px-5 pb-5">
           {/* Data Pipeline */}
-          <div className="border-t border-white/5 pt-4">
+          <div className="border-t border-border pt-4">
             <div className="flex items-center gap-2 mb-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("dataPipeline")}</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("dataPipeline")}</h3>
               <StatusPill status={dept.dataPipeline.status} />
             </div>
             <DataPipelineSection pipeline={dept.dataPipeline} departmentId={dept.departmentId} locale={locale} t={t} />
           </div>
 
           {/* Knowledge */}
-          <div className="border-t border-white/5 pt-4 mt-4">
+          <div className="border-t border-border pt-4 mt-4">
             <div className="flex items-center gap-2 mb-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("knowledge")}</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("knowledge")}</h3>
               <StatusPill status={dept.knowledge.status} />
             </div>
             <KnowledgeSection knowledge={dept.knowledge} departmentId={dept.departmentId} t={t} />
           </div>
 
           {/* Detection */}
-          <div className="border-t border-white/5 pt-4 mt-4">
+          <div className="border-t border-border pt-4 mt-4">
             <div className="flex items-center gap-2 mb-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("detection")}</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("detection")}</h3>
               <StatusPill status={dept.detection.status} />
             </div>
             <DetectionSection detection={dept.detection} t={t} />
@@ -506,114 +507,108 @@ export default function SystemHealthPage() {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  if (loading) {
-    return (
-      <div className="p-6 space-y-6">
-        <div className="bg-white/[0.06] rounded-lg p-6 animate-pulse">
-          <div className="h-6 w-48 bg-white/[0.06] rounded mb-2" />
-          <div className="h-4 w-32 bg-white/[0.06] rounded" />
-        </div>
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="bg-white/[0.06] rounded-lg p-6 animate-pulse">
-            <div className="h-5 w-40 bg-white/[0.06] rounded mb-4" />
-            <div className="space-y-3">
-              <div className="h-4 w-full bg-white/[0.06] rounded" />
-              <div className="h-4 w-3/4 bg-white/[0.06] rounded" />
-              <div className="h-4 w-1/2 bg-white/[0.06] rounded" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (error && !snapshot) {
-    return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] text-center">
-        <p className="text-sm text-white/50 mb-4">{t("errorLoading")}</p>
-        <button onClick={fetchHealth} className="border border-white/20 text-white/70 hover:bg-white/10 text-sm px-4 py-2 rounded">
-          {t("retry")}
-        </button>
-      </div>
-    );
-  }
-
-  if (!snapshot || sortedDepartments.length === 0) {
-    return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] text-center">
-        <p className="text-sm text-white/50 mb-4">{t("completeOnboarding")}</p>
-        <Link href="/onboarding" className="border border-white/20 text-white/70 hover:bg-white/10 text-sm px-4 py-2 rounded">
-          {t("goToOnboarding")}
-        </Link>
-      </div>
-    );
-  }
-
   // Operator summary
-  let summaryText: string;
-  let summaryColor: string;
-  switch (snapshot.overallStatus) {
-    case "critical":
-      summaryText = t("statusCritical", { count: snapshot.criticalIssueCount });
-      summaryColor = "bg-red-500";
-      break;
-    case "attention":
-      summaryText = t("statusAttentionCount", { count: snapshot.criticalIssueCount });
-      summaryColor = "bg-amber-500";
-      break;
-    default:
-      summaryText = t("statusHealthy");
-      summaryColor = "bg-green-500";
+  let summaryText: string | undefined;
+  let summaryColor: string | undefined;
+  if (snapshot && sortedDepartments.length > 0) {
+    switch (snapshot.overallStatus) {
+      case "critical":
+        summaryText = t("statusCritical", { count: snapshot.criticalIssueCount });
+        summaryColor = "bg-red-500";
+        break;
+      case "attention":
+        summaryText = t("statusAttentionCount", { count: snapshot.criticalIssueCount });
+        summaryColor = "bg-amber-500";
+        break;
+      default:
+        summaryText = t("statusHealthy");
+        summaryColor = "bg-green-500";
+    }
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
-      {/* Operator Summary */}
-      <div className="bg-white/5 border border-white/10 rounded-lg p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className={`w-3 h-3 rounded-full ${summaryColor}`} />
-            <h1 className="text-lg font-semibold text-white/90">{summaryText}</h1>
+    <AppShell>
+      {loading ? (
+        <div className="p-6 space-y-6">
+          <div className="bg-skeleton rounded-lg p-6 animate-pulse">
+            <div className="h-6 w-48 bg-skeleton rounded mb-2" />
+            <div className="h-4 w-32 bg-skeleton rounded" />
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshDisabled}
-            className="flex items-center gap-2 border border-white/20 text-white/70 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-1.5 rounded transition"
-          >
-            <RefreshCw className={refreshing ? "animate-spin" : ""} />
-            {refreshing ? t("refreshing") : t("refresh")}
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-skeleton rounded-lg p-6 animate-pulse">
+              <div className="h-5 w-40 bg-skeleton rounded mb-4" />
+              <div className="space-y-3">
+                <div className="h-4 w-full bg-skeleton rounded" />
+                <div className="h-4 w-3/4 bg-skeleton rounded" />
+                <div className="h-4 w-1/2 bg-skeleton rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : error && !snapshot ? (
+        <div className="p-6 flex flex-col items-center justify-center min-h-[400px] text-center">
+          <p className="text-sm text-[var(--fg3)] mb-4">{t("errorLoading")}</p>
+          <button onClick={fetchHealth} className="border border-border text-[var(--fg2)] hover:bg-hover text-sm px-4 py-2 rounded">
+            {t("retry")}
           </button>
         </div>
-        <p className="text-xs text-white/40 mt-2">
-          {t("lastChecked", { time: formatRelativeTime(snapshot.computedAt, locale) })}
-        </p>
-      </div>
+      ) : !snapshot || sortedDepartments.length === 0 ? (
+        <div className="p-6 flex flex-col items-center justify-center min-h-[400px] text-center">
+          <p className="text-sm text-[var(--fg3)] mb-4">{t("completeOnboarding")}</p>
+          <Link href="/onboarding" className="border border-border text-[var(--fg2)] hover:bg-hover text-sm px-4 py-2 rounded">
+            {t("goToOnboarding")}
+          </Link>
+        </div>
+      ) : (
+        <div className="p-6 space-y-6 max-w-4xl mx-auto">
+          {/* Operator Summary */}
+          <div className="bg-surface border border-border rounded-lg p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`w-3 h-3 rounded-full ${summaryColor}`} />
+                <h1 className="text-lg font-semibold text-foreground">{summaryText}</h1>
+              </div>
+              <button
+                onClick={handleRefresh}
+                disabled={refreshDisabled}
+                className="flex items-center gap-2 border border-border text-[var(--fg2)] hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-1.5 rounded transition"
+              >
+                <RefreshCw className={refreshing ? "animate-spin" : ""} />
+                {refreshing ? t("refreshing") : t("refresh")}
+              </button>
+            </div>
+            <p className="text-xs text-[var(--fg3)] mt-2">
+              {t("lastChecked", { time: formatRelativeTime(snapshot.computedAt, locale) })}
+            </p>
+          </div>
 
-      {/* Department Cards */}
-      {sortedDepartments.map((dept) => (
-        <DepartmentCard
-          key={dept.departmentId}
-          dept={dept}
-          locale={locale}
-          t={t}
-          defaultExpanded={isMobile ? false : dept.overallStatus !== "healthy"}
-        />
-      ))}
+          {/* Department Cards */}
+          {sortedDepartments.map((dept) => (
+            <DepartmentCard
+              key={dept.departmentId}
+              dept={dept}
+              locale={locale}
+              t={t}
+              defaultExpanded={isMobile ? false : dept.overallStatus !== "healthy"}
+            />
+          ))}
 
-      {/* Contextual Chat */}
-      <ContextualChat
-        contextType="system-health"
-        contextId={snapshot.operatorId}
-        placeholder={t("chatPlaceholder")}
-        hints={[t("chatHint1"), t("chatHint2"), t("chatHint3")]}
-      />
+          {/* Contextual Chat */}
+          <ContextualChat
+            contextType="system-health"
+            contextId={snapshot.operatorId}
+            placeholder={t("chatPlaceholder")}
+            hints={[t("chatHint1"), t("chatHint2"), t("chatHint3")]}
+          />
 
-      {/* Toast for rate limit */}
-      {error && snapshot && (
-        <div className="fixed bottom-6 right-6 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm px-4 py-3 rounded-lg shadow-lg">
-          {error}
+          {/* Toast for rate limit */}
+          {error && (
+            <div className="fixed bottom-6 right-6 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm px-4 py-3 rounded-lg shadow-lg">
+              {error}
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }
