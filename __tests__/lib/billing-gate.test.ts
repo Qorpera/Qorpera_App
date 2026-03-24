@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkBillingGate, checkCopilotBudget, checkDetectionCap } from "@/lib/billing-gate";
+import { checkBillingGate, checkCopilotBudget, checkDetectionCap, checkBudgetGate } from "@/lib/billing-gate";
 
 // ── checkBillingGate ────────────────────────────────────────────────────────
 
@@ -14,7 +14,16 @@ describe("checkBillingGate", () => {
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
       expect(result.code).toBe("BILLING_REQUIRED");
-      expect(result.reason).toContain("Activate billing");
+      expect(result.reason).toContain("Add credits");
+    }
+  });
+
+  it("depleted → not allowed, correct reason", () => {
+    const result = checkBillingGate({ billingStatus: "depleted" });
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) {
+      expect(result.code).toBe("BILLING_REQUIRED");
+      expect(result.reason).toContain("balance is empty");
     }
   });
 
@@ -57,6 +66,7 @@ describe("checkCopilotBudget", () => {
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
       expect(result.code).toBe("COPILOT_BUDGET_EXHAUSTED");
+      expect(result.reason).toContain("Add credits");
     }
   });
 
@@ -144,6 +154,74 @@ describe("checkDetectionCap", () => {
       billingStatus: "active",
       freeDetectionStartedAt: new Date(0), // ancient
       freeDetectionSituationCount: 999,
+    });
+    expect(result.allowed).toBe(true);
+  });
+});
+
+// ── checkBudgetGate ─────────────────────────────────────────────────────────
+
+describe("checkBudgetGate", () => {
+  it("allows when no budget set (null)", () => {
+    const result = checkBudgetGate({
+      billingStatus: "active",
+      monthlyBudgetCents: null,
+      budgetHardStop: true,
+      currentPeriodSpendCents: 99999,
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows in soft mode (hardStop=false) even when over budget", () => {
+    const result = checkBudgetGate({
+      billingStatus: "active",
+      monthlyBudgetCents: 10000,
+      budgetHardStop: false,
+      currentPeriodSpendCents: 20000,
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  it("blocks in hard mode when at budget limit", () => {
+    const result = checkBudgetGate({
+      billingStatus: "active",
+      monthlyBudgetCents: 10000,
+      budgetHardStop: true,
+      currentPeriodSpendCents: 10000,
+    });
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) {
+      expect(result.code).toBe("BUDGET_EXCEEDED");
+      expect(result.reason).toContain("budget reached");
+    }
+  });
+
+  it("blocks in hard mode when over budget", () => {
+    const result = checkBudgetGate({
+      billingStatus: "active",
+      monthlyBudgetCents: 10000,
+      budgetHardStop: true,
+      currentPeriodSpendCents: 15000,
+    });
+    expect(result.allowed).toBe(false);
+  });
+
+  it("allows in hard mode when below budget", () => {
+    const result = checkBudgetGate({
+      billingStatus: "active",
+      monthlyBudgetCents: 10000,
+      budgetHardStop: true,
+      currentPeriodSpendCents: 5000,
+    });
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows for free billing status regardless of budget", () => {
+    const result = checkBudgetGate({
+      billingStatus: "free",
+      monthlyBudgetCents: 10000,
+      budgetHardStop: true,
+      currentPeriodSpendCents: 99999,
     });
     expect(result.allowed).toBe(true);
   });

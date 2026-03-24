@@ -16,9 +16,10 @@ export function checkBillingGate(operator: {
   }
 
   const reasonMap: Record<string, string> = {
-    free: "Activate billing to unlock this feature.",
+    free: "Add credits to unlock this feature.",
+    depleted: "Your balance is empty. Add credits to continue.",
     past_due: "Your payment method needs updating. Please update your billing details.",
-    cancelled: "Your subscription has been cancelled. Reactivate to continue.",
+    cancelled: "Your billing has been cancelled. Add credits to continue.",
   };
 
   return {
@@ -43,11 +44,35 @@ export function checkCopilotBudget(operator: {
   if (operator.freeCopilotUsedCents >= operator.freeCopilotBudgetCents) {
     return {
       allowed: false,
-      reason: "Free copilot budget exhausted. Activate billing for unlimited access.",
+      reason: "Free copilot budget exhausted. Add credits for unlimited access.",
       code: "COPILOT_BUDGET_EXHAUSTED",
     };
   }
 
+  return { allowed: true };
+}
+
+/**
+ * Check if an operator's monthly budget allows further AI operations.
+ * Only blocks when budgetHardStop is enabled and spend >= budget.
+ */
+export function checkBudgetGate(operator: {
+  billingStatus: BillingStatus;
+  monthlyBudgetCents: number | null;
+  budgetHardStop: boolean;
+  currentPeriodSpendCents: number;
+}): BillingGateResult {
+  if (operator.billingStatus !== "active") return { allowed: true };
+  if (!operator.monthlyBudgetCents) return { allowed: true };
+  if (!operator.budgetHardStop) return { allowed: true };
+
+  if (operator.currentPeriodSpendCents >= operator.monthlyBudgetCents) {
+    return {
+      allowed: false,
+      reason: "Monthly usage budget reached. AI operations paused. Increase your budget in Settings → Limits.",
+      code: "BUDGET_EXCEEDED",
+    };
+  }
   return { allowed: true };
 }
 
@@ -66,7 +91,7 @@ export function checkDetectionCap(operator: {
   if (operator.freeDetectionSituationCount >= 50) {
     return {
       allowed: false,
-      reason: "Free detection limit reached (50 situations). Activate billing to resume.",
+      reason: "Free detection limit reached (50 situations). Add credits to resume.",
       code: "DETECTION_CAP_SITUATIONS",
     };
   }
@@ -78,7 +103,7 @@ export function checkDetectionCap(operator: {
     if (daysSinceStart >= 30) {
       return {
         allowed: false,
-        reason: "Free detection period expired (30 days). Activate billing to resume.",
+        reason: "Free detection period expired (30 days). Add credits to resume.",
         code: "DETECTION_CAP_TIME",
       };
     }
