@@ -67,9 +67,18 @@ export async function checkBudgetAlerts(operatorId: string): Promise<void> {
   }
 
   if (newlySent.length > 0) {
+    // Re-read to minimize race window with concurrent billing events
+    const fresh = await prisma.operator.findUnique({
+      where: { id: operatorId },
+      select: { budgetAlertsSentThisPeriod: true },
+    });
+    const freshSent = Array.isArray(fresh?.budgetAlertsSentThisPeriod)
+      ? (fresh.budgetAlertsSentThisPeriod as number[])
+      : [];
+    const merged = [...new Set([...freshSent, ...newlySent])];
     await prisma.operator.update({
       where: { id: operatorId },
-      data: { budgetAlertsSentThisPeriod: [...alreadySent, ...newlySent] },
+      data: { budgetAlertsSentThisPeriod: merged },
     });
   }
 }
@@ -121,12 +130,18 @@ export async function emitSituationBillingEvent(situationId: string): Promise<vo
     currentPeriodSpendCents,
   });
 
+  // Always record billedCents for cost visibility (spend calculation uses CreditTransaction, not this)
+  await prisma.situation.update({
+    where: { id: situationId },
+    data: { billedCents, billedAt: new Date() },
+  });
+
   if (!gate.allowed) {
     console.warn(`[billing] Budget gate blocked situation ${situationId}: ${gate.reason}`);
     return;
   }
 
-  // Deduct first — if this fails, we don't record billedCents (keeps state consistent)
+  // Deduct from prepaid balance
   try {
     await deductBalance(
       situation.operatorId,
@@ -138,12 +153,6 @@ export async function emitSituationBillingEvent(situationId: string): Promise<vo
     console.error(`[billing] Failed to deduct balance for situation ${situationId}:`, err);
     return;
   }
-
-  // Record on situation only after successful deduction
-  await prisma.situation.update({
-    where: { id: situationId },
-    data: { billedCents, billedAt: new Date() },
-  });
 
   // Check budget alerts after billing
   checkBudgetAlerts(situation.operatorId).catch((err) =>

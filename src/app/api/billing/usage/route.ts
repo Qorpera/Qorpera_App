@@ -44,8 +44,19 @@ export async function GET(request: NextRequest) {
   const url = request.nextUrl;
   const granularity = url.searchParams.get("granularity") ?? "monthly";
   const now = new Date();
-  const fromDate = url.searchParams.get("from") ? new Date(url.searchParams.get("from")!) : startOfMonth(now);
-  const toDate = url.searchParams.get("to") ? new Date(url.searchParams.get("to")!) : endOfMonth(now);
+
+  let fromDate = startOfMonth(now);
+  let toDate = endOfMonth(now);
+  if (url.searchParams.get("from")) {
+    const parsed = new Date(url.searchParams.get("from")!);
+    if (isNaN(parsed.getTime())) return NextResponse.json({ error: "Invalid 'from' date" }, { status: 400 });
+    fromDate = parsed;
+  }
+  if (url.searchParams.get("to")) {
+    const parsed = new Date(url.searchParams.get("to")!);
+    if (isNaN(parsed.getTime())) return NextResponse.json({ error: "Invalid 'to' date" }, { status: 400 });
+    toDate = parsed;
+  }
 
   const periodStart = startOfMonth(now);
   const periodEnd = endOfMonth(now);
