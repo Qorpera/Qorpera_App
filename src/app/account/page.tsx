@@ -165,121 +165,157 @@ function AccountPageInner() {
   const { user, operator } = profile;
   const roleClass = ROLE_COLORS[user.role] ?? ROLE_COLORS.member;
 
+  const [activeTab, setActiveTab] = useState<"profile" | "connections" | "notifications">("profile");
+
   return (
     <AppShell>
-      <div className="max-w-xl mx-auto px-6 py-12">
-        {/* Avatar + name */}
-        <div className="flex items-center gap-5 mb-8">
-          <div className="w-16 h-16 rounded-full bg-accent-light border border-[color-mix(in_srgb,var(--accent)_20%,transparent)] flex items-center justify-center text-2xl font-semibold text-accent">
+      <div className="max-w-2xl mx-auto px-6 py-8">
+        {/* Header: avatar + name + role */}
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-14 h-14 rounded-full bg-accent-light border border-[color-mix(in_srgb,var(--accent)_20%,transparent)] flex items-center justify-center text-xl font-semibold text-accent flex-shrink-0">
             {user.name.charAt(0).toUpperCase()}
           </div>
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">{user.name}</h1>
-            <p className="text-sm text-[var(--fg2)] mt-0.5">{user.email}</p>
-          </div>
-        </div>
-
-        {/* Info card */}
-        <div className="wf-soft p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-[var(--fg2)]">{t("role")}</span>
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${roleClass}`}>
-              {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-            </span>
-          </div>
-
-          {operator.companyName && (
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--fg2)]">{t("organization")}</span>
-              <span className="text-sm text-[var(--fg2)]">{operator.companyName}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-semibold text-foreground truncate">{user.name}</h1>
+              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${roleClass}`}>
+                {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+              </span>
             </div>
-          )}
+            <p className="text-sm text-[var(--fg2)]">{user.email}</p>
+            {operator.companyName && (
+              <p className="text-xs text-[var(--fg3)]">{operator.companyName}</p>
+            )}
+          </div>
+          <Button variant="danger" size="sm" onClick={handleLogout} disabled={loggingOut}>
+            {loggingOut ? t("signingOut") : t("signOut")}
+          </Button>
         </div>
 
-        {/* My AI Assistant */}
-        <div className="mt-8 pt-8 border-t border-border">
-          <h2 className="text-sm font-medium text-[var(--fg2)] mb-2 flex items-center gap-2">
-            <svg className="w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-            </svg>
-            {t("myAiAssistant")}
-          </h2>
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-border mb-5">
+          {([
+            { key: "profile" as const, label: "Profile & AI" },
+            { key: "connections" as const, label: "Connections" },
+            { key: "notifications" as const, label: "Notifications" },
+          ]).map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+                activeTab === tab.key
+                  ? "text-accent"
+                  : "text-[var(--fg3)] hover:text-[var(--fg2)]"
+              }`}
+            >
+              {tab.label}
+              {activeTab === tab.key && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-full" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Tab: Profile & AI ── */}
+        {activeTab === "profile" && (
+          <div className="space-y-5">
+            {/* AI Assistant */}
+            <section className="bg-surface border border-border rounded-lg overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-hover">
+                <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                </svg>
+                <h2 className="text-[13px] font-semibold text-foreground">{t("myAiAssistant")}</h2>
+              </div>
 
           {aiEntity === undefined ? (
-            <p className="text-xs text-[var(--fg3)]">Loading...</p>
+            <div className="px-5 py-4 text-xs text-[var(--fg3)]">Loading...</div>
           ) : aiEntity === null ? (
-            <div className="wf-soft p-5">
-              <p className="text-sm text-[var(--fg2)]">
-                {t("noAiAssistant")}
-              </p>
+            <div className="px-5 py-6 text-center">
+              <p className="text-sm text-[var(--fg2)]">{t("noAiAssistant")}</p>
             </div>
           ) : (
-            <div className="wf-soft p-5 space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="divide-y divide-border">
+              <div className="flex items-center justify-between px-5 py-3">
                 <span className="text-sm text-[var(--fg2)]">Name</span>
-                <span className="text-sm text-[var(--fg2)]">{aiEntity.displayName}</span>
+                <span className="text-sm text-foreground">{aiEntity.displayName}</span>
               </div>
               {aiEntity.departments.length > 0 && (
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between px-5 py-3">
                   <span className="text-sm text-[var(--fg2)]">Departments</span>
-                  <span className="text-sm text-[var(--fg2)]">
-                    {aiEntity.departments.map(d => d.displayName).join(", ")}
-                  </span>
+                  <span className="text-sm text-foreground">{aiEntity.departments.map(d => d.displayName).join(", ")}</span>
                 </div>
               )}
-              {paRows.length > 0 ? (
-                <div className="pt-3 border-t border-border">
-                  <p className="text-xs text-[var(--fg3)] mb-3">{t("learningProgress")}</p>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-[11px] text-[var(--fg3)] uppercase tracking-wider">
-                        <th className="text-left pb-2 font-medium">{t("situationType")}</th>
-                        <th className="text-left pb-2 font-medium">{t("level")}</th>
-                        <th className="text-right pb-2 font-medium">{t("approvals")}</th>
-                        <th className="text-right pb-2 font-medium">{t("rate")}</th>
-                        <th className="text-right pb-2 font-medium">{t("consecutive")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paRows.map((pa) => {
-                        const total = pa.totalProposed;
-                        const rate = total > 0 ? Math.round((pa.totalApproved / total) * 100) : 0;
-                        const levelColors: Record<string, string> = {
-                          supervised: "bg-skeleton text-[var(--fg2)] border-border",
-                          notify: "bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn border-[color-mix(in_srgb,var(--warn)_20%,transparent)]",
-                          autonomous: "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok border-[color-mix(in_srgb,var(--ok)_20%,transparent)]",
-                        };
-                        const lc = levelColors[pa.autonomyLevel] ?? levelColors.supervised;
-                        return (
-                          <tr key={pa.id} className="border-t border-border">
-                            <td className="py-2 text-[var(--fg2)]">{pa.situationType.name}</td>
-                            <td className="py-2">
-                              <span className={`text-[11px] px-2 py-0.5 rounded-full border ${lc}`}>
-                                {pa.autonomyLevel}
-                              </span>
-                            </td>
-                            <td className="py-2 text-right text-[var(--fg2)]">{pa.totalApproved}/{total}</td>
-                            <td className="py-2 text-right text-[var(--fg2)]">{rate}%</td>
-                            <td className="py-2 text-right text-[var(--fg2)]">{pa.consecutiveApprovals}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+              {paRows.length > 0 && (
+                <div className="px-5 py-3">
+                  <p className="text-xs text-[var(--fg2)] mb-2 font-medium">{t("learningProgress")}</p>
+                  <div className="space-y-1.5">
+                    {paRows.map((pa) => {
+                      const total = pa.totalProposed;
+                      const rate = total > 0 ? Math.round((pa.totalApproved / total) * 100) : 0;
+                      const levelColors: Record<string, string> = {
+                        supervised: "bg-skeleton text-[var(--fg2)]",
+                        notify: "bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn",
+                        autonomous: "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok",
+                      };
+                      const lc = levelColors[pa.autonomyLevel] ?? levelColors.supervised;
+                      return (
+                        <div key={pa.id} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${lc}`}>{pa.autonomyLevel}</span>
+                            <span className="text-[var(--fg2)]">{pa.situationType.name}</span>
+                          </div>
+                          <span className="text-xs text-[var(--fg3)]">{rate}% · {pa.consecutiveApprovals} streak</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              ) : (
-                <p className="text-xs text-[var(--fg3)] pt-2">{t("noLearningData")}</p>
               )}
             </div>
           )}
-        </div>
+            </section>
 
-        {/* Connected Accounts */}
-        <div className="mt-8 pt-8 border-t border-border">
-          <h2 className="text-sm font-medium text-[var(--fg2)] mb-2">{t("connectedAccounts")}</h2>
-          <p className="text-xs text-[var(--fg3)] mb-4">
-            {t("connectedAccountsDescription")}
-          </p>
+            {/* Export */}
+            <section className="bg-surface border border-border rounded-lg p-5 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium text-foreground">{t("exportMyData")}</h3>
+                <p className="text-xs text-[var(--fg3)] mt-0.5">{t("exportDescription")}</p>
+              </div>
+              <Button
+                variant="default"
+                size="sm"
+                disabled={exporting}
+                onClick={async () => {
+                  setExporting(true);
+                  try {
+                    const res = await fetchApi("/api/users/export");
+                    if (!res.ok) throw new Error();
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "qorpera-my-data.json";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    toast("Export downloaded", "success");
+                  } catch {
+                    toast("Export failed", "error");
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+              >
+                {exporting ? "Exporting..." : t("exportButton")}
+              </Button>
+            </section>
+          </div>
+        )}
+
+        {/* ── Tab: Connections ── */}
+        {activeTab === "connections" && (
+          <div className="space-y-3">
+            <p className="text-xs text-[var(--fg2)] mb-2">{t("connectedAccountsDescription")}</p>
 
           <div className="wf-soft px-5 py-4 flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0">
@@ -532,55 +568,12 @@ function AccountPageInner() {
             </div>
           )}
         </div>
+        )}
 
-        {/* Notification Preferences */}
-        <NotificationPreferences />
-
-        {/* Logout */}
-        <div className="mt-8">
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={handleLogout}
-            disabled={loggingOut}
-          >
-            {loggingOut ? t("signingOut") : t("signOut")}
-          </Button>
-        </div>
-
-        {/* Export My Data */}
-        <div className="mt-8 pt-8 border-t border-border">
-          <h2 className="text-sm font-medium text-[var(--fg2)] mb-2">{t("exportMyData")}</h2>
-          <p className="text-xs text-[var(--fg3)] mb-4">
-            {t("exportDescription")}
-          </p>
-          <Button
-            variant="default"
-            size="sm"
-            disabled={exporting}
-            onClick={async () => {
-              setExporting(true);
-              try {
-                const res = await fetchApi("/api/users/export");
-                if (!res.ok) throw new Error();
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "qorpera-my-data.json";
-                a.click();
-                URL.revokeObjectURL(url);
-                toast("Export downloaded", "success");
-              } catch {
-                toast("Export failed", "error");
-              } finally {
-                setExporting(false);
-              }
-            }}
-          >
-            {exporting ? "Exporting..." : t("exportButton")}
-          </Button>
-        </div>
+        {/* ── Tab: Notifications ── */}
+        {activeTab === "notifications" && (
+          <NotificationPreferences />
+        )}
       </div>
     </AppShell>
   );
@@ -647,9 +640,8 @@ function NotificationPreferences() {
   };
 
   return (
-    <div className="mt-8 pt-8 border-t border-border">
-      <h2 className="text-sm font-medium text-[var(--fg2)] mb-2">{t("notificationPreferences")}</h2>
-      <p className="text-xs text-[var(--fg3)] mb-4">
+    <div>
+      <p className="text-xs text-[var(--fg2)] mb-3">
         Choose how you receive each type of notification.
       </p>
 
@@ -658,19 +650,18 @@ function NotificationPreferences() {
           <div className="h-4 w-4 animate-spin rounded-full border border-border border-t-muted" />
         </div>
       ) : (
-        <div className="wf-soft divide-y divide-border">
+        <div className="bg-surface border border-border rounded-lg divide-y divide-border overflow-hidden">
           {NOTIFICATION_TYPES.map(({ type, label }) => (
-            <div key={type} className="flex items-center justify-between px-5 py-3">
-              <span className="text-sm text-[var(--fg2)]">{label}</span>
+            <div key={type} className="flex items-center justify-between px-5 py-2.5">
+              <span className="text-sm text-foreground">{label}</span>
               <select
                 value={prefs[type] ?? "in_app"}
                 onChange={e => updatePref(type, e.target.value)}
                 disabled={saving === type}
-                className="outline-none text-xs"
-                style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "4px 8px", color: "var(--fg2)" }}
+                className="outline-none text-xs rounded bg-elevated border border-border px-2 py-1 text-[var(--fg2)]"
               >
                 {CHANNEL_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value} style={{ background: "var(--elevated)" }}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </div>
