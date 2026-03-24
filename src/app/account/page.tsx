@@ -70,6 +70,7 @@ function AccountPageInner() {
   const [tokenValues, setTokenValues] = useState<Record<string, string>>({});
   const [aiEntity, setAiEntity] = useState<AiEntity | null | undefined>(undefined);
   const [paRows, setPaRows] = useState<PersonalAutonomyRow[]>([]);
+  const [activeTab, setActiveTab] = useState<"profile" | "connections" | "notifications">("profile");
 
   const loadPersonalConnectors = useCallback(async () => {
     try {
@@ -164,8 +165,6 @@ function AccountPageInner() {
 
   const { user, operator } = profile;
   const roleClass = ROLE_COLORS[user.role] ?? ROLE_COLORS.member;
-
-  const [activeTab, setActiveTab] = useState<"profile" | "connections" | "notifications">("profile");
 
   return (
     <AppShell>

@@ -38,8 +38,8 @@ const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Allow Next.js internals and static assets
-  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
+  // Allow Next.js internals and static assets (images, icons, etc.)
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.match(/\.(png|jpg|jpeg|svg|ico|webp|gif)$/)) {
     return NextResponse.next();
   }
 
