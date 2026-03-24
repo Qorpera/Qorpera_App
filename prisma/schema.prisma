@@ -14,8 +14,25 @@ datasource db {
 enum BillingStatus {
   free
   active
+  depleted
   past_due
   cancelled
+}
+
+model CreditTransaction {
+  id                    String   @id @default(cuid())
+  operatorId            String
+  operator              Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  type                  String   // 'purchase' | 'auto_reload' | 'situation_deduction' | 'copilot_deduction' | 'adjustment'
+  amountCents           Int      // positive for credits added, negative for deductions
+  balanceAfter          Int      // balance snapshot after this transaction
+  description           String?
+  stripePaymentIntentId String?
+  situationId           String?
+  copilotMessageId      String?
+  createdAt             DateTime @default(now())
+
+  @@index([operatorId, createdAt])
 }
 
 // ─── Core ────────────────────────────────────────────────
@@ -33,11 +50,17 @@ model Operator {
 
   // Stripe
   stripeCustomerId           String?       @unique
-  stripeSubscriptionId       String?
   billingStatus              BillingStatus @default(free)
   billingStartedAt           DateTime?
 
-  // Pricing
+  // Prepaid credit balance
+  balanceCents               Int       @default(0)
+  autoReloadEnabled          Boolean   @default(false)
+  autoReloadThresholdCents   Int       @default(500)
+  autoReloadAmountCents      Int       @default(2500)
+  stripePaymentMethodId      String?
+
+  // Pricing (computed on the fly, kept for compatibility)
   orchestrationFeeMultiplier Float     @default(0.50)
 
   // Free tier caps
@@ -84,8 +107,10 @@ model Operator {
   planAutonomies      PlanAutonomy[]
   operationalInsights OperationalInsight[]
   priorityOverrides   PriorityOverride[]
-  appSettings         AppSetting[]
-  onboardingAnalysis  OnboardingAnalysis?
+  appSettings          AppSetting[]
+  onboardingAnalysis   OnboardingAnalysis?
+  creditTransactions   CreditTransaction[]
+  departmentHealth     DepartmentHealth[]
 
   // Deletion lifecycle (GDPR)
   deletionRequestedAt  DateTime?
@@ -1088,4 +1113,19 @@ model OnboardingAgentRun {
 
   @@unique([analysisId, agentName, round])
   @@index([analysisId, status])
+}
+
+// ─── System Health ───────────────────────────────────────
+
+model DepartmentHealth {
+  id                  String   @id @default(cuid())
+  operatorId          String
+  departmentEntityId  String?  // null = operator-level aggregate
+  snapshot            Json
+  computedAt          DateTime @default(now())
+
+  operator            Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@unique([operatorId, departmentEntityId])
+  @@index([operatorId])
 }
