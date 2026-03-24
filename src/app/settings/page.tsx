@@ -11,8 +11,10 @@ import { useTranslations, useLocale } from "next-intl";
 import { useUser } from "@/components/user-provider";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { NotificationPreferences } from "@/components/settings/notification-preferences";
+import { ConnectorLogo } from "@/components/connector-logo";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
-type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing" | "usage";
+type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing" | "usage" | "limits";
 
 type ConnectorItem = {
   id: string;
@@ -36,6 +38,9 @@ type ProviderInfo = {
   id: string;
   name: string;
   configured: boolean;
+  description: string;
+  category: string;
+  scopes: string[];
   configSchema: Array<{
     key: string;
     label: string;
@@ -112,7 +117,7 @@ function SettingsPageInner() {
   const reconnectedParam = searchParams.get("reconnected");
 
   const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "billing" ? "billing" : tabParam === "usage" ? "usage" : "connections"
+    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "billing" ? "billing" : tabParam === "usage" ? "usage" : tabParam === "limits" ? "limits" : "connections"
   );
 
   // AI state
@@ -122,7 +127,7 @@ function SettingsPageInner() {
   type AIFn = typeof AI_FUNCTIONS[number];
   const AI_FN_LABELS: Record<AIFn, { label: string; desc: string }> = {
     reasoning: { label: "Reasoning", desc: "Situation detection, analysis, and pre-filtering" },
-    copilot: { label: "Copilot", desc: "Interactive chat assistant" },
+    copilot: { label: "Chat", desc: "Interactive chat assistant" },
     embedding: { label: "Embeddings", desc: "Document processing and vector search" },
     orientation: { label: "Orientation", desc: "Onboarding conversation" },
   };
@@ -570,11 +575,10 @@ function SettingsPageInner() {
 
   const allTabs: { key: Tab; label: string; adminOnly?: boolean }[] = [
     { key: "connections", label: t("tabs.connections"), adminOnly: true },
-    { key: "team", label: t("tabs.team"), adminOnly: true },
     { key: "billing", label: t("tabs.billing"), adminOnly: true },
     { key: "usage", label: "Usage", adminOnly: true },
+    { key: "limits", label: "Limits", adminOnly: true },
     { key: "merges", label: t("tabs.merges"), adminOnly: true },
-    { key: "governance", label: t("tabs.governance"), adminOnly: true },
   ];
   const tabs = allTabs.filter((t) => !t.adminOnly || isAdmin);
 
@@ -597,8 +601,34 @@ function SettingsPageInner() {
 
   return (
     <AppShell>
-      <div className="p-8 max-w-3xl mx-auto space-y-6">
-        <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
+      <div>
+        {/* Header + Tab bar — sticky */}
+        <div>
+          <div className="px-6 pt-6 pb-3 max-w-3xl mx-auto">
+            <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
+          </div>
+          <div className="px-6 pb-4 max-w-3xl mx-auto">
+            <div className="flex gap-1 bg-hover rounded-lg p-1 w-fit max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide snap-x snap-mandatory">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`px-4 py-1.5 rounded-md text-sm font-medium transition snap-start ${
+                    activeTab === tab.key
+                      ? "bg-accent-light text-accent"
+                      : "text-[var(--fg2)] hover:text-[var(--fg2)]"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Tab content */}
+        <div className="px-6 pb-6">
+          <div className="max-w-3xl mx-auto space-y-6">
 
         {/* Emergency AI Pause */}
         {!emergencyStopLoading && (
@@ -690,23 +720,6 @@ function SettingsPageInner() {
             ) : null}
           </>
         )}
-
-        {/* Tab bar */}
-        <div className="flex gap-1 bg-hover rounded-lg p-1 w-fit max-w-full overflow-x-auto whitespace-nowrap scrollbar-hide snap-x snap-mandatory">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition snap-start ${
-                activeTab === tab.key
-                  ? "bg-accent-light text-accent"
-                  : "text-[var(--fg2)] hover:text-[var(--fg2)]"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
 
         {/* AI Provider Tab */}
         {activeTab === "ai" && (() => {
@@ -929,435 +942,45 @@ function SettingsPageInner() {
         {activeTab === "billing" && <BillingTab />}
 
         {/* Usage Tab */}
-        {activeTab === "usage" && (
-          <div className="space-y-5">
-            <div className="bg-surface border border-border rounded-lg overflow-hidden">
-              <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-hover">
-                <svg className="w-4 h-4 text-[var(--fg2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                </svg>
-                <h2 className="text-[13px] font-semibold text-foreground">Usage</h2>
-              </div>
-              <div className="px-5 py-8 text-center">
-                <p className="text-sm text-[var(--fg2)]">Usage analytics coming soon.</p>
-                <p className="text-xs text-[var(--fg3)] mt-1">Track AI usage, API calls, storage, and connector sync activity.</p>
-              </div>
-            </div>
-          </div>
-        )}
+        {activeTab === "usage" && <UsageTab />}
+
+        {/* Limits Tab */}
+        {activeTab === "limits" && <LimitsTab />}
 
         {/* Notifications Tab */}
         {activeTab === "notifications" && (
           <NotificationPreferences />
         )}
 
-        {/* Connections Tab — Read-only overview */}
+        {/* Connections Tab — Two-section layout */}
         {activeTab === "connections" && (
-          <div className="space-y-5">
-            <div className="wf-soft p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-medium text-foreground">
-                  {t("connections.title")}
-                </h2>
-                {connectors.length > 0 && (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={syncingAll}
-                    onClick={async () => {
-                      setSyncingAll(true);
-                      setSyncAllResult(null);
-                      try {
-                        const res = await fetch("/api/connectors/sync-all", { method: "POST" });
-                        if (res.ok) {
-                          const data = await res.json();
-                          setSyncAllResult({
-                            synced: (data.synced || []).map((s: { name: string; status: string }) => ({ name: s.name, status: s.status })),
-                            errors: (data.errors || []).map((e: { name: string; error: string }) => ({ name: e.name, error: e.error })),
-                          });
-                          loadConnectors();
-                        } else {
-                          setSyncAllResult({ synced: [], errors: [{ name: "Sync", error: "Request failed" }] });
-                        }
-                      } catch {
-                        setSyncAllResult({ synced: [], errors: [{ name: "Sync", error: "Network error" }] });
-                      }
-                      setSyncingAll(false);
-                    }}
-                  >
-                    {syncingAll ? (
-                      <span className="flex items-center gap-2">
-                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--fg3)] border-t-foreground" />
-                        Syncing...
-                      </span>
-                    ) : t("connections.syncNow")}
-                  </Button>
-                )}
-              </div>
-              <p className="text-sm text-[var(--fg2)]">
-                Connectors are managed from within departments. This page shows a global overview of all connected data sources.
-              </p>
-              {syncAllResult && (
-                <div className="bg-hover rounded-lg px-4 py-3 space-y-1">
-                  <p className="text-xs text-[var(--fg2)]">
-                    Synced {syncAllResult.synced.length} connector{syncAllResult.synced.length !== 1 ? "s" : ""}.
-                    {syncAllResult.errors.length > 0 && (
-                      <span className="text-danger"> {syncAllResult.errors.length} error{syncAllResult.errors.length !== 1 ? "s" : ""}.</span>
-                    )}
-                  </p>
-                  {syncAllResult.synced.map((s, i) => (
-                    <p key={i} className="text-[11px] text-ok/70">{s.name}: {s.status}</p>
-                  ))}
-                  {syncAllResult.errors.map((e, i) => (
-                    <p key={i} className="text-[11px] text-danger/80">{e.name}: {e.error}</p>
-                  ))}
-                </div>
-              )}
-
-              {connectors.length === 0 && (
-                <p className="text-sm text-[var(--fg3)]">
-                  No connectors configured yet. Connect data sources from a department&apos;s Connected Data section.
-                </p>
-              )}
-
-              {connectors.map((c) => {
-                const isGoogle = c.provider === "google-sheets";
-                const sheetCount = c.spreadsheetCount || 0;
-                const isExpanded = expandedConnector === c.id;
-                const sheets = sheetsByConnector[c.id] || [];
-
-                return (
-                  <div
-                    key={c.id}
-                    className="py-3 border-b border-border last:border-0 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-foreground">
-                            {isGoogle && sheetCount > 0
-                              ? `Google Sheets — ${sheetCount} spreadsheet${sheetCount !== 1 ? "s" : ""} synced`
-                              : c.name || c.providerName}
-                          </span>
-                          {statusBadge(c.status)}
-                          {/* Health status dot */}
-                          {c.healthStatus && (
-                            <span className={`w-2 h-2 rounded-full ${
-                              c.healthStatus === "healthy" ? "bg-emerald-400"
-                              : c.healthStatus === "degraded" ? "bg-amber-400"
-                              : c.healthStatus === "error" ? "bg-red-400"
-                              : "bg-[var(--fg3)]"
-                            }`} title={
-                              c.healthStatus === "healthy" ? t("connections.statusHealthy")
-                              : c.healthStatus === "degraded" ? t("connections.statusDegraded")
-                              : c.healthStatus === "error" ? t("connections.statusError")
-                              : t("connections.statusDisconnected")
-                            } />
-                          )}
-                        </div>
-                        <div className="text-xs text-[var(--fg3)]">
-                          {c.providerName}
-                          {c.lastSyncAt && (
-                            <>
-                              {" "}&middot;{" "}
-                              {t("connections.lastSynced", { time: formatRelativeTime(c.lastSyncAt, locale) })}
-                            </>
-                          )}
-                        </div>
-                        {/* Error/disconnected guidance */}
-                        {c.healthStatus === "disconnected" && (
-                          <p className="text-xs text-warn/80 mt-0.5">{t("connections.authExpired")}</p>
-                        )}
-                        {c.healthStatus === "error" && (c.consecutiveFailures ?? 0) < 5 && (
-                          <p className="text-xs text-danger/60 mt-0.5">{t("connections.autoRetry")}</p>
-                        )}
-                        {c.healthStatus === "error" && (c.consecutiveFailures ?? 0) >= 5 && (
-                          <p className="text-xs text-danger/80 mt-0.5">{t("connections.multipleFails")}</p>
-                        )}
-                        {c.lastError && c.healthStatus !== "disconnected" && (
-                          <p className="text-[10px] text-danger/50 mt-0.5 truncate" title={c.lastError}>
-                            {c.lastError.length > 80 ? c.lastError.slice(0, 80) + "..." : c.lastError}
-                          </p>
-                        )}
-                      </div>
-                      {isGoogle && (
-                        <button
-                          className="text-xs text-accent hover:text-accent"
-                          onClick={async () => {
-                            if (isExpanded) {
-                              setExpandedConnector(null);
-                              return;
-                            }
-                            setExpandedConnector(c.id);
-                            if (!sheetsByConnector[c.id]) {
-                              const res = await fetch(`/api/connectors/${c.id}`);
-                              if (res.ok) {
-                                const data = await res.json();
-                                const ss = (data.config?.spreadsheets || []) as SheetEntry[];
-                                setSheetsByConnector(prev => ({ ...prev, [c.id]: ss }));
-                              }
-                            }
-                          }}
-                        >
-                          {isExpanded ? "Close" : "Manage Sheets"}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Slack channel mapping sub-panel */}
-                    {c.provider === "slack" && (c.healthStatus === "healthy" || c.healthStatus === "degraded") && (
-                      <div>
-                        <button
-                          className="flex items-center gap-1.5 text-xs transition-colors hover:text-[var(--fg2)]"
-                          style={{ color: "#585858" }}
-                          onClick={async () => {
-                            if (slackMappingExpanded === c.id) {
-                              setSlackMappingExpanded(null);
-                              return;
-                            }
-                            setSlackMappingExpanded(c.id);
-                            if (!slackMappings[c.id]) {
-                              try {
-                                const res = await fetch(`/api/connectors/${c.id}/channel-mappings`);
-                                if (res.ok) {
-                                  const data = await res.json();
-                                  setSlackMappings(prev => ({ ...prev, [c.id]: data.mappings || [] }));
-                                  setSlackChannels(prev => ({ ...prev, [c.id]: data.availableChannels || [] }));
-                                }
-                              } catch {}
-                            }
-                            // Load departments if not yet loaded
-                            if (teamDepts.length === 0) {
-                              try {
-                                const dRes = await fetch("/api/departments");
-                                if (dRes.ok) {
-                                  const dData = await dRes.json();
-                                  setTeamDepts((dData || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
-                                }
-                              } catch {}
-                            }
-                          }}
-                        >
-                          <svg className={`w-3 h-3 transition-transform ${slackMappingExpanded === c.id ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                          </svg>
-                          {t("connections.channelMapping")}
-                        </button>
-
-                        {slackMappingExpanded === c.id && (
-                          <div className="mt-2 bg-hover rounded-lg p-4 space-y-3 border border-border">
-                            <p className="text-xs text-[var(--fg2)]">{t("connections.channelMappingHint")}</p>
-
-                            {(slackMappings[c.id] || []).length === 0 && !addingMapping && (
-                              <p className="text-xs text-[var(--fg3)] italic">{t("connections.noChannelsMapped")}</p>
-                            )}
-
-                            {/* Existing mappings */}
-                            <div className="space-y-1.5">
-                              {(slackMappings[c.id] || []).map((m) => (
-                                <div key={m.channelId} className="flex items-center gap-2 py-1">
-                                  <span className="text-sm text-[var(--fg2)] font-medium" style={{ minWidth: 120 }}>#{m.channelName}</span>
-                                  <span className="text-xs text-[var(--fg3)]">&rarr;</span>
-                                  <span className="text-sm text-[var(--fg2)] flex-1">{m.department.displayName}</span>
-                                  <button
-                                    className="text-xs text-danger/60 hover:text-danger transition-colors"
-                                    onClick={async () => {
-                                      const res = await fetch(`/api/connectors/${c.id}/channel-mappings`, {
-                                        method: "DELETE",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ channelId: m.channelId }),
-                                      });
-                                      if (res.ok) {
-                                        setSlackMappings(prev => ({
-                                          ...prev,
-                                          [c.id]: (prev[c.id] || []).filter(x => x.channelId !== m.channelId),
-                                        }));
-                                      }
-                                    }}
-                                  >
-                                    &times;
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* Add mapping form */}
-                            {addingMapping?.connectorId === c.id ? (
-                              <div className="flex items-center gap-2">
-                                <select
-                                  className="flex-1 bg-hover border border-border rounded px-2 py-1.5 text-sm text-foreground"
-                                  value={addingMapping.channelId}
-                                  onChange={(e) => {
-                                    const ch = (slackChannels[c.id] || []).find(x => x.id === e.target.value);
-                                    setAddingMapping(prev => prev ? { ...prev, channelId: e.target.value, channelName: ch?.name || "" } : null);
-                                  }}
-                                >
-                                  <option value="">{t("connections.selectChannel")}</option>
-                                  {(slackChannels[c.id] || [])
-                                    .filter(ch => !(slackMappings[c.id] || []).some(m => m.channelId === ch.id))
-                                    .map(ch => (
-                                      <option key={ch.id} value={ch.id}>#{ch.name}</option>
-                                    ))}
-                                </select>
-                                <span className="text-xs text-[var(--fg3)]">&rarr;</span>
-                                <select
-                                  className="flex-1 bg-hover border border-border rounded px-2 py-1.5 text-sm text-foreground"
-                                  value={addingMapping.departmentId}
-                                  onChange={(e) => setAddingMapping(prev => prev ? { ...prev, departmentId: e.target.value } : null)}
-                                >
-                                  <option value="">{t("connections.selectDepartment")}</option>
-                                  {teamDepts.map(d => (
-                                    <option key={d.id} value={d.id}>{d.displayName}</option>
-                                  ))}
-                                </select>
-                                <button
-                                  className="text-xs font-medium px-2.5 py-1.5 rounded bg-accent text-white hover:bg-accent disabled:opacity-40 transition"
-                                  disabled={!addingMapping.channelId || !addingMapping.departmentId}
-                                  onClick={async () => {
-                                    if (!addingMapping.channelId || !addingMapping.departmentId) return;
-                                    const res = await fetch(`/api/connectors/${c.id}/channel-mappings`, {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({
-                                        channelId: addingMapping.channelId,
-                                        channelName: addingMapping.channelName,
-                                        departmentId: addingMapping.departmentId,
-                                      }),
-                                    });
-                                    if (res.ok) {
-                                      const created = await res.json();
-                                      setSlackMappings(prev => ({
-                                        ...prev,
-                                        [c.id]: [...(prev[c.id] || []), created],
-                                      }));
-                                      setAddingMapping(null);
-                                    }
-                                  }}
-                                >
-                                  {t("connections.save")}
-                                </button>
-                                <button
-                                  className="text-xs text-[var(--fg2)] hover:text-[var(--fg2)] transition"
-                                  onClick={() => setAddingMapping(null)}
-                                >
-                                  {t("connections.cancel")}
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                className="text-xs text-accent hover:text-accent transition"
-                                onClick={() => setAddingMapping({ connectorId: c.id, channelId: "", channelName: "", departmentId: "" })}
-                              >
-                                + {t("connections.addChannelMapping")}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Google Sheets spreadsheet picker */}
-                    {isGoogle && isExpanded && (
-                      <div className="bg-hover rounded-lg p-4 space-y-3 border border-border">
-                        {sheets.length > 0 ? (
-                          <>
-                            <p className="text-xs text-[var(--fg2)]">
-                              {sheets.length} spreadsheet{sheets.length !== 1 ? "s" : ""} found from the last 30 days
-                            </p>
-                            <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                              {sheets.map((sheet) => (
-                                <label key={sheet.id} className="flex items-center gap-2.5 py-1 cursor-pointer group">
-                                  <input
-                                    type="checkbox"
-                                    checked={sheet.selected}
-                                    onChange={() => {
-                                      setSheetsByConnector(prev => ({
-                                        ...prev,
-                                        [c.id]: (prev[c.id] || []).map(s =>
-                                          s.id === sheet.id ? { ...s, selected: !s.selected } : s
-                                        ),
-                                      }));
-                                    }}
-                                    className="rounded border-border-strong bg-hover text-accent focus:ring-[color-mix(in_srgb,var(--accent)_30%,transparent)]"
-                                  />
-                                  <span className="text-sm text-[var(--fg2)] group-hover:text-foreground transition truncate">{sheet.name}</span>
-                                  <span className="text-[10px] text-[var(--fg3)] ml-auto shrink-0 font-mono">{sheet.id.slice(0, 12)}...</span>
-                                </label>
-                              ))}
-                            </div>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              disabled={savingSheets === c.id}
-                              onClick={async () => {
-                                setSavingSheets(c.id);
-                                try {
-                                  await fetch(`/api/connectors/${c.id}`, {
-                                    method: "PATCH",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ spreadsheets: sheetsByConnector[c.id] }),
-                                  });
-                                  toast("Spreadsheet selection saved", "success");
-                                  loadConnectors();
-                                } catch {
-                                  toast("Failed to save", "error");
-                                }
-                                setSavingSheets(null);
-                              }}
-                            >
-                              {savingSheets === c.id ? "Saving..." : `Save (${(sheetsByConnector[c.id] || []).filter(s => s.selected).length} selected)`}
-                            </Button>
-                          </>
-                        ) : (
-                          <div className="space-y-3">
-                            <p className="text-xs text-[var(--fg2)]">No recently modified spreadsheets found. Add one manually:</p>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={manualSheetUrl}
-                                onChange={(e) => setManualSheetUrl(e.target.value)}
-                                placeholder="Paste Google Sheets URL or ID"
-                                className="flex-1 bg-hover border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-[var(--fg3)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--accent)_30%,transparent)]"
-                              />
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                disabled={!manualSheetUrl.trim() || savingSheets === c.id}
-                                onClick={async () => {
-                                  setSavingSheets(c.id);
-                                  const idMatch = manualSheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-                                  const sheetId = idMatch ? idMatch[1] : manualSheetUrl.trim();
-                                  try {
-                                    await fetch(`/api/connectors/${c.id}`, {
-                                      method: "PATCH",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({
-                                        spreadsheet_ids: [sheetId],
-                                        spreadsheets: [{ id: sheetId, name: "Manual", selected: true }],
-                                      }),
-                                    });
-                                    toast("Spreadsheet added", "success");
-                                    setManualSheetUrl("");
-                                    loadConnectors();
-                                  } catch {
-                                    toast("Failed", "error");
-                                  }
-                                  setSavingSheets(null);
-                                }}
-                              >
-                                Add
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <ConnectionsTab
+            connectors={connectors}
+            providers={providers}
+            loadConnectors={loadConnectors}
+            syncingAll={syncingAll}
+            setSyncingAll={setSyncingAll}
+            syncAllResult={syncAllResult}
+            setSyncAllResult={setSyncAllResult}
+            expandedConnector={expandedConnector}
+            setExpandedConnector={setExpandedConnector}
+            sheetsByConnector={sheetsByConnector}
+            setSheetsByConnector={setSheetsByConnector}
+            savingSheets={savingSheets}
+            setSavingSheets={setSavingSheets}
+            manualSheetUrl={manualSheetUrl}
+            setManualSheetUrl={setManualSheetUrl}
+            slackMappingExpanded={slackMappingExpanded}
+            setSlackMappingExpanded={setSlackMappingExpanded}
+            slackMappings={slackMappings}
+            setSlackMappings={setSlackMappings}
+            slackChannels={slackChannels}
+            setSlackChannels={setSlackChannels}
+            addingMapping={addingMapping}
+            setAddingMapping={setAddingMapping}
+            teamDepts={teamDepts}
+            setTeamDepts={setTeamDepts}
+          />
         )}
 
         {/* Team Tab */}
@@ -2077,6 +1700,8 @@ function SettingsPageInner() {
           </div>
         )}
 
+          </div>
+        </div>
       </div>
     </AppShell>
   );
@@ -2099,6 +1724,393 @@ function formatMergeDate(isoString: string): string {
 
 // ── Billing Tab ─────────────────────────────────────────────────────────────
 
+// ── Usage Tab ────────────────────────────────────────────────────────────────
+
+function UsageTab() {
+  const [data, setData] = useState<UsageData | null>(null);
+  const [limits, setLimits] = useState<LimitsData | null>(null);
+  const [dateRange, setDateRange] = useState("this_month");
+  const [attrView, setAttrView] = useState<"departments" | "people">("departments");
+
+  const dateParams = () => {
+    const now = new Date();
+    if (dateRange === "last_month") {
+      const s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const e = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+      return `from=${s.toISOString()}&to=${e.toISOString()}`;
+    }
+    if (dateRange === "last_3_months") {
+      const s = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      const e = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      return `from=${s.toISOString()}&to=${e.toISOString()}`;
+    }
+    const s = new Date(now.getFullYear(), now.getMonth(), 1);
+    const e = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    return `from=${s.toISOString()}&to=${e.toISOString()}`;
+  };
+
+  useEffect(() => {
+    fetch(`/api/billing/usage?granularity=daily&${dateParams()}`).then((r) => r.ok ? r.json() : null).then(setData).catch(() => {});
+    fetch("/api/billing/limits").then((r) => r.ok ? r.json() : null).then(setLimits).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange]);
+
+  const c = (v: number) => `$${(v / 100).toFixed(2)}`;
+
+  if (!data) return <div className="text-[var(--fg3)] text-sm p-6">Loading usage data...</div>;
+
+  const period = data.currentPeriod;
+  const totalSpend = period.totalBilledCents + period.copilotCostCents;
+  const supervised = period.situationsByAutonomy.supervised ?? { count: 0, totalCents: 0 };
+  const notify = period.situationsByAutonomy.notify ?? { count: 0, totalCents: 0 };
+  const autonomous = period.situationsByAutonomy.autonomous ?? { count: 0, totalCents: 0 };
+  const totalSituations = supervised.count + notify.count + autonomous.count;
+
+  const chartData = (data.dailyBreakdown ?? []).map((d) => ({
+    date: new Date(d.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    Observe: d.supervised / 100,
+    Propose: d.notify / 100,
+    Act: d.autonomous / 100,
+    Copilot: d.copilot / 100,
+  }));
+
+  const budgetDaysLeft = limits?.budget.budgetPeriodStart
+    ? Math.max(0, Math.ceil((new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : 0;
+  const budgetPct = limits?.budget.percentUsed ?? 0;
+  const budgetColor = budgetPct > 80 ? "bg-[var(--danger)]" : budgetPct > 60 ? "bg-[var(--warn)]" : "bg-[var(--ok)]";
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-end justify-between">
+        <div>
+          <div className="text-[13px] text-[var(--fg3)]">Total Spend</div>
+          <div className="text-[32px] font-semibold text-foreground">{c(totalSpend)}</div>
+        </div>
+        <select
+          value={dateRange}
+          onChange={(e) => setDateRange(e.target.value)}
+          className="px-3 py-1.5 rounded-md bg-elevated border border-border text-foreground text-[13px] appearance-none"
+        >
+          <option value="this_month">This month</option>
+          <option value="last_month">Last month</option>
+          <option value="last_3_months">Last 3 months</option>
+        </select>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-5">
+        {/* Left column */}
+        <div className="flex-1 min-w-0 space-y-5">
+          {/* Daily spend chart */}
+          {chartData.length > 0 && (
+            <div className="wf-soft p-5">
+              <div className="text-[14px] font-semibold text-foreground mb-4">Daily spend</div>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--fg3)" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--fg3)" }} tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
+                  <Tooltip
+                    contentStyle={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number) => [`$${v.toFixed(2)}`, undefined]}
+                  />
+                  <Bar dataKey="Observe" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Propose" stackId="a" fill="#f59e0b" />
+                  <Bar dataKey="Act" stackId="a" fill="#22c55e" />
+                  <Bar dataKey="Copilot" stackId="a" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Spend categories */}
+          <div>
+            <div className="text-[14px] font-semibold text-foreground mb-3">Spend categories</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: "Observe", color: "#3b82f6", count: supervised.count, cents: supervised.totalCents },
+                { label: "Propose", color: "#f59e0b", count: notify.count, cents: notify.totalCents },
+                { label: "Act", color: "#22c55e", count: autonomous.count, cents: autonomous.totalCents },
+                { label: "Copilot", color: "#8b5cf6", count: period.copilotMessageCount, cents: period.copilotCostCents },
+              ].map((cat) => (
+                <div key={cat.label} className="wf-soft p-4" style={{ borderLeft: `3px solid ${cat.color}` }}>
+                  <div className="text-[12px] font-medium text-[var(--fg2)] mb-1">{cat.label}</div>
+                  <div className="text-[18px] font-semibold text-foreground">{cat.count}</div>
+                  <div className="text-[12px] text-[var(--fg3)]">{c(cat.cents)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Attribution table */}
+          <div>
+            <div className="flex items-center gap-4 mb-3">
+              <div className="text-[14px] font-semibold text-foreground">Attribution</div>
+              <div className="flex gap-1 bg-hover rounded-md p-0.5">
+                {(["departments", "people"] as const).map((v) => (
+                  <button key={v} onClick={() => setAttrView(v)} className={`px-3 py-1 text-[12px] rounded-md transition-colors ${attrView === v ? "bg-elevated text-foreground font-medium" : "text-[var(--fg3)]"}`}>
+                    {v === "departments" ? "Departments" : "People"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="wf-soft overflow-hidden">
+              {attrView === "departments" ? (
+                <table className="w-full text-[13px]">
+                  <thead><tr className="text-[var(--fg3)] text-left border-b border-border"><th className="px-4 py-2 font-medium">Department</th><th className="px-4 py-2 font-medium text-right">Situations</th><th className="px-4 py-2 font-medium text-right">Cost</th></tr></thead>
+                  <tbody>{(data.departments ?? []).map((d, i) => (
+                    <tr key={i} className="border-b border-border last:border-0"><td className="px-4 py-2 text-[var(--fg2)]">{d.name}</td><td className="px-4 py-2 text-right text-[var(--fg3)]">{d.count}</td><td className="px-4 py-2 text-right text-[var(--fg2)]">{c(d.totalCents)}</td></tr>
+                  ))}{data.departments?.length === 0 && <tr><td colSpan={3} className="px-4 py-4 text-center text-[var(--fg3)]">No department data</td></tr>}</tbody>
+                </table>
+              ) : (
+                <table className="w-full text-[13px]">
+                  <thead><tr className="text-[var(--fg3)] text-left border-b border-border"><th className="px-4 py-2 font-medium">Name</th><th className="px-4 py-2 font-medium">Email</th><th className="px-4 py-2 font-medium text-right">Situations</th><th className="px-4 py-2 font-medium text-right">Copilot</th><th className="px-4 py-2 font-medium text-right">Total</th></tr></thead>
+                  <tbody>{(data.employees ?? []).map((e) => (
+                    <tr key={e.userId} className="border-b border-border last:border-0"><td className="px-4 py-2 text-[var(--fg2)]">{e.name}</td><td className="px-4 py-2 text-[var(--fg3)]">{e.email}</td><td className="px-4 py-2 text-right text-[var(--fg3)]">{e.situationCount}</td><td className="px-4 py-2 text-right text-[var(--fg3)]">{e.copilotMessages}</td><td className="px-4 py-2 text-right text-[var(--fg2)]">{c(e.totalBilledCents)}</td></tr>
+                  ))}{(data.employees ?? []).length === 0 && <tr><td colSpan={5} className="px-4 py-4 text-center text-[var(--fg3)]">No employee data</td></tr>}</tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right sidebar */}
+        <div className="w-full md:w-[280px] space-y-4 flex-shrink-0">
+          {limits?.budget.monthlyBudgetCents && (
+            <div className="wf-soft p-4">
+              <div className="text-[12px] font-medium text-[var(--fg3)] mb-1">Monthly budget</div>
+              <div className="text-[14px] font-semibold text-foreground mb-2">{c(limits.budget.currentSpendCents)} / {c(limits.budget.monthlyBudgetCents)}</div>
+              <div className="h-2 rounded-full bg-skeleton overflow-hidden mb-1">
+                <div className={`h-full rounded-full transition-all ${budgetColor}`} style={{ width: `${Math.min(100, budgetPct)}%` }} />
+              </div>
+              <div className="text-[11px] text-[var(--fg3)]">Resets in {budgetDaysLeft} days</div>
+            </div>
+          )}
+
+          <div className="wf-soft p-4">
+            <div className="text-[24px] font-semibold text-foreground">{totalSituations}</div>
+            <div className="text-[12px] text-[var(--fg3)]">situations resolved</div>
+          </div>
+
+          <div className="wf-soft p-4">
+            <div className="text-[24px] font-semibold text-foreground">{period.copilotMessageCount}</div>
+            <div className="text-[12px] text-[var(--fg3)]">copilot messages</div>
+          </div>
+
+          {data.onboardingCostCents > 0 && (
+            <div className="wf-soft p-4 bg-hover">
+              <div className="text-[12px] text-[var(--fg3)]">Free analysis value</div>
+              <div className="text-[14px] font-medium text-[var(--fg2)]">~{c(data.onboardingCostCents)}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Limits Tab ───────────────────────────────────────────────────────────────
+
+const THRESHOLD_OPTIONS = [25, 50, 75, 80, 90, 100];
+
+function LimitsTab() {
+  const [data, setData] = useState<LimitsData | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState<{ monthlyBudgetCents: number | null; budgetAlertThresholds: number[]; budgetHardStop: boolean }>({ monthlyBudgetCents: null, budgetAlertThresholds: [], budgetHardStop: false });
+  const [budgetInput, setBudgetInput] = useState("");
+  const [noLimit, setNoLimit] = useState(true);
+  const { isAdmin } = useUser();
+
+  const load = () => {
+    fetch("/api/billing/limits").then((r) => r.ok ? r.json() : null).then((d) => {
+      setData(d);
+      if (d) {
+        setDraft({ monthlyBudgetCents: d.budget.monthlyBudgetCents, budgetAlertThresholds: d.budget.budgetAlertThresholds, budgetHardStop: d.budget.budgetHardStop });
+        setBudgetInput(d.budget.monthlyBudgetCents ? (d.budget.monthlyBudgetCents / 100).toString() : "");
+        setNoLimit(!d.budget.monthlyBudgetCents);
+      }
+    }).catch(() => {});
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const body = {
+        monthlyBudgetCents: noLimit ? null : Math.round(parseFloat(budgetInput || "0") * 100),
+        budgetAlertThresholds: draft.budgetAlertThresholds,
+        budgetHardStop: draft.budgetHardStop,
+      };
+      const res = await fetch("/api/billing/limits", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (res.ok) { load(); setEditing(false); }
+    } finally { setSaving(false); }
+  };
+
+  const addThreshold = (t: number) => setDraft((d) => ({ ...d, budgetAlertThresholds: [...d.budgetAlertThresholds, t].sort((a, b) => a - b) }));
+  const removeThreshold = (t: number) => setDraft((d) => ({ ...d, budgetAlertThresholds: d.budgetAlertThresholds.filter((v) => v !== t) }));
+
+  const c = (v: number) => `$${(v / 100).toFixed(2)}`;
+
+  if (!data) return <div className="text-[var(--fg3)] text-sm p-6">Loading limits...</div>;
+
+  const budgetDaysLeft = Math.max(0, Math.ceil((new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+  const pct = data.budget.percentUsed;
+  const pctColor = pct > 80 ? "bg-[var(--danger)]" : pct > 60 ? "bg-[var(--warn)]" : "bg-[var(--ok)]";
+  const availableThresholds = THRESHOLD_OPTIONS.filter((t) => !draft.budgetAlertThresholds.includes(t));
+
+  return (
+    <div className="space-y-5">
+      {/* Organization Budget */}
+      <div className="wf-soft p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-[14px] font-semibold text-foreground">Organization budget</div>
+          {isAdmin && !editing && <button onClick={() => setEditing(true)} className="text-[12px] text-accent hover:underline">Edit budget</button>}
+        </div>
+
+        {!editing ? (
+          <div>
+            {data.budget.monthlyBudgetCents ? (
+              <>
+                <div className="text-[18px] font-semibold text-foreground mb-2">{c(data.budget.currentSpendCents)} / {c(data.budget.monthlyBudgetCents)}</div>
+                <div className="h-2.5 rounded-full bg-skeleton overflow-hidden mb-2">
+                  <div className={`h-full rounded-full transition-all ${pctColor}`} style={{ width: `${Math.min(100, pct)}%` }} />
+                </div>
+                <div className="text-[12px] text-[var(--fg3)] mb-4">Resets in {budgetDaysLeft} days</div>
+              </>
+            ) : (
+              <div className="text-[14px] text-[var(--fg3)] mb-4">No budget set</div>
+            )}
+
+            {data.budget.budgetAlertThresholds.length > 0 && (
+              <div className="space-y-2">
+                {data.budget.budgetAlertThresholds.map((t) => (
+                  <div key={t} className="flex items-center gap-2 text-[13px] text-[var(--fg2)]">
+                    <svg className="w-3.5 h-3.5 text-[var(--fg3)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+                    <span>{t}% usage alert</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {data.budget.budgetHardStop && (
+              <div className="mt-3 text-[12px] text-danger bg-[color-mix(in_srgb,var(--danger)_8%,transparent)] rounded-md px-3 py-2">
+                AI operations will pause when budget is reached.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Budget input */}
+            <div>
+              <label className="flex items-center gap-2 text-[13px] text-[var(--fg2)] mb-2">
+                <input type="checkbox" checked={noLimit} onChange={(e) => setNoLimit(e.target.checked)} className="rounded" />
+                No limit
+              </label>
+              {!noLimit && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[14px] text-[var(--fg2)]">$</span>
+                  <input type="number" min="1" step="1" value={budgetInput} onChange={(e) => setBudgetInput(e.target.value)} className="w-32 px-3 py-1.5 rounded-md bg-elevated border border-border text-foreground text-[13px]" placeholder="e.g. 500" />
+                  <span className="text-[12px] text-[var(--fg3)]">per month</span>
+                </div>
+              )}
+            </div>
+
+            {/* Alert thresholds */}
+            <div>
+              <div className="text-[13px] font-medium text-[var(--fg2)] mb-2">Alert thresholds</div>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {draft.budgetAlertThresholds.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-hover border border-border text-[12px] text-[var(--fg2)]">
+                    {t}%
+                    <button onClick={() => removeThreshold(t)} className="text-[var(--fg3)] hover:text-danger">&times;</button>
+                  </span>
+                ))}
+              </div>
+              {availableThresholds.length > 0 && (
+                <select
+                  value=""
+                  onChange={(e) => { if (e.target.value) addThreshold(parseInt(e.target.value, 10)); }}
+                  className="px-3 py-1.5 rounded-md bg-elevated border border-border text-foreground text-[12px] appearance-none"
+                >
+                  <option value="">Add alert...</option>
+                  {availableThresholds.map((t) => <option key={t} value={t}>{t}%</option>)}
+                </select>
+              )}
+            </div>
+
+            {/* Hard stop */}
+            <div className="space-y-2">
+              <div className="text-[13px] font-medium text-[var(--fg2)] mb-1">When budget is reached</div>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="radio" name="hardStop" checked={!draft.budgetHardStop} onChange={() => setDraft((d) => ({ ...d, budgetHardStop: false }))} className="mt-0.5" />
+                <div><div className="text-[13px] text-foreground">Alert only</div><div className="text-[11px] text-[var(--fg3)]">Notify admins but continue operations</div></div>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input type="radio" name="hardStop" checked={draft.budgetHardStop} onChange={() => setDraft((d) => ({ ...d, budgetHardStop: true }))} className="mt-0.5" />
+                <div><div className="text-[13px] text-foreground">Pause AI</div><div className="text-[11px] text-[var(--fg3)]">Stop all AI operations when budget is reached</div></div>
+              </label>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button onClick={handleSave} disabled={saving} className="rounded-lg text-[13px] font-medium px-5 py-2 disabled:opacity-50" style={{ background: "#8b5cf6", color: "#fff" }}>{saving ? "Saving..." : "Save"}</button>
+              <button onClick={() => { setEditing(false); load(); }} className="rounded-lg text-[13px] font-medium px-5 py-2 text-[var(--fg2)] bg-hover border border-border">Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Rate Limits */}
+      <div className="wf-soft p-5">
+        <div className="text-[14px] font-semibold text-foreground mb-1">Rate limits</div>
+        <div className="text-[12px] text-[var(--fg3)] mb-3">Platform rate limits ensure stable performance across all customers.</div>
+        <table className="w-full text-[13px]">
+          <thead><tr className="text-[var(--fg3)] text-left"><th className="pb-2 font-medium">Limit</th><th className="pb-2 font-medium text-right">Value</th></tr></thead>
+          <tbody className="text-[var(--fg2)]">
+            <tr className="border-t border-border"><td className="py-2">Copilot messages</td><td className="py-2 text-right">{data.rateLimits.copilotPerMinute} per minute</td></tr>
+            <tr className="border-t border-border"><td className="py-2">Concurrent execution plans</td><td className="py-2 text-right">{data.rateLimits.concurrentExecutionPlans}</td></tr>
+            <tr className="border-t border-border"><td className="py-2">Detection sweep interval</td><td className="py-2 text-right">Every {data.rateLimits.detectionSweepIntervalMinutes} minutes</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Free Tier Limits */}
+      {data.freeTier && (
+        <div className="wf-soft p-5">
+          <div className="text-[14px] font-semibold text-foreground mb-3">Free tier limits</div>
+          <div className="space-y-3">
+            <div>
+              <div className="flex justify-between text-[12px] text-[var(--fg2)] mb-1"><span>Copilot budget</span><span>{c(data.freeTier.copilotUsedCents)} / {c(data.freeTier.copilotBudgetCents)}</span></div>
+              <div className="h-1.5 rounded-full bg-skeleton overflow-hidden"><div className="h-full rounded-full bg-accent/60" style={{ width: `${Math.min(100, (data.freeTier.copilotUsedCents / data.freeTier.copilotBudgetCents) * 100)}%` }} /></div>
+            </div>
+            <div>
+              <div className="flex justify-between text-[12px] text-[var(--fg2)] mb-1"><span>Detection situations</span><span>{data.freeTier.detectionSituationCount} / {data.freeTier.detectionSituationLimit}</span></div>
+              <div className="h-1.5 rounded-full bg-skeleton overflow-hidden"><div className="h-full rounded-full bg-accent/60" style={{ width: `${Math.min(100, (data.freeTier.detectionSituationCount / data.freeTier.detectionSituationLimit) * 100)}%` }} /></div>
+            </div>
+            <div className="text-[12px] text-[var(--fg3)]">
+              {data.freeTier.detectionDaysUsed >= data.freeTier.detectionDayLimit ? "Detection period expired" : `${data.freeTier.detectionDayLimit - data.freeTier.detectionDaysUsed} days remaining`}
+            </div>
+            <a href="/settings?tab=billing" className="inline-block rounded-lg text-[13px] font-medium px-5 py-2 mt-1" style={{ background: "#8b5cf6", color: "#fff" }}>Add Credits to Upgrade</a>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Billing Tab ──────────────────────────────────────────────────────────────
+
+type BalanceData = {
+  balanceCents: number;
+  billingStatus: string;
+  autoReloadEnabled: boolean;
+  autoReloadThresholdCents: number;
+  autoReloadAmountCents: number;
+  hasPaymentMethod: boolean;
+};
+
 type UsageData = {
   operator: {
     billingStatus: string;
@@ -2120,56 +2132,131 @@ type UsageData = {
   };
   departments: Array<{ name: string; count: number; totalCents: number }>;
   historicalMonths: Array<{ month: string; supervised: number; notify: number; autonomous: number; situationCount: number }>;
+  dailyBreakdown?: Array<{ date: string; supervised: number; notify: number; autonomous: number; copilot: number; total: number }>;
+  employees: Array<{ userId: string; name: string; email: string; situationCount: number; copilotMessages: number; totalBilledCents: number }>;
+  onboardingCostCents: number;
+};
+
+type LimitsData = {
+  budget: {
+    monthlyBudgetCents: number | null;
+    budgetAlertThresholds: number[];
+    budgetHardStop: boolean;
+    currentSpendCents: number;
+    budgetPeriodStart: string | null;
+    percentUsed: number;
+  };
+  rateLimits: {
+    copilotPerMinute: number;
+    concurrentExecutionPlans: number;
+    detectionSweepIntervalMinutes: number;
+  };
+  freeTier: {
+    copilotBudgetCents: number;
+    copilotUsedCents: number;
+    detectionSituationLimit: number;
+    detectionSituationCount: number;
+    detectionDayLimit: number;
+    detectionDaysUsed: number;
+  } | null;
 };
 
 type PaymentMethod = { brand: string; last4: string; expMonth: number; expYear: number } | null;
-type InvoiceItem = { id: string; date: number; amount: number; currency: string; status: string | null; pdfUrl: string | null; hostedUrl: string | null };
+type TransactionItem = { id: string; type: string; amountCents: number; balanceAfter: number; description: string | null; createdAt: string };
+
+const CREDIT_PRESETS = [
+  { cents: 1000, label: "$10" },
+  { cents: 2500, label: "$25" },
+  { cents: 5000, label: "$50" },
+  { cents: 10000, label: "$100" },
+];
 
 function BillingTab() {
+  const [balance, setBalance] = useState<BalanceData | null>(null);
+  const [balanceLoaded, setBalanceLoaded] = useState(false);
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(null);
-  const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
-  const [activating, setActivating] = useState(false);
+  const [transactions, setTransactions] = useState<TransactionItem[]>([]);
+  const [showAddCredits, setShowAddCredits] = useState(false);
+  const [customAmount, setCustomAmount] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [autoReloadSaving, setAutoReloadSaving] = useState(false);
   const { user } = useUser();
   const isAdmin = user?.role === "admin" || user?.role === "superadmin";
 
   useEffect(() => {
+    fetch("/api/billing/balance").then((r) => (r.ok ? r.json() : null)).then((d) => { setBalance(d); setBalanceLoaded(true); }).catch(() => setBalanceLoaded(true));
     fetch("/api/billing/usage").then((r) => (r.ok ? r.json() : null)).then(setUsage).catch(() => {});
     fetch("/api/billing/payment-method").then((r) => (r.ok ? r.json() : null)).then((d) => setPaymentMethod(d?.paymentMethod ?? null)).catch(() => {});
-    fetch("/api/billing/invoices").then((r) => (r.ok ? r.json() : null)).then((d) => setInvoices(d?.invoices ?? [])).catch(() => {});
-  }, []);
+    if (isAdmin) {
+      fetch("/api/billing/transactions?limit=20").then((r) => (r.ok ? r.json() : null)).then((d) => setTransactions(d?.transactions ?? [])).catch(() => {});
+    }
+  }, [isAdmin]);
 
-  const handleActivate = async () => {
-    setActivating(true);
+  const ratePercent = (base: number, mult: number) => Math.round(base * mult * 100);
+  const orchestrationMultiplier = usage?.operator?.orchestrationFeeMultiplier ?? 0.5;
+
+  const handleAddCredits = async (amountCents: number) => {
+    setAdding(true);
     try {
-      const res = await fetch("/api/billing/activate", { method: "POST" });
+      const res = await fetch("/api/billing/add-credits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountCents }),
+      });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
-      else if (data.activated) window.location.reload();
-    } catch { setActivating(false); }
+      else if (data.devMode) window.location.reload();
+    } catch { /* ignore */ } finally { setAdding(false); }
   };
 
-  const handleUpdatePayment = async () => {
-    const res = await fetch("/api/billing/update-payment-method", { method: "POST" });
+  const handleSetupPaymentMethod = async () => {
+    const res = await fetch("/api/billing/setup-payment-method", { method: "POST" });
     const data = await res.json();
-    if (data.url) window.location.href = data.url;
+    if (data.clientSecret && data.clientSecret !== "dev_mode") {
+      // In production, would use Stripe.js Elements with this clientSecret
+      // For now, prompt user
+      alert("Stripe payment method setup would open here. Client secret: " + data.clientSecret);
+    } else if (data.devMode) {
+      alert("Dev mode: payment method setup skipped.");
+    }
+  };
+
+  const handleToggleAutoReload = async (enabled: boolean) => {
+    setAutoReloadSaving(true);
+    try {
+      await fetch("/api/billing/auto-reload", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      setBalance((b) => b ? { ...b, autoReloadEnabled: enabled } : b);
+    } catch { /* ignore */ } finally { setAutoReloadSaving(false); }
   };
 
   const cents = (v: number) => `$${(v / 100).toFixed(2)}`;
 
-  if (!usage) return <div className="text-[var(--fg3)] text-sm p-6">Loading billing data...</div>;
+  if (!balanceLoaded) return <div className="text-[var(--fg3)] text-sm p-6">Loading billing data...</div>;
+  if (!balance) return <div className="text-[var(--fg3)] text-sm p-6">Unable to load billing data. Please try refreshing.</div>;
 
-  const op = usage.operator;
-  const period = usage.currentPeriod;
-  const isFree = op.billingStatus === "free";
-  const isPastDue = op.billingStatus === "past_due";
-  const isCancelled = op.billingStatus === "cancelled";
-  const isActive = op.billingStatus === "active";
-  const isDiscount = op.orchestrationFeeMultiplier < 1.0;
+  const isFree = balance.billingStatus === "free";
+  const isDepleted = balance.billingStatus === "depleted";
+  const isPastDue = balance.billingStatus === "past_due";
+  const isActive = balance.billingStatus === "active";
 
-  // Discount end date
+  const balanceColor = balance.balanceCents <= 0
+    ? "text-[var(--fg3)]"
+    : balance.balanceCents < 500
+    ? "text-danger"
+    : balance.balanceCents <= 1000
+    ? "text-warn"
+    : "text-ok";
+
+  const op = usage?.operator;
+  const period = usage?.currentPeriod;
+  const isDiscount = op ? op.orchestrationFeeMultiplier < 1.0 : false;
   let discountEndDate = "";
-  if (isDiscount && op.billingStartedAt) {
+  if (isDiscount && op?.billingStartedAt) {
     const d = new Date(op.billingStartedAt);
     d.setDate(d.getDate() + 30);
     discountEndDate = d.toLocaleDateString();
@@ -2177,52 +2264,70 @@ function BillingTab() {
 
   return (
     <div className="space-y-5">
-      {/* ── Status Banners ── */}
-      {isPastDue && (
-        <div className="wf-soft p-5" style={{ border: "1px solid rgba(245, 158, 11, 0.3)", background: "rgba(245, 158, 11, 0.05)" }}>
-          <div className="text-[15px] font-semibold text-warn mb-1">Payment Failed</div>
-          <div className="text-[13px] text-[var(--fg2)] mb-3">Your last payment didn&apos;t go through. AI operations are paused until resolved.</div>
-          {isAdmin && <button onClick={handleUpdatePayment} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "var(--warn)", color: "var(--accent-ink)" }}>Update Payment Method</button>}
+      {/* ── Depleted Banner ── */}
+      {isDepleted && (
+        <div className="wf-soft p-5" style={{ border: "1px solid rgba(239, 68, 68, 0.3)", background: "rgba(239, 68, 68, 0.05)" }}>
+          <div className="text-[15px] font-semibold text-danger mb-1">Balance Empty</div>
+          <div className="text-[13px] text-[var(--fg2)] mb-3">Your balance is empty. AI operations are paused.</div>
+          {isAdmin && <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#8b5cf6", color: "#fff" }}>Add Credits</button>}
         </div>
       )}
 
-      {isCancelled && (
-        <div className="wf-soft p-5" style={{ border: "1px solid rgba(239, 68, 68, 0.3)", background: "rgba(239, 68, 68, 0.05)" }}>
-          <div className="text-[15px] font-semibold text-danger mb-1">Subscription Cancelled</div>
-          <div className="text-[13px] text-[var(--fg2)] mb-3">Your subscription has been cancelled. AI operations are paused.</div>
-          {isAdmin && <button onClick={handleActivate} disabled={activating} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#8b5cf6", color: "#fff" }}>{activating ? "Redirecting..." : "Reactivate"}</button>}
+      {isPastDue && (
+        <div className="wf-soft p-5" style={{ border: "1px solid rgba(245, 158, 11, 0.3)", background: "rgba(245, 158, 11, 0.05)" }}>
+          <div className="text-[15px] font-semibold text-warn mb-1">Payment Failed</div>
+          <div className="text-[13px] text-[var(--fg2)] mb-3">Your last payment didn&apos;t go through. Please update your payment method.</div>
+          {isAdmin && <button onClick={handleSetupPaymentMethod} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "var(--warn)", color: "var(--accent-ink)" }}>Update Payment Method</button>}
         </div>
       )}
+
+      {/* ── Balance Display ── */}
+      <div className="wf-soft p-6">
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-[13px] font-medium text-[var(--fg2)]">Credit Balance</div>
+          {isAdmin && !isFree && (
+            <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[12px] font-medium px-4 py-1.5" style={{ background: "#8b5cf6", color: "#fff" }}>
+              Add Credits
+            </button>
+          )}
+        </div>
+        <div className={`text-[32px] font-semibold ${balanceColor}`}>
+          {cents(Math.max(0, balance.balanceCents))}
+          <span className="text-[14px] text-[var(--fg3)] font-normal ml-2">remaining</span>
+        </div>
+      </div>
 
       {/* ── Free Plan Card ── */}
       {isFree && (
         <div className="wf-soft p-6 space-y-4" style={{ border: "1px solid rgba(139, 92, 246, 0.3)", background: "rgba(139, 92, 246, 0.05)" }}>
           <div>
             <div className="text-[15px] font-semibold text-foreground mb-1">Qorpera Free Plan</div>
-            <div className="text-[13px] text-[var(--fg2)]">You&apos;re exploring Qorpera with limited access. Activate billing to unlock full AI operations.</div>
+            <div className="text-[13px] text-[var(--fg2)]">Add credits to unlock full AI operations — approve situations, invite team members, unlimited detection.</div>
           </div>
-          {isAdmin && <button onClick={handleActivate} disabled={activating} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#8b5cf6", color: "#fff" }}>{activating ? "Redirecting..." : "Activate Billing"}</button>}
+          {isAdmin && <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#8b5cf6", color: "#fff" }}>Add Credits</button>}
 
-          <div className="pt-3 space-y-3" style={{ borderTop: "1px solid rgba(139, 92, 246, 0.15)" }}>
-            <div className="text-[13px] font-medium text-[var(--fg2)]">Free Usage</div>
-            <div className="space-y-2">
-              <div>
-                <div className="flex justify-between text-[12px] text-[var(--fg2)] mb-1"><span>Copilot</span><span>{cents(op.freeCopilotUsedCents)} / {cents(op.freeCopilotBudgetCents)}</span></div>
-                <div className="h-1.5 rounded-full bg-skeleton overflow-hidden"><div className="h-full rounded-full bg-accent/60 transition-all" style={{ width: `${Math.min(100, (op.freeCopilotUsedCents / op.freeCopilotBudgetCents) * 100)}%` }} /></div>
+          {op && (
+            <div className="pt-3 space-y-3" style={{ borderTop: "1px solid rgba(139, 92, 246, 0.15)" }}>
+              <div className="text-[13px] font-medium text-[var(--fg2)]">Free Usage</div>
+              <div className="space-y-2">
+                <div>
+                  <div className="flex justify-between text-[12px] text-[var(--fg2)] mb-1"><span>Chat</span><span>{cents(op.freeCopilotUsedCents)} / {cents(op.freeCopilotBudgetCents)}</span></div>
+                  <div className="h-1.5 rounded-full bg-skeleton overflow-hidden"><div className="h-full rounded-full bg-accent/60 transition-all" style={{ width: `${Math.min(100, (op.freeCopilotUsedCents / op.freeCopilotBudgetCents) * 100)}%` }} /></div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-[12px] text-[var(--fg2)] mb-1"><span>Situations detected</span><span>{op.freeDetectionSituationCount} / 50</span></div>
+                  <div className="h-1.5 rounded-full bg-skeleton overflow-hidden"><div className="h-full rounded-full bg-accent/60 transition-all" style={{ width: `${Math.min(100, (op.freeDetectionSituationCount / 50) * 100)}%` }} /></div>
+                </div>
+                {op.freeDetectionStartedAt && (() => {
+                  const daysUsed = Math.floor((Date.now() - new Date(op.freeDetectionStartedAt).getTime()) / (1000 * 60 * 60 * 24));
+                  const daysLeft = Math.max(0, 30 - daysUsed);
+                  return <div className="text-[12px] text-[var(--fg3)]">Detection time remaining: {daysLeft} days</div>;
+                })()}
               </div>
-              <div>
-                <div className="flex justify-between text-[12px] text-[var(--fg2)] mb-1"><span>Situations detected</span><span>{op.freeDetectionSituationCount} / 50</span></div>
-                <div className="h-1.5 rounded-full bg-skeleton overflow-hidden"><div className="h-full rounded-full bg-accent/60 transition-all" style={{ width: `${Math.min(100, (op.freeDetectionSituationCount / 50) * 100)}%` }} /></div>
-              </div>
-              {op.freeDetectionStartedAt && (() => {
-                const daysUsed = Math.floor((Date.now() - new Date(op.freeDetectionStartedAt).getTime()) / (1000 * 60 * 60 * 24));
-                const daysLeft = Math.max(0, 30 - daysUsed);
-                return <div className="text-[12px] text-[var(--fg3)]">Detection time remaining: {daysLeft} days</div>;
-              })()}
             </div>
-          </div>
+          )}
 
-          {op.freeDetectionSituationCount > 0 && (
+          {op && op.freeDetectionSituationCount > 0 && (
             <div className="pt-3" style={{ borderTop: "1px solid rgba(139, 92, 246, 0.15)" }}>
               <div className="text-[13px] text-[var(--fg2)]">{op.freeDetectionSituationCount} situations detected — 0 handled.</div>
               <a href="/situations" className="text-[13px] text-accent hover:underline mt-1 inline-block">See what Qorpera found &rarr;</a>
@@ -2231,155 +2336,819 @@ function BillingTab() {
         </div>
       )}
 
-      {/* ── Active: Current Period Summary ── */}
-      {(isActive || isPastDue) && (
-        <>
-          <div className="wf-soft p-5">
-            <div className="text-[14px] font-semibold text-foreground mb-4">
-              Current Billing Period ({new Date(period.start).toLocaleDateString(undefined, { month: "short", day: "numeric" })} – {new Date(period.end).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })})
-            </div>
-            <div className="grid grid-cols-4 gap-3 mb-4">
-              {(["supervised", "notify", "autonomous"] as const).map((level) => {
-                const d = period.situationsByAutonomy[level] ?? { count: 0, totalCents: 0 };
-                const colors = { supervised: "text-info", notify: "text-warn", autonomous: "text-ok" };
-                const labels = { supervised: "Observe", notify: "Propose", autonomous: "Act" };
-                return (
-                  <div key={level} className="rounded-lg p-3 bg-hover border border-border">
-                    <div className={`text-[11px] font-medium ${colors[level]} mb-1`}>{labels[level]}</div>
-                    <div className="text-[18px] font-semibold text-foreground">{d.count}</div>
-                    <div className="text-[11px] text-[var(--fg3)]">{cents(d.totalCents)}</div>
-                  </div>
-                );
-              })}
-              <div className="rounded-lg p-3 bg-hover border border-border">
-                <div className="text-[11px] font-medium text-[var(--fg2)] mb-1">Total</div>
-                <div className="text-[18px] font-semibold text-foreground">{Object.values(period.situationsByAutonomy).reduce((s, a) => s + a.count, 0)}</div>
-                <div className="text-[11px] text-[var(--fg3)]">{cents(period.totalBilledCents)}</div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-6 text-[13px] text-[var(--fg2)] mb-3">
-              <span>Copilot: {period.copilotMessageCount} messages ({cents(period.copilotCostCents)})</span>
-              <span>Total: {cents(period.totalBilledCents + period.copilotCostCents)}</span>
-              <span className="text-[var(--fg3)]">Projected: ~{cents(period.projectedMonthEndCents)}</span>
-            </div>
-
-            {isDiscount && (
-              <div className="text-[12px] text-accent/70 bg-accent/[0.08] rounded-md px-3 py-2">
-                Month-1 learning discount active — you&apos;re paying {Math.round(op.orchestrationFeeMultiplier * 100)}% of standard rates.
-                {discountEndDate && <span className="text-[var(--fg3)]"> Standard rates apply from {discountEndDate}.</span>}
-              </div>
-            )}
-          </div>
-
-          {/* ── Department Breakdown ── */}
-          {usage.departments.length > 0 && (
-            <div className="wf-soft p-5">
-              <div className="text-[14px] font-semibold text-foreground mb-3">Usage by Department</div>
-              <table className="w-full text-[13px]">
-                <thead><tr className="text-[var(--fg3)] text-left"><th className="pb-2 font-medium">Department</th><th className="pb-2 font-medium text-right">Situations</th><th className="pb-2 font-medium text-right">Cost</th></tr></thead>
-                <tbody>
-                  {usage.departments.map((dept) => (
-                    <tr key={dept.name} className="border-t border-border">
-                      <td className="py-2 text-[var(--fg2)]">{dept.name}</td>
-                      <td className="py-2 text-right text-[var(--fg2)]">{dept.count}</td>
-                      <td className="py-2 text-right text-[var(--fg2)]">{cents(dept.totalCents)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {/* ── Orchestration Rates ── */}
+      {(isActive || isDepleted || isPastDue) && (
+        <div className="wf-soft p-5">
+          <div className="text-[14px] font-semibold text-foreground mb-3">Orchestration Rates</div>
+          <table className="w-full text-[13px]">
+            <thead><tr className="text-[var(--fg3)] text-left"><th className="pb-2 font-medium">Level</th><th className="pb-2 font-medium text-right">Rate</th></tr></thead>
+            <tbody className="text-[var(--fg2)]">
+              <tr className="border-t border-border"><td className="py-2">Observe</td><td className="py-2 text-right">{ratePercent(1.5, orchestrationMultiplier)}%</td></tr>
+              <tr className="border-t border-border"><td className="py-2">Propose</td><td className="py-2 text-right">{ratePercent(1.5, orchestrationMultiplier)}%</td></tr>
+              <tr className="border-t border-border"><td className="py-2">Act</td><td className="py-2 text-right">{ratePercent(3.0, orchestrationMultiplier)}%</td></tr>
+              <tr className="border-t border-border"><td className="py-2">Copilot</td><td className="py-2 text-right">{ratePercent(1.5, orchestrationMultiplier)}%</td></tr>
+            </tbody>
+          </table>
+          {isDiscount && op && (
+            <div className="mt-3 text-[12px] text-accent/70 bg-accent/[0.08] rounded-md px-3 py-2">
+              Learning discount active — {Math.round(op.orchestrationFeeMultiplier * 100)}% of standard rates.
+              {discountEndDate && <span className="text-[var(--fg3)]"> Standard rates from {discountEndDate}.</span>}
             </div>
           )}
+        </div>
+      )}
 
-          {/* ── Monthly Spend History ── */}
-          {usage.historicalMonths.length > 0 && (
-            <div className="wf-soft p-5">
-              <div className="text-[14px] font-semibold text-foreground mb-3">Monthly Spend History</div>
-              <BillingChart data={usage.historicalMonths} />
+      {/* ── Payment Method (admin) ── */}
+      {isAdmin && !isFree && (
+        <div className="wf-soft p-5">
+          <div className="text-[14px] font-semibold text-foreground mb-3">Payment Method</div>
+          {paymentMethod ? (
+            <div className="flex items-center justify-between">
+              <div className="text-[13px] text-[var(--fg2)]">{paymentMethod.brand.charAt(0).toUpperCase() + paymentMethod.brand.slice(1)} ending in {paymentMethod.last4} &middot; Expires {paymentMethod.expMonth}/{paymentMethod.expYear}</div>
+              <button onClick={handleSetupPaymentMethod} className="text-[12px] text-accent hover:underline">Update</button>
             </div>
-          )}
-
-          {/* ── Rate Table (if discount) ── */}
-          {isDiscount && (
-            <div className="wf-soft p-5">
-              <div className="text-[14px] font-semibold text-foreground mb-3">Orchestration Rates</div>
-              <table className="w-full text-[13px]">
-                <thead><tr className="text-[var(--fg3)] text-left"><th className="pb-2 font-medium">Level</th><th className="pb-2 font-medium text-right">Standard</th><th className="pb-2 font-medium text-right">Your Rate</th></tr></thead>
-                <tbody>
-                  {[{ level: "Observe", std: 100, mult: 1.0 }, { level: "Propose", std: 200, mult: 2.0 }, { level: "Act", std: 300, mult: 3.0 }].map((r) => (
-                    <tr key={r.level} className="border-t border-border">
-                      <td className="py-2 text-[var(--fg2)]">{r.level}</td>
-                      <td className="py-2 text-right text-[var(--fg3)]">{r.std}%</td>
-                      <td className="py-2 text-right text-accent">{Math.round(r.mult * op.orchestrationFeeMultiplier * 100)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* ── Payment Method ── */}
-          <div className="wf-soft p-5">
-            <div className="text-[14px] font-semibold text-foreground mb-3">Payment Method</div>
-            {paymentMethod ? (
-              <div className="flex items-center justify-between">
-                <div className="text-[13px] text-[var(--fg2)]">{paymentMethod.brand.charAt(0).toUpperCase() + paymentMethod.brand.slice(1)} ending in {paymentMethod.last4} &middot; Expires {paymentMethod.expMonth}/{paymentMethod.expYear}</div>
-                {isAdmin && <button onClick={handleUpdatePayment} className="text-[12px] text-accent hover:underline">Update</button>}
-              </div>
-            ) : (
+          ) : (
+            <div className="flex items-center justify-between">
               <div className="text-[13px] text-[var(--fg3)]">No payment method on file</div>
-            )}
+              <button onClick={handleSetupPaymentMethod} className="text-[12px] text-accent hover:underline">Add card</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Auto-Reload (admin) ── */}
+      {isAdmin && !isFree && (
+        <div className="wf-soft p-5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[14px] font-semibold text-foreground">Auto-Reload</div>
+            <button
+              onClick={() => handleToggleAutoReload(!balance.autoReloadEnabled)}
+              disabled={autoReloadSaving || (!balance.hasPaymentMethod && !balance.autoReloadEnabled)}
+              className={`relative w-10 h-5 rounded-full transition-colors ${balance.autoReloadEnabled ? "bg-accent" : "bg-skeleton"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${balance.autoReloadEnabled ? "translate-x-5" : ""}`} />
+            </button>
+          </div>
+          <div className="text-[13px] text-[var(--fg2)]">
+            When balance drops below {cents(balance.autoReloadThresholdCents)}, automatically add {cents(balance.autoReloadAmountCents)}.
+          </div>
+          {!balance.hasPaymentMethod && (
+            <div className="text-[12px] text-[var(--fg3)] mt-1">Add a payment method to enable auto-reload.</div>
+          )}
+        </div>
+      )}
+
+      {/* ── Transaction History (admin) ── */}
+      {isAdmin && transactions.length > 0 && (
+        <div className="wf-soft p-5">
+          <div className="text-[14px] font-semibold text-foreground mb-3">Transaction History</div>
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="text-[var(--fg3)] text-left">
+                <th className="pb-2 font-medium">Date</th>
+                <th className="pb-2 font-medium">Description</th>
+                <th className="pb-2 font-medium text-right">Amount</th>
+                <th className="pb-2 font-medium text-right">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((tx) => (
+                <tr key={tx.id} className="border-t border-border">
+                  <td className="py-2 text-[var(--fg3)]">{new Date(tx.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</td>
+                  <td className="py-2 text-[var(--fg2)]">{tx.description || tx.type}</td>
+                  <td className={`py-2 text-right ${tx.amountCents >= 0 ? "text-ok" : "text-danger"}`}>
+                    {tx.amountCents >= 0 ? "+" : ""}{cents(tx.amountCents)}
+                  </td>
+                  <td className="py-2 text-right text-[var(--fg3)]">{cents(tx.balanceAfter)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Add Credits Modal ── */}
+      {showAddCredits && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+          <div className="wf-soft p-6 w-[420px] space-y-4" style={{ background: "var(--elevated)" }}>
+            <div className="flex items-center justify-between">
+              <div className="text-[16px] font-semibold text-foreground">Add Credits</div>
+              <button onClick={() => setShowAddCredits(false)} className="text-[var(--fg3)] hover:text-foreground text-lg">&times;</button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {CREDIT_PRESETS.map((p) => (
+                <button
+                  key={p.cents}
+                  onClick={() => handleAddCredits(p.cents)}
+                  disabled={adding}
+                  className="rounded-lg p-4 text-center border border-border bg-hover hover:border-accent transition-colors"
+                >
+                  <div className="text-[20px] font-semibold text-foreground">{p.label}</div>
+                </button>
+              ))}
+            </div>
+
+            <div className="pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+              <div className="text-[13px] text-[var(--fg2)] mb-2">Custom amount ($5 minimum)</div>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="5"
+                  step="1"
+                  placeholder="e.g. 15"
+                  value={customAmount}
+                  onChange={(e) => setCustomAmount(e.target.value)}
+                  className="flex-1 rounded-lg px-3 py-2 text-[13px] bg-hover border border-border text-foreground"
+                />
+                <button
+                  onClick={() => {
+                    const val = Math.round(parseFloat(customAmount) * 100);
+                    if (val >= 500) handleAddCredits(val);
+                  }}
+                  disabled={adding || !customAmount || parseFloat(customAmount) < 5}
+                  className="rounded-lg text-[13px] font-medium px-5 py-2 disabled:opacity-50"
+                  style={{ background: "#8b5cf6", color: "#fff" }}
+                >
+                  {adding ? "..." : "Add"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Connections Tab ──────────────────────────────────────────────────────────
+
+const CATEGORY_ORDER = ["productivity", "communication", "crm", "finance", "marketing", "ecommerce", "support"];
+const CATEGORY_LABELS: Record<string, string> = {
+  productivity: "Productivity",
+  communication: "Communication",
+  crm: "CRM",
+  finance: "Finance",
+  marketing: "Marketing",
+  ecommerce: "E-commerce",
+  support: "Support",
+};
+const TIER1_PROVIDERS = new Set(["google", "microsoft"]);
+
+type SheetEntry2 = { id: string; name: string; selected: boolean };
+type ChannelMapping2 = { id: string; channelId: string; channelName: string; departmentId: string; department: { id: string; displayName: string } };
+type SlackChannel2 = { id: string; name: string; is_private: boolean };
+type TeamDept2 = { id: string; displayName: string };
+
+function ConnectionsTab({
+  connectors, providers, loadConnectors, syncingAll, setSyncingAll, syncAllResult, setSyncAllResult,
+  expandedConnector, setExpandedConnector, sheetsByConnector, setSheetsByConnector,
+  savingSheets, setSavingSheets, manualSheetUrl, setManualSheetUrl,
+  slackMappingExpanded, setSlackMappingExpanded, slackMappings, setSlackMappings,
+  slackChannels, setSlackChannels, addingMapping, setAddingMapping, teamDepts, setTeamDepts,
+}: {
+  connectors: ConnectorItem[];
+  providers: ProviderInfo[];
+  loadConnectors: () => void;
+  syncingAll: boolean;
+  setSyncingAll: (v: boolean) => void;
+  syncAllResult: { synced: Array<{ name: string; status: string }>; errors: Array<{ name: string; error: string }> } | null;
+  setSyncAllResult: (v: { synced: Array<{ name: string; status: string }>; errors: Array<{ name: string; error: string }> } | null) => void;
+  expandedConnector: string | null;
+  setExpandedConnector: (v: string | null) => void;
+  sheetsByConnector: Record<string, SheetEntry2[]>;
+  setSheetsByConnector: (fn: (prev: Record<string, SheetEntry2[]>) => Record<string, SheetEntry2[]>) => void;
+  savingSheets: string | null;
+  setSavingSheets: (v: string | null) => void;
+  manualSheetUrl: string;
+  setManualSheetUrl: (v: string) => void;
+  slackMappingExpanded: string | null;
+  setSlackMappingExpanded: (v: string | null) => void;
+  slackMappings: Record<string, ChannelMapping2[]>;
+  setSlackMappings: (fn: (prev: Record<string, ChannelMapping2[]>) => Record<string, ChannelMapping2[]>) => void;
+  slackChannels: Record<string, SlackChannel2[]>;
+  setSlackChannels: (fn: (prev: Record<string, SlackChannel2[]>) => Record<string, SlackChannel2[]>) => void;
+  addingMapping: { connectorId: string; channelId: string; channelName: string; departmentId: string } | null;
+  setAddingMapping: (v: { connectorId: string; channelId: string; channelName: string; departmentId: string } | null) => void;
+  teamDepts: TeamDept2[];
+  setTeamDepts: (v: TeamDept2[]) => void;
+}) {
+  const t = useTranslations("settings");
+  const locale = useLocale();
+  const { toast } = useToast();
+  const { isAdmin } = useUser();
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  const connectedProviderIds = new Set(connectors.map((c) => c.provider));
+  const unconnectedProviders = providers.filter((p) => !connectedProviderIds.has(p.id));
+
+  // Group unconnected providers by category
+  const grouped = CATEGORY_ORDER.reduce<Record<string, ProviderInfo[]>>((acc, cat) => {
+    const items = unconnectedProviders.filter((p) => p.category === cat);
+    if (items.length > 0) acc[cat] = items;
+    return acc;
+  }, {});
+
+  const handleReconnect = async (connectorId: string) => {
+    try {
+      const res = await fetch(`/api/connectors/${connectorId}/reconnect`, { method: "POST" });
+      const data = await res.json();
+      if (data.authUrl) {
+        window.location.href = data.authUrl;
+      } else if (data.requiresConfig) {
+        toast("This connector requires manual configuration.", "info");
+      }
+    } catch {
+      toast("Failed to reconnect.", "error");
+    }
+  };
+
+  const handleSync = async (connectorId: string) => {
+    setSyncingId(connectorId);
+    try {
+      await fetch(`/api/connectors/${connectorId}/sync`, { method: "POST" });
+      toast("Sync started.", "success");
+      setTimeout(loadConnectors, 2000);
+    } catch {
+      toast("Sync failed.", "error");
+    }
+    setSyncingId(null);
+  };
+
+  const handleRemove = async (connectorId: string, name: string) => {
+    if (!confirm(`Remove ${name}? Historical data will be preserved.`)) return;
+    try {
+      const res = await fetch(`/api/connectors/${connectorId}`, { method: "DELETE" });
+      if (res.ok) {
+        toast("Connection removed.", "success");
+        loadConnectors();
+      } else {
+        toast("Failed to remove connection.", "error");
+      }
+    } catch {
+      toast("Failed to remove connection.", "error");
+    }
+  };
+
+  const handleConnect = (providerId: string) => {
+    const authRoutes: Record<string, string> = {
+      google: "/api/connectors/google/auth",
+      "google-sheets": "/api/connectors/google/auth",
+      "google-ads": "/api/connectors/google-ads/auth",
+      microsoft: "/api/connectors/microsoft/auth",
+      slack: "/api/connectors/slack/auth-url",
+      hubspot: "/api/connectors/hubspot/auth-url",
+      stripe: "/api/connectors/stripe/auth-url",
+      linkedin: "/api/connectors/linkedin/auth-url",
+      "meta-ads": "/api/connectors/meta-ads/auth-url",
+      shopify: "/api/connectors/shopify/auth-url",
+    };
+    const authRoute = authRoutes[providerId];
+    if (authRoute) {
+      window.location.href = authRoute;
+    } else {
+      toast("This integration isn\u2019t available for self-service connection yet.", "info");
+    }
+  };
+
+  const isAuthError = (lastError: string | null | undefined) => {
+    if (!lastError) return false;
+    const lower = lastError.toLowerCase();
+    return lower.includes("401") || lower.includes("403") || lower.includes("unauthorized") || lower.includes("forbidden");
+  };
+
+  const healthBorderColor = (healthStatus: string | undefined) => {
+    if (healthStatus === "error" || healthStatus === "disconnected") return "border-red-500/30";
+    if (healthStatus === "degraded") return "border-amber-500/30";
+    return "border-border";
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* ── Section 1: Your Connections ── */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[15px] font-semibold text-foreground">Your Connections</h2>
+          {connectors.length > 0 && (
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={syncingAll}
+              onClick={async () => {
+                setSyncingAll(true);
+                setSyncAllResult(null);
+                try {
+                  const res = await fetch("/api/connectors/sync-all", { method: "POST" });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setSyncAllResult({
+                      synced: (data.synced || []).map((s: { name: string; status: string }) => ({ name: s.name, status: s.status })),
+                      errors: (data.errors || []).map((e: { name: string; error: string }) => ({ name: e.name, error: e.error })),
+                    });
+                    loadConnectors();
+                  }
+                } catch { /* ignore */ }
+                setSyncingAll(false);
+              }}
+            >
+              {syncingAll ? "Syncing..." : "Sync All"}
+            </Button>
+          )}
+        </div>
+
+        {syncAllResult && (
+          <div className="bg-hover rounded-lg px-4 py-3 space-y-1">
+            <p className="text-xs text-[var(--fg2)]">
+              Synced {syncAllResult.synced.length} connector{syncAllResult.synced.length !== 1 ? "s" : ""}.
+              {syncAllResult.errors.length > 0 && (
+                <span className="text-danger"> {syncAllResult.errors.length} error{syncAllResult.errors.length !== 1 ? "s" : ""}.</span>
+              )}
+            </p>
+          </div>
+        )}
+
+        {connectors.length === 0 && (
+          <div className="wf-soft p-5 text-center">
+            <p className="text-sm text-[var(--fg3)]">No connections yet. Connect your tools below.</p>
+          </div>
+        )}
+
+        {connectors.map((c) => {
+          const isDisconnected = c.healthStatus === "disconnected";
+          const isError = c.healthStatus === "error";
+          const isDegraded = c.healthStatus === "degraded";
+          const isHealthy = c.healthStatus === "healthy";
+          const authRelated = isError && isAuthError(c.lastError);
+          const isGoogleSheets = c.provider === "google-sheets";
+          const sheetCount = c.spreadsheetCount || 0;
+          const isExpanded = expandedConnector === c.id;
+          const sheets = sheetsByConnector[c.id] || [];
+
+          return (
+            <div
+              key={c.id}
+              className={`wf-soft p-4 space-y-3 border ${healthBorderColor(c.healthStatus)}`}
+            >
+              {/* Card header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <ConnectorLogo provider={c.provider} size={24} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">
+                        {isGoogleSheets && sheetCount > 0
+                          ? `Google Sheets — ${sheetCount} spreadsheet${sheetCount !== 1 ? "s" : ""}`
+                          : c.name || c.providerName}
+                      </span>
+                      <span className={`w-2 h-2 rounded-full ${
+                        isHealthy ? "bg-emerald-400"
+                        : isDegraded ? "bg-amber-400"
+                        : isError || isDisconnected ? "bg-red-400"
+                        : "bg-[var(--fg3)]"
+                      }`} />
+                    </div>
+                    <div className="text-[12px] text-[var(--fg3)]">
+                      {c.providerName}
+                      {c.lastSyncAt && <> &middot; {t("connections.lastSynced", { time: formatRelativeTime(c.lastSyncAt, locale) })}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isHealthy && (
+                    <button
+                      onClick={() => handleSync(c.id)}
+                      disabled={syncingId === c.id}
+                      className="text-[12px] text-accent hover:underline"
+                    >
+                      {syncingId === c.id ? "Syncing..." : "Sync"}
+                    </button>
+                  )}
+                  {isGoogleSheets && (
+                    <button
+                      className="text-[12px] text-accent hover:underline"
+                      onClick={async () => {
+                        if (isExpanded) { setExpandedConnector(null); return; }
+                        setExpandedConnector(c.id);
+                        if (!sheetsByConnector[c.id]) {
+                          const res = await fetch(`/api/connectors/${c.id}`);
+                          if (res.ok) {
+                            const data = await res.json();
+                            setSheetsByConnector(prev => ({ ...prev, [c.id]: (data.config?.spreadsheets || []) as SheetEntry2[] }));
+                          }
+                        }
+                      }}
+                    >
+                      {isExpanded ? "Close" : "Manage Sheets"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleRemove(c.id, c.name || c.providerName)}
+                    className="text-[12px] text-danger/60 hover:text-danger hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Error state: disconnected ── */}
+              {isDisconnected && (
+                <div className="rounded-lg p-3 space-y-2" style={{ background: "rgba(239, 68, 68, 0.05)" }}>
+                  <p className="text-[13px] text-danger font-medium">Connection lost — your authorization has expired.</p>
+                  <p className="text-[12px] text-[var(--fg2)]">Reconnect to re-authorize Qorpera&apos;s access to {c.providerName}.</p>
+                  {isAdmin && (
+                    <button onClick={() => handleReconnect(c.id)} className="rounded-lg text-[12px] font-medium px-4 py-1.5 bg-danger text-white">
+                      Reconnect
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* ── Error state: sync failing ── */}
+              {isError && !isDisconnected && (
+                <div className="rounded-lg p-3 space-y-2" style={{ background: "rgba(239, 68, 68, 0.05)" }}>
+                  <p className="text-[13px] text-danger font-medium">
+                    Sync failing{c.lastError ? ` — ${c.lastError.length > 80 ? c.lastError.slice(0, 80) + "..." : c.lastError}` : ""}
+                  </p>
+                  <p className="text-[12px] text-[var(--fg2)]">
+                    {authRelated
+                      ? "This looks like an authorization issue. Reconnect to re-authorize access."
+                      : `This usually means a temporary issue with ${c.providerName}. Try syncing again.`}
+                  </p>
+                  {isAdmin && (
+                    <div className="flex items-center gap-3">
+                      {authRelated ? (
+                        <>
+                          <button onClick={() => handleReconnect(c.id)} className="rounded-lg text-[12px] font-medium px-4 py-1.5 bg-danger text-white">Reconnect</button>
+                          <button onClick={() => handleSync(c.id)} disabled={syncingId === c.id} className="text-[12px] text-[var(--fg2)] hover:underline">Retry Sync</button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => handleSync(c.id)} disabled={syncingId === c.id} className="rounded-lg text-[12px] font-medium px-4 py-1.5 bg-danger text-white">
+                            {syncingId === c.id ? "Retrying..." : "Retry Sync"}
+                          </button>
+                          <button onClick={() => handleReconnect(c.id)} className="text-[12px] text-[var(--fg2)] hover:underline">Reconnect</button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Degraded state ── */}
+              {isDegraded && (
+                <div className="rounded-lg p-3 space-y-2" style={{ background: "rgba(245, 158, 11, 0.05)" }}>
+                  <p className="text-[13px] text-warn font-medium">Experiencing sync issues — retrying automatically.</p>
+                  <p className="text-[12px] text-[var(--fg2)]">If this persists, try a manual sync or reconnect.</p>
+                  {isAdmin && (
+                    <button onClick={() => handleSync(c.id)} disabled={syncingId === c.id} className="text-[12px] text-accent hover:underline">
+                      {syncingId === c.id ? "Syncing..." : "Sync Now"}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* ── Slack channel mapping ── */}
+              {c.provider === "slack" && (isHealthy || isDegraded) && (
+                <SlackMappingPanel
+                  connectorId={c.id}
+                  slackMappingExpanded={slackMappingExpanded}
+                  setSlackMappingExpanded={setSlackMappingExpanded}
+                  slackMappings={slackMappings}
+                  setSlackMappings={setSlackMappings}
+                  slackChannels={slackChannels}
+                  setSlackChannels={setSlackChannels}
+                  addingMapping={addingMapping}
+                  setAddingMapping={setAddingMapping}
+                  teamDepts={teamDepts}
+                  setTeamDepts={setTeamDepts}
+                />
+              )}
+
+              {/* ── Google Sheets picker ── */}
+              {isGoogleSheets && isExpanded && (
+                <GoogleSheetsPanel
+                  connectorId={c.id}
+                  sheets={sheets}
+                  sheetsByConnector={sheetsByConnector}
+                  setSheetsByConnector={setSheetsByConnector}
+                  savingSheets={savingSheets}
+                  setSavingSheets={setSavingSheets}
+                  manualSheetUrl={manualSheetUrl}
+                  setManualSheetUrl={setManualSheetUrl}
+                  loadConnectors={loadConnectors}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Section 2: Available Integrations ── */}
+      {Object.keys(grouped).length > 0 && (
+        <div className="space-y-5">
+          <div className="pt-4" style={{ borderTop: "1px solid var(--border)" }}>
+            <h2 className="text-[15px] font-semibold text-foreground">Available Integrations</h2>
+            <p className="text-[12px] text-[var(--fg3)] mt-1">Connect your business tools to give Qorpera visibility across your organization.</p>
           </div>
 
-          {/* ── Invoices ── */}
-          {invoices.length > 0 && (
-            <div className="wf-soft p-5">
-              <div className="text-[14px] font-semibold text-foreground mb-3">Invoices</div>
-              <div className="space-y-0">
-                {invoices.map((inv) => {
-                  const statusColor = inv.status === "paid" ? "text-ok bg-[color-mix(in_srgb,var(--ok)_12%,transparent)]" : inv.status === "open" ? "text-warn bg-[color-mix(in_srgb,var(--warn)_12%,transparent)]" : "text-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]";
+          {CATEGORY_ORDER.filter((cat) => grouped[cat]).map((cat) => (
+            <div key={cat} className="space-y-3">
+              <h3 className="text-[13px] font-medium text-[var(--fg2)]">{CATEGORY_LABELS[cat]}</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {grouped[cat].map((p) => {
+                  const isTier1 = TIER1_PROVIDERS.has(p.id);
                   return (
-                    <div key={inv.id} className="flex items-center justify-between py-2 border-t border-border first:border-0 text-[13px]">
-                      <span className="text-[var(--fg2)]">{new Date(inv.date * 1000).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</span>
-                      <span className="text-[var(--fg2)]">{cents(inv.amount)}</span>
-                      <span className={`text-[11px] px-2 py-0.5 rounded-full ${statusColor}`}>{inv.status ?? "unknown"}</span>
-                      <div className="flex gap-2">
-                        {inv.hostedUrl && <a href={inv.hostedUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-accent hover:underline">View</a>}
-                        {inv.pdfUrl && <a href={inv.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-[var(--fg3)] hover:underline">PDF</a>}
+                    <div
+                      key={p.id}
+                      className={`wf-soft p-4 flex items-start gap-3 ${!p.configured ? "opacity-60" : ""} ${isTier1 ? "lg:col-span-2 border-accent/20" : ""}`}
+                    >
+                      <div className="mt-0.5 shrink-0">
+                        <ConnectorLogo provider={p.id} size={28} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[14px] font-medium text-foreground">{p.name}</span>
+                          {isTier1 && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">Recommended</span>}
+                        </div>
+                        <p className="text-[12px] text-[var(--fg2)] mt-0.5">{p.description}</p>
+                        {p.scopes.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {p.scopes.map((s) => (
+                              <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-hover text-[var(--fg3)]">{s}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="shrink-0">
+                        {p.configured ? (
+                          <button
+                            onClick={() => handleConnect(p.id)}
+                            className="rounded-lg text-[12px] font-medium px-4 py-1.5"
+                            style={{ background: "#8b5cf6", color: "#fff" }}
+                          >
+                            Connect
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-[var(--fg3)]">Requires configuration</span>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
             </div>
-          )}
-        </>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-function BillingChart({ data }: { data: Array<{ month: string; supervised: number; notify: number; autonomous: number }> }) {
-  const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } = require("recharts");
-  const chartData = data.map((d) => ({
-    month: d.month.replace(/^\d{4}-0?/, "").replace("1", "Jan").replace("2", "Feb").replace("3", "Mar").replace("4", "Apr").replace("5", "May").replace("6", "Jun").replace("7", "Jul").replace("8", "Aug").replace("9", "Sep"),
-    Observe: d.supervised / 100,
-    Propose: d.notify / 100,
-    Act: d.autonomous / 100,
-  }));
+// ── Sub-panels extracted for readability ──────────────────────────────────────
+
+function SlackMappingPanel({
+  connectorId, slackMappingExpanded, setSlackMappingExpanded,
+  slackMappings, setSlackMappings, slackChannels, setSlackChannels,
+  addingMapping, setAddingMapping, teamDepts, setTeamDepts,
+}: {
+  connectorId: string;
+  slackMappingExpanded: string | null;
+  setSlackMappingExpanded: (v: string | null) => void;
+  slackMappings: Record<string, ChannelMapping2[]>;
+  setSlackMappings: (fn: (prev: Record<string, ChannelMapping2[]>) => Record<string, ChannelMapping2[]>) => void;
+  slackChannels: Record<string, SlackChannel2[]>;
+  setSlackChannels: (fn: (prev: Record<string, SlackChannel2[]>) => Record<string, SlackChannel2[]>) => void;
+  addingMapping: { connectorId: string; channelId: string; channelName: string; departmentId: string } | null;
+  setAddingMapping: (v: { connectorId: string; channelId: string; channelName: string; departmentId: string } | null) => void;
+  teamDepts: TeamDept2[];
+  setTeamDepts: (v: TeamDept2[]) => void;
+}) {
+  const t = useTranslations("settings");
+  const isExpanded = slackMappingExpanded === connectorId;
 
   return (
-    <div style={{ width: "100%", height: 200 }}>
-      <ResponsiveContainer>
-        <BarChart data={chartData}>
-          <XAxis dataKey="month" tick={{ fill: "var(--fg3)", fontSize: 11 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: "var(--fg3)", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `$${v}`} />
-          <Tooltip contentStyle={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, color: "var(--fg2)" }} />
-          <Bar dataKey="Observe" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
-          <Bar dataKey="Propose" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
-          <Bar dataKey="Act" stackId="a" fill="#22c55e" radius={[2, 2, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
+    <div>
+      <button
+        className="flex items-center gap-1.5 text-xs transition-colors hover:text-[var(--fg2)]"
+        style={{ color: "#585858" }}
+        onClick={async () => {
+          if (isExpanded) { setSlackMappingExpanded(null); return; }
+          setSlackMappingExpanded(connectorId);
+          if (!slackMappings[connectorId]) {
+            try {
+              const res = await fetch(`/api/connectors/${connectorId}/channel-mappings`);
+              if (res.ok) {
+                const data = await res.json();
+                setSlackMappings(prev => ({ ...prev, [connectorId]: data.mappings || [] }));
+                setSlackChannels(prev => ({ ...prev, [connectorId]: data.availableChannels || [] }));
+              }
+            } catch { /* ignore */ }
+          }
+          if (teamDepts.length === 0) {
+            try {
+              const dRes = await fetch("/api/departments");
+              if (dRes.ok) {
+                const dData = await dRes.json();
+                setTeamDepts((dData || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
+              }
+            } catch { /* ignore */ }
+          }
+        }}
+      >
+        <svg className={`w-3 h-3 transition-transform ${isExpanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        {t("connections.channelMapping")}
+      </button>
+      {isExpanded && (
+        <div className="mt-2 bg-hover rounded-lg p-4 space-y-3 border border-border">
+          <p className="text-xs text-[var(--fg2)]">{t("connections.channelMappingHint")}</p>
+          {(slackMappings[connectorId] || []).length === 0 && !addingMapping && (
+            <p className="text-xs text-[var(--fg3)] italic">{t("connections.noChannelsMapped")}</p>
+          )}
+          <div className="space-y-1.5">
+            {(slackMappings[connectorId] || []).map((m) => (
+              <div key={m.channelId} className="flex items-center gap-2 py-1">
+                <span className="text-sm text-[var(--fg2)] font-medium" style={{ minWidth: 120 }}>#{m.channelName}</span>
+                <span className="text-xs text-[var(--fg3)]">&rarr;</span>
+                <span className="text-sm text-[var(--fg2)] flex-1">{m.department.displayName}</span>
+                <button
+                  className="text-xs text-danger/60 hover:text-danger transition-colors"
+                  onClick={async () => {
+                    const res = await fetch(`/api/connectors/${connectorId}/channel-mappings`, {
+                      method: "DELETE",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ channelId: m.channelId }),
+                    });
+                    if (res.ok) {
+                      setSlackMappings(prev => ({
+                        ...prev,
+                        [connectorId]: (prev[connectorId] || []).filter(x => x.channelId !== m.channelId),
+                      }));
+                    }
+                  }}
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+          {addingMapping?.connectorId === connectorId ? (
+            <div className="flex items-center gap-2">
+              <select
+                className="flex-1 bg-hover border border-border rounded px-2 py-1.5 text-sm text-foreground"
+                value={addingMapping.channelId}
+                onChange={(e) => {
+                  const ch = (slackChannels[connectorId] || []).find(x => x.id === e.target.value);
+                  setAddingMapping({ ...addingMapping, channelId: e.target.value, channelName: ch?.name || "" });
+                }}
+              >
+                <option value="">{t("connections.selectChannel")}</option>
+                {(slackChannels[connectorId] || [])
+                  .filter(ch => !(slackMappings[connectorId] || []).some(m => m.channelId === ch.id))
+                  .map(ch => (<option key={ch.id} value={ch.id}>#{ch.name}</option>))}
+              </select>
+              <span className="text-xs text-[var(--fg3)]">&rarr;</span>
+              <select
+                className="flex-1 bg-hover border border-border rounded px-2 py-1.5 text-sm text-foreground"
+                value={addingMapping.departmentId}
+                onChange={(e) => setAddingMapping({ ...addingMapping, departmentId: e.target.value })}
+              >
+                <option value="">{t("connections.selectDepartment")}</option>
+                {teamDepts.map(d => (<option key={d.id} value={d.id}>{d.displayName}</option>))}
+              </select>
+              <button
+                className="text-xs font-medium px-2.5 py-1.5 rounded bg-accent text-white disabled:opacity-40"
+                disabled={!addingMapping.channelId || !addingMapping.departmentId}
+                onClick={async () => {
+                  const res = await fetch(`/api/connectors/${connectorId}/channel-mappings`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ channelId: addingMapping.channelId, channelName: addingMapping.channelName, departmentId: addingMapping.departmentId }),
+                  });
+                  if (res.ok) {
+                    const created = await res.json();
+                    setSlackMappings(prev => ({ ...prev, [connectorId]: [...(prev[connectorId] || []), created] }));
+                    setAddingMapping(null);
+                  }
+                }}
+              >
+                {t("connections.save")}
+              </button>
+              <button className="text-xs text-[var(--fg2)]" onClick={() => setAddingMapping(null)}>{t("connections.cancel")}</button>
+            </div>
+          ) : (
+            <button
+              className="text-xs text-accent hover:text-accent"
+              onClick={() => setAddingMapping({ connectorId, channelId: "", channelName: "", departmentId: "" })}
+            >
+              + {t("connections.addChannelMapping")}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GoogleSheetsPanel({
+  connectorId, sheets, sheetsByConnector, setSheetsByConnector,
+  savingSheets, setSavingSheets, manualSheetUrl, setManualSheetUrl, loadConnectors,
+}: {
+  connectorId: string;
+  sheets: SheetEntry2[];
+  sheetsByConnector: Record<string, SheetEntry2[]>;
+  setSheetsByConnector: (fn: (prev: Record<string, SheetEntry2[]>) => Record<string, SheetEntry2[]>) => void;
+  savingSheets: string | null;
+  setSavingSheets: (v: string | null) => void;
+  manualSheetUrl: string;
+  setManualSheetUrl: (v: string) => void;
+  loadConnectors: () => void;
+}) {
+  const { toast } = useToast();
+
+  return (
+    <div className="bg-hover rounded-lg p-4 space-y-3 border border-border">
+      {sheets.length > 0 ? (
+        <>
+          <p className="text-xs text-[var(--fg2)]">{sheets.length} spreadsheet{sheets.length !== 1 ? "s" : ""} found from the last 30 days</p>
+          <div className="space-y-1.5 max-h-60 overflow-y-auto">
+            {sheets.map((sheet) => (
+              <label key={sheet.id} className="flex items-center gap-2.5 py-1 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={sheet.selected}
+                  onChange={() => {
+                    setSheetsByConnector(prev => ({
+                      ...prev,
+                      [connectorId]: (prev[connectorId] || []).map(s => s.id === sheet.id ? { ...s, selected: !s.selected } : s),
+                    }));
+                  }}
+                  className="rounded border-border-strong bg-hover text-accent"
+                />
+                <span className="text-sm text-[var(--fg2)] group-hover:text-foreground transition truncate">{sheet.name}</span>
+                <span className="text-[10px] text-[var(--fg3)] ml-auto shrink-0 font-mono">{sheet.id.slice(0, 12)}...</span>
+              </label>
+            ))}
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={savingSheets === connectorId}
+            onClick={async () => {
+              setSavingSheets(connectorId);
+              try {
+                await fetch(`/api/connectors/${connectorId}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ spreadsheets: sheetsByConnector[connectorId] }),
+                });
+                toast("Spreadsheet selection saved", "success");
+                loadConnectors();
+              } catch { toast("Failed to save", "error"); }
+              setSavingSheets(null);
+            }}
+          >
+            {savingSheets === connectorId ? "Saving..." : `Save (${(sheetsByConnector[connectorId] || []).filter(s => s.selected).length} selected)`}
+          </Button>
+        </>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-[var(--fg2)]">No recently modified spreadsheets found. Add one manually:</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={manualSheetUrl}
+              onChange={(e) => setManualSheetUrl(e.target.value)}
+              placeholder="Paste Google Sheets URL or ID"
+              className="flex-1 bg-hover border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-[var(--fg3)]"
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!manualSheetUrl.trim() || savingSheets === connectorId}
+              onClick={async () => {
+                setSavingSheets(connectorId);
+                const idMatch = manualSheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                const sheetId = idMatch ? idMatch[1] : manualSheetUrl.trim();
+                try {
+                  await fetch(`/api/connectors/${connectorId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ spreadsheet_ids: [sheetId], spreadsheets: [{ id: sheetId, name: "Manual", selected: true }] }),
+                  });
+                  toast("Spreadsheet added", "success");
+                  setManualSheetUrl("");
+                  loadConnectors();
+                } catch { toast("Failed", "error"); }
+                setSavingSheets(null);
+              }}
+            >
+              Add
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
