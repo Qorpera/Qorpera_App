@@ -306,15 +306,15 @@ export default function GovernancePage() {
             ) : (
               <>
                 {/* Progress bar */}
-                <div className="flex rounded overflow-hidden h-3 mb-4 bg-elevated">
+                <div className="flex rounded-full overflow-hidden h-4 mb-4 bg-elevated border border-border">
                   {supervisedCount > 0 && (
-                    <div className="bg-hover" style={{ flex: supervisedCount }} />
+                    <div className="bg-[color-mix(in_srgb,var(--fg2)_20%,transparent)]" style={{ flex: supervisedCount }} />
                   )}
                   {notifyCount > 0 && (
-                    <div className="bg-[rgba(245,158,11,0.25)]" style={{ flex: notifyCount }} />
+                    <div className="bg-[color-mix(in_srgb,var(--warn)_40%,transparent)]" style={{ flex: notifyCount }} />
                   )}
                   {autonomousCount > 0 && (
-                    <div className="bg-[rgba(34,197,94,0.25)]" style={{ flex: autonomousCount }} />
+                    <div className="bg-[color-mix(in_srgb,var(--ok)_40%,transparent)]" style={{ flex: autonomousCount }} />
                   )}
                 </div>
 
@@ -374,7 +374,7 @@ export default function GovernancePage() {
               <div className="space-y-1.5">
                 {policies.map(policy => {
                   const effectLabel = policy.effect === "REQUIRE_APPROVAL" ? "Approval" : policy.effect === "DENY" ? "Block" : "Allow";
-                  const effectVariant = policy.effect === "REQUIRE_APPROVAL" ? "amber" : policy.effect === "DENY" ? "red" : "green";
+                  const effectVariant = policy.effect === "REQUIRE_APPROVAL" ? "blue" : policy.effect === "DENY" ? "red" : "green";
                   const isExpanded = expandedPolicies.has(policy.id);
                   return (
                     <div
@@ -392,7 +392,7 @@ export default function GovernancePage() {
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
-                        <Badge variant={effectVariant as "amber" | "red" | "green"}>{effectLabel}</Badge>
+                        <Badge variant={effectVariant as "blue" | "red" | "green"}>{effectLabel}</Badge>
                         <div className="flex-1 min-w-0">
                           <span className="text-[13px] font-medium text-foreground">{policy.name}</span>
                         </div>
@@ -517,8 +517,8 @@ export default function GovernancePage() {
                               st.autonomyLevel === "supervised"
                                 ? "bg-[var(--elevated)] text-[var(--fg2)]"
                                 : st.autonomyLevel === "notify"
-                                  ? "bg-[rgba(245,158,11,0.15)] text-warn"
-                                  : "bg-[rgba(34,197,94,0.15)] text-ok"
+                                  ? "bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] text-warn"
+                                  : "bg-[color-mix(in_srgb,var(--ok)_15%,transparent)] text-ok"
                             }`}
                           >
                             {levelLabel}
@@ -993,9 +993,9 @@ function GoalsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: strin
                     <span
                       className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
                         goal.status === "achieved"
-                          ? "bg-[rgba(34,197,94,0.1)] text-ok"
+                          ? "bg-[color-mix(in_srgb,var(--ok)_10%,transparent)] text-ok"
                           : goal.status === "paused"
-                            ? "bg-[rgba(245,158,11,0.1)] text-warn"
+                            ? "bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] text-warn"
                             : "bg-[var(--accent-light)] text-accent"
                       }`}
                     >

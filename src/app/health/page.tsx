@@ -313,29 +313,29 @@ export default function HealthPage() {
                     onClick={() => router.push(zero ? "/governance" : "/situations")}
                     className={`w-full flex items-center justify-between px-5 py-3 text-left transition group ${
                       zero
-                        ? "bg-[#FEF3E2] hover:bg-[#FDE9CC]"
+                        ? "bg-[color-mix(in_srgb,var(--warn)_8%,transparent)] hover:bg-[color-mix(in_srgb,var(--warn)_14%,transparent)]"
                         : "hover:bg-hover"
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
                       {zero ? (
-                        <div className="w-6 h-6 rounded-full bg-[#F59E0B] flex items-center justify-center flex-shrink-0">
+                        <div className="w-6 h-6 rounded-full bg-warn flex items-center justify-center flex-shrink-0">
                           <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008z" /></svg>
                         </div>
                       ) : (
-                        <div className="w-6 h-6 rounded-full bg-[#16A34A] flex items-center justify-center flex-shrink-0">
+                        <div className="w-6 h-6 rounded-full bg-ok flex items-center justify-center flex-shrink-0">
                           <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                         </div>
                       )}
                       <div>
                         <span className="text-[13px] font-medium text-foreground">{st.name}</span>
-                        <div className={`text-[11px] ${zero ? "text-[#B45309] font-medium" : "text-[var(--fg2)]"}`}>
+                        <div className={`text-[11px] ${zero ? "text-warn font-medium" : "text-[var(--fg2)]"}`}>
                           {zero ? "No detections — check configuration" : `${st.totalProposed} detection${st.totalProposed !== 1 ? "s" : ""}`}
                         </div>
                       </div>
                     </div>
                     {zero && (
-                      <span className="text-[11px] font-semibold text-[#B45309] bg-[#FDE68A] px-2.5 py-1 rounded-full group-hover:bg-[#FCD34D] transition">
+                      <span className="text-[11px] font-semibold text-warn bg-[color-mix(in_srgb,var(--warn)_20%,transparent)] px-2.5 py-1 rounded-full group-hover:bg-[color-mix(in_srgb,var(--warn)_30%,transparent)] transition">
                         Fix &rarr;
                       </span>
                     )}
