@@ -408,16 +408,39 @@ describe("withRetry", () => {
     expect(fn).toHaveBeenCalledOnce();
   });
 
-  it("respects Retry-After header", async () => {
+  it("respects Retry-After header (seconds)", async () => {
     const headers = { get: (k: string) => k === "retry-after" ? "1" : null };
     const err429 = Object.assign(new Error("rate limited"), { status: 429, headers });
     const fn = vi.fn()
       .mockRejectedValueOnce(err429)
       .mockResolvedValueOnce("ok");
 
+    const start = Date.now();
     const result = await withRetry(fn, { baseDelayMs: 1 });
+    const elapsed = Date.now() - start;
 
     expect(result).toBe("ok");
     expect(fn).toHaveBeenCalledTimes(2);
+    // baseDelayMs: 1 would give ~1ms delay; Retry-After: 1 forces ~1000ms
+    expect(elapsed).toBeGreaterThanOrEqual(900);
+  });
+
+  it("respects Retry-After header (HTTP-date)", async () => {
+    // +2s to survive toUTCString() ms truncation
+    const futureDate = new Date(Date.now() + 2000).toUTCString();
+    const headers = { get: (k: string) => k === "retry-after" ? futureDate : null };
+    const err429 = Object.assign(new Error("rate limited"), { status: 429, headers });
+    const fn = vi.fn()
+      .mockRejectedValueOnce(err429)
+      .mockResolvedValueOnce("ok");
+
+    const start = Date.now();
+    const result = await withRetry(fn, { baseDelayMs: 1 });
+    const elapsed = Date.now() - start;
+
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+    // Without Retry-After, baseDelayMs:1 + 0 jitter = ~1ms; HTTP-date forces ~1-2s
+    expect(elapsed).toBeGreaterThanOrEqual(900);
   });
 });

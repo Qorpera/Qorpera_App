@@ -200,9 +200,18 @@ export async function withRetry<T>(
       // Exponential backoff with jitter
       const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 500;
 
-      // Respect Retry-After header if present
+      // Respect Retry-After header if present (supports seconds or HTTP-date)
       const retryAfter = (error as { headers?: { get?: (k: string) => string | null } })?.headers?.get?.("retry-after");
-      const retryAfterMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : null;
+      let retryAfterMs: number | null = null;
+      if (retryAfter) {
+        const seconds = parseInt(retryAfter, 10);
+        if (!isNaN(seconds)) {
+          retryAfterMs = seconds * 1000;
+        } else {
+          const date = Date.parse(retryAfter);
+          if (!isNaN(date)) retryAfterMs = date - Date.now();
+        }
+      }
 
       const waitMs = retryAfterMs && retryAfterMs > 0 ? Math.min(retryAfterMs, 60000) : delay;
       console.warn(`[ai-provider] Retrying after ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${maxRetries}, status ${status})`);
@@ -709,23 +718,27 @@ async function callOllama(
   if (tools) body.tools = tools;
 
   const url = `${baseUrl}/api/chat`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (fetchErr) {
-    throw new Error(`Ollama unreachable at ${url} — is Ollama running? (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
-  }
+  const data = await withRetry(async () => {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (fetchErr) {
+      throw new Error(`Ollama unreachable at ${url} — is Ollama running? (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
+    }
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Ollama API error ${res.status}: ${text}`);
-  }
+    if (!res.ok) {
+      const text = await res.text();
+      const err = new Error(`Ollama API error ${res.status}: ${text}`);
+      (err as Error & { status: number }).status = res.status;
+      throw err;
+    }
 
-  const data = await res.json();
+    return res.json();
+  });
   const message = data.message;
 
   const toolCalls = message?.tool_calls?.map((tc: { id?: string; function: { name: string; arguments: string | Record<string, unknown> } }) => ({
