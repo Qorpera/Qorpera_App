@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { useLocale } from "next-intl";
 import Link from "next/link";
@@ -78,10 +78,26 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[status] ?? "bg-gray-500"}`} />;
 }
 
-function StatusPill({ status, label }: { status: string; label: string }) {
+const STATUS_LABELS: Record<string, string> = {
+  healthy: "Healthy",
+  active: "Active",
+  complete: "Complete",
+  attention: "Attention",
+  degraded: "Degraded",
+  partial: "Partial",
+  sparse: "Sparse",
+  minimal: "Minimal",
+  critical: "Critical",
+  disconnected: "Disconnected",
+  silent: "Silent",
+  empty: "Empty",
+  unconfigured: "Not configured",
+};
+
+function StatusPill({ status }: { status: string }) {
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full ${PILL_STYLES[status] ?? "bg-white/5 text-white/50"}`}>
-      {label}
+      {STATUS_LABELS[status] ?? status}
     </span>
   );
 }
@@ -369,7 +385,7 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
         className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/[0.02] transition"
       >
         <span className="text-sm font-semibold text-white/90 flex-1">{dept.departmentName}</span>
-        <StatusPill status={dept.overallStatus} label={dept.overallStatus} />
+        <StatusPill status={dept.overallStatus} />
         {dept.criticalIssueCount > 0 && (
           <span className="bg-red-500/10 text-red-400 text-xs px-2 py-0.5 rounded-full">
             {dept.criticalIssueCount}
@@ -384,7 +400,7 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
           <div className="border-t border-white/5 pt-4">
             <div className="flex items-center gap-2 mb-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("dataPipeline")}</h3>
-              <StatusPill status={dept.dataPipeline.status} label={dept.dataPipeline.status} />
+              <StatusPill status={dept.dataPipeline.status} />
             </div>
             <DataPipelineSection pipeline={dept.dataPipeline} departmentId={dept.departmentId} locale={locale} t={t} />
           </div>
@@ -393,7 +409,7 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
           <div className="border-t border-white/5 pt-4 mt-4">
             <div className="flex items-center gap-2 mb-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("knowledge")}</h3>
-              <StatusPill status={dept.knowledge.status} label={dept.knowledge.status} />
+              <StatusPill status={dept.knowledge.status} />
             </div>
             <KnowledgeSection knowledge={dept.knowledge} departmentId={dept.departmentId} t={t} />
           </div>
@@ -402,7 +418,7 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
           <div className="border-t border-white/5 pt-4 mt-4">
             <div className="flex items-center gap-2 mb-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("detection")}</h3>
-              <StatusPill status={dept.detection.status} label={dept.detection.status} />
+              <StatusPill status={dept.detection.status} />
             </div>
             <DetectionSection detection={dept.detection} t={t} />
           </div>
@@ -423,7 +439,11 @@ export default function SystemHealthPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [refreshDisabledUntil, setRefreshDisabledUntil] = useState(0);
+  const [refreshCooldown, setRefreshCooldown] = useState(false);
+
+  // Stable ref for t() so fetchHealth doesn't depend on it
+  const tRef = useRef(t);
+  tRef.current = t;
 
   const fetchHealth = useCallback(async () => {
     try {
@@ -432,14 +452,14 @@ export default function SystemHealthPage() {
         setSnapshot(await res.json());
         setError(null);
       } else {
-        setError(t("errorLoading"));
+        setError(tRef.current("errorLoading"));
       }
     } catch {
-      setError(t("errorLoading"));
+      setError(tRef.current("errorLoading"));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     fetchHealth();
@@ -448,7 +468,7 @@ export default function SystemHealthPage() {
   }, [fetchHealth]);
 
   async function handleRefresh() {
-    if (Date.now() < refreshDisabledUntil) return;
+    if (refreshCooldown || refreshing) return;
     setRefreshing(true);
     try {
       const res = await fetchApi("/api/system-health/recompute", { method: "POST" });
@@ -463,11 +483,12 @@ export default function SystemHealthPage() {
       // ignore
     } finally {
       setRefreshing(false);
-      setRefreshDisabledUntil(Date.now() + 60_000);
+      setRefreshCooldown(true);
+      setTimeout(() => setRefreshCooldown(false), 60_000);
     }
   }
 
-  const refreshDisabled = refreshing || Date.now() < refreshDisabledUntil;
+  const refreshDisabled = refreshing || refreshCooldown;
 
   // Sort departments: critical → attention → healthy → unconfigured
   const statusOrder: Record<string, number> = { critical: 0, attention: 1, healthy: 2, unconfigured: 3 };
