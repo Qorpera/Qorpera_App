@@ -24,6 +24,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/copilot", labelKey: "copilot", icon: "sparkles" },
       { href: "/learning", labelKey: "learning", icon: "trending-up" },
+      { href: "/system-health", labelKey: "systemHealth", icon: "activity", adminOnly: true },
     ],
   },
   {
@@ -55,6 +56,7 @@ const ICONS: Record<string, string> = {
   "check-circle": "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
   scroll: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z",
   "alert-triangle": "M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z",
+  activity: "M22 12h-4l-3 9L9 3l-3 9H2",
   "trending-up": "M2 20h.01M7 14l4-4 4 4 5-5M21 4h-5m5 0v5",
   lightbulb: "M12 2a7 7 0 00-4 12.74V17a1 1 0 001 1h6a1 1 0 001-1v-2.26A7 7 0 0012 2zM9 21h6",
   zap: "M13 10V3L4 14h7v7l9-11h-7z",

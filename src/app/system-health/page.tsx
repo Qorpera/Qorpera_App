@@ -1,0 +1,598 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useTranslations } from "next-intl";
+import { useLocale } from "next-intl";
+import Link from "next/link";
+import { fetchApi } from "@/lib/fetch-api";
+import { formatRelativeTime } from "@/lib/format-helpers";
+import { ConnectorLogo } from "@/components/connector-logo";
+import { ContextualChat } from "@/components/contextual-chat";
+import { useUser } from "@/components/user-provider";
+import type {
+  OperatorSnapshot,
+  DepartmentSnapshot,
+  ConnectorHealth,
+  KnowledgeHealth,
+  DetectionHealth,
+  SituationTypeHealth,
+} from "@/lib/system-health/compute-snapshot";
+
+// Extended types with live data from API (prompt 2)
+type SituationTypeHealthWithLive = SituationTypeHealth & {
+  detectedCount?: number;
+  confirmedCount?: number;
+  dismissedCount?: number;
+  confirmationRate?: number | null;
+  last7d?: { detected: number; confirmed: number; dismissed: number };
+  last30d?: { detected: number; confirmed: number; dismissed: number };
+};
+
+type DetectionHealthWithLive = Omit<DetectionHealth, "situationTypes"> & {
+  situationTypes: SituationTypeHealthWithLive[];
+};
+
+type DepartmentSnapshotWithLive = Omit<DepartmentSnapshot, "detection"> & {
+  detection: DetectionHealthWithLive;
+};
+
+type OperatorSnapshotWithLive = Omit<OperatorSnapshot, "departments"> & {
+  departments: DepartmentSnapshotWithLive[];
+};
+
+// ─── Status helpers ──────────────────────────────────────
+
+const STATUS_COLORS: Record<string, string> = {
+  healthy: "bg-green-500",
+  active: "bg-green-500",
+  complete: "bg-green-500",
+  attention: "bg-amber-500",
+  degraded: "bg-amber-500",
+  partial: "bg-amber-500",
+  sparse: "bg-amber-500",
+  critical: "bg-red-500",
+  disconnected: "bg-red-500",
+  silent: "bg-red-500",
+  empty: "bg-red-500",
+  unconfigured: "bg-gray-500",
+  minimal: "bg-amber-500",
+};
+
+const PILL_STYLES: Record<string, string> = {
+  healthy: "bg-green-500/10 text-green-400",
+  active: "bg-green-500/10 text-green-400",
+  complete: "bg-green-500/10 text-green-400",
+  attention: "bg-amber-500/10 text-amber-400",
+  degraded: "bg-amber-500/10 text-amber-400",
+  partial: "bg-amber-500/10 text-amber-400",
+  sparse: "bg-amber-500/10 text-amber-400",
+  minimal: "bg-amber-500/10 text-amber-400",
+  critical: "bg-red-500/10 text-red-400",
+  disconnected: "bg-red-500/10 text-red-400",
+  silent: "bg-red-500/10 text-red-400",
+  empty: "bg-red-500/10 text-red-400",
+  unconfigured: "bg-white/5 text-white/50",
+};
+
+function StatusDot({ status }: { status: string }) {
+  return <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[status] ?? "bg-gray-500"}`} />;
+}
+
+function StatusPill({ status, label }: { status: string; label: string }) {
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full ${PILL_STYLES[status] ?? "bg-white/5 text-white/50"}`}>
+      {label}
+    </span>
+  );
+}
+
+// ─── Icons ───────────────────────────────────────────────
+
+function ChevronDown({ className }: { className?: string }) {
+  return <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>;
+}
+function RefreshCw({ className }: { className?: string }) {
+  return <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>;
+}
+function AlertTriangle() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>;
+}
+function InfoIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>;
+}
+function MinusCircle() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="8" y1="12" x2="16" y2="12" /></svg>;
+}
+function ClockIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>;
+}
+function CheckIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>;
+}
+function MinusIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /></svg>;
+}
+function UnplugIcon() {
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 5l-7 7M2 22l3-3M6.3 20.3a2.4 2.4 0 003.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 000 3.4z" /><path d="M7.5 13.5L10 11M10.5 16.5L13 14M12 6l6 6 2.3-2.3a2.4 2.4 0 000-3.4L17.7 3.7a2.4 2.4 0 00-3.4 0z" /></svg>;
+}
+function SearchIcon() {
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
+}
+
+function ActionButton({ label, href }: { label: string; href: string }) {
+  return (
+    <Link href={href} className="border border-white/20 text-white/70 hover:bg-white/10 text-xs px-3 py-1 rounded inline-block">
+      {label}
+    </Link>
+  );
+}
+
+// ─── Section components ──────────────────────────────────
+
+function DataPipelineSection({ pipeline, departmentId, locale, t }: {
+  pipeline: DepartmentSnapshotWithLive["dataPipeline"];
+  departmentId: string;
+  locale: string;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  if (pipeline.connectors.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-8 text-center">
+        <div className="text-white/30 mb-3"><UnplugIcon /></div>
+        <p className="text-sm text-white/50 mb-3">{t("noConnectors")}</p>
+        <ActionButton label={t("connectTools")} href="/settings?tab=connections" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {pipeline.connectors.map((c) => (
+        <ConnectorRow key={c.id} connector={c} locale={locale} t={t} />
+      ))}
+    </div>
+  );
+}
+
+function ConnectorRow({ connector: c, locale, t }: {
+  connector: ConnectorHealth;
+  locale: string;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const syncText = c.lastSyncAt
+    ? t("connectorHealthy", { time: formatRelativeTime(c.lastSyncAt, locale) })
+    : t("connectorNeverSynced");
+
+  return (
+    <div className="px-1 py-2">
+      <div className="flex items-center gap-3">
+        <ConnectorLogo provider={c.provider} size={20} />
+        <span className="text-sm text-white/90 flex-1 min-w-0 truncate">{c.name}</span>
+        <div className="flex items-center gap-2 text-xs text-white/50">
+          <StatusDot status={c.status} />
+          <span>{syncText}</span>
+        </div>
+        <span className="text-xs text-white/40">{t("entityCount", { count: c.entityCount })}</span>
+      </div>
+      {c.issue && (
+        <div className="ml-8 mt-1 flex items-center gap-2">
+          <span className={`text-xs ${c.status === "error" || c.status === "disconnected" ? "text-red-400" : "text-amber-400"}`}>
+            {c.issue}
+          </span>
+          {c.action && <ActionButton label={c.action.label} href={c.action.href} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KnowledgeSection({ knowledge, departmentId, t }: {
+  knowledge: KnowledgeHealth;
+  departmentId: string;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* People */}
+      <div>
+        <p className="text-sm text-white/70">
+          {t("people", {
+            count: knowledge.people.count,
+            withRoles: knowledge.people.withRoles,
+            withReportingLines: knowledge.people.withReportingLines,
+          })}
+        </p>
+        {knowledge.people.gaps.map((gap, i) => (
+          <p key={i} className="text-xs text-amber-400 mt-1 flex items-center gap-1">
+            <Link href={`/map/${departmentId}`} className="hover:underline">{gap}</Link>
+          </p>
+        ))}
+      </div>
+
+      {/* Documents */}
+      <div>
+        <p className="text-sm text-white/70">
+          {t("documents", { count: knowledge.documents.count, ragChunks: knowledge.documents.ragChunks })}
+        </p>
+        {knowledge.documents.count === 0 && (
+          <p className="text-xs text-amber-400 mt-1">
+            {t("noDocuments")} &middot; <Link href={`/map/${departmentId}`} className="hover:underline">{t("uploadDocuments")}</Link>
+          </p>
+        )}
+        {knowledge.documents.staleCount > 0 && (
+          <p className="text-xs text-amber-400 mt-1">{t("staleDocuments", { count: knowledge.documents.staleCount })}</p>
+        )}
+      </div>
+
+      {/* Operational Knowledge */}
+      <div>
+        <p className="text-sm text-white/70">
+          {t("insights", { count: knowledge.operationalInsights.count, withPromptMods: knowledge.operationalInsights.withPromptMods })}
+        </p>
+        {knowledge.operationalInsights.count === 0 ? (
+          <p className="text-xs text-white/40 mt-1">{t("noInsights")}</p>
+        ) : (
+          <div className="mt-1 space-y-0.5">
+            {knowledge.operationalInsights.situationTypeCoverage.map((st) => (
+              <div key={st.typeId} className="flex items-center gap-1.5 text-xs">
+                {st.hasInsights && st.insightCount > 0 ? (
+                  <span className="text-green-400"><CheckIcon /></span>
+                ) : (
+                  <span className="text-white/30"><MinusIcon /></span>
+                )}
+                <span className="text-white/70">{st.typeName}</span>
+                {!st.hasInsights && <span className="text-white/40">({t("noPatterns")})</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetectionSection({ detection, t }: {
+  detection: DetectionHealthWithLive;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  if (detection.situationTypes.length === 0) {
+    return (
+      <div className="flex flex-col items-center py-8 text-center">
+        <div className="text-white/30 mb-3"><SearchIcon /></div>
+        <p className="text-sm text-white/50 mb-1">{t("noSituationTypes")}</p>
+        <p className="text-xs text-white/40">{t("noSituationTypesHint")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {detection.situationTypes.map((st) => (
+        <SituationTypeRow key={st.id} st={st} t={t} />
+      ))}
+    </div>
+  );
+}
+
+const AUTONOMY_PILL: Record<string, string> = {
+  supervised: "bg-blue-500/10 text-blue-400",
+  notify: "bg-amber-500/10 text-amber-400",
+  autonomous: "bg-green-500/10 text-green-400",
+};
+const AUTONOMY_LABEL: Record<string, string> = {
+  supervised: "autonomyObserve",
+  notify: "autonomyPropose",
+  autonomous: "autonomyAct",
+};
+
+function SituationTypeRow({ st, t }: { st: SituationTypeHealthWithLive; t: ReturnType<typeof useTranslations> }) {
+  const last30d = st.last30d;
+  const rate = st.confirmationRate;
+
+  let rateColor = "text-white/50";
+  if (rate !== null && rate !== undefined) {
+    if (rate < 0.3) rateColor = "text-red-400";
+    else if (rate < 0.5) rateColor = "text-amber-400";
+  }
+
+  return (
+    <div className="py-2">
+      {/* Top line */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium text-white/90">{st.name}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full ${AUTONOMY_PILL[st.autonomyLevel] ?? "bg-white/5 text-white/50"}`}>
+          {t(AUTONOMY_LABEL[st.autonomyLevel] ?? "autonomyObserve")}
+        </span>
+      </div>
+
+      {/* Stats line */}
+      <div className="text-xs text-white/50 mt-1">
+        {last30d && last30d.detected > 0 ? (
+          <span>
+            {t("last30d", {
+              detected: last30d.detected,
+              confirmed: last30d.confirmed,
+              dismissed: last30d.dismissed,
+              rate: rate !== null && rate !== undefined ? Math.round(rate * 100) : 0,
+            }).split("·").map((part, i) => {
+              const trimmed = part.trim();
+              if (i > 0 && trimmed.includes("accuracy")) {
+                return <span key={i}> &middot; <span className={rateColor}>{trimmed}</span></span>;
+              }
+              return i > 0 ? <span key={i}> &middot; {trimmed}</span> : <span key={i}>{trimmed}</span>;
+            })}
+          </span>
+        ) : (
+          <span>{t("noDetections30d")}</span>
+        )}
+      </div>
+
+      {/* Diagnosis line */}
+      {st.diagnosis !== "healthy" && (
+        <div className="flex items-center gap-2 mt-1.5">
+          <DiagnosisIcon diagnosis={st.diagnosis} />
+          <span className={`text-xs ${st.diagnosis === "no_data" ? "text-red-400" : st.diagnosis === "inactive" ? "text-white/40" : st.diagnosis === "new" ? "text-blue-400" : "text-amber-400"}`}>
+            {st.diagnosisDetail}
+          </span>
+          {st.action && <ActionButton label={st.action.label} href={st.action.href} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiagnosisIcon({ diagnosis }: { diagnosis: string }) {
+  switch (diagnosis) {
+    case "no_data": return <span className="text-red-400"><AlertTriangle /></span>;
+    case "no_matches": return <span className="text-amber-400"><InfoIcon /></span>;
+    case "low_accuracy": return <span className="text-amber-400"><AlertTriangle /></span>;
+    case "inactive": return <span className="text-white/40"><MinusCircle /></span>;
+    case "new": return <span className="text-blue-400"><ClockIcon /></span>;
+    default: return null;
+  }
+}
+
+// ─── Department Card ─────────────────────────────────────
+
+function DepartmentCard({ dept, locale, t, defaultExpanded }: {
+  dept: DepartmentSnapshotWithLive;
+  locale: string;
+  t: ReturnType<typeof useTranslations>;
+  defaultExpanded: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-white/[0.02] transition"
+      >
+        <span className="text-sm font-semibold text-white/90 flex-1">{dept.departmentName}</span>
+        <StatusPill status={dept.overallStatus} label={dept.overallStatus} />
+        {dept.criticalIssueCount > 0 && (
+          <span className="bg-red-500/10 text-red-400 text-xs px-2 py-0.5 rounded-full">
+            {dept.criticalIssueCount}
+          </span>
+        )}
+        <ChevronDown className={`text-white/40 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+      </button>
+
+      {expanded && (
+        <div className="px-5 pb-5">
+          {/* Data Pipeline */}
+          <div className="border-t border-white/5 pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("dataPipeline")}</h3>
+              <StatusPill status={dept.dataPipeline.status} label={dept.dataPipeline.status} />
+            </div>
+            <DataPipelineSection pipeline={dept.dataPipeline} departmentId={dept.departmentId} locale={locale} t={t} />
+          </div>
+
+          {/* Knowledge */}
+          <div className="border-t border-white/5 pt-4 mt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("knowledge")}</h3>
+              <StatusPill status={dept.knowledge.status} label={dept.knowledge.status} />
+            </div>
+            <KnowledgeSection knowledge={dept.knowledge} departmentId={dept.departmentId} t={t} />
+          </div>
+
+          {/* Detection */}
+          <div className="border-t border-white/5 pt-4 mt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-white/50">{t("detection")}</h3>
+              <StatusPill status={dept.detection.status} label={dept.detection.status} />
+            </div>
+            <DetectionSection detection={dept.detection} t={t} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ───────────────────────────────────────────
+
+export default function SystemHealthPage() {
+  const t = useTranslations("systemHealth");
+  const locale = useLocale();
+  const { isAdmin } = useUser();
+
+  const [snapshot, setSnapshot] = useState<OperatorSnapshotWithLive | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshDisabledUntil, setRefreshDisabledUntil] = useState(0);
+
+  const fetchHealth = useCallback(async () => {
+    try {
+      const res = await fetchApi("/api/system-health");
+      if (res.ok) {
+        setSnapshot(await res.json());
+        setError(null);
+      } else {
+        setError(t("errorLoading"));
+      }
+    } catch {
+      setError(t("errorLoading"));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 60_000);
+    return () => clearInterval(interval);
+  }, [fetchHealth]);
+
+  async function handleRefresh() {
+    if (Date.now() < refreshDisabledUntil) return;
+    setRefreshing(true);
+    try {
+      const res = await fetchApi("/api/system-health/recompute", { method: "POST" });
+      if (res.status === 429) {
+        setError(t("refreshWait"));
+        setTimeout(() => setError(null), 3000);
+      } else if (res.ok) {
+        const data = await res.json();
+        setSnapshot(data);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setRefreshing(false);
+      setRefreshDisabledUntil(Date.now() + 60_000);
+    }
+  }
+
+  const refreshDisabled = refreshing || Date.now() < refreshDisabledUntil;
+
+  // Sort departments: critical → attention → healthy → unconfigured
+  const statusOrder: Record<string, number> = { critical: 0, attention: 1, healthy: 2, unconfigured: 3 };
+  const sortedDepartments = snapshot?.departments
+    ? [...snapshot.departments].sort((a, b) => (statusOrder[a.overallStatus] ?? 9) - (statusOrder[b.overallStatus] ?? 9))
+    : [];
+
+  // Determine mobile
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="bg-white/[0.06] rounded-lg p-6 animate-pulse">
+          <div className="h-6 w-48 bg-white/[0.06] rounded mb-2" />
+          <div className="h-4 w-32 bg-white/[0.06] rounded" />
+        </div>
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="bg-white/[0.06] rounded-lg p-6 animate-pulse">
+            <div className="h-5 w-40 bg-white/[0.06] rounded mb-4" />
+            <div className="space-y-3">
+              <div className="h-4 w-full bg-white/[0.06] rounded" />
+              <div className="h-4 w-3/4 bg-white/[0.06] rounded" />
+              <div className="h-4 w-1/2 bg-white/[0.06] rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (error && !snapshot) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] text-center">
+        <p className="text-sm text-white/50 mb-4">{t("errorLoading")}</p>
+        <button onClick={fetchHealth} className="border border-white/20 text-white/70 hover:bg-white/10 text-sm px-4 py-2 rounded">
+          {t("retry")}
+        </button>
+      </div>
+    );
+  }
+
+  if (!snapshot || sortedDepartments.length === 0) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] text-center">
+        <p className="text-sm text-white/50 mb-4">{t("completeOnboarding")}</p>
+        <Link href="/onboarding" className="border border-white/20 text-white/70 hover:bg-white/10 text-sm px-4 py-2 rounded">
+          {t("goToOnboarding")}
+        </Link>
+      </div>
+    );
+  }
+
+  // Operator summary
+  let summaryText: string;
+  let summaryColor: string;
+  switch (snapshot.overallStatus) {
+    case "critical":
+      summaryText = t("statusCritical", { count: snapshot.criticalIssueCount });
+      summaryColor = "bg-red-500";
+      break;
+    case "attention":
+      summaryText = t("statusAttentionCount", { count: snapshot.criticalIssueCount });
+      summaryColor = "bg-amber-500";
+      break;
+    default:
+      summaryText = t("statusHealthy");
+      summaryColor = "bg-green-500";
+  }
+
+  return (
+    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+      {/* Operator Summary */}
+      <div className="bg-white/5 border border-white/10 rounded-lg p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className={`w-3 h-3 rounded-full ${summaryColor}`} />
+            <h1 className="text-lg font-semibold text-white/90">{summaryText}</h1>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshDisabled}
+            className="flex items-center gap-2 border border-white/20 text-white/70 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-1.5 rounded transition"
+          >
+            <RefreshCw className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? t("refreshing") : t("refresh")}
+          </button>
+        </div>
+        <p className="text-xs text-white/40 mt-2">
+          {t("lastChecked", { time: formatRelativeTime(snapshot.computedAt, locale) })}
+        </p>
+      </div>
+
+      {/* Department Cards */}
+      {sortedDepartments.map((dept) => (
+        <DepartmentCard
+          key={dept.departmentId}
+          dept={dept}
+          locale={locale}
+          t={t}
+          defaultExpanded={isMobile ? false : dept.overallStatus !== "healthy"}
+        />
+      ))}
+
+      {/* Contextual Chat */}
+      <ContextualChat
+        contextType="system-health"
+        contextId={snapshot.operatorId}
+        placeholder={t("chatPlaceholder")}
+        hints={[t("chatHint1"), t("chatHint2"), t("chatHint3")]}
+      />
+
+      {/* Toast for rate limit */}
+      {error && snapshot && (
+        <div className="fixed bottom-6 right-6 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm px-4 py-3 rounded-lg shadow-lg">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
