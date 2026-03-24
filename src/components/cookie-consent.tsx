@@ -31,7 +31,7 @@ export function CookieConsent() {
         </p>
         <button
           onClick={accept}
-          className="shrink-0 px-4 py-1.5 text-xs font-medium rounded bg-accent hover:bg-accent text-foreground transition-colors"
+          className="shrink-0 px-4 py-1.5 text-xs font-medium rounded bg-accent hover:bg-accent-hover text-accent-ink transition-colors"
         >
           {t("accept")}
         </button>
