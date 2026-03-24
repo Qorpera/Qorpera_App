@@ -169,11 +169,10 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
   const [navBadges, setNavBadges] = useState<{ situations: number; health: number }>({ situations: 0, health: 0 });
   useEffect(() => {
     // Situations: count pending proposals
-    fetch("/api/situations?status=detected,proposed")
-      .then(r => r.ok ? r.json() : [])
+    fetch("/api/situations?status=detected,proposed&limit=1")
+      .then(r => r.ok ? r.json() : { total: 0 })
       .then(data => {
-        const count = Array.isArray(data) ? data.length : (data.situations?.length ?? 0);
-        setNavBadges(prev => ({ ...prev, situations: count }));
+        setNavBadges(prev => ({ ...prev, situations: data.total ?? 0 }));
       })
       .catch(() => {});
 
