@@ -209,10 +209,20 @@ async function detectForSituationType(
   const detection: DetectionLogic = safeParseDetection(st.detectionLogic);
   const targetType = getTargetEntityType(detection);
 
-  if (!targetType) return results;
-
   // Get candidate entities
-  let candidates = await getCandidateEntities(operatorId, targetType, detection);
+  let candidates: CandidateEntity[];
+
+  if (targetType) {
+    candidates = await getCandidateEntities(operatorId, targetType, detection);
+  } else if (detection.mode === "natural" || detection.mode === "hybrid") {
+    // Natural/hybrid mode without entity type filter — scan active entities
+    // Scope by department if the situation type is scoped (limits blast radius)
+    candidates = await getNaturalModeCandidates(operatorId, st.scopeEntityId);
+  } else {
+    // Structured mode requires an entity type — can't evaluate without properties to check
+    return results;
+  }
+
   if (candidates.length === 0) return results;
 
   // Filter by scope if set
@@ -350,6 +360,104 @@ async function getCandidateEntities(
       properties,
     };
   });
+}
+
+// ── Natural mode candidates (no entity type filter) ─────────────────────────
+
+const NATURAL_MODE_SCAN_LIMIT = 200;
+
+async function getNaturalModeCandidates(
+  operatorId: string,
+  scopeEntityId: string | null,
+): Promise<CandidateEntity[]> {
+  const baseWhere: Record<string, unknown> = {
+    operatorId,
+    status: "active",
+    category: "base",
+  };
+
+  if (scopeEntityId) {
+    const memberIds = await getDepartmentMemberIds(operatorId, scopeEntityId);
+    if (memberIds.length === 0) return [];
+    baseWhere.id = { in: memberIds };
+  }
+
+  const baseEntities = await prisma.entity.findMany({
+    where: baseWhere,
+    include: {
+      propertyValues: { include: { property: true } },
+      entityType: true,
+    },
+    take: NATURAL_MODE_SCAN_LIMIT,
+  });
+
+  const results: CandidateEntity[] = baseEntities.map((e) => {
+    const properties: Record<string, string> = {};
+    for (const pv of e.propertyValues) {
+      properties[pv.property.slug] = pv.value;
+    }
+    return {
+      id: e.id,
+      displayName: e.displayName,
+      entityTypeSlug: e.entityType.slug,
+      properties,
+    };
+  });
+
+  // If not department-scoped, also include external entities (clients, partners)
+  if (!scopeEntityId && results.length < NATURAL_MODE_SCAN_LIMIT) {
+    const externalEntities = await prisma.entity.findMany({
+      where: {
+        operatorId,
+        status: "active",
+        category: "external",
+      },
+      include: {
+        propertyValues: { include: { property: true } },
+        entityType: true,
+      },
+      take: NATURAL_MODE_SCAN_LIMIT - results.length,
+    });
+
+    for (const e of externalEntities) {
+      const properties: Record<string, string> = {};
+      for (const pv of e.propertyValues) {
+        properties[pv.property.slug] = pv.value;
+      }
+      results.push({
+        id: e.id,
+        displayName: e.displayName,
+        entityTypeSlug: e.entityType.slug,
+        properties,
+      });
+    }
+  }
+
+  return results;
+}
+
+async function getDepartmentMemberIds(
+  operatorId: string,
+  departmentId: string,
+): Promise<string[]> {
+  const homeMembers = await prisma.entity.findMany({
+    where: { operatorId, parentDepartmentId: departmentId, category: "base", status: "active" },
+    select: { id: true },
+  });
+
+  const crossRels = await prisma.relationship.findMany({
+    where: {
+      OR: [
+        { fromEntityId: departmentId, relationshipType: { slug: "department-member" } },
+        { toEntityId: departmentId, relationshipType: { slug: "department-member" } },
+      ],
+    },
+    select: { fromEntityId: true, toEntityId: true },
+  });
+  const crossIds = crossRels
+    .map((r) => (r.fromEntityId === departmentId ? r.toEntityId : r.fromEntityId));
+
+  return [...new Set([...homeMembers.map((m) => m.id), ...crossIds])];
 }
 
 // ── Evaluate a single candidate ──────────────────────────────────────────────

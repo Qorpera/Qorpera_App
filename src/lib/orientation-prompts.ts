@@ -155,13 +155,112 @@ export async function buildOrientationSystemPrompt(
   const deptContext = await buildDepartmentDataContext(operatorId);
   const existingContext = session.context ? safeParseJSON(session.context) : {};
 
-  // Get company name
   const operator = await prisma.operator.findUnique({
     where: { id: operatorId },
     select: { companyName: true },
   });
   const companyName = operator?.companyName || "the company";
 
+  // Check for completed onboarding intelligence analysis
+  const analysis = await prisma.onboardingAnalysis.findUnique({
+    where: { operatorId },
+    select: { status: true, synthesisOutput: true, uncertaintyLog: true },
+  });
+
+  const hasIntelligence = analysis &&
+    (analysis.status === "confirming" || analysis.status === "complete") &&
+    analysis.synthesisOutput;
+
+  if (hasIntelligence) {
+    return buildPostIntelligencePrompt(
+      companyName,
+      deptContext,
+      existingContext,
+      analysis.synthesisOutput as Record<string, unknown>,
+      (analysis.uncertaintyLog as Array<Record<string, unknown>>) || [],
+      operatorId,
+    );
+  }
+
+  return buildManualSetupPrompt(companyName, deptContext, existingContext);
+}
+
+// ── Post-intelligence prompt (after multi-agent analysis) ────────────────────
+
+async function buildPostIntelligencePrompt(
+  companyName: string,
+  deptContext: string,
+  existingContext: Record<string, unknown>,
+  synthesisOutput: Record<string, unknown>,
+  uncertaintyLog: Array<Record<string, unknown>>,
+  operatorId: string,
+): Promise<string> {
+  // Load situation types created by the pipeline
+  const situationTypes = await prisma.situationType.findMany({
+    where: { operatorId, enabled: true },
+    select: { name: true, description: true, autonomyLevel: true, scopeEntityId: true },
+    orderBy: { name: "asc" },
+  });
+
+  const sitTypeSummary = situationTypes.length > 0
+    ? situationTypes.map((st) => `- ${st.name}: ${st.description}`).join("\n")
+    : "No situation types configured yet.";
+
+  const uncertaintySection = uncertaintyLog.length > 0
+    ? uncertaintyLog.map((q, i) => {
+        const question = q.question || "Unknown question";
+        const context = q.context || "";
+        const dept = q.department ? ` (${q.department})` : "";
+        return `${i + 1}. ${question}${dept}${context ? `\n   Context: ${context}` : ""}`;
+      }).join("\n")
+    : "";
+
+  const departments = (synthesisOutput.departments || []) as Array<Record<string, unknown>>;
+  const findingsSummary = departments.map((dept) => {
+    const name = dept.name || "Unknown";
+    const completeness = dept.confidence || "unknown";
+    return `- ${name} (data completeness: ${completeness})`;
+  }).join("\n");
+
+  const learnedSoFar = Object.keys(existingContext).length > 0
+    ? `\nCONVERSATION CONTEXT FROM PRIOR TURNS:\n${JSON.stringify(existingContext, null, 2)}\n`
+    : "";
+
+  return `You are the AI operations assistant for ${companyName}. You have just completed an extensive multi-agent analysis of ${companyName}'s connected tools and data.
+
+ORGANIZATIONAL STRUCTURE (from your analysis):
+${deptContext || "No departments configured yet."}
+
+DEPARTMENT DATA COVERAGE:
+${findingsSummary || "No department analysis available."}
+
+SITUATION TYPES YOU'VE SET UP:
+${sitTypeSummary}
+All situation types start at "observe" — you will monitor and propose actions, but not act until the CEO promotes them.
+
+${uncertaintySection ? `QUESTIONS YOUR ANALYSIS COULDN'T RESOLVE:\n${uncertaintySection}\n` : ""}${learnedSoFar}
+YOUR GOALS IN THIS CONVERSATION:
+1. Present your findings: Briefly summarize what you learned about the company — departments, team structure, key relationships. Ask if it matches reality.${uncertaintySection ? `
+2. Resolve uncertainties: Work through the unresolved questions above one at a time. These are things your analysis flagged as ambiguous — the CEO's answers will improve your understanding.` : ""}
+3. Validate situation types: Walk through the situation types you've set up. For each, explain what it detects and why you recommended it. Ask: "Is this something you want me to watch for? Should I adjust the scope?"
+4. Discover gaps: Ask what operational challenges your analysis may have missed. "Are there problems that wouldn't show up in your emails or calendar — things that happen in hallway conversations or ad-hoc Slack threads?"
+5. Set priorities: Help the CEO decide which 3-5 situation types matter most right now. These will be the first ones you actively monitor.
+
+IMPORTANT RULES:
+- Reference specific findings from your analysis when possible. "I noticed [specific pattern] in your [data source]" is better than generic questions.
+- When creating NEW situation types (beyond what the analysis recommended), ALWAYS scope them to a specific department using the scopeDepartmentName parameter.
+- Don't repeat information the CEO has already confirmed. Build on what you know.
+- Keep the conversation practical and forward-looking — the analysis is done, now you're calibrating.
+- The user will click "Complete Orientation" when they're done. Don't try to end the conversation yourself.`;
+}
+
+// ── Manual setup prompt (no onboarding intelligence) ─────────────────────────
+
+function buildManualSetupPrompt(
+  companyName: string,
+  deptContext: string,
+  existingContext: Record<string, unknown>,
+): string {
   const businessContext = existingContext.industry
     ? `Industry: ${existingContext.industry}`
     : "";
