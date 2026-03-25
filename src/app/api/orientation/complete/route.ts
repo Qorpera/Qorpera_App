@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { detectSituations } from "@/lib/situation-detector";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 
 export async function POST() {
   const su = await getSessionUser();
@@ -29,8 +29,8 @@ export async function POST() {
   });
 
   // Trigger initial detection so user sees situations immediately
-  detectSituations(operatorId).catch((err) => {
-    console.error("[orientation-complete] Initial detection failed:", err);
+  enqueueWorkerJob("detect_situations", operatorId, { operatorId }).catch((err) => {
+    console.error("[orientation-complete] Failed to enqueue initial detection:", err);
   });
 
   return NextResponse.json({ success: true, sessionId: session.id });

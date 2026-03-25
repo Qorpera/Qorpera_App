@@ -84,6 +84,7 @@ export type OperatorSnapshot = {
   departments: DepartmentSnapshot[];
   overallStatus: "healthy" | "attention" | "critical";
   criticalIssueCount: number;
+  staleJobCount: number;
   computedAt: string;
 };
 
@@ -715,13 +716,26 @@ export async function computeOperatorSnapshot(
     departments.map((d) => computeDepartmentSnapshot(operatorId, d.id)),
   );
 
-  const criticalIssueCount = departmentSnapshots.reduce(
+  let criticalIssueCount = departmentSnapshots.reduce(
     (sum, d) => sum + d.criticalIssueCount,
     0,
   );
 
+  // Worker job queue health check
+  const staleJobCount = await prisma.workerJob.count({
+    where: {
+      operatorId,
+      status: "pending",
+      createdAt: { lt: new Date(Date.now() - 15 * 60 * 1000) },
+    },
+  });
+
+  if (staleJobCount > 0) {
+    criticalIssueCount += 1;
+  }
+
   let overallStatus: OperatorSnapshot["overallStatus"];
-  if (departmentSnapshots.some((d) => d.overallStatus === "critical")) {
+  if (staleJobCount > 0 || departmentSnapshots.some((d) => d.overallStatus === "critical")) {
     overallStatus = "critical";
   } else if (departmentSnapshots.some((d) => d.overallStatus === "attention")) {
     overallStatus = "attention";
@@ -734,6 +748,7 @@ export async function computeOperatorSnapshot(
     departments: departmentSnapshots,
     overallStatus,
     criticalIssueCount,
+    staleJobCount,
     computedAt: new Date().toISOString(),
   };
 }
@@ -847,12 +862,24 @@ export async function recomputeHealthSnapshots(
         (r) => r.snapshot as unknown as DepartmentSnapshot,
       );
 
-      const criticalIssueCount = departmentSnapshots.reduce(
+      let criticalIssueCount = departmentSnapshots.reduce(
         (sum, d) => sum + d.criticalIssueCount,
         0,
       );
+
+      const staleJobCount = await prisma.workerJob.count({
+        where: {
+          operatorId,
+          status: "pending",
+          createdAt: { lt: new Date(Date.now() - 15 * 60 * 1000) },
+        },
+      });
+      if (staleJobCount > 0) {
+        criticalIssueCount += 1;
+      }
+
       let overallStatus: OperatorSnapshot["overallStatus"];
-      if (departmentSnapshots.some((d) => d.overallStatus === "critical")) {
+      if (staleJobCount > 0 || departmentSnapshots.some((d) => d.overallStatus === "critical")) {
         overallStatus = "critical";
       } else if (departmentSnapshots.some((d) => d.overallStatus === "attention")) {
         overallStatus = "attention";
@@ -865,6 +892,7 @@ export async function recomputeHealthSnapshots(
         departments: departmentSnapshots,
         overallStatus,
         criticalIssueCount,
+        staleJobCount,
         computedAt: now.toISOString(),
       };
       const snapshotJson = JSON.stringify(operatorSnapshot);

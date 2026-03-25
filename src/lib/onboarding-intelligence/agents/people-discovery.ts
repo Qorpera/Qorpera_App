@@ -7,8 +7,6 @@
  */
 
 import { prisma } from "@/lib/db";
-import { addProgressMessage } from "../progress";
-import { checkRoundCompletion } from "../orchestration";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,67 +28,6 @@ export interface PeopleRegistryEntry {
     documentsAuthored: number;
   };
   entityId?: string;
-}
-
-// ── Main Runner ──────────────────────────────────────────────────────────────
-
-export async function runPeopleDiscovery(analysisId: string): Promise<void> {
-  const run = await prisma.onboardingAgentRun.create({
-    data: {
-      analysisId,
-      agentName: "people_discovery",
-      round: 0,
-      status: "running",
-      maxIterations: 1,
-      startedAt: new Date(),
-    },
-  });
-
-  try {
-    const analysis = await prisma.onboardingAnalysis.findUnique({
-      where: { id: analysisId },
-      select: { operatorId: true },
-    });
-
-    if (!analysis) throw new Error("Analysis not found");
-
-    await addProgressMessage(analysisId, "Scanning all connected systems for people...", "people_discovery");
-
-    const registry = await buildPeopleRegistry(analysis.operatorId);
-
-    const internalCount = registry.filter((p) => p.isInternal).length;
-    const externalCount = registry.filter((p) => !p.isInternal).length;
-
-    await addProgressMessage(
-      analysisId,
-      `Discovered ${internalCount} team members and ${externalCount} external contacts across all sources`,
-      "people_discovery",
-    );
-
-    await prisma.onboardingAgentRun.update({
-      where: { id: run.id },
-      data: {
-        status: "complete",
-        iterationCount: 1,
-        report: registry as any,
-        completedAt: new Date(),
-      },
-    });
-
-    await checkRoundCompletion(analysisId, 0);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await prisma.onboardingAgentRun.update({
-      where: { id: run.id },
-      data: {
-        status: "failed",
-        report: { error: message } as any,
-        completedAt: new Date(),
-      },
-    });
-    await addProgressMessage(analysisId, `People discovery failed: ${message}`, "people_discovery");
-    await checkRoundCompletion(analysisId, 0);
-  }
 }
 
 // ── Algorithm ────────────────────────────────────────────────────────────────

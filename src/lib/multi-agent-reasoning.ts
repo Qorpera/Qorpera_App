@@ -218,9 +218,9 @@ function formatBlockedActions(input: ReasoningInput): string {
 }
 
 function formatGovernance(input: ReasoningInput): string {
-  const autonomyNote = input.autonomyLevel === "supervised"
-    ? "Propose an action for human review."
-    : "Select an action for immediate execution — your justification must be especially thorough since this will execute without prior approval.";
+  const autonomyNote = input.autonomyLevel === "autonomous"
+    ? "Select an action for immediate execution — your justification must be especially thorough since this will execute without prior approval."
+    : "Propose an action for human review.";
   return `GOVERNANCE:\nAutonomy level: ${input.autonomyLevel}\n${autonomyNote}`;
 }
 

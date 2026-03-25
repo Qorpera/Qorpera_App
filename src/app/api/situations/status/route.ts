@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getAIConfig } from "@/lib/ai-provider";
 import { prisma } from "@/lib/db";
-import { isCronRunning } from "@/lib/situation-cron";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +49,21 @@ export async function GET() {
     }
 
     // 7. Cron running
-    const cronRunning = isCronRunning();
+    // Check if worker has claimed any job in the last 30 minutes (proxy for "worker is alive")
+    const recentWorkerActivity = await prisma.workerJob.findFirst({
+      where: {
+        OR: [
+          { claimedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+          { completedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+        ],
+      },
+      select: { id: true },
+    });
+    const recentAnalysis = await prisma.onboardingAnalysis.findFirst({
+      where: { workerClaimedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+      select: { id: true },
+    });
+    const cronRunning = !!(recentWorkerActivity || recentAnalysis);
 
     return NextResponse.json({
       situationTypeCount,

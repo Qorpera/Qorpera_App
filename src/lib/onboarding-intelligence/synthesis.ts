@@ -9,9 +9,7 @@
  */
 
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { addProgressMessage } from "./progress";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 
 // ── Company Model Types ──────────────────────────────────────────────────────
@@ -186,125 +184,6 @@ const SYNTHESIS_OUTPUT_SCHEMA = {
   },
   required: ["departments", "people", "crossFunctionalPeople", "situationTypeRecommendations", "uncertaintyLog"],
 };
-
-// ── Launch Synthesis ─────────────────────────────────────────────────────────
-
-export async function launchSynthesis(analysisId: string): Promise<void> {
-  const synthesisRun = await prisma.onboardingAgentRun.create({
-    data: {
-      analysisId,
-      agentName: "synthesis",
-      round: 99,
-      status: "running",
-      maxIterations: 1,
-      startedAt: new Date(),
-    },
-  });
-
-  try {
-    const analysis = await prisma.onboardingAnalysis.findUnique({
-      where: { id: analysisId },
-      include: { operator: true },
-    });
-    if (!analysis) throw new Error("Analysis not found");
-
-    await addProgressMessage(analysisId, "Compiling all findings into your company model...", "synthesis");
-
-    // 1. Load all completed reports
-    const allRuns = await prisma.onboardingAgentRun.findMany({
-      where: { analysisId, status: "complete" },
-    });
-
-    const reports = allRuns
-      .filter((r) => r.agentName !== "synthesis")
-      .map((r) => ({ agent: r.agentName, round: r.round, report: r.report }));
-
-    // 2. Build synthesis input
-    const synthesisInput = buildSynthesisInput(reports);
-
-    // 3. LLM synthesis call
-    const response = await callLLM({
-      operatorId: analysis.operatorId,
-      model: "gpt-5.4",
-      instructions: SYNTHESIS_PROMPT,
-      messages: [{ role: "user", content: synthesisInput }],
-      thinking: true,
-      responseFormat: {
-        type: "json_schema",
-        json_schema: {
-          name: "company_model",
-          strict: true,
-          schema: SYNTHESIS_OUTPUT_SCHEMA,
-        },
-      },
-    });
-
-    const tokensUsed = (response.usage?.inputTokens || 0) + (response.usage?.outputTokens || 0);
-
-    let companyModel: CompanyModel;
-    try {
-      companyModel = JSON.parse(response.text);
-    } catch {
-      throw new Error("Synthesis LLM returned invalid JSON");
-    }
-
-    await addProgressMessage(
-      analysisId,
-      `Model complete: ${companyModel.departments.length} departments, ${companyModel.people.length} team members identified`,
-      "synthesis",
-    );
-
-    // 4. Create real entities
-    await addProgressMessage(analysisId, "Building your organizational map...", "synthesis");
-    await createEntitiesFromModel(analysis.operatorId, companyModel);
-
-    // 5. Create situation types
-    await addProgressMessage(analysisId, "Setting up situation detection...", "synthesis");
-    await createSituationTypesFromModel(analysis.operatorId, companyModel);
-
-    // 6. Mark analysis complete
-    await prisma.onboardingAnalysis.update({
-      where: { id: analysisId },
-      data: {
-        status: "confirming",
-        currentPhase: "synthesis",
-        synthesisOutput: companyModel as any,
-        uncertaintyLog: companyModel.uncertaintyLog as any,
-        completedAt: new Date(),
-        totalTokensUsed: { increment: tokensUsed },
-        totalCostCents: { increment: response.apiCostCents || 0 },
-      },
-    });
-
-    await prisma.onboardingAgentRun.update({
-      where: { id: synthesisRun.id },
-      data: {
-        status: "complete",
-        report: companyModel as any,
-        completedAt: new Date(),
-        tokensUsed,
-        costCents: response.apiCostCents || 0,
-      },
-    });
-
-    // 7. Send email notification
-    await sendAnalysisCompleteEmail(analysis.operatorId);
-
-    await addProgressMessage(analysisId, "Your operational map is ready for review!", "synthesis");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("Synthesis failed:", message);
-    await prisma.onboardingAgentRun.update({
-      where: { id: synthesisRun.id },
-      data: { status: "failed", report: { error: message } as any, completedAt: new Date() },
-    });
-    await prisma.onboardingAnalysis.update({
-      where: { id: analysisId },
-      data: { status: "failed", failureReason: message, completedAt: new Date() },
-    });
-    await addProgressMessage(analysisId, `Synthesis failed: ${message}`, "synthesis");
-  }
-}
 
 // ── Build Synthesis Input ────────────────────────────────────────────────────
 

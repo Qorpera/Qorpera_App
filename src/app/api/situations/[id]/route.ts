@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
-import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
-import { advanceStep, resumeAfterSituationResolution } from "@/lib/execution-engine";
+import { resumeAfterSituationResolution } from "@/lib/execution-engine";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { handleMeetingRequestResolution } from "@/lib/meeting-coordination";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
@@ -163,8 +163,8 @@ export async function PATCH(
         status: "detected",
       },
     });
-    reasonAboutSituation(id).catch((err) =>
-      console.error(`[situations-api] Re-reasoning failed for ${id}:`, err),
+    enqueueWorkerJob("reason_situation", operatorId, { situationId: id }).catch((err) =>
+      console.error(`[situations-api] Failed to enqueue re-reasoning for ${id}:`, err),
     );
     return NextResponse.json({ id, status: "edit_submitted", message: "Edit instruction saved. Revised proposal will appear shortly." });
   }
@@ -331,8 +331,12 @@ export async function PATCH(
           data: { assignedUserId: user.id },
         });
 
-        advanceStep(nextStep.id, "approve", user.id).catch(err =>
-          console.error(`[situation-patch] Step advance failed for ${id}:`, err),
+        enqueueWorkerJob("advance_step", operatorId, {
+          stepId: nextStep.id,
+          action: "approve",
+          userId: user.id,
+        }).catch(err =>
+          console.error(`[situation-patch] Failed to enqueue step advance for ${id}:`, err),
         );
       }
     }

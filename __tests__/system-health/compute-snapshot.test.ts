@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
     situation: { findMany: vi.fn() },
     entityType: { findMany: vi.fn() },
     departmentHealth: { upsert: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
+    workerJob: { count: vi.fn() },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -119,6 +120,8 @@ function makeSituationType(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: no stale worker jobs
+  p.workerJob.count.mockResolvedValue(0);
 });
 
 describe("computeDepartmentSnapshot", () => {

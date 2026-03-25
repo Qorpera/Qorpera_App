@@ -4,6 +4,7 @@ import { auditPreFilters } from "@/lib/situation-audit";
 import { runScheduledInitiativeEvaluation } from "@/lib/initiative-reasoning";
 import { extractInsights, getLastExtractionTime } from "@/lib/operational-knowledge";
 import { computePriorityScores } from "@/lib/prioritization-engine";
+import { processRecurringTasks } from "@/lib/recurring-tasks";
 
 const timers: ReturnType<typeof setInterval>[] = [];
 
@@ -118,7 +119,46 @@ export function startCronScheduler() {
     }, 6 * 60 * 60 * 1000),
   );
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h)");
+  // ── Stale Job Reaper: every 5 minutes ──────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+        const stale = await prisma.workerJob.updateMany({
+          where: {
+            status: "pending",
+            createdAt: { lt: thirtyMinAgo },
+          },
+          data: {
+            status: "failed",
+            error: "Job timed out — worker did not claim within 30 minutes",
+            completedAt: new Date(),
+          },
+        });
+        if (stale.count > 0) {
+          console.warn(`[cron:stale-jobs] Marked ${stale.count} stale jobs as failed`);
+        }
+      } catch (err) {
+        console.error("[cron:stale-jobs] Error:", err);
+      }
+    }, 5 * 60 * 1000),
+  );
+
+  // ── Recurring Tasks: every 15 minutes ───────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const result = await processRecurringTasks();
+        if (result.triggered > 0) {
+          console.log(`[cron:recurring-tasks] Processed ${result.processed}, triggered ${result.triggered}, errors ${result.errors}`);
+        }
+      } catch (err) {
+        console.error("[cron:recurring-tasks] Error:", err);
+      }
+    }, 15 * 60 * 1000),
+  );
+
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m)");
 }
 
 export function stopCronScheduler() {

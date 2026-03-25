@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getOrchestrationFeeMultiplier } from "@/lib/billing/balance";
 
 export async function GET() {
   const su = await getSessionUser();
@@ -11,7 +12,7 @@ export async function GET() {
     select: {
       billingStatus: true,
       billingStartedAt: true,
-      orchestrationFeeMultiplier: true,
+      balanceCents: true,
       freeCopilotBudgetCents: true,
       freeCopilotUsedCents: true,
       freeDetectionStartedAt: true,
@@ -24,7 +25,8 @@ export async function GET() {
   return NextResponse.json({
     billingStatus: operator.billingStatus,
     billingStartedAt: operator.billingStartedAt,
-    orchestrationFeeMultiplier: operator.orchestrationFeeMultiplier,
+    balanceCents: operator.balanceCents,
+    orchestrationFeeMultiplier: getOrchestrationFeeMultiplier(operator),
     copilot: {
       budgetCents: operator.freeCopilotBudgetCents,
       usedCents: operator.freeCopilotUsedCents,

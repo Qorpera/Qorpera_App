@@ -9,29 +9,22 @@ export async function GET() {
 
   const operator = await prisma.operator.findUnique({
     where: { id: su.operatorId },
-    select: { stripeCustomerId: true, billingStatus: true },
+    select: { stripeCustomerId: true, stripePaymentMethodId: true, billingStatus: true },
   });
-  if (!operator?.stripeCustomerId || !isStripeEnabled()) {
+
+  if (!operator?.stripePaymentMethodId || !operator.stripeCustomerId || !isStripeEnabled()) {
     return NextResponse.json({ paymentMethod: null });
   }
 
-  const customer = await stripe!.customers.retrieve(operator.stripeCustomerId, {
-    expand: ["invoice_settings.default_payment_method"],
-  });
-
-  if (customer.deleted) {
+  try {
+    const pm = await stripe!.paymentMethods.retrieve(operator.stripePaymentMethodId);
+    const card = pm.card;
+    return NextResponse.json({
+      paymentMethod: card
+        ? { brand: card.brand, last4: card.last4, expMonth: card.exp_month, expYear: card.exp_year }
+        : null,
+    });
+  } catch {
     return NextResponse.json({ paymentMethod: null });
   }
-
-  const pm = customer.invoice_settings?.default_payment_method;
-  if (!pm || typeof pm === "string") {
-    return NextResponse.json({ paymentMethod: null });
-  }
-
-  const card = pm.card;
-  return NextResponse.json({
-    paymentMethod: card
-      ? { brand: card.brand, last4: card.last4, expMonth: card.exp_month, expYear: card.exp_year }
-      : null,
-  });
 }

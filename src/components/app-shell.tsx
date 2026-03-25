@@ -54,6 +54,38 @@ function AiPausedBanner() {
   );
 }
 
+function BillingStatusBanner() {
+  const t = useTranslations("shell");
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/billing/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setStatus(data.billingStatus); })
+      .catch(() => {});
+  }, []);
+
+  if (!status || status === "active" || status === "free" || status === "cancelled") return null;
+
+  const isDepleted = status === "depleted";
+
+  const bgColor = isDepleted
+    ? "bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] border-[color-mix(in_srgb,var(--danger)_20%,transparent)]"
+    : "bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] border-[color-mix(in_srgb,var(--warn)_20%,transparent)]";
+  const textColor = isDepleted ? "text-danger" : "text-warn";
+
+  return (
+    <div className={`${bgColor} border-b px-4 py-1.5 flex items-center justify-between flex-shrink-0`}>
+      <span className={`text-xs ${textColor}`}>
+        {isDepleted ? t("balanceEmpty") : t("paymentFailed")}
+      </span>
+      <a href="/settings?tab=billing" className={`text-xs ${textColor} hover:text-foreground font-medium`}>
+        {isDepleted ? t("addCredits") : t("updatePayment")}
+      </a>
+    </div>
+  );
+}
+
 function SuperadminBanner() {
   const router = useRouter();
   const { isSuperadmin, actingAsOperator } = useUser();
@@ -319,17 +351,18 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
               </div>
             </div>
 
-          {/* Superadmin + AI paused banners */}
+          {/* Superadmin + AI paused + billing banners */}
           <SuperadminBanner />
           <AiPausedBanner />
+          <BillingStatusBanner />
 
           {/* Desktop top bar (lg+) — CSS-only visibility */}
-            <div className="hidden lg:flex items-center justify-end gap-3 px-5 py-2 border-b border-border flex-shrink-0">
+            <div className="hidden lg:flex items-center justify-end gap-3 px-5 py-2 flex-shrink-0">
               {topBarContent}
               <NotificationBell />
             </div>
 
-          {/* Scrollable content */}
+          {/* Page content */}
           <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">
             {children}
           </main>

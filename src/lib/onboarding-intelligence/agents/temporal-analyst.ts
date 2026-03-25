@@ -5,10 +5,6 @@
  * identifies superseded documents, and tags content with freshness/relevance scores.
  */
 
-import { prisma } from "@/lib/db";
-import { triggerNextIteration } from "@/lib/internal-api";
-import { addProgressMessage } from "../progress";
-
 // ── Agent Prompt ─────────────────────────────────────────────────────────────
 
 export const TEMPORAL_ANALYST_PROMPT = `You are the Temporal Analyst for an organizational intelligence system. Your job is to understand the TIMELINE of this company — what's current, what's historical, what has changed, and what supersedes what.
@@ -78,25 +74,3 @@ export interface TemporalReport {
   recencyWarnings: string[];
 }
 
-// ── Launch Function ──────────────────────────────────────────────────────────
-
-export async function launchTemporalAnalyst(analysisId: string): Promise<void> {
-  const run = await prisma.onboardingAgentRun.create({
-    data: {
-      analysisId,
-      agentName: "temporal_analyst",
-      round: 0,
-      status: "running",
-      maxIterations: 20,
-      startedAt: new Date(),
-    },
-  });
-
-  await addProgressMessage(
-    analysisId,
-    "Analyzing document timelines and content freshness...",
-    "temporal_analyst",
-  );
-
-  await triggerNextIteration(run.id);
-}

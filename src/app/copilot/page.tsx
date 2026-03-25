@@ -149,6 +149,7 @@ export default function CopilotPage() {
 
   // Billing state
   const [copilotBudget, setCopilotBudget] = useState<{ remainingCents: number; budgetCents: number; billingStatus: string } | null>(null);
+  const [aiPaused, setAiPaused] = useState(false);
 
   // Sessions sidebar state
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
@@ -337,6 +338,8 @@ export default function CopilotPage() {
           });
         }
       }).catch(() => {});
+      // Fetch AI paused state
+      fetch("/api/settings/emergency-stop").then(r => r.json()).then(data => setAiPaused(!!data.paused)).catch(() => {});
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -787,12 +790,25 @@ export default function CopilotPage() {
 
           {/* Input area */}
           <div className="border-t border-border px-6 py-4 bg-sidebar/40">
-            {copilotBudget && copilotBudget.billingStatus !== "active" && (
+            {aiPaused && (
+              <div className="max-w-[720px] mx-auto mb-2">
+                <div className="text-[12px] text-danger/80">{t("aiPausedChat")}</div>
+              </div>
+            )}
+            {!aiPaused && copilotBudget && copilotBudget.billingStatus === "depleted" && (
+              <div className="max-w-[720px] mx-auto mb-2">
+                <div className="text-[12px] text-danger/80 flex items-center gap-2">
+                  {t("balanceEmptyChat")}{" "}
+                  <a href="/settings?tab=billing" className="underline text-accent">{t("addCreditsLink")}</a>
+                </div>
+              </div>
+            )}
+            {!aiPaused && copilotBudget && copilotBudget.billingStatus !== "active" && copilotBudget.billingStatus !== "depleted" && (
               <div className="max-w-[720px] mx-auto mb-2">
                 {copilotBudget.remainingCents <= 0 ? (
                   <div className="text-[12px] text-warn/80 flex items-center gap-2">
                     {t("freeLimitMessage")}{" "}
-                    <a href="/settings?tab=billing" className="underline text-accent">{t("activateBilling")}</a>{" "}
+                    <a href="/settings?tab=billing" className="underline text-accent">{t("addCreditsLink")}</a>{" "}
                     {t("forUnlimited")}
                   </div>
                 ) : (
@@ -802,6 +818,7 @@ export default function CopilotPage() {
                 )}
               </div>
             )}
+            {!aiPaused && (
             <div className="max-w-[720px] mx-auto flex items-end gap-3">
               <textarea
                 ref={inputRef}
@@ -822,7 +839,7 @@ export default function CopilotPage() {
               />
               <button
                 onClick={handleSend}
-                disabled={streaming || !input.trim() || initializing}
+                disabled={streaming || !input.trim() || initializing || (copilotBudget?.billingStatus !== "active" && (copilotBudget?.remainingCents ?? 1) <= 0)}
                 className="flex-shrink-0 p-3 rounded-xl bg-accent-light text-accent hover:bg-[color-mix(in_srgb,var(--accent)_30%,transparent)] hover:text-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 {streaming ? (
@@ -844,6 +861,7 @@ export default function CopilotPage() {
                 )}
               </button>
             </div>
+            )}
           </div>
         </div>
       </div>

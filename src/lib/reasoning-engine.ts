@@ -55,6 +55,14 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       situationId,
     );
 
+    // 4b. Flag hollow context sections for reasoning quality awareness
+    const hollowSections = context.contextSections.filter(s => s.itemCount === 0);
+    let missingContextNote: string | undefined;
+    if (hollowSections.length >= 3) {
+      const hollowNames = hollowSections.map(s => s.section).join(", ");
+      missingContextNote = `WARNING: ${hollowSections.length} context sections returned empty (${hollowNames}). This may indicate data sync issues or embedding failures. Reason with reduced confidence.`;
+    }
+
     // 5. Resolve governance
     // Get trigger entity type slug
     let triggerEntityTypeSlug = "unknown";
@@ -430,6 +438,10 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
     let userPrompt = buildReasoningUserPrompt(reasoningInput);
 
+    if (missingContextNote) {
+      userPrompt += `\n\nDATA QUALITY NOTICE:\n${missingContextNote}`;
+    }
+
     if (editInstructionText) {
       userPrompt += `\n\nEDIT REQUEST:\n${editInstructionText}\n\nRevise your actionPlan to incorporate this feedback. Keep the same situation analysis but adjust the plan steps and justification accordingly.`;
     }
@@ -597,29 +609,20 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     // 11. Advance status
     if (reasoning.actionPlan === null || !resolvedSteps) {
       updates.status = "proposed";
-    } else if (effectiveAutonomy === "supervised") {
-      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
-      updates.executionPlanId = planId;
-      updates.status = "proposed";
-    } else if (effectiveAutonomy === "notify") {
+    } else if (effectiveAutonomy === "autonomous") {
+      // Autonomous: auto-execute without approval
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "executing";
-      // Auto-execution counts as confirmed — system had pre-earned trust
       await prisma.situationType.update({
         where: { id: situation.situationTypeId },
         data: { confirmedCount: { increment: 1 } },
       }).catch(() => {});
     } else {
-      // autonomous
+      // Propose: create plan, await human approval (supervised + notify both land here)
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
-      updates.status = "executing";
-      // Auto-execution counts as confirmed — system had pre-earned trust
-      await prisma.situationType.update({
-        where: { id: situation.situationTypeId },
-        data: { confirmedCount: { increment: 1 } },
-      }).catch(() => {});
+      updates.status = "proposed";
     }
 
     await prisma.situation.update({
@@ -634,8 +637,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       );
     }
 
-    // For notify/autonomous: auto-advance the first step
-    if (resolvedSteps && (effectiveAutonomy === "notify" || effectiveAutonomy === "autonomous")) {
+    // For autonomous: auto-advance the first step
+    if (resolvedSteps && effectiveAutonomy === "autonomous") {
       const plan = await prisma.executionPlan.findFirst({
         where: { id: updates.executionPlanId as string },
         include: { steps: { orderBy: { sequenceOrder: "asc" }, take: 1 } },
@@ -666,21 +669,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         sourceType: "situation",
         sourceId: situationId,
       }).catch(() => {});
-    } else if (effectiveAutonomy === "supervised") {
+    } else if (effectiveAutonomy !== "autonomous") {
+      // Propose: notify admins of proposed plan (supervised + notify both land here)
       sendNotificationToAdmins({
         operatorId: situation.operatorId,
         type: "situation_proposed",
         title: `Plan proposed: ${situation.situationType.name}`,
         body: `AI proposes a ${resolvedSteps.length}-step plan: ${resolvedSteps.map(s => s.title).join(" → ")}`,
-        sourceType: "situation",
-        sourceId: situationId,
-      }).catch(() => {});
-    } else if (effectiveAutonomy === "notify") {
-      sendNotificationToAdmins({
-        operatorId: situation.operatorId,
-        type: "situation_proposed",
-        title: `Auto-executing: ${situation.situationType.name}`,
-        body: `AI is executing a ${resolvedSteps.length}-step plan. Review and reverse if needed.`,
         sourceType: "situation",
         sourceId: situationId,
       }).catch(() => {});

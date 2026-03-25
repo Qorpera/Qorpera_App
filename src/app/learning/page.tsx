@@ -218,7 +218,7 @@ export default function LearningPage() {
     <AppShell>
       <div className="p-8 max-w-6xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3 sticky top-0 z-10 bg-sidebar py-3 -mt-3">
+        <div className="flex items-center justify-between flex-wrap gap-3 py-3 -mt-3">
           <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
           <div className="flex items-center gap-2 flex-wrap">
             <select

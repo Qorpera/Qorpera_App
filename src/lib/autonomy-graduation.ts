@@ -2,10 +2,8 @@ import { prisma } from "@/lib/db";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 const DEFAULT_THRESHOLDS = {
-  graduation_supervised_to_notify_consecutive: 10,
-  graduation_supervised_to_notify_rate: 0.9,
-  graduation_notify_to_autonomous_consecutive: 20,
-  graduation_notify_to_autonomous_rate: 0.95,
+  graduation_to_autonomous_consecutive: 100,
+  graduation_to_autonomous_rate: 0.99,
 };
 
 async function getThresholds(operatorId?: string) {
@@ -22,72 +20,63 @@ async function getThresholds(operatorId?: string) {
   }
 
   return {
-    supervisedToNotifyConsecutive: parseFloat(
-      map.get("graduation_supervised_to_notify_consecutive") ??
-        String(DEFAULT_THRESHOLDS.graduation_supervised_to_notify_consecutive),
+    toAutonomousConsecutive: parseFloat(
+      map.get("graduation_to_autonomous_consecutive") ??
+        String(DEFAULT_THRESHOLDS.graduation_to_autonomous_consecutive),
     ),
-    supervisedToNotifyRate: parseFloat(
-      map.get("graduation_supervised_to_notify_rate") ??
-        String(DEFAULT_THRESHOLDS.graduation_supervised_to_notify_rate),
-    ),
-    notifyToAutonomousConsecutive: parseFloat(
-      map.get("graduation_notify_to_autonomous_consecutive") ??
-        String(DEFAULT_THRESHOLDS.graduation_notify_to_autonomous_consecutive),
-    ),
-    notifyToAutonomousRate: parseFloat(
-      map.get("graduation_notify_to_autonomous_rate") ??
-        String(DEFAULT_THRESHOLDS.graduation_notify_to_autonomous_rate),
+    toAutonomousRate: parseFloat(
+      map.get("graduation_to_autonomous_rate") ??
+        String(DEFAULT_THRESHOLDS.graduation_to_autonomous_rate),
     ),
   };
 }
 
 export { getThresholds, DEFAULT_THRESHOLDS };
 
+/**
+ * Check if a situation type qualifies for autonomous graduation.
+ * Sends a notification suggesting promotion — does NOT auto-promote.
+ */
 export async function checkGraduation(situationTypeId: string): Promise<void> {
   const st = await prisma.situationType.findUnique({
     where: { id: situationTypeId },
   });
   if (!st) return;
 
+  // Already autonomous — nothing to do
+  if (st.autonomyLevel === "autonomous") return;
+
   const thresholds = await getThresholds(st.operatorId);
 
-  let nextLevel: string | null = null;
-
   if (
-    st.autonomyLevel === "supervised" &&
-    st.consecutiveApprovals >= thresholds.supervisedToNotifyConsecutive &&
-    st.approvalRate >= thresholds.supervisedToNotifyRate
+    st.consecutiveApprovals >= thresholds.toAutonomousConsecutive &&
+    st.approvalRate >= thresholds.toAutonomousRate
   ) {
-    nextLevel = "notify";
-  } else if (
-    st.autonomyLevel === "notify" &&
-    st.consecutiveApprovals >= thresholds.notifyToAutonomousConsecutive &&
-    st.approvalRate >= thresholds.notifyToAutonomousRate
-  ) {
-    nextLevel = "autonomous";
+    const ratePercent = (st.approvalRate * 100).toFixed(0);
+
+    await sendNotificationToAdmins({
+      operatorId: st.operatorId,
+      type: "graduation_proposal",
+      title: `Ready for autonomous: ${st.name}`,
+      body: `${st.consecutiveApprovals} consecutive non-edited approvals with ${ratePercent}% accept rate. Consider promoting ${st.name} to autonomous mode.`,
+      sourceType: "graduation",
+      sourceId: situationTypeId,
+    }).catch(() => {});
   }
-
-  if (!nextLevel) return;
-
-  const ratePercent = (st.approvalRate * 100).toFixed(0);
-
-  await sendNotificationToAdmins({
-    operatorId: st.operatorId,
-    type: "graduation_proposal",
-    title: `Promote to ${nextLevel}: ${st.name}`,
-    body: `${st.consecutiveApprovals} consecutive approvals with ${ratePercent}% accuracy. Promote ${st.name} to ${nextLevel} mode?`,
-    sourceType: "graduation",
-    sourceId: situationTypeId,
-  }).catch(() => {});
 }
 
+/**
+ * Demote a situation type back to propose on rejection.
+ * Only demotes if currently autonomous.
+ */
 export async function checkDemotion(situationTypeId: string): Promise<void> {
   const st = await prisma.situationType.findUnique({
     where: { id: situationTypeId },
   });
   if (!st) return;
 
-  if (st.autonomyLevel === "supervised") return;
+  // Only demote autonomous back to supervised (propose)
+  if (st.autonomyLevel !== "autonomous") return;
 
   await prisma.situationType.update({
     where: { id: situationTypeId },
@@ -97,8 +86,8 @@ export async function checkDemotion(situationTypeId: string): Promise<void> {
   await sendNotificationToAdmins({
     operatorId: st.operatorId,
     type: "graduation_proposal",
-    title: `Demoted to supervised: ${st.name}`,
-    body: `A rejection was received — reverting to human review.`,
+    title: `Demoted to propose: ${st.name}`,
+    body: "A rejection was received — reverting to human review.",
     sourceType: "graduation",
     sourceId: situationTypeId,
   }).catch(() => {});
@@ -116,35 +105,25 @@ export async function checkPersonalGraduation(personalAutonomyId: string): Promi
   });
   if (!pa) return;
 
+  if (pa.autonomyLevel === "autonomous") return;
+
   const thresholds = await getThresholds(pa.operatorId);
-  let nextLevel: string | null = null;
 
   if (
-    pa.autonomyLevel === "supervised" &&
-    pa.consecutiveApprovals >= thresholds.supervisedToNotifyConsecutive &&
-    pa.approvalRate >= thresholds.supervisedToNotifyRate
+    pa.consecutiveApprovals >= thresholds.toAutonomousConsecutive &&
+    pa.approvalRate >= thresholds.toAutonomousRate
   ) {
-    nextLevel = "notify";
-  } else if (
-    pa.autonomyLevel === "notify" &&
-    pa.consecutiveApprovals >= thresholds.notifyToAutonomousConsecutive &&
-    pa.approvalRate >= thresholds.notifyToAutonomousRate
-  ) {
-    nextLevel = "autonomous";
+    const ratePercent = (pa.approvalRate * 100).toFixed(0);
+
+    await sendNotificationToAdmins({
+      operatorId: pa.operatorId,
+      type: "graduation_proposal",
+      title: `${pa.aiEntity.displayName} ready for autonomous: ${pa.situationType.name}`,
+      body: `${pa.consecutiveApprovals} consecutive non-edited approvals with ${ratePercent}% accept rate. Consider promoting to autonomous mode.`,
+      sourceType: "graduation",
+      sourceId: personalAutonomyId,
+    }).catch(() => {});
   }
-
-  if (!nextLevel) return;
-
-  const ratePercent = (pa.approvalRate * 100).toFixed(0);
-
-  await sendNotificationToAdmins({
-    operatorId: pa.operatorId,
-    type: "graduation_proposal",
-    title: `Promote ${pa.aiEntity.displayName} to ${nextLevel}: ${pa.situationType.name}`,
-    body: `${pa.consecutiveApprovals} consecutive approvals with ${ratePercent}% accuracy. Promote to ${nextLevel} mode?`,
-    sourceType: "graduation",
-    sourceId: personalAutonomyId,
-  }).catch(() => {});
 }
 
 export async function checkPersonalDemotion(personalAutonomyId: string): Promise<void> {
@@ -155,7 +134,7 @@ export async function checkPersonalDemotion(personalAutonomyId: string): Promise
       aiEntity: { select: { displayName: true } },
     },
   });
-  if (!pa || pa.autonomyLevel === "supervised") return;
+  if (!pa || pa.autonomyLevel !== "autonomous") return;
 
   await prisma.personalAutonomy.update({
     where: { id: pa.id },
@@ -165,8 +144,8 @@ export async function checkPersonalDemotion(personalAutonomyId: string): Promise
   await sendNotificationToAdmins({
     operatorId: pa.operatorId,
     type: "graduation_proposal",
-    title: `Demoted ${pa.aiEntity.displayName} to supervised: ${pa.situationType.name}`,
-    body: `A rejection was received — reverting to human review.`,
+    title: `Demoted ${pa.aiEntity.displayName} to propose: ${pa.situationType.name}`,
+    body: "A rejection was received — reverting to human review.",
     sourceType: "graduation",
     sourceId: personalAutonomyId,
   }).catch(() => {});

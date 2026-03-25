@@ -335,6 +335,8 @@ export default function SituationsPage() {
             <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 500 }}>
               {billingStatus === "past_due"
                 ? "Payment needs updating. Situation actions are paused."
+                : billingStatus === "depleted"
+                ? "Your balance is empty. AI operations are paused."
                 : `You're viewing Qorpera's AI detections. ${detectionCount}/50 free situations detected.`}
             </span>
           </div>
@@ -342,7 +344,7 @@ export default function SituationsPage() {
             href="/settings?tab=billing"
             className="rounded-full text-[12px] font-medium px-3 py-1 bg-accent text-accent-ink"
           >
-            {billingStatus === "past_due" ? "Update payment" : "Activate billing"}
+            {billingStatus === "past_due" ? "Update payment" : "Add credits"}
           </a>
         </div>
       )}
@@ -999,20 +1001,37 @@ function DetailPane({
               )}
               {/* Execution plan status */}
               {executionPlan && (
-                <div className="flex items-center gap-2 mt-2">
-                  <span style={{
-                    fontSize: 11,
-                    fontWeight: 500,
-                    padding: "2px 8px",
-                    borderRadius: 3,
-                    background: executionPlan.status === "completed" ? "rgba(34,197,94,0.1)" : executionPlan.status === "failed" ? "rgba(239,68,68,0.1)" : "rgba(168,85,247,0.1)",
-                    color: executionPlan.status === "completed" ? "var(--ok)" : executionPlan.status === "failed" ? "var(--danger)" : "var(--accent)",
-                  }}>
-                    Plan {executionPlan.status}
-                  </span>
-                  <span style={{ fontSize: 11, color: "var(--fg4)" }}>
-                    Step {executionPlan.currentStepOrder} of {executionPlan.steps.length}
-                  </span>
+                <div className="mt-2 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      padding: "2px 8px",
+                      borderRadius: 3,
+                      background: executionPlan.status === "completed" ? "rgba(34,197,94,0.1)" : executionPlan.status === "failed" ? "rgba(239,68,68,0.1)" : "rgba(168,85,247,0.1)",
+                      color: executionPlan.status === "completed" ? "var(--ok)" : executionPlan.status === "failed" ? "var(--danger)" : "var(--accent)",
+                    }}>
+                      Plan {executionPlan.status}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--fg4)" }}>
+                      Step {executionPlan.currentStepOrder} of {executionPlan.steps.length}
+                    </span>
+                  </div>
+                  {executionPlan.status === "failed" && (() => {
+                    const failedStep = executionPlan.steps.find(s => s.status === "failed");
+                    const err = failedStep?.errorMessage?.toLowerCase() || "";
+                    const isAuthFailure = err.includes("deauthorized") || err.includes("revoked") || err.includes("401") || err.includes("unauthorized");
+                    const isLoopBreaker = err.includes("maximum") || err.includes("loop") || err.includes("attempts");
+                    return (
+                      <p style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4 }}>
+                        {isAuthFailure
+                          ? <>{t("planFailAuthBefore")} <a href="/settings?tab=connections" className="underline">{t("planFailAuthLink")}</a>{t("planFailAuthAfter")}</>
+                          : isLoopBreaker
+                          ? t("planFailLoop")
+                          : t("planFailStep", { step: String(failedStep?.sequenceOrder ?? "?"), error: failedStep?.errorMessage ? `: ${failedStep.errorMessage.slice(0, 100)}` : "" })}
+                      </p>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -1164,6 +1183,19 @@ function DetailPane({
               >
                 Teach AI
               </button>
+            </div>
+          )}
+          {/* Billing gate message when actions are blocked */}
+          {!canAct && (s.status === "detected" || s.status === "proposed") && billingStatus !== "active" && !currentMode && (
+            <div className="pt-2 flex items-center gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+              <span className="text-[12px] text-[var(--fg3)]">
+                {billingStatus === "depleted"
+                  ? t("gateDepletedActions")
+                  : billingStatus === "free"
+                  ? t("gateFreeActions")
+                  : t("gateOtherActions")}
+              </span>
+              <a href="/settings?tab=billing" className="text-[12px] text-accent hover:underline font-medium">{t("gateAddCredits")}</a>
             </div>
           )}
 

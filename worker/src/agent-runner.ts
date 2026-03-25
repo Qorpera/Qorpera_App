@@ -3,6 +3,7 @@ import { executeTool, getToolsForAgent } from "@/lib/onboarding-intelligence/too
 import type { ToolContext } from "@/lib/onboarding-intelligence/types";
 import { addProgressMessage } from "@/lib/onboarding-intelligence/progress";
 import { estimateTokenCount, shouldPrune, pruneOldToolResults } from "./context-manager";
+import { getModel, getMaxOutputTokens } from "@/lib/ai-provider";
 
 export interface AgentConfig {
   name: string;
@@ -24,6 +25,7 @@ export interface AgentResult {
 
 export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const model = getModel("onboardingAgent");
 
   // Convert existing AgentTool[] to Anthropic tool format
   const agentTools = getToolsForAgent(config.name);
@@ -52,8 +54,8 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     }
 
     const response = await client.messages.create({
-      model: "claude-opus-4-6-20250415",
-      max_tokens: 16384,
+      model,
+      max_tokens: getMaxOutputTokens(model),
       system: config.systemPrompt,
       messages,
       tools: anthropicTools,

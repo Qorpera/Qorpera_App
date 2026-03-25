@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { PrismaClient } from "@prisma/client";
 import { runAgent, type AgentConfig, type AgentResult } from "./agent-runner";
 import { addProgressMessage } from "@/lib/onboarding-intelligence/progress";
+import { getModel, getMaxOutputTokens } from "@/lib/ai-provider";
+import { calculateCallCostCents } from "@/lib/model-pricing";
 import { buildPeopleRegistry } from "@/lib/onboarding-intelligence/agents/people-discovery";
 import { getAgentPrompt } from "@/lib/onboarding-intelligence/agents/prompt-registry";
 import { buildRound1Preamble } from "@/lib/onboarding-intelligence/orchestration";
@@ -252,7 +254,8 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   const allResults = [...round1Results, ...round2Results, ...round3Results];
   const totalInput = allResults.reduce((sum, r) => sum + r.totalInputTokens, 0);
   const totalOutput = allResults.reduce((sum, r) => sum + r.totalOutputTokens, 0);
-  const totalCost = calculateAnthropicCost(totalInput, totalOutput);
+  const costModel = getModel("onboardingAgent");
+  const totalCost = calculateCallCostCents(costModel, { inputTokens: totalInput, outputTokens: totalOutput });
 
   await prisma.onboardingAnalysis.update({
     where: { id: analysisId },
@@ -282,9 +285,10 @@ async function runOrganizerCall(
     input += `### ${formatAgentName(name)} Report\n\n${agentResults[i].report}\n\n---\n\n`;
   }
 
+  const organizerModel = getModel("onboardingAgent");
   const response = await client.messages.create({
-    model: "claude-opus-4-6-20250415",
-    max_tokens: 16384,
+    model: organizerModel,
+    max_tokens: getMaxOutputTokens(organizerModel),
     system: ORGANIZER_PROMPT,
     messages: [{ role: "user", content: input }],
   });
@@ -362,9 +366,10 @@ async function runSynthesis(
 
   const synthesisInput = buildSynthesisInput(allReports);
 
+  const synthesisModel = getModel("onboardingAgent");
   const response = await client.messages.create({
-    model: "claude-opus-4-6-20250415",
-    max_tokens: 16384,
+    model: synthesisModel,
+    max_tokens: getMaxOutputTokens(synthesisModel),
     system: SYNTHESIS_PROMPT,
     messages: [{ role: "user", content: synthesisInput }],
   });
@@ -487,11 +492,6 @@ function sleep(ms: number): Promise<void> {
 
 function formatAgentName(name: string): string {
   return name.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-}
-
-/** Anthropic Opus 4.6: $5/1M input, $25/1M output. Returns cost in cents. */
-function calculateAnthropicCost(inputTokens: number, outputTokens: number): number {
-  return Math.ceil((inputTokens / 1_000_000) * 500 + (outputTokens / 1_000_000) * 2500);
 }
 
 function extractJson(text: string): string {

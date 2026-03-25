@@ -31,38 +31,66 @@ export async function POST(req: NextRequest) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
       const operatorId = session.metadata?.operatorId;
-      if (!operatorId) break;
+      const amountCents = parseInt(session.metadata?.amountCents || "0", 10);
+      if (!operatorId || amountCents <= 0) break;
 
-      // Idempotency: skip if operator already has an active subscription
-      const existingOp = await prisma.operator.findUnique({
+      // Read current state, then do a single atomic update
+      const current = await prisma.operator.findUnique({
         where: { id: operatorId },
-        select: { stripeSubscriptionId: true },
+        select: { billingStartedAt: true, billingStatus: true },
       });
-      if (existingOp?.stripeSubscriptionId) break;
+      if (!current) break;
 
-      // Create metered subscription with both price items
-      const subscription = await stripe!.subscriptions.create({
-        customer: session.customer as string,
-        items: [
-          { price: process.env.STRIPE_SITUATION_PRICE_ID! },
-          { price: process.env.STRIPE_COPILOT_PRICE_ID! },
-        ],
-      });
-
-      await prisma.operator.update({
+      const updated = await prisma.operator.update({
         where: { id: operatorId },
         data: {
-          billingStatus: "active",
-          billingStartedAt: new Date(),
-          stripeSubscriptionId: subscription.id,
+          balanceCents: { increment: amountCents },
+          ...(!current.billingStartedAt ? { billingStartedAt: new Date() } : {}),
+          ...(current.billingStatus === "free" || current.billingStatus === "depleted"
+            ? { billingStatus: "active" as const }
+            : {}),
+        },
+      });
+
+      // Create transaction record
+      await prisma.creditTransaction.create({
+        data: {
+          operatorId,
+          type: "purchase",
+          amountCents,
+          balanceAfter: updated.balanceCents,
+          description: `Added $${(amountCents / 100).toFixed(2)} credits`,
+          stripePaymentIntentId: session.payment_intent as string | null,
         },
       });
 
       await sendNotificationToAdmins({
         operatorId,
         type: "system_alert",
-        title: "Billing activated",
-        body: "Your Qorpera account is now active. AI will begin handling situations with full capabilities.",
+        title: "Credits added",
+        body: `$${(amountCents / 100).toFixed(2)} in credits have been added to your account.`,
+        sourceType: "operator",
+        sourceId: operatorId,
+      }).catch(console.error);
+      break;
+    }
+
+    case "payment_intent.payment_failed": {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      const operatorId = paymentIntent.metadata?.operatorId;
+      if (!operatorId) break;
+
+      // Disable auto-reload on failure
+      await prisma.operator.update({
+        where: { id: operatorId },
+        data: { autoReloadEnabled: false },
+      });
+
+      await sendNotificationToAdmins({
+        operatorId,
+        type: "system_alert",
+        title: "Auto-reload failed",
+        body: "Auto-reload failed. Your payment method was declined. Please update your payment method and re-enable auto-reload.",
         sourceType: "operator",
         sourceId: operatorId,
       }).catch(console.error);
@@ -86,7 +114,7 @@ export async function POST(req: NextRequest) {
         operatorId: operator.id,
         type: "system_alert",
         title: "Payment failed",
-        body: "Your latest payment could not be processed. Please update your payment method to avoid service interruption.",
+        body: "Your latest payment could not be processed. Please update your payment method.",
         sourceType: "operator",
         sourceId: operator.id,
       }).catch(console.error);
@@ -107,33 +135,6 @@ export async function POST(req: NextRequest) {
           data: { billingStatus: "active" },
         });
       }
-      break;
-    }
-
-    case "customer.subscription.deleted": {
-      const subscription = event.data.object as Stripe.Subscription;
-      const customerId = subscription.customer as string;
-      const operator = await prisma.operator.findFirst({
-        where: { stripeCustomerId: customerId },
-      });
-      if (!operator) break;
-
-      await prisma.operator.update({
-        where: { id: operator.id },
-        data: {
-          billingStatus: "cancelled",
-          stripeSubscriptionId: null,
-        },
-      });
-
-      await sendNotificationToAdmins({
-        operatorId: operator.id,
-        type: "system_alert",
-        title: "Subscription cancelled",
-        body: "Your Qorpera subscription has been cancelled. AI capabilities are now limited to the free tier.",
-        sourceType: "operator",
-        sourceId: operator.id,
-      }).catch(console.error);
       break;
     }
   }

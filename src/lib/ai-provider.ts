@@ -22,12 +22,32 @@ const MODEL_ROUTES = {
   embedding: "text-embedding-3-small",
   onboardingIntelligence: "gpt-5.4",
   onboardingMemory: "gpt-5.4-mini",
+  onboardingAgent: "claude-opus-4-6-20250415",
 } as const;
 
 export type ModelRoute = keyof typeof MODEL_ROUTES;
 
 export function getModel(route: ModelRoute): string {
   return MODEL_ROUTES[route];
+}
+
+const MAX_OUTPUT_TOKENS: Record<string, number> = {
+  "claude-opus-4-6-20250415": 32_768,
+  "claude-sonnet-4-20250514": 16_384,
+  "claude-haiku-3-5-20241022": 8_192,
+  "gpt-5.4": 16_384,
+  "gpt-5.4-mini": 16_384,
+  "gpt-4o": 16_384,
+  "gpt-4o-mini": 16_384,
+  "gpt-4.1": 32_768,
+  "gpt-4.1-mini": 32_768,
+  "gpt-4.1-nano": 16_384,
+  "o3-mini": 16_384,
+};
+
+/** Returns the max output token limit for a model, defaulting to 4096 if unknown. */
+export function getMaxOutputTokens(modelId: string): number {
+  return MAX_OUTPUT_TOKENS[modelId] ?? 4_096;
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────

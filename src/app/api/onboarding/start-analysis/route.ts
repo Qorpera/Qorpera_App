@@ -28,8 +28,11 @@ export async function POST(request: Request) {
     where: { operatorId, status: "active" },
   });
   const contentCount = await prisma.contentChunk.count({ where: { operatorId } });
-  if (connectorCount === 0 && contentCount === 0) {
-    return NextResponse.json({ error: "No active connectors or synced content found" }, { status: 400 });
+  if (connectorCount === 0 || contentCount === 0) {
+    const reason = connectorCount === 0
+      ? "No active connectors found. Please connect at least one tool."
+      : "Connectors found but no data synced yet. Please wait for sync to complete and try again.";
+    return NextResponse.json({ error: reason }, { status: 400 });
   }
 
   // Delete existing analysis and agent runs (restart)

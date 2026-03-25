@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { advanceStep } from "@/lib/execution-engine";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
 
@@ -157,8 +157,12 @@ export async function PATCH(
           data: { status: "executing" },
         });
 
-        advanceStep(firstStep.id, "approve", user.id).catch(err =>
-          console.error(`[initiatives-api] Step advance failed for initiative ${id}:`, err),
+        enqueueWorkerJob("advance_step", operatorId, {
+          stepId: firstStep.id,
+          action: "approve",
+          userId: user.id,
+        }).catch(err =>
+          console.error(`[initiatives-api] Failed to enqueue step advance for initiative ${id}:`, err),
         );
       }
     }

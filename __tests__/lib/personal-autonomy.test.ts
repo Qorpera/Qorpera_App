@@ -115,13 +115,13 @@ describe("PersonalAutonomy approval tracking", () => {
 // ── Test 4: checkPersonalGraduation fires notification ──────────────────────
 
 describe("checkPersonalGraduation", () => {
-  it("creates notification when thresholds are met", async () => {
+  it("creates notification when thresholds are met (100 consecutive, 99% rate)", async () => {
     mockPrisma.personalAutonomy.findUnique.mockResolvedValue({
       id: "pa1",
       operatorId: "op1",
       autonomyLevel: "supervised",
-      consecutiveApprovals: 10,
-      approvalRate: 0.9,
+      consecutiveApprovals: 100,
+      approvalRate: 0.99,
       situationType: { name: "Late Invoice" },
       aiEntity: { displayName: "Alice's Assistant" },
     });
@@ -131,7 +131,7 @@ describe("checkPersonalGraduation", () => {
     expect(sendNotificationToAdmins).toHaveBeenCalledWith(
       expect.objectContaining({
         operatorId: "op1",
-        title: expect.stringContaining("notify"),
+        title: expect.stringContaining("autonomous"),
         sourceType: "graduation",
         sourceId: "pa1",
       }),
@@ -143,8 +143,8 @@ describe("checkPersonalGraduation", () => {
       id: "pa1",
       operatorId: "op1",
       autonomyLevel: "supervised",
-      consecutiveApprovals: 5,
-      approvalRate: 0.7,
+      consecutiveApprovals: 50,
+      approvalRate: 0.95,
       situationType: { name: "Late Invoice" },
       aiEntity: { displayName: "Alice's Assistant" },
     });
@@ -158,11 +158,11 @@ describe("checkPersonalGraduation", () => {
 // ── Test 5: checkPersonalDemotion resets to supervised ───────────────────────
 
 describe("checkPersonalDemotion", () => {
-  it("resets level to supervised and creates notification", async () => {
+  it("resets autonomous to supervised and creates notification", async () => {
     mockPrisma.personalAutonomy.findUnique.mockResolvedValue({
       id: "pa1",
       operatorId: "op1",
-      autonomyLevel: "notify",
+      autonomyLevel: "autonomous",
       situationType: { name: "Late Invoice" },
       aiEntity: { displayName: "Alice's Assistant" },
     });
@@ -183,7 +183,7 @@ describe("checkPersonalDemotion", () => {
     );
   });
 
-  it("does nothing if already supervised", async () => {
+  it("does nothing if not autonomous", async () => {
     mockPrisma.personalAutonomy.findUnique.mockResolvedValue({
       id: "pa1",
       operatorId: "op1",

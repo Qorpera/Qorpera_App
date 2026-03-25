@@ -5,10 +5,6 @@
  * connected financial tools and business data.
  */
 
-import { prisma } from "@/lib/db";
-import { triggerNextIteration } from "@/lib/internal-api";
-import { addProgressMessage } from "../progress";
-
 // ── Agent Prompt ─────────────────────────────────────────────────────────────
 
 export const FINANCIAL_ANALYST_PROMPT = `You are the Financial & Performance Analyst for a deep organizational intelligence engagement. Your job is to understand the company's FINANCIAL HEALTH, REVENUE PATTERNS, and KEY PERFORMANCE INDICATORS from connected financial tools and business data.
@@ -123,24 +119,3 @@ export interface FinancialAnalystReport {
   }>;
 }
 
-// ── Launch Function ──────────────────────────────────────────────────────────
-
-export async function launchFinancialAnalyst(analysisId: string): Promise<void> {
-  const run = await prisma.onboardingAgentRun.create({
-    data: {
-      analysisId,
-      agentName: "financial_analyst",
-      round: 1,
-      status: "running",
-      maxIterations: 30,
-      startedAt: new Date(),
-    },
-  });
-
-  await addProgressMessage(
-    analysisId,
-    "Analyzing financial health and performance patterns...",
-    "financial_analyst",
-  );
-  await triggerNextIteration(run.id);
-}

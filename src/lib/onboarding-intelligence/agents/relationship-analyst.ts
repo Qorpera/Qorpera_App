@@ -5,10 +5,6 @@
  * Assesses relationship health using communication and financial data.
  */
 
-import { prisma } from "@/lib/db";
-import { triggerNextIteration } from "@/lib/internal-api";
-import { addProgressMessage } from "../progress";
-
 // ── Agent Prompt ─────────────────────────────────────────────────────────────
 
 export const RELATIONSHIP_ANALYST_PROMPT = `You are the Relationship Analyst for a deep organizational intelligence engagement. Your job is to map the company's EXTERNAL RELATIONSHIP NETWORK — customers, partners, vendors, prospects — and assess the health of each relationship using communication and activity data.
@@ -108,24 +104,3 @@ export interface RelationshipAnalystReport {
   }>;
 }
 
-// ── Launch Function ──────────────────────────────────────────────────────────
-
-export async function launchRelationshipAnalyst(analysisId: string): Promise<void> {
-  const run = await prisma.onboardingAgentRun.create({
-    data: {
-      analysisId,
-      agentName: "relationship_analyst",
-      round: 1,
-      status: "running",
-      maxIterations: 30,
-      startedAt: new Date(),
-    },
-  });
-
-  await addProgressMessage(
-    analysisId,
-    "Mapping external relationships and assessing relationship health...",
-    "relationship_analyst",
-  );
-  await triggerNextIteration(run.id);
-}

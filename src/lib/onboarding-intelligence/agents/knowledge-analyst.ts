@@ -5,10 +5,6 @@
  * and where knowledge bottlenecks and silos exist.
  */
 
-import { prisma } from "@/lib/db";
-import { triggerNextIteration } from "@/lib/internal-api";
-import { addProgressMessage } from "../progress";
-
 // ── Agent Prompt ─────────────────────────────────────────────────────────────
 
 export const KNOWLEDGE_ANALYST_PROMPT = `You are the Knowledge & Communication Analyst for a deep organizational intelligence engagement. Your job is to understand WHERE institutional knowledge lives, HOW information flows between people, and WHERE knowledge bottlenecks and silos exist.
@@ -116,24 +112,3 @@ export interface KnowledgeAnalystReport {
   }>;
 }
 
-// ── Launch Function ──────────────────────────────────────────────────────────
-
-export async function launchKnowledgeAnalyst(analysisId: string): Promise<void> {
-  const run = await prisma.onboardingAgentRun.create({
-    data: {
-      analysisId,
-      agentName: "knowledge_analyst",
-      round: 1,
-      status: "running",
-      maxIterations: 30,
-      startedAt: new Date(),
-    },
-  });
-
-  await addProgressMessage(
-    analysisId,
-    "Analyzing knowledge distribution and communication patterns...",
-    "knowledge_analyst",
-  );
-  await triggerNextIteration(run.id);
-}

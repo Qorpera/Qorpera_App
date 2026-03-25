@@ -5,10 +5,10 @@ import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
 import { ingestContent } from "@/lib/content-pipeline";
 import { ingestActivity, resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import {
-  evaluateContentForSituations,
   isEligibleCommunication,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { captureApiError } from "@/lib/api-error";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
@@ -185,8 +185,10 @@ export async function runConnectorSync(
 
     // Fire-and-forget content situation detection
     if (communicationBatch.length > 0) {
-      evaluateContentForSituations(operatorId, communicationBatch)
-        .catch((err) => console.error("[content-detection] Error:", err));
+      enqueueWorkerJob("evaluate_content", operatorId, {
+        operatorId,
+        items: communicationBatch,
+      }).catch((err) => console.error("[content-detection] Failed to enqueue:", err));
     }
   } catch (err) {
     captureApiError(err, { route: "connector-sync", operatorId, connectorId });

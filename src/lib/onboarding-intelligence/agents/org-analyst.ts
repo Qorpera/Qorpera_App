@@ -5,10 +5,6 @@
  * Compares documented structure with behavioral patterns from communication data.
  */
 
-import { prisma } from "@/lib/db";
-import { triggerNextIteration } from "@/lib/internal-api";
-import { addProgressMessage } from "../progress";
-
 // ── Agent Prompt ─────────────────────────────────────────────────────────────
 
 export const ORG_ANALYST_PROMPT = `You are the Organizational Analyst for a deep organizational intelligence engagement. Your job is to discover the STRUCTURE of this company — departments, teams, reporting lines, roles, and how the organization actually operates versus how it's documented.
@@ -96,24 +92,3 @@ export interface OrgAnalystReport {
   }>;
 }
 
-// ── Launch Function ──────────────────────────────────────────────────────────
-
-export async function launchOrgAnalyst(analysisId: string): Promise<void> {
-  const run = await prisma.onboardingAgentRun.create({
-    data: {
-      analysisId,
-      agentName: "org_analyst",
-      round: 1,
-      status: "running",
-      maxIterations: 30,
-      startedAt: new Date(),
-    },
-  });
-
-  await addProgressMessage(
-    analysisId,
-    "Mapping organizational structure from all connected sources...",
-    "org_analyst",
-  );
-  await triggerNextIteration(run.id);
-}

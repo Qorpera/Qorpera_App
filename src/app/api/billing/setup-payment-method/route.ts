@@ -11,24 +11,22 @@ export async function POST() {
   }
 
   if (!isStripeEnabled()) {
-    return NextResponse.json({ error: "Stripe not configured" }, { status: 503 });
+    return NextResponse.json({ devMode: true, clientSecret: "dev_mode" });
   }
 
   const operator = await prisma.operator.findUnique({
     where: { id: su.operatorId },
-    select: { stripeCustomerId: true, billingStatus: true },
+    select: { stripeCustomerId: true },
   });
 
   if (!operator?.stripeCustomerId) {
-    return NextResponse.json({ error: "No billing account" }, { status: 400 });
+    return NextResponse.json({ error: "No billing account. Add credits first." }, { status: 400 });
   }
 
-  const checkoutSession = await stripe!.checkout.sessions.create({
+  const setupIntent = await stripe!.setupIntents.create({
     customer: operator.stripeCustomerId,
-    mode: "setup",
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/settings/billing?payment_updated=true`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/settings/billing`,
+    payment_method_types: ["card"],
   });
 
-  return NextResponse.json({ url: checkoutSession.url });
+  return NextResponse.json({ clientSecret: setupIntent.client_secret });
 }

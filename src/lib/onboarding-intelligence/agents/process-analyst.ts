@@ -5,10 +5,6 @@
  * Mines behavioral patterns from communication data, not just documentation.
  */
 
-import { prisma } from "@/lib/db";
-import { triggerNextIteration } from "@/lib/internal-api";
-import { addProgressMessage } from "../progress";
-
 // ── Agent Prompt ─────────────────────────────────────────────────────────────
 
 export const PROCESS_ANALYST_PROMPT = `You are the Process Analyst for a deep organizational intelligence engagement. Your job is to discover the actual OPERATIONAL PROCESSES of this company — how work flows between people, teams, and systems. You map how things actually happen, not just how they're documented.
@@ -98,24 +94,3 @@ export interface ProcessAnalystReport {
   }>;
 }
 
-// ── Launch Function ──────────────────────────────────────────────────────────
-
-export async function launchProcessAnalyst(analysisId: string): Promise<void> {
-  const run = await prisma.onboardingAgentRun.create({
-    data: {
-      analysisId,
-      agentName: "process_analyst",
-      round: 1,
-      status: "running",
-      maxIterations: 30,
-      startedAt: new Date(),
-    },
-  });
-
-  await addProgressMessage(
-    analysisId,
-    "Mining operational processes from communication and workflow patterns...",
-    "process_analyst",
-  );
-  await triggerNextIteration(run.id);
-}

@@ -64,11 +64,16 @@ export async function GET() {
     overallStatus = "healthy";
   }
 
+  // Read staleJobCount from persisted operator snapshot (computed by background recompute)
+  const persistedOperator = operatorRow?.snapshot as unknown as OperatorSnapshot | undefined;
+  const staleJobCount = persistedOperator?.staleJobCount ?? 0;
+
   const snapshot: OperatorSnapshot = {
     operatorId,
     departments,
     overallStatus,
     criticalIssueCount,
+    staleJobCount,
     computedAt: operatorRow
       ? (operatorRow.computedAt ?? new Date()).toISOString()
       : new Date().toISOString(),

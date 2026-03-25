@@ -8,29 +8,29 @@ import { prisma } from "@/lib/db";
 // ── Fee Calculation: calculateSituationFee ──────────────────────────────────
 
 describe("calculateSituationFee", () => {
-  it("supervised (Observe) with multiplier 1.0 → API cost × 2.0", () => {
+  it("propose (supervised) with multiplier 1.0 → API cost × 2.5", () => {
     const result = calculateSituationFee({
       situationApiCostCents: 100,
       stepApiCostsCents: [],
       autonomyLevel: "supervised",
       orchestrationFeeMultiplier: 1.0,
     });
-    // 100 * (1 + 1.0 * 1.0) = 200
-    expect(result).toBe(200);
+    // 100 * (1 + 1.5 * 1.0) = 250
+    expect(result).toBe(250);
   });
 
-  it("notify (Propose) with multiplier 1.0 → API cost × 3.0", () => {
+  it("propose (notify) with multiplier 1.0 → same as supervised", () => {
     const result = calculateSituationFee({
       situationApiCostCents: 100,
       stepApiCostsCents: [],
       autonomyLevel: "notify",
       orchestrationFeeMultiplier: 1.0,
     });
-    // 100 * (1 + 2.0 * 1.0) = 300
-    expect(result).toBe(300);
+    // 100 * (1 + 1.5 * 1.0) = 250
+    expect(result).toBe(250);
   });
 
-  it("autonomous (Act) with multiplier 1.0 → API cost × 4.0", () => {
+  it("autonomous with multiplier 1.0 → API cost × 4.0", () => {
     const result = calculateSituationFee({
       situationApiCostCents: 100,
       stepApiCostsCents: [],
@@ -41,26 +41,26 @@ describe("calculateSituationFee", () => {
     expect(result).toBe(400);
   });
 
-  it("supervised with multiplier 0.50 (discount) → half fee", () => {
+  it("propose with multiplier 0.50 (discount)", () => {
     const result = calculateSituationFee({
       situationApiCostCents: 100,
       stepApiCostsCents: [],
       autonomyLevel: "supervised",
       orchestrationFeeMultiplier: 0.50,
     });
-    // 100 * (1 + 1.0 * 0.5) = 150
-    expect(result).toBe(150);
+    // 100 * (1 + 1.5 * 0.5) = 175
+    expect(result).toBe(175);
   });
 
-  it("notify with multiplier 0.50 → half fee", () => {
+  it("notify with multiplier 0.50 → same as supervised", () => {
     const result = calculateSituationFee({
       situationApiCostCents: 100,
       stepApiCostsCents: [],
       autonomyLevel: "notify",
       orchestrationFeeMultiplier: 0.50,
     });
-    // 100 * (1 + 2.0 * 0.5) = 200
-    expect(result).toBe(200);
+    // 100 * (1 + 1.5 * 0.5) = 175
+    expect(result).toBe(175);
   });
 
   it("autonomous with multiplier 0.50 → half fee", () => {
@@ -81,8 +81,8 @@ describe("calculateSituationFee", () => {
       autonomyLevel: "supervised",
       orchestrationFeeMultiplier: 1.0,
     });
-    // total = 50 + 60 = 110, fee = 110 * (1 + 1.0) = 220
-    expect(result).toBe(220);
+    // total = 50 + 60 = 110, fee = 110 * (1 + 1.5) = 275
+    expect(result).toBe(275);
   });
 
   it("zero API cost → zero fee", () => {

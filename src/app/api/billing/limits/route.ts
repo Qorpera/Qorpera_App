@@ -6,6 +6,7 @@ import { getCurrentPeriodSpendCents } from "@/lib/billing-events";
 // ── GET /api/billing/limits ─────────────────────────────────────────────────
 
 export async function GET() {
+  try {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -65,6 +66,10 @@ export async function GET() {
     rateLimits,
     freeTier,
   });
+  } catch (err) {
+    console.error("[billing/limits] GET error:", err);
+    return NextResponse.json({ error: "Internal error", details: String(err) }, { status: 500 });
+  }
 }
 
 // ── PATCH /api/billing/limits ───────────────────────────────────────────────

@@ -39,12 +39,6 @@ vi.mock("@/lib/ai-provider", () => ({
   callLLM: vi.fn(),
 }));
 
-vi.mock("@/lib/internal-api", () => ({
-  triggerNextIteration: vi.fn().mockResolvedValue(undefined),
-  validateInternalKey: vi.fn(),
-  getBaseUrl: vi.fn().mockReturnValue("http://localhost:3000"),
-}));
-
 vi.mock("@/lib/auth", () => ({
   getSessionUser: vi.fn(),
 }));
@@ -82,10 +76,8 @@ vi.mock("@/lib/entity-resolution", () => ({
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db";
-import { triggerNextIteration } from "@/lib/internal-api";
 
 const mockPrisma = prisma as any;
-const mockTrigger = triggerNextIteration as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -222,46 +214,6 @@ describe("People Discovery", () => {
     // Should have multiple sources
     expect(aliceEntries[0].sources.length).toBeGreaterThanOrEqual(2);
   });
-
-  it("runPeopleDiscovery creates agent run and calls checkRoundCompletion", async () => {
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "pd-run" });
-    mockPrisma.onboardingAnalysis.findUnique.mockResolvedValue({ operatorId: "op1" });
-
-    // Mock all data sources empty
-    mockPrisma.user.findMany.mockResolvedValue([]);
-    mockPrisma.operator.findUnique.mockResolvedValue({ email: null });
-    mockPrisma.entity.findMany.mockResolvedValue([]);
-    mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
-    mockPrisma.activitySignal.findMany.mockResolvedValue([]);
-
-    // Round completion: other agent still running
-    mockPrisma.onboardingAgentRun.findMany.mockResolvedValue([
-      { status: "complete" },
-      { status: "running" },
-    ]);
-    mockPrisma.onboardingAgentRun.update.mockResolvedValue({});
-
-    const { runPeopleDiscovery } = await import(
-      "@/lib/onboarding-intelligence/agents/people-discovery"
-    );
-    await runPeopleDiscovery("a1");
-
-    // Should create agent run
-    expect(mockPrisma.onboardingAgentRun.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          agentName: "people_discovery",
-          round: 0,
-          status: "running",
-        }),
-      }),
-    );
-
-    // Should mark complete
-    const updateCall = mockPrisma.onboardingAgentRun.update.mock.calls[0][0];
-    expect(updateCall.data.status).toBe("complete");
-    expect(Array.isArray(updateCall.data.report)).toBe(true);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -269,32 +221,6 @@ describe("People Discovery", () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe("Temporal Analyst", () => {
-  it("launchTemporalAnalyst creates agent run with correct config", async () => {
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "ta-run" });
-
-    const { launchTemporalAnalyst } = await import(
-      "@/lib/onboarding-intelligence/agents/temporal-analyst"
-    );
-    await launchTemporalAnalyst("a1");
-
-    const createCall = mockPrisma.onboardingAgentRun.create.mock.calls[0][0];
-    expect(createCall.data.agentName).toBe("temporal_analyst");
-    expect(createCall.data.round).toBe(0);
-    expect(createCall.data.maxIterations).toBe(20);
-    expect(createCall.data.status).toBe("running");
-  });
-
-  it("triggers first iteration via triggerNextIteration", async () => {
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "ta-run" });
-
-    const { launchTemporalAnalyst } = await import(
-      "@/lib/onboarding-intelligence/agents/temporal-analyst"
-    );
-    await launchTemporalAnalyst("a1");
-
-    expect(mockTrigger).toHaveBeenCalledWith("ta-run");
-  });
-
   it("TEMPORAL_ANALYST_PROMPT contains key investigation instructions", async () => {
     const { TEMPORAL_ANALYST_PROMPT } = await import(
       "@/lib/onboarding-intelligence/agents/temporal-analyst"
@@ -345,172 +271,5 @@ describe("Google Workspace OAuth", () => {
     expect(body.url).toContain("access_type=offline");
 
     process.env.GOOGLE_CLIENT_ID = originalClientId;
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// ROUND 0 → ROUND 1 HANDOFF
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe("Round 0 → Round 1 Handoff", () => {
-  it("when both Round 0 agents complete, Round 1 agents are launched with context", async () => {
-    // All Round 0 agents complete
-    mockPrisma.onboardingAgentRun.findMany.mockImplementation((args: any) => {
-      if (args.where.round === 0 && !args.where.status) {
-        return [
-          { status: "complete", agentName: "people_discovery" },
-          { status: "complete", agentName: "temporal_analyst" },
-        ];
-      }
-      // Round 0 complete runs (for launchRound1Agents)
-      if (args.where.round === 0 && args.where.status === "complete") {
-        return [
-          {
-            agentName: "people_discovery",
-            report: [
-              { email: "alice@co.dk", displayName: "Alice", isInternal: true, sources: [], activityMetrics: {} },
-            ],
-          },
-          {
-            agentName: "temporal_analyst",
-            report: {
-              temporalMap: [{ date: "2026-01", event: "Reorg", evidence: "doc", significance: "major" }],
-              recencyWarnings: ["Old org chart"],
-              documentFreshness: [],
-              supersessionChains: [],
-              activeKnowledge: [],
-              historicalContext: [],
-            },
-          },
-        ];
-      }
-      return [];
-    });
-
-    mockPrisma.onboardingAnalysis.updateMany.mockResolvedValue({ count: 1 });
-    mockPrisma.onboardingAnalysis.update.mockResolvedValue({});
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "r1-run" });
-
-    const { checkRoundCompletion } = await import(
-      "@/lib/onboarding-intelligence/orchestration"
-    );
-    await checkRoundCompletion("a1", 0);
-
-    // Should create 5 Round 1 agents
-    expect(mockPrisma.onboardingAgentRun.create).toHaveBeenCalledTimes(5);
-
-    // Each should have followUpBrief with round0Preamble
-    const firstCreate = mockPrisma.onboardingAgentRun.create.mock.calls[0][0];
-    expect(firstCreate.data.followUpBrief).toBeDefined();
-    expect(firstCreate.data.followUpBrief.round0Preamble).toContain("Alice");
-    expect(firstCreate.data.followUpBrief.round0Preamble).toContain("Reorg");
-  });
-
-  it("if one Round 0 agent fails, Round 1 still launches with partial data", async () => {
-    mockPrisma.onboardingAgentRun.findMany.mockImplementation((args: any) => {
-      if (args.where.round === 0 && !args.where.status) {
-        return [
-          { status: "complete", agentName: "people_discovery" },
-          { status: "failed", agentName: "temporal_analyst" },
-        ];
-      }
-      if (args.where.round === 0 && args.where.status === "complete") {
-        return [
-          { agentName: "people_discovery", report: [] },
-        ];
-      }
-      return [];
-    });
-
-    mockPrisma.onboardingAnalysis.updateMany.mockResolvedValue({ count: 1 });
-    mockPrisma.onboardingAnalysis.update.mockResolvedValue({});
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "r1-run" });
-
-    const { checkRoundCompletion } = await import(
-      "@/lib/onboarding-intelligence/orchestration"
-    );
-    await checkRoundCompletion("a1", 0);
-
-    // Should still launch 5 Round 1 agents
-    expect(mockPrisma.onboardingAgentRun.create).toHaveBeenCalledTimes(5);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// START ANALYSIS ORCHESTRATION
-// ═══════════════════════════════════════════════════════════════════════════════
-
-describe("Start Analysis (P2 — with Round 0 agents)", () => {
-  it("creates analysis and launches both Round 0 agents", async () => {
-    mockPrisma.sourceConnector.count.mockResolvedValue(1);
-    mockPrisma.contentChunk.count.mockResolvedValue(50);
-    mockPrisma.onboardingAgentRun.deleteMany.mockResolvedValue({});
-    mockPrisma.onboardingAnalysis.deleteMany.mockResolvedValue({});
-    mockPrisma.onboardingAnalysis.create.mockResolvedValue({
-      id: "new-analysis",
-      status: "analyzing",
-    });
-
-    // People Discovery mocks
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "agent-run" });
-    mockPrisma.onboardingAnalysis.findUnique.mockResolvedValue({ operatorId: "op1" });
-    mockPrisma.user.findMany.mockResolvedValue([]);
-    mockPrisma.operator.findUnique.mockResolvedValue({ email: null });
-    mockPrisma.entity.findMany.mockResolvedValue([]);
-    mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
-    mockPrisma.activitySignal.findMany.mockResolvedValue([]);
-    mockPrisma.onboardingAgentRun.update.mockResolvedValue({});
-
-    // Round completion: not all done
-    mockPrisma.onboardingAgentRun.findMany.mockResolvedValue([
-      { status: "complete" },
-      { status: "running" },
-    ]);
-
-    const { startAnalysis } = await import(
-      "@/lib/onboarding-intelligence/orchestration"
-    );
-    const result = await startAnalysis("op1");
-
-    expect(result.analysisId).toBe("new-analysis");
-    expect(result.status).toBe("analyzing");
-
-    // Should have created agent runs (people_discovery + temporal_analyst)
-    expect(mockPrisma.onboardingAgentRun.create).toHaveBeenCalledTimes(2);
-
-    const agentNames = mockPrisma.onboardingAgentRun.create.mock.calls.map(
-      (c: any) => c[0].data.agentName,
-    );
-    expect(agentNames).toContain("people_discovery");
-    expect(agentNames).toContain("temporal_analyst");
-  });
-
-  it("deletes existing agent runs before analysis on restart", async () => {
-    mockPrisma.sourceConnector.count.mockResolvedValue(1);
-    mockPrisma.contentChunk.count.mockResolvedValue(50);
-    mockPrisma.onboardingAgentRun.deleteMany.mockResolvedValue({});
-    mockPrisma.onboardingAnalysis.deleteMany.mockResolvedValue({});
-    mockPrisma.onboardingAnalysis.create.mockResolvedValue({ id: "a2" });
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "run" });
-    mockPrisma.onboardingAnalysis.findUnique.mockResolvedValue({ operatorId: "op1" });
-    mockPrisma.user.findMany.mockResolvedValue([]);
-    mockPrisma.operator.findUnique.mockResolvedValue({ email: null });
-    mockPrisma.entity.findMany.mockResolvedValue([]);
-    mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
-    mockPrisma.activitySignal.findMany.mockResolvedValue([]);
-    mockPrisma.onboardingAgentRun.update.mockResolvedValue({});
-    mockPrisma.onboardingAgentRun.findMany.mockResolvedValue([
-      { status: "complete" },
-      { status: "running" },
-    ]);
-
-    const { startAnalysis } = await import(
-      "@/lib/onboarding-intelligence/orchestration"
-    );
-    await startAnalysis("op1");
-
-    // Should delete agent runs first, then analysis
-    expect(mockPrisma.onboardingAgentRun.deleteMany).toHaveBeenCalled();
-    expect(mockPrisma.onboardingAnalysis.deleteMany).toHaveBeenCalled();
   });
 });

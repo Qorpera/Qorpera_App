@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { detectSituations } from "@/lib/situation-detector";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 
 export async function POST() {
   const su = await getSessionUser();
@@ -8,12 +8,10 @@ export async function POST() {
   if (su.user.role === "member") {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
-  const { operatorId } = su;
 
-  const results = await detectSituations(operatorId);
-
-  return NextResponse.json({
-    situationsCreated: results.length,
-    details: results,
+  const jobId = await enqueueWorkerJob("detect_situations", su.operatorId, {
+    operatorId: su.operatorId,
   });
+
+  return NextResponse.json({ status: "queued", jobId });
 }

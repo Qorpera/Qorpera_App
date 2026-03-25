@@ -1,12 +1,11 @@
 /**
  * Autonomy level → base fee multiplier.
- * supervised (Observe) = 100% markup on API cost
- * notify (Propose) = 200% markup
- * autonomous (Act) = 300% markup
+ * propose (supervised/notify) = 150% markup on API cost
+ * autonomous = 300% markup
  */
 const AUTONOMY_FEE_MULTIPLIER: Record<string, number> = {
-  supervised: 1.0,
-  notify: 2.0,
+  supervised: 1.5,
+  notify: 1.5,
   autonomous: 3.0,
 };
 

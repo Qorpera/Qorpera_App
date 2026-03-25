@@ -24,7 +24,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/copilot", labelKey: "copilot", icon: "sparkles" },
       { href: "/learning", labelKey: "learning", icon: "trending-up" },
-      { href: "/system-health", labelKey: "systemHealth", icon: "activity", adminOnly: true },
+      { href: "/system-health", labelKey: "systemHealth", icon: "activity", badgeKey: "health", adminOnly: true },
     ],
   },
   {

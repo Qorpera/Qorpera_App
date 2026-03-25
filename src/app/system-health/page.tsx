@@ -654,6 +654,15 @@ export default function SystemHealthPage() {
             t={t}
           />
 
+          {/* Stale worker jobs warning */}
+          {snapshot.staleJobCount > 0 && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-5 py-3 flex items-start gap-3">
+              <span className="text-red-400 text-sm">
+                {snapshot.staleJobCount} reasoning job{snapshot.staleJobCount > 1 ? "s" : ""} queued for 15+ minutes — the reasoning service may be offline.
+              </span>
+            </div>
+          )}
+
           {/* Department Cards */}
           {sortedDepartments.map((dept) => (
             <DepartmentCard

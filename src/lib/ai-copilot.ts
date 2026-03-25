@@ -5,7 +5,7 @@ import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
 import { listEntityTypes } from "@/lib/entity-model-store";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { buildOrientationSystemPrompt, buildDepartmentDataContext } from "@/lib/orientation-prompts";
-import { generatePreFilter } from "@/lib/situation-prefilter";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
@@ -922,10 +922,12 @@ export async function executeTool(
         }
       }
 
-      // Generate pre-filter for natural/hybrid modes (fire-and-forget)
+      // Generate pre-filter for natural/hybrid modes (async on worker)
       const dl = detectionLogic as Record<string, unknown>;
       if (dl.mode === "natural" || dl.mode === "hybrid") {
-        generatePreFilter(situationType.id).catch(() => {});
+        enqueueWorkerJob("generate_prefilter", operatorId, {
+          situationTypeId: situationType.id,
+        }).catch(() => {});
       }
 
       const scopeNote = scopeEntityId

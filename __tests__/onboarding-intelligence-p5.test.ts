@@ -47,15 +47,6 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/lib/ai-provider", () => ({
-  callLLM: vi.fn(),
-}));
-
-vi.mock("@/lib/internal-api", () => ({
-  triggerNextIteration: vi.fn().mockResolvedValue(undefined),
-  getBaseUrl: vi.fn().mockReturnValue("http://localhost:3000"),
-}));
-
 vi.mock("@/lib/notification-dispatch", () => ({
   sendNotificationToAdmins: vi.fn().mockResolvedValue(undefined),
 }));
@@ -88,20 +79,15 @@ vi.mock("@/lib/auth", () => ({
 // ── Imports ──────────────────────────────────────────────────────────────────
 
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
-import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 const mockPrisma = prisma as any;
-const mockCallLLM = callLLM as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.$executeRaw.mockResolvedValue(1);
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SYNTHESIS
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── Shared test data ─────────────────────────────────────────────────────────
 
 const mockCompanyModel = {
   departments: [
@@ -124,109 +110,6 @@ const mockCompanyModel = {
     { question: "Does Bob report to CTO or VP Engineering?", context: "Calendar data ambiguous" },
   ],
 };
-
-describe("Synthesis", () => {
-  it("launchSynthesis creates entities from model and marks analysis confirming", async () => {
-    // Setup mocks
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "synth-run" });
-    mockPrisma.onboardingAnalysis.findUnique.mockResolvedValue({
-      id: "a1",
-      operatorId: "op1",
-      operator: { id: "op1" },
-    });
-    mockPrisma.onboardingAgentRun.findMany.mockResolvedValue([
-      { agentName: "org_analyst", round: 1, report: {}, status: "complete" },
-    ]);
-    mockPrisma.onboardingAgentRun.update.mockResolvedValue({});
-    mockPrisma.onboardingAnalysis.update.mockResolvedValue({});
-    mockPrisma.onboardingAnalysis.updateMany.mockResolvedValue({});
-
-    // Entity creation mocks
-    mockPrisma.entityType.findFirst.mockResolvedValue({ id: "dept-type" });
-    mockPrisma.entity.findFirst.mockResolvedValue(null); // No existing entities
-    mockPrisma.entity.create.mockImplementation(() => ({
-      id: `e-${Math.random().toString(36).slice(2, 8)}`,
-      entityTypeId: "dept-type",
-      parentDepartmentId: null,
-    }));
-    mockPrisma.entityProperty.findFirst.mockResolvedValue({ id: "email-prop" });
-    mockPrisma.propertyValue.findFirst.mockResolvedValue(null);
-    mockPrisma.propertyValue.create.mockResolvedValue({});
-    mockPrisma.propertyValue.upsert.mockResolvedValue({});
-    mockPrisma.relationshipType.findFirst.mockResolvedValue({ id: "dept-member-type" });
-    mockPrisma.relationship.upsert.mockResolvedValue({});
-    mockPrisma.situationType.upsert.mockResolvedValue({});
-    mockPrisma.user.findMany.mockResolvedValue([]);
-
-    // LLM returns valid company model
-    mockCallLLM.mockResolvedValueOnce({
-      text: JSON.stringify(mockCompanyModel),
-      usage: { inputTokens: 5000, outputTokens: 2000 },
-      apiCostCents: 20,
-    });
-
-    const { launchSynthesis } = await import(
-      "@/lib/onboarding-intelligence/synthesis"
-    );
-    await launchSynthesis("a1");
-
-    // Should create synthesis run
-    expect(mockPrisma.onboardingAgentRun.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ agentName: "synthesis", round: 99 }),
-      }),
-    );
-
-    // Should mark analysis as confirming
-    const analysisUpdate = mockPrisma.onboardingAnalysis.update.mock.calls.find(
-      (c: any) => c[0]?.data?.status === "confirming",
-    );
-    expect(analysisUpdate).toBeTruthy();
-
-    // Should have called entity creation (departments + people)
-    expect(mockPrisma.entity.create).toHaveBeenCalled();
-
-    // Should create situation types
-    expect(mockPrisma.situationType.upsert).toHaveBeenCalled();
-    const stCall = mockPrisma.situationType.upsert.mock.calls[0][0];
-    expect(stCall.create.name).toBe("Invoice Overdue");
-    expect(stCall.create.autonomyLevel).toBe("supervised");
-
-    // Should send notification
-    expect(sendNotificationToAdmins).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operatorId: "op1",
-        type: "system_alert",
-      }),
-    );
-  });
-
-  it("synthesis failure marks analysis as failed", async () => {
-    mockPrisma.onboardingAgentRun.create.mockResolvedValue({ id: "synth-run" });
-    mockPrisma.onboardingAnalysis.findUnique.mockResolvedValue({
-      id: "a1",
-      operatorId: "op1",
-      operator: { id: "op1" },
-    });
-    mockPrisma.onboardingAgentRun.findMany.mockResolvedValue([]);
-    mockPrisma.onboardingAgentRun.update.mockResolvedValue({});
-    mockPrisma.onboardingAnalysis.update.mockResolvedValue({});
-
-    mockCallLLM.mockRejectedValueOnce(new Error("LLM quota exceeded"));
-
-    const { launchSynthesis } = await import(
-      "@/lib/onboarding-intelligence/synthesis"
-    );
-    await launchSynthesis("a1");
-
-    // Should mark analysis as failed
-    const failUpdate = mockPrisma.onboardingAnalysis.update.mock.calls.find(
-      (c: any) => c[0]?.data?.status === "failed",
-    );
-    expect(failUpdate).toBeTruthy();
-    expect(failUpdate[0].data.failureReason).toContain("LLM quota exceeded");
-  });
-});
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ENTITY CREATION
