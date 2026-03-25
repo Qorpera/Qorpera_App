@@ -1,4 +1,8 @@
 /**
+ * @deprecated startAnalysis(), checkRoundCompletion(), and launchAgent() are replaced by
+ * worker/src/pipeline.ts which orchestrates rounds in-process. buildRound1Preamble() is
+ * still used by the worker pipeline.
+ *
  * Onboarding intelligence orchestration:
  * start analysis, launch agents, round completion, phase transitions.
  */
@@ -202,7 +206,7 @@ export async function completeSynthesis(
 
 // ── Round 1 Preamble ─────────────────────────────────────────────────────────
 
-function buildRound1Preamble(
+export function buildRound1Preamble(
   peopleReport?: PeopleRegistryEntry[],
   temporalReport?: TemporalReport,
 ): string {

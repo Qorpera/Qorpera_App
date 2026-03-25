@@ -1,0 +1,129 @@
+import { prisma } from "@/lib/db";
+import { detectSituations } from "@/lib/situation-detector";
+import { auditPreFilters } from "@/lib/situation-audit";
+import { runScheduledInitiativeEvaluation } from "@/lib/initiative-reasoning";
+import { extractInsights, getLastExtractionTime } from "@/lib/operational-knowledge";
+import { computePriorityScores } from "@/lib/prioritization-engine";
+
+const timers: ReturnType<typeof setInterval>[] = [];
+
+export function startCronScheduler() {
+  // ── Situation Detection: every 15 minutes ──────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({ select: { id: true } });
+        for (const op of operators) {
+          const results = await detectSituations(op.id);
+          if (results.length > 0) {
+            console.log(`[cron:detection] Operator ${op.id}: ${results.length} situations detected`);
+          }
+        }
+      } catch (err) {
+        console.error("[cron:detection] Error:", err);
+      }
+    }, 15 * 60 * 1000),
+  );
+
+  // ── Situation Audit: every 24 hours ────────────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({ select: { id: true } });
+        for (const op of operators) {
+          const results = await auditPreFilters(op.id);
+          const totalMisses = results.reduce((sum, r) => sum + r.missesFound, 0);
+          const regens = results.filter((r) => r.filterRegenerated).length;
+          if (totalMisses > 0 || regens > 0) {
+            console.log(`[cron:audit] Operator ${op.id}: ${totalMisses} misses, ${regens} filters regenerated`);
+          }
+        }
+      } catch (err) {
+        console.error("[cron:audit] Error:", err);
+      }
+    }, 24 * 60 * 60 * 1000),
+  );
+
+  // ── Initiative Evaluation: every 4 hours ───────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const result = await runScheduledInitiativeEvaluation();
+        console.log("[cron:initiatives]", result);
+      } catch (err) {
+        console.error("[cron:initiatives] Error:", err);
+      }
+    }, 4 * 60 * 60 * 1000),
+  );
+
+  // ── Insight Extraction: daily ──────────────────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const aiEntities = await prisma.entity.findMany({
+          where: {
+            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+            status: "active",
+          },
+          select: { id: true, operatorId: true },
+        });
+
+        let processed = 0;
+        for (const entity of aiEntities) {
+          const operator = await prisma.operator.findUnique({
+            where: { id: entity.operatorId },
+            select: { createdAt: true },
+          });
+          if (!operator) continue;
+
+          const operatorAgeDays = (Date.now() - operator.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+          const lastExtraction = await getLastExtractionTime(entity.id);
+
+          if (operatorAgeDays <= 7) {
+            if (lastExtraction && (Date.now() - lastExtraction.getTime()) < 20 * 60 * 60 * 1000) continue;
+          } else {
+            if (lastExtraction && (Date.now() - lastExtraction.getTime()) < 6 * 24 * 60 * 60 * 1000) continue;
+          }
+
+          try {
+            await extractInsights(entity.operatorId, entity.id);
+            processed++;
+          } catch (err) {
+            console.error(`[cron:insights] Entity ${entity.id} failed:`, err);
+          }
+        }
+
+        if (processed > 0) {
+          console.log(`[cron:insights] Processed ${processed} AI entities`);
+        }
+      } catch (err) {
+        console.error("[cron:insights] Error:", err);
+      }
+    }, 24 * 60 * 60 * 1000),
+  );
+
+  // ── Priority Scoring: every 6 hours ────────────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({ select: { id: true } });
+        for (const op of operators) {
+          await computePriorityScores(op.id).catch((err) =>
+            console.error(`[cron:priorities] Operator ${op.id} failed:`, err),
+          );
+        }
+      } catch (err) {
+        console.error("[cron:priorities] Error:", err);
+      }
+    }, 6 * 60 * 60 * 1000),
+  );
+
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h)");
+}
+
+export function stopCronScheduler() {
+  for (const timer of timers) {
+    clearInterval(timer);
+  }
+  timers.length = 0;
+}

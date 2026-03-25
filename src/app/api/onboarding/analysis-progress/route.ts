@@ -18,6 +18,27 @@ export async function GET() {
     return NextResponse.json({ error: "No analysis found" }, { status: 404 });
   }
 
+  // Worker availability detection
+  if (analysis.status === "pending" && !analysis.workerClaimedAt) {
+    const pendingSince = analysis.createdAt.getTime();
+    const now = Date.now();
+    const pendingMinutes = (now - pendingSince) / 60000;
+
+    if (pendingMinutes > 10) {
+      return NextResponse.json({
+        status: "worker_unavailable",
+        message: "The analysis service is temporarily unavailable. Please try again later.",
+        progressMessages: [],
+      });
+    } else if (pendingMinutes > 2) {
+      return NextResponse.json({
+        status: "waiting_for_worker",
+        message: "Analysis queued — processing will begin shortly.",
+        progressMessages: [],
+      });
+    }
+  }
+
   const response: AnalysisProgressResponse = {
     status: analysis.status as AnalysisProgressResponse["status"],
     currentPhase: analysis.currentPhase,

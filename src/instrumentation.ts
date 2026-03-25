@@ -27,9 +27,7 @@ export async function register() {
     // Auto-seed AI settings from env vars (only if not already set)
     await seedAISettingsFromEnv();
 
-    // Start background crons
-    const { startSituationCrons } = await import("@/lib/situation-cron");
-    startSituationCrons();
+    // Situation crons moved to Bastion worker (worker/src/cron-scheduler.ts)
 
     // Start sync scheduler
     const { startSyncScheduler } = await import("@/lib/sync-scheduler");

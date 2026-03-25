@@ -18,6 +18,7 @@ export function getBaseUrl(): string {
   );
 }
 
+/** @deprecated Worker runs iterations in-process. No longer used by any code path. */
 export async function triggerNextIteration(runId: string): Promise<void> {
   const baseUrl = getBaseUrl();
   const url = `${baseUrl}/api/onboarding/agents/iterate`;

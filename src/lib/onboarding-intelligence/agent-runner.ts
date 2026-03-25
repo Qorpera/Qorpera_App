@@ -1,4 +1,7 @@
 /**
+ * @deprecated Replaced by worker/src/agent-runner.ts which uses a persistent Anthropic API
+ * loop with full 1M context instead of self-chaining serverless invocations with lossy summarization.
+ *
  * Core agent iteration loop for onboarding intelligence.
  *
  * Each invocation runs ONE iteration: load state → LLM call → process response → chain next.

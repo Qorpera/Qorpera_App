@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { startAnalysis } from "@/lib/onboarding-intelligence/orchestration";
+import { prisma } from "@/lib/db";
 
 export async function POST(request: Request) {
   const session = await getSessionUser();
@@ -13,11 +13,44 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  try {
-    const result = await startAnalysis(session.operatorId);
-    return NextResponse.json(result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to start analysis";
-    return NextResponse.json({ error: message }, { status: 400 });
+  const operatorId = session.operatorId;
+
+  // Check for existing running analysis
+  const existing = await prisma.onboardingAnalysis.findUnique({
+    where: { operatorId },
+  });
+  if (existing && existing.status === "analyzing") {
+    return NextResponse.json({ error: "Analysis already in progress" }, { status: 409 });
   }
+
+  // Check operator has synced data
+  const connectorCount = await prisma.sourceConnector.count({
+    where: { operatorId, status: "active" },
+  });
+  const contentCount = await prisma.contentChunk.count({ where: { operatorId } });
+  if (connectorCount === 0 && contentCount === 0) {
+    return NextResponse.json({ error: "No active connectors or synced content found" }, { status: 400 });
+  }
+
+  // Delete existing analysis and agent runs (restart)
+  await prisma.onboardingAgentRun.deleteMany({ where: { analysis: { operatorId } } });
+  await prisma.onboardingAnalysis.deleteMany({ where: { operatorId } });
+
+  // Create pending analysis — worker picks it up within 5 seconds
+  const analysis = await prisma.onboardingAnalysis.create({
+    data: {
+      operatorId,
+      status: "pending",
+      currentPhase: "idle",
+      startedAt: new Date(),
+    },
+  });
+
+  // Update orientation session phase
+  await prisma.orientationSession.updateMany({
+    where: { operatorId },
+    data: { phase: "analyzing" },
+  });
+
+  return NextResponse.json({ analysisId: analysis.id, status: "pending" });
 }

@@ -81,32 +81,14 @@ describe("/api/cron/recurring-tasks", () => {
   });
 });
 
-describe("/api/cron/initiatives", () => {
-  it("returns 401 without CRON_SECRET in production", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-
-    const { GET } = await import("@/app/api/cron/initiatives/route");
-    const req = new Request("http://localhost/api/cron/initiatives", {
-      headers: { authorization: "Bearer wrong" },
-    });
-    const res = await GET(req);
-    expect(res.status).toBe(401);
-
-    vi.stubEnv("NODE_ENV", "test");
-  });
-
-  it("runs scheduled initiative evaluation with valid auth", async () => {
-    (runScheduledInitiativeEvaluation as ReturnType<typeof vi.fn>).mockResolvedValue({
-      departments: 3, proposals: 2, errors: 0,
-    });
-
+describe("/api/cron/initiatives (migrated to worker)", () => {
+  it("returns migrated stub response", async () => {
     const { GET } = await import("@/app/api/cron/initiatives/route");
     const req = new Request("http://localhost/api/cron/initiatives");
     const res = await GET(req);
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.departments).toBe(3);
-    expect(body.proposals).toBe(2);
+    expect(body.migrated).toBe("worker");
   });
 });

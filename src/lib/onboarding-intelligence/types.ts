@@ -129,7 +129,8 @@ export interface ProgressMessage {
 // ── Analysis Progress Response ───────────────────────────────────────────────
 
 export interface AnalysisProgressResponse {
-  status: "pending" | "analyzing" | "confirming" | "complete" | "failed";
+  status: "pending" | "analyzing" | "confirming" | "complete" | "failed" | "waiting_for_worker" | "worker_unavailable";
+  message?: string;
   currentPhase: string;
   progressMessages: ProgressMessage[];
   estimatedMinutesRemaining?: number;

@@ -1,176 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
-
-// ── Prisma Mock ──────────────────────────────────────────────────────────────
-
-const mockAgentRunFindMany = vi.fn();
-const mockAgentRunUpdateMany = vi.fn();
-const mockAnalysisFindMany = vi.fn();
-const mockAnalysisUpdate = vi.fn();
-
-vi.mock("@/lib/db", () => ({
-  prisma: {
-    onboardingAgentRun: {
-      findMany: (...a: unknown[]) => mockAgentRunFindMany(...a),
-      updateMany: (...a: unknown[]) => mockAgentRunUpdateMany(...a),
-    },
-    onboardingAnalysis: {
-      findMany: (...a: unknown[]) => mockAnalysisFindMany(...a),
-      update: (...a: unknown[]) => mockAnalysisUpdate(...a),
-    },
-  },
-}));
-
-const mockAddProgressMessage = vi.fn().mockResolvedValue(undefined);
-vi.mock("@/lib/onboarding-intelligence/progress", () => ({
-  addProgressMessage: (...a: unknown[]) => mockAddProgressMessage(...a),
-}));
-
-const mockTriggerNextIteration = vi.fn().mockResolvedValue(undefined);
-vi.mock("@/lib/internal-api", () => ({
-  triggerNextIteration: (...a: unknown[]) => mockTriggerNextIteration(...a),
-  getBaseUrl: vi.fn().mockReturnValue("http://localhost:3000"),
-}));
-
-// ── Imports ──────────────────────────────────────────────────────────────────
-
-import { GET as recoverStuckAgents } from "@/app/api/cron/recover-stuck-agents/route";
-
-function makeReq() {
-  return new Request("http://localhost/api/cron/recover-stuck-agents", { method: "GET" });
-}
-
-// ── 1. Stuck Agent Recovery Cron ────────────────────────────────────────────
-
-describe("GET /api/cron/recover-stuck-agents", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockAnalysisFindMany.mockResolvedValue([]);
-  });
-
-  it("re-triggers agent stuck > 20 minutes", async () => {
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
-    mockAgentRunFindMany.mockResolvedValue([
-      {
-        id: "run1",
-        analysisId: "analysis1",
-        agentName: "org_analyst",
-        iterationCount: 15,
-        lastIterationAt: thirtyMinAgo,
-        status: "running",
-      },
-    ]);
-
-    const res = await recoverStuckAgents(makeReq());
-    const data = await res.json();
-
-    expect(data.recovered).toBe(1);
-    expect(mockTriggerNextIteration).toHaveBeenCalledWith("run1");
-    expect(mockAddProgressMessage).toHaveBeenCalledWith(
-      "analysis1",
-      expect.stringContaining("Re-triggering org_analyst"),
-      "system",
-    );
-  });
-
-  it("does not touch agent stuck < 20 minutes", async () => {
-    // Agent run findMany returns empty because lastIterationAt is recent
-    mockAgentRunFindMany.mockResolvedValue([]);
-
-    const res = await recoverStuckAgents(makeReq());
-    const data = await res.json();
-
-    expect(data.recovered).toBe(0);
-    expect(mockTriggerNextIteration).not.toHaveBeenCalled();
-  });
-
-  it("marks analysis stuck > 2 hours as failed", async () => {
-    mockAgentRunFindMany.mockResolvedValue([]);
-    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
-    mockAnalysisFindMany.mockResolvedValue([
-      {
-        id: "analysis2",
-        status: "analyzing",
-        startedAt: threeHoursAgo,
-      },
-    ]);
-    mockAnalysisUpdate.mockResolvedValue({ id: "analysis2" });
-    mockAgentRunUpdateMany.mockResolvedValue({ count: 2 });
-
-    const res = await recoverStuckAgents(makeReq());
-    const data = await res.json();
-
-    expect(data.timedOut).toBe(1);
-    expect(mockAnalysisUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "analysis2" },
-        data: expect.objectContaining({
-          status: "failed",
-          failureReason: expect.stringContaining("timed out"),
-        }),
-      }),
-    );
-  });
-
-  it("fails all running agent runs when analysis times out", async () => {
-    mockAgentRunFindMany.mockResolvedValue([]);
-    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
-    mockAnalysisFindMany.mockResolvedValue([
-      { id: "analysis3", status: "analyzing", startedAt: threeHoursAgo },
-    ]);
-    mockAnalysisUpdate.mockResolvedValue({ id: "analysis3" });
-    mockAgentRunUpdateMany.mockResolvedValue({ count: 3 });
-
-    await recoverStuckAgents(makeReq());
-
-    expect(mockAgentRunUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { analysisId: "analysis3", status: "running" },
-        data: { status: "failed" },
-      }),
-    );
-  });
-
-  it("does not re-trigger agents from failed analyses", async () => {
-    // Agent findMany where clause includes analysis.status = "analyzing"
-    // So agents from failed analyses won't match
-    mockAgentRunFindMany.mockResolvedValue([]);
-
-    const res = await recoverStuckAgents(makeReq());
-    const data = await res.json();
-
-    expect(data.recovered).toBe(0);
-    expect(mockTriggerNextIteration).not.toHaveBeenCalled();
-  });
-
-  it("adds progress message on recovery", async () => {
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
-    mockAgentRunFindMany.mockResolvedValue([
-      {
-        id: "run2",
-        analysisId: "analysis4",
-        agentName: "financial_analyst",
-        iterationCount: 8,
-        lastIterationAt: thirtyMinAgo,
-        status: "running",
-      },
-    ]);
-
-    await recoverStuckAgents(makeReq());
-
-    expect(mockAddProgressMessage).toHaveBeenCalledWith(
-      "analysis4",
-      expect.stringContaining("financial_analyst"),
-      "system",
-    );
-    expect(mockAddProgressMessage).toHaveBeenCalledWith(
-      "analysis4",
-      expect.stringContaining("iteration 8"),
-      "system",
-    );
-  });
-});
 
 // ── 2. i18n Key Completeness ────────────────────────────────────────────────
 
@@ -334,14 +164,13 @@ describe("Connector status filtering", () => {
 // ── 4. Vercel.json Cron Config ──────────────────────────────────────────────
 
 describe("Vercel.json cron config", () => {
-  it("includes recover-stuck-agents cron at 5-minute interval", () => {
+  it("does not include recover-stuck-agents cron (replaced by worker)", () => {
     const vercelPath = path.resolve(__dirname, "../vercel.json");
     const vercel = JSON.parse(fs.readFileSync(vercelPath, "utf-8"));
 
     const recoverCron = vercel.crons.find(
       (c: { path: string }) => c.path === "/api/cron/recover-stuck-agents",
     );
-    expect(recoverCron).toBeDefined();
-    expect(recoverCron.schedule).toBe("*/5 * * * *");
+    expect(recoverCron).toBeUndefined();
   });
 });

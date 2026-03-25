@@ -78,7 +78,7 @@ export interface CompanyModel {
 
 // ── Synthesis Prompt ─────────────────────────────────────────────────────────
 
-const SYNTHESIS_PROMPT = `You are compiling the output of a multi-agent organizational intelligence analysis into a single, coherent company model. You have reports from:
+export const SYNTHESIS_PROMPT = `You are compiling the output of a multi-agent organizational intelligence analysis into a single, coherent company model. You have reports from:
 
 - People Discovery (algorithmic): Master list of all discovered people
 - Temporal Analyst: Document freshness and timeline
@@ -308,7 +308,7 @@ export async function launchSynthesis(analysisId: string): Promise<void> {
 
 // ── Build Synthesis Input ────────────────────────────────────────────────────
 
-function buildSynthesisInput(
+export function buildSynthesisInput(
   reports: Array<{ agent: string; round: number; report: unknown }>,
 ): string {
   const parts: string[] = ["## All Agent Reports\n"];
@@ -528,7 +528,7 @@ export async function createSituationTypesFromModel(
 
 // ── Email Notification ───────────────────────────────────────────────────────
 
-async function sendAnalysisCompleteEmail(operatorId: string): Promise<void> {
+export async function sendAnalysisCompleteEmail(operatorId: string): Promise<void> {
   await sendNotificationToAdmins({
     operatorId,
     type: "system_alert",

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { reasonAboutSituation } from "@/lib/reasoning-engine";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function POST(
@@ -50,10 +50,8 @@ export async function POST(
     },
   });
 
-  // Fire-and-forget reasoning
-  reasonAboutSituation(id).catch((err) =>
-    console.error(`[reason-api] Reasoning failed for situation ${id}:`, err),
-  );
+  // Enqueue reasoning for Bastion worker
+  await enqueueWorkerJob("reason_situation", operatorId, { situationId: id });
 
   return NextResponse.json({ id, status: "reasoning_triggered" });
 }

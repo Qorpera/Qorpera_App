@@ -1,0 +1,15 @@
+[Unit]
+Description=Qorpera Agent Worker
+After=network.target
+
+[Service]
+Type=simple
+User=krug3r
+WorkingDirectory=/home/krug3r/projects/qorpera-app/worker
+ExecStart=/usr/bin/node dist/worker/src/index.js
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/krug3r/projects/qorpera-app/worker/.env
+
+[Install]
+WantedBy=multi-user.target

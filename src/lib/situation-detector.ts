@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { assembleSituationContext, type SituationContext } from "@/lib/context-assembly";
-import { reasonAboutSituation } from "@/lib/reasoning-engine";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { isEntityInScope } from "@/lib/situation-scope";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
@@ -177,9 +177,9 @@ async function detectSituationsForEntity(
         operatorId, st, entityId, context, match.confidence, triggerEventId,
       );
 
-      // Fire-and-forget reasoning
-      reasonAboutSituation(situation.id).catch((err) =>
-        console.error(`[situation-detector] Reasoning failed for situation ${situation.id}:`, err),
+      // Enqueue reasoning for Bastion worker
+      enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }).catch((err) =>
+        console.error(`[situation-detector] Failed to enqueue reasoning for ${situation.id}:`, err),
       );
 
       results.push({
@@ -297,9 +297,9 @@ async function detectForSituationType(
       operatorId, st, m.candidate.id, context, m.confidence,
     );
 
-    // Fire-and-forget reasoning
-    reasonAboutSituation(situation.id).catch((err) =>
-      console.error(`[situation-detector] Reasoning failed for situation ${situation.id}:`, err),
+    // Enqueue reasoning for Bastion worker
+    enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }).catch((err) =>
+      console.error(`[situation-detector] Failed to enqueue reasoning for ${situation.id}:`, err),
     );
 
     results.push({
@@ -615,7 +615,7 @@ export async function trackFreeDetection(operatorId: string): Promise<void> {
       operatorId,
       type: "system_alert",
       title: "Free detection limit reached",
-      body: "Qorpera has detected 50 situations in your organization. Activate billing to continue detection and start acting on situations.",
+      body: "Qorpera has detected 50 situations in your organization. Add credits to continue detection and start acting on situations.",
       sourceType: "operator",
       sourceId: operatorId,
     }).catch(console.error);

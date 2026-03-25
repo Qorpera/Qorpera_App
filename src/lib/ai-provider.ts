@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ResponseCreateParamsNonStreaming, ResponseCreateParamsStreaming } from "openai/resources/responses/responses";
+import { createHmac } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { calculateCallCostCents } from "@/lib/model-pricing";
 
@@ -221,9 +222,95 @@ export async function withRetry<T>(
   throw new Error("withRetry: unreachable");
 }
 
+// ── Bastion Worker Proxy ──────────────────────────────────────────────────────
+
+function signWorkerRequest(body: string): { timestamp: string; signature: string } {
+  const secret = process.env.WORKER_SECRET || "";
+  const timestamp = Date.now().toString();
+  const signature = createHmac("sha256", secret)
+    .update(timestamp + body)
+    .digest("hex");
+  return { timestamp, signature };
+}
+
+async function proxyCallLLM(workerUrl: string, options: LLMRequestOptions): Promise<LLMResponse> {
+  const body = JSON.stringify(options);
+  const { timestamp, signature } = signWorkerRequest(body);
+
+  const res = await fetch(`${workerUrl}/llm/call`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Worker-Timestamp": timestamp,
+      "X-Worker-Signature": signature,
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "Unknown error");
+    throw new Error(`Worker LLM call failed (${res.status}): ${err}`);
+  }
+
+  return res.json();
+}
+
+async function* proxyStreamLLM(workerUrl: string, options: LLMRequestOptions): AsyncGenerator<string> {
+  const body = JSON.stringify(options);
+  const { timestamp, signature } = signWorkerRequest(body);
+
+  const res = await fetch(`${workerUrl}/llm/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Worker-Timestamp": timestamp,
+      "X-Worker-Signature": signature,
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "Unknown error");
+    throw new Error(`Worker LLM stream failed (${res.status}): ${err}`);
+  }
+
+  if (!res.body) throw new Error("Worker returned no stream body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice(6);
+      if (payload === "[DONE]") return;
+      if (line.startsWith("event: error")) continue;
+      try {
+        yield JSON.parse(payload);
+      } catch {
+        // Non-JSON SSE line, skip
+      }
+    }
+  }
+}
+
 // ── Main Call ─────────────────────────────────────────────────────────────────
 
 export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> {
+  // Proxy through Bastion worker if WORKER_URL is set
+  const workerUrl = process.env.WORKER_URL;
+  if (workerUrl) {
+    return proxyCallLLM(workerUrl, options);
+  }
+
   const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
 
@@ -244,6 +331,13 @@ export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> 
 export async function* streamLLM(
   options: LLMRequestOptions,
 ): AsyncGenerator<string> {
+  // Proxy through Bastion worker if WORKER_URL is set
+  const workerUrl = process.env.WORKER_URL;
+  if (workerUrl) {
+    yield* proxyStreamLLM(workerUrl, options);
+    return;
+  }
+
   const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
 

@@ -19,28 +19,8 @@
       "schedule": "*/15 * * * *"
     },
     {
-      "path": "/api/cron/initiatives",
-      "schedule": "0 */4 * * *"
-    },
-    {
-      "path": "/api/cron/insights",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/cron/priorities",
-      "schedule": "0 */6 * * *"
-    },
-    {
       "path": "/api/cron/process-deletions",
       "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/billing-rampup",
-      "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/recover-stuck-agents",
-      "schedule": "*/5 * * * *"
     }
   ]
 }

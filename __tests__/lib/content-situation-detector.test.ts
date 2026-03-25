@@ -47,8 +47,8 @@ vi.mock("@/lib/activity-pipeline", () => ({
   resolveDepartmentsFromEmails: vi.fn(),
 }));
 
-vi.mock("@/lib/reasoning-engine", () => ({
-  reasonAboutSituation: vi.fn(),
+vi.mock("@/lib/worker-dispatch", () => ({
+  enqueueWorkerJob: vi.fn().mockResolvedValue("job-001"),
 }));
 
 vi.mock("@/lib/notification-dispatch", () => ({
@@ -60,7 +60,7 @@ import { prisma } from "@/lib/db";
 import { callLLM } from "@/lib/ai-provider";
 import { resolveEntity } from "@/lib/entity-resolution";
 import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
-import { reasonAboutSituation } from "@/lib/reasoning-engine";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import {
   evaluateContentForSituations,
@@ -86,7 +86,7 @@ const mockPrisma = prisma as unknown as {
 const mockCallLLM = callLLM as ReturnType<typeof vi.fn>;
 const mockResolveEntity = resolveEntity as ReturnType<typeof vi.fn>;
 const mockResolveDepts = resolveDepartmentsFromEmails as ReturnType<typeof vi.fn>;
-const mockReasonAbout = reasonAboutSituation as ReturnType<typeof vi.fn>;
+const mockEnqueueJob = enqueueWorkerJob as ReturnType<typeof vi.fn>;
 
 function makeEmail(overrides: Partial<CommunicationItem> & { metadata?: Record<string, unknown> } = {}): CommunicationItem {
   return {
@@ -146,8 +146,8 @@ function setupStandardMocks() {
   // Notification
   mockPrisma.notification.create.mockResolvedValue({ id: "notif-001" });
 
-  // Reasoning engine
-  mockReasonAbout.mockResolvedValue(undefined);
+  // Worker dispatch
+  mockEnqueueJob.mockResolvedValue("job-001");
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -221,8 +221,8 @@ describe("evaluateContentForSituations", () => {
     // Should create notification
     expect(sendNotificationToAdmins).toHaveBeenCalledOnce();
 
-    // Should fire reasoning
-    expect(mockReasonAbout).toHaveBeenCalledWith("sit-new-001");
+    // Should enqueue reasoning job for worker
+    expect(mockEnqueueJob).toHaveBeenCalledWith("reason_situation", "op-1", { situationId: "sit-new-001" });
   });
 
   it("skips FYI emails that don't require action (test 2)", async () => {

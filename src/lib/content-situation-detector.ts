@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { resolveEntity } from "@/lib/entity-resolution";
 import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
-import { reasonAboutSituation } from "@/lib/reasoning-engine";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
@@ -432,9 +432,9 @@ async function handleActionRequired(
   }).catch(() => {});
   checkConfirmationRate(situationTypeId).catch(console.error);
 
-  // Fire-and-forget reasoning
-  reasonAboutSituation(situation.id).catch((err) =>
-    console.error("[content-detection] Reasoning error:", err),
+  // Enqueue reasoning for Bastion worker
+  enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }).catch((err) =>
+    console.error("[content-detection] Failed to enqueue reasoning:", err),
   );
 
   console.log(
