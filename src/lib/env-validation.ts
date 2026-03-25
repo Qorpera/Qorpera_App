@@ -16,6 +16,7 @@ const ENV_VARS: EnvVar[] = [
   { name: 'EMBEDDING_MODEL', required: false, default: 'text-embedding-3-small', description: 'Embedding model name' },
   { name: 'DOCUMENT_STORAGE_PATH', required: false, default: './uploads/documents', description: 'Path for document storage' },
   { name: 'NEXTAUTH_URL', required: false, description: 'Base URL for the application' },
+  { name: 'ANTHROPIC_API_KEY', required: false, description: 'Anthropic API key — enables cross-provider failover when AI_PROVIDER is openai' },
 ];
 
 export function validateEnv(): { valid: boolean; errors: string[]; warnings: string[] } {

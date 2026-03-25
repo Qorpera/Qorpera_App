@@ -6,7 +6,9 @@ import { startCronScheduler, stopCronScheduler } from "./cron-scheduler";
 
 const prisma = new PrismaClient();
 const WORKER_PORT = parseInt(process.env.WORKER_PORT || "3100", 10);
+const MAX_CONCURRENT_JOBS = parseInt(process.env.WORKER_MAX_CONCURRENT || "5", 10);
 
+let activeJobs = 0;
 let currentJobId: string | null = null;
 let shuttingDown = false;
 
@@ -42,6 +44,12 @@ async function main() {
   process.on("SIGINT", () => shutdown("SIGINT"));
 
   while (!shuttingDown) {
+    // ── Concurrency gate ─────────────────────────────────────────────────
+    if (activeJobs >= MAX_CONCURRENT_JOBS) {
+      await new Promise((r) => setTimeout(r, 1000));
+      continue;
+    }
+
     let didWork = false;
 
     // ── Poll 1: Onboarding analysis ──────────────────────────────────────
@@ -62,7 +70,9 @@ async function main() {
       if (analyses.length > 0) {
         const jobId = analyses[0].id;
         currentJobId = jobId;
-        console.log(`[worker] Claimed analysis ${jobId}`);
+        activeJobs++;
+        const startTime = performance.now();
+        console.log(`[worker] Job ${jobId} (analysis) started. Active: ${activeJobs}/${MAX_CONCURRENT_JOBS}`);
         try {
           await runAnalysisPipeline(jobId, prisma);
         } catch (err) {
@@ -71,6 +81,10 @@ async function main() {
             where: { id: jobId },
             data: { status: "failed", failureReason: String(err), completedAt: new Date() },
           });
+        } finally {
+          activeJobs--;
+          const durationMs = Math.round(performance.now() - startTime);
+          console.log(`[worker] Job ${jobId} (analysis) completed in ${durationMs}ms. Active: ${activeJobs}/${MAX_CONCURRENT_JOBS}`);
         }
         currentJobId = null;
         didWork = true;
@@ -80,42 +94,50 @@ async function main() {
     }
 
     // ── Poll 2: Worker job queue ─────────────────────────────────────────
-    try {
-      const jobs = await prisma.$queryRaw<Array<{ id: string; jobType: string; payload: string }>>`
-        UPDATE "WorkerJob"
-        SET status = 'running', "claimedAt" = NOW()
-        WHERE id = (
-          SELECT id FROM "WorkerJob"
-          WHERE status = 'pending'
-          ORDER BY "createdAt" ASC
-          LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        )
-        RETURNING id, "jobType", payload::text
-      `;
+    if (activeJobs < MAX_CONCURRENT_JOBS) {
+      try {
+        const jobs = await prisma.$queryRaw<Array<{ id: string; jobType: string; payload: string }>>`
+          UPDATE "WorkerJob"
+          SET status = 'running', "claimedAt" = NOW()
+          WHERE id = (
+            SELECT id FROM "WorkerJob"
+            WHERE status = 'pending'
+            ORDER BY "createdAt" ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          )
+          RETURNING id, "jobType", payload::text
+        `;
 
-      if (jobs.length > 0) {
-        const job = jobs[0];
-        console.log(`[worker] Claimed job ${job.id} (${job.jobType})`);
-        try {
-          const payload = typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload;
-          await dispatchJob(job.jobType, payload);
-          await prisma.workerJob.update({
-            where: { id: job.id },
-            data: { status: "completed", completedAt: new Date() },
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`[worker] Job ${job.id} (${job.jobType}) failed:`, message);
-          await prisma.workerJob.update({
-            where: { id: job.id },
-            data: { status: "failed", error: message, completedAt: new Date() },
-          });
+        if (jobs.length > 0) {
+          const job = jobs[0];
+          activeJobs++;
+          const startTime = performance.now();
+          console.log(`[worker] Job ${job.id} (${job.jobType}) started. Active: ${activeJobs}/${MAX_CONCURRENT_JOBS}`);
+          try {
+            const payload = typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload;
+            await dispatchJob(job.jobType, payload);
+            await prisma.workerJob.update({
+              where: { id: job.id },
+              data: { status: "completed", completedAt: new Date() },
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`[worker] Job ${job.id} (${job.jobType}) failed:`, message);
+            await prisma.workerJob.update({
+              where: { id: job.id },
+              data: { status: "failed", error: message, completedAt: new Date() },
+            });
+          } finally {
+            activeJobs--;
+            const durationMs = Math.round(performance.now() - startTime);
+            console.log(`[worker] Job ${job.id} (${job.jobType}) completed in ${durationMs}ms. Active: ${activeJobs}/${MAX_CONCURRENT_JOBS}`);
+          }
+          didWork = true;
         }
-        didWork = true;
+      } catch (err) {
+        console.error("[worker] Job poll error:", err);
       }
-    } catch (err) {
-      console.error("[worker] Job poll error:", err);
     }
 
     // Only sleep if no work was done this cycle

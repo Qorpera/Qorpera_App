@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import type { ResponseCreateParamsNonStreaming, ResponseCreateParamsStreaming } from "openai/resources/responses/responses";
 import { createHmac } from "node:crypto";
 import { prisma } from "@/lib/db";
@@ -48,6 +49,47 @@ const MAX_OUTPUT_TOKENS: Record<string, number> = {
 /** Returns the max output token limit for a model, defaulting to 4096 if unknown. */
 export function getMaxOutputTokens(modelId: string): number {
   return MAX_OUTPUT_TOKENS[modelId] ?? 4_096;
+}
+
+// ── Cross-Provider Failover ─────────────────────────────────────────────────
+
+/** Maps OpenAI models to equivalent Anthropic models for failover. */
+const ANTHROPIC_MODEL_MAP: Record<string, string> = {
+  "gpt-5.4": "claude-sonnet-4-6-20250514",
+  "gpt-5.4-mini": "claude-haiku-4-5-20251001",
+};
+
+/** Per-provider in-flight call counters. */
+const providerConcurrency = {
+  openai: 0,
+  anthropic: 0,
+};
+
+/** Soft limits — determine routing, never drop requests. */
+const PROVIDER_CONCURRENCY_LIMITS = {
+  openai: 8,
+  anthropic: 8,
+};
+
+/** Anthropic SDK client cache, keyed by API key. */
+const anthropicClients = new Map<string, Anthropic>();
+
+function getAnthropicClient(apiKey?: string): Anthropic {
+  const key = apiKey ?? process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error("Anthropic API key not configured — set ANTHROPIC_API_KEY or configure via AI settings");
+  let client = anthropicClients.get(key);
+  if (!client) {
+    client = new Anthropic({ apiKey: key });
+    anthropicClients.set(key, client);
+  }
+  return client;
+}
+
+/** Returns true for HTTP 429 (rate limit) and 5xx (server errors). */
+function isRetryableError(error: unknown): boolean {
+  const status = (error as { status?: number })?.status;
+  if (!status) return false;
+  return status === 429 || (status >= 500 && status < 600);
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -103,6 +145,8 @@ export interface LLMResponse {
     outputTokens: number;
   };
   apiCostCents: number;
+  /** Which model actually handled the call (important for failover audit trail). */
+  modelId?: string;
   webSources?: Array<{
     url: string;
     title: string;
@@ -322,6 +366,149 @@ async function* proxyStreamLLM(workerUrl: string, options: LLMRequestOptions): A
   }
 }
 
+// ── Anthropic (SDK-based, unified for configured-provider + failover) ────────
+
+/**
+ * Calls Anthropic Messages API via SDK.
+ * Used for both the configured-provider path and OpenAI failover.
+ */
+async function callAnthropic(
+  apiKey: string,
+  model: string,
+  options: LLMRequestOptions,
+): Promise<LLMResponse> {
+  const client = getAnthropicClient(apiKey);
+
+  // Build system message with prompt caching
+  let system: Anthropic.Messages.MessageCreateParams["system"] | undefined;
+  if (options.instructions) {
+    system = [{
+      type: "text" as const,
+      text: options.instructions,
+      cache_control: { type: "ephemeral" as const },
+    }];
+  }
+
+  // Translate messages
+  const messages: Anthropic.Messages.MessageParam[] = [];
+  for (const msg of options.messages) {
+    if (msg.role === "tool") {
+      messages.push({
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: msg.tool_call_id ?? "",
+          content: contentToString(msg.content),
+        }],
+      });
+    } else if (msg.role === "assistant" && msg.tool_calls) {
+      const content: Anthropic.Messages.ContentBlockParam[] = [];
+      const text = contentToString(msg.content);
+      if (text) content.push({ type: "text", text });
+      for (const tc of msg.tool_calls) {
+        content.push({
+          type: "tool_use",
+          id: tc.id,
+          name: tc.function.name,
+          input: safeParseJSON(tc.function.arguments),
+        });
+      }
+      messages.push({ role: "assistant", content });
+    } else if (msg.role === "assistant") {
+      messages.push({
+        role: "assistant",
+        content: contentToString(msg.content),
+      });
+    } else {
+      // user
+      if (Array.isArray(msg.content)) {
+        const contentBlocks: Anthropic.Messages.ContentBlockParam[] = msg.content.map((block) => {
+          if (block.type === "image_base64") {
+            return {
+              type: "image" as const,
+              source: { type: "base64" as const, media_type: block.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: block.data },
+            };
+          }
+          return { type: "text" as const, text: block.text };
+        });
+        messages.push({ role: "user", content: contentBlocks });
+      } else {
+        messages.push({ role: "user", content: msg.content });
+      }
+    }
+  }
+
+  // Translate tools
+  const tools: Anthropic.Messages.Tool[] | undefined = options.tools?.length
+    ? options.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.parameters as Anthropic.Messages.Tool["input_schema"],
+      }))
+    : undefined;
+
+  // Web search not supported on Anthropic — log warning if requested
+  if (options.webSearch) {
+    console.warn("[ai-provider] Anthropic: webSearch not supported, proceeding without web search");
+  }
+
+  const params: Anthropic.Messages.MessageCreateParams = {
+    model,
+    messages,
+    max_tokens: options.maxTokens ?? getMaxOutputTokens(model),
+    ...(system && { system }),
+    ...(tools && { tools }),
+    // Anthropic extended thinking
+    ...(options.thinking && { thinking: { type: "enabled" as const, budget_tokens: 10_000 } }),
+    // Temperature not allowed with thinking
+    ...(options.temperature !== undefined && !options.thinking && { temperature: options.temperature }),
+  };
+
+  const response = await client.messages.create(params);
+
+  // Translate response
+  let text = "";
+  const toolCalls: NonNullable<LLMResponse["toolCalls"]> = [];
+
+  for (const block of response.content) {
+    if (block.type === "text") {
+      text += block.text;
+    } else if (block.type === "tool_use") {
+      toolCalls.push({
+        id: block.id,
+        name: block.name,
+        arguments: block.input as Record<string, unknown>,
+      });
+    }
+  }
+
+  const usage = {
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+  };
+
+  return {
+    text,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    usage,
+    apiCostCents: calculateCallCostCents(model, usage),
+    modelId: model,
+  };
+}
+
+/** Wraps callAnthropic with concurrency tracking for the failover path. */
+async function callAnthropicWithTracking(
+  options: LLMRequestOptions,
+  anthropicModel: string,
+): Promise<LLMResponse> {
+  providerConcurrency.anthropic++;
+  try {
+    return await callAnthropic(process.env.ANTHROPIC_API_KEY!, anthropicModel, options);
+  } finally {
+    providerConcurrency.anthropic--;
+  }
+}
+
 // ── Main Call ─────────────────────────────────────────────────────────────────
 
 export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> {
@@ -334,15 +521,50 @@ export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> 
   const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
 
-  switch (config.provider) {
-    case "openai":
-      return callOpenAIResponses(config, model, options);
-    case "anthropic":
-      return callAnthropic(config, model, options);
-    case "ollama":
-      return callOllama(config, model, options);
-    default:
-      throw new Error(`Unknown AI provider: ${config.provider}`);
+  // Non-OpenAI providers: route directly, no failover
+  if (config.provider !== "openai") {
+    switch (config.provider) {
+      case "anthropic":
+        return callAnthropic(config.apiKey ?? "", model, options);
+      case "ollama":
+        return callOllama(config, model, options);
+      default:
+        throw new Error(`Unknown AI provider: ${config.provider}`);
+    }
+  }
+
+  // ── OpenAI with cross-provider failover ──────────────────────────────────
+  const anthropicModel = ANTHROPIC_MODEL_MAP[model];
+  const canFailover = !!process.env.ANTHROPIC_API_KEY && !!anthropicModel;
+
+  // Primary: OpenAI under concurrency limit
+  if (providerConcurrency.openai < PROVIDER_CONCURRENCY_LIMITS.openai) {
+    providerConcurrency.openai++;
+    try {
+      return await callOpenAIResponses(config, model, options);
+    } catch (error) {
+      if (canFailover && isRetryableError(error)) {
+        console.warn(`[ai-provider] OpenAI error (${(error as { status?: number }).status}), failing over to Anthropic`);
+        return await callAnthropicWithTracking(options, anthropicModel);
+      }
+      throw error;
+    } finally {
+      providerConcurrency.openai--;
+    }
+  }
+
+  // OpenAI at capacity — try Anthropic
+  if (canFailover) {
+    console.warn(`[ai-provider] OpenAI at capacity (${providerConcurrency.openai}/${PROVIDER_CONCURRENCY_LIMITS.openai}), routing to Anthropic`);
+    return await callAnthropicWithTracking(options, anthropicModel);
+  }
+
+  // No failover available — proceed with OpenAI anyway (over-limit, may get rate-limited)
+  providerConcurrency.openai++;
+  try {
+    return await callOpenAIResponses(config, model, options);
+  } finally {
+    providerConcurrency.openai--;
   }
 }
 
@@ -361,12 +583,17 @@ export async function* streamLLM(
   const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
 
+  // TODO: Anthropic streaming failover — when OpenAI streaming fails with
+  // retryable error, fall back to Anthropic's streaming API (client.messages.stream()).
+  // The copilot is the only streaming consumer and is less latency-sensitive
+  // than the situation reasoning path, so this is lower priority.
+
   switch (config.provider) {
     case "openai":
       yield* streamOpenAIResponses(config, model, options);
       break;
     case "anthropic":
-      yield* streamAnthropic(config, model, options);
+      yield* streamAnthropic(config.apiKey ?? "", model, options);
       break;
     case "ollama":
       yield* streamOllama(config, model, options);
@@ -537,6 +764,7 @@ async function callOpenAIResponses(
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     usage,
     apiCostCents: usage ? calculateCallCostCents(model, usage) : 0,
+    modelId: model,
     webSources: webSources.length > 0 ? webSources : undefined,
   };
 }
@@ -570,40 +798,42 @@ async function* streamOpenAIResponses(
   }
 }
 
-// ── Anthropic ────────────────────────────────────────────────────────────────
+// ── Anthropic Streaming (SDK-based) ──────────────────────────────────────────
 
-function buildAnthropicTools(tools?: AITool[]) {
-  if (!tools?.length) return undefined;
-  return tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.parameters,
-  }));
-}
-
-async function callAnthropic(
-  config: AIConfig,
+async function* streamAnthropic(
+  apiKey: string,
   model: string,
   options: LLMRequestOptions,
-): Promise<LLMResponse> {
-  const baseUrl = config.baseUrl ?? "https://api.anthropic.com/v1";
+): AsyncGenerator<string> {
+  const client = getAnthropicClient(apiKey);
 
-  const mappedMessages = options.messages.map((m) => {
-    if (m.role === "tool") {
-      return {
-        role: "user" as const,
+  // Build system message with prompt caching (same as callAnthropic)
+  let system: Anthropic.Messages.MessageCreateParams["system"] | undefined;
+  if (options.instructions) {
+    system = [{
+      type: "text" as const,
+      text: options.instructions,
+      cache_control: { type: "ephemeral" as const },
+    }];
+  }
+
+  // Reuse the same message translation as callAnthropic
+  const messages: Anthropic.Messages.MessageParam[] = [];
+  for (const msg of options.messages) {
+    if (msg.role === "tool") {
+      messages.push({
+        role: "user",
         content: [{
           type: "tool_result",
-          tool_use_id: m.tool_call_id,
-          content: contentToString(m.content),
+          tool_use_id: msg.tool_call_id ?? "",
+          content: contentToString(msg.content),
         }],
-      };
-    }
-    if (m.role === "assistant" && m.tool_calls) {
-      const content: Array<Record<string, unknown>> = [];
-      const text = contentToString(m.content);
+      });
+    } else if (msg.role === "assistant" && msg.tool_calls) {
+      const content: Anthropic.Messages.ContentBlockParam[] = [];
+      const text = contentToString(msg.content);
       if (text) content.push({ type: "text", text });
-      for (const tc of m.tool_calls) {
+      for (const tc of msg.tool_calls) {
         content.push({
           type: "tool_use",
           id: tc.id,
@@ -611,162 +841,39 @@ async function callAnthropic(
           input: safeParseJSON(tc.function.arguments),
         });
       }
-      return { role: "assistant" as const, content };
-    }
-    if (Array.isArray(m.content)) {
-      return {
-        role: m.role,
-        content: m.content.map((block) => {
-          if (block.type === "text") return { type: "text", text: block.text };
+      messages.push({ role: "assistant", content });
+    } else if (msg.role === "assistant") {
+      messages.push({ role: "assistant", content: contentToString(msg.content) });
+    } else {
+      if (Array.isArray(msg.content)) {
+        const contentBlocks: Anthropic.Messages.ContentBlockParam[] = msg.content.map((block) => {
           if (block.type === "image_base64") {
             return {
-              type: "image",
-              source: { type: "base64", media_type: block.mediaType, data: block.data },
+              type: "image" as const,
+              source: { type: "base64" as const, media_type: block.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: block.data },
             };
           }
-          return { type: "text", text: "" };
-        }),
-      };
-    }
-    return { role: m.role, content: m.content };
-  });
-
-  const body: Record<string, unknown> = {
-    model,
-    messages: mappedMessages,
-    max_tokens: options.maxTokens ?? 4096,
-    ...(options.instructions && { system: options.instructions }),
-    ...(options.temperature !== undefined && { temperature: options.temperature }),
-  };
-
-  const tools = buildAnthropicTools(options.tools);
-  if (tools) body.tools = tools;
-
-  const url = `${baseUrl}/messages`;
-  const data = await withRetry(async () => {
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": config.apiKey ?? "",
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(body),
-      });
-    } catch (fetchErr) {
-      throw new Error(`Anthropic unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
-    }
-
-    if (!res.ok) {
-      const text = await res.text();
-      const err = new Error(`Anthropic API error ${res.status}: ${text}`);
-      (err as Error & { status: number }).status = res.status;
-      (err as Error & { headers: Headers }).headers = res.headers;
-      throw err;
-    }
-
-    return res.json();
-  });
-  let content = "";
-  const toolCalls: NonNullable<LLMResponse["toolCalls"]> = [];
-
-  for (const block of data.content ?? []) {
-    if (block.type === "text") {
-      content += block.text;
-    } else if (block.type === "tool_use") {
-      toolCalls.push({
-        id: block.id,
-        name: block.name,
-        arguments: block.input as Record<string, unknown>,
-      });
-    }
-  }
-
-  const usage = data.usage ? {
-    inputTokens: data.usage.input_tokens ?? 0,
-    outputTokens: data.usage.output_tokens ?? 0,
-  } : undefined;
-
-  return {
-    text: content,
-    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    usage,
-    apiCostCents: usage ? calculateCallCostCents(model, usage) : 0,
-  };
-}
-
-async function* streamAnthropic(
-  config: AIConfig,
-  model: string,
-  options: LLMRequestOptions,
-): AsyncGenerator<string> {
-  const baseUrl = config.baseUrl ?? "https://api.anthropic.com/v1";
-  const nonToolMessages = options.messages.filter((m) => m.role !== "tool" && !m.tool_calls);
-
-  const body: Record<string, unknown> = {
-    model,
-    messages: nonToolMessages.map((m) => ({ role: m.role, content: m.content })),
-    max_tokens: options.maxTokens ?? 4096,
-    stream: true,
-    ...(options.instructions && { system: options.instructions }),
-    ...(options.temperature !== undefined && { temperature: options.temperature }),
-  };
-
-  const url = `${baseUrl}/messages`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": config.apiKey ?? "",
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (fetchErr) {
-    throw new Error(`Anthropic unreachable at ${url} — check API key and network (${fetchErr instanceof Error ? fetchErr.message : fetchErr})`);
-  }
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Anthropic stream error ${res.status}: ${text}`);
-  }
-
-  if (!res.body) return;
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const payload = line.slice(6).trim();
-        if (payload === "[DONE]") return;
-
-        try {
-          const event = JSON.parse(payload);
-          if (event.type === "content_block_delta" && event.delta?.text) {
-            yield event.delta.text;
-          }
-        } catch {
-          // skip malformed lines
-        }
+          return { type: "text" as const, text: block.text };
+        });
+        messages.push({ role: "user", content: contentBlocks });
+      } else {
+        messages.push({ role: "user", content: msg.content });
       }
     }
-  } finally {
-    reader.releaseLock();
+  }
+
+  const stream = client.messages.stream({
+    model,
+    messages,
+    max_tokens: options.maxTokens ?? getMaxOutputTokens(model),
+    ...(system && { system }),
+    ...(options.temperature !== undefined && { temperature: options.temperature }),
+  });
+
+  for await (const event of stream) {
+    if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+      yield event.delta.text;
+    }
   }
 }
 
@@ -867,6 +974,7 @@ async function callOllama(
     text: message?.content ?? "",
     toolCalls: toolCalls?.length ? toolCalls : undefined,
     apiCostCents: 0,
+    modelId: model,
   };
 }
 
