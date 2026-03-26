@@ -22,7 +22,7 @@ async function main() {
   // Start background cron scheduler
   startCronScheduler();
 
-  console.log("[worker] Qorpera Agent Worker started, polling for jobs...");
+  console.log("[worker] Qorpera Agent Worker started — jobs, crons, sync scheduler active. Polling...");
 
   const shutdown = async (signal: string) => {
     console.log(`[worker] ${signal} received, shutting down...`);

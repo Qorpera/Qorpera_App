@@ -21,7 +21,7 @@ const SYNC_INTERVALS: Record<string, number> = {
 
 const DEFAULT_INTERVAL = 15 * 60 * 1000; // 15 min fallback
 const MAX_CONCURRENT_SYNCS = 3;
-const TICK_INTERVAL = 60 * 1000; // 1 minute
+const TICK_INTERVAL = parseInt(process.env.SYNC_TICK_INTERVAL_MS || "60000", 10) || 60000;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const SYNC_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
@@ -158,7 +158,7 @@ export function startSyncScheduler(): void {
   if (g._syncSchedulerInterval) return; // already running
 
   g._syncSchedulerInterval = setInterval(tick, TICK_INTERVAL);
-  console.log("[sync-scheduler] Started: checking every 1 minute");
+  console.log(`[sync-scheduler] Started: checking every ${TICK_INTERVAL / 1000}s`);
 }
 
 export function stopSyncScheduler(): void {

@@ -5,6 +5,7 @@ import { runScheduledInitiativeEvaluation } from "@/lib/initiative-reasoning";
 import { extractInsights, getLastExtractionTime } from "@/lib/operational-knowledge";
 import { computePriorityScores } from "@/lib/prioritization-engine";
 import { processRecurringTasks } from "@/lib/recurring-tasks";
+import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
 
 const timers: ReturnType<typeof setInterval>[] = [];
 
@@ -158,10 +159,32 @@ export function startCronScheduler() {
     }, 15 * 60 * 1000),
   );
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m)");
+  // ── ActivitySignal Retention Cleanup: daily ───────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const retentionDays = 90;
+        const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+        const deleted = await prisma.activitySignal.deleteMany({
+          where: { occurredAt: { lt: cutoff } },
+        });
+        if (deleted.count > 0) {
+          console.log(`[cron:retention] Cleaned up ${deleted.count} old ActivitySignals`);
+        }
+      } catch (err) {
+        console.error("[cron:retention] Error:", err);
+      }
+    }, 24 * 60 * 60 * 1000),
+  );
+
+  // ── Sync Scheduler ──────────────────────────────────────────────────
+  startSyncScheduler();
+
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), sync-scheduler, retention(24h)");
 }
 
 export function stopCronScheduler() {
+  stopSyncScheduler();
   for (const timer of timers) {
     clearInterval(timer);
   }

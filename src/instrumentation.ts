@@ -27,14 +27,7 @@ export async function register() {
     // Auto-seed AI settings from env vars (only if not already set)
     await seedAISettingsFromEnv();
 
-    // Situation crons moved to Bastion worker (worker/src/cron-scheduler.ts)
-
-    // Start sync scheduler
-    const { startSyncScheduler } = await import("@/lib/sync-scheduler");
-    startSyncScheduler();
-
-    // Start ActivitySignal retention cleanup (daily)
-    startRetentionCleanup();
+    // Sync scheduler and retention cleanup run in Bastion worker (worker/src/cron-scheduler.ts)
   }
 }
 
@@ -96,34 +89,4 @@ async function seedAISettingsFromEnv() {
   } catch (err) {
     console.warn("[SEED] Failed to auto-seed AI settings:", err);
   }
-}
-
-// ── Retention cleanup ─────────────────────────────────────────────────────────
-
-const gRetention = globalThis as typeof globalThis & {
-  _retentionCleanupInterval?: ReturnType<typeof setInterval>;
-};
-
-function startRetentionCleanup() {
-  if (gRetention._retentionCleanupInterval) return;
-
-  gRetention._retentionCleanupInterval = setInterval(async () => {
-    try {
-      const { prisma } = await import("@/lib/db");
-
-      // Clean up old ActivitySignals (90 day default)
-      const retentionDays = 90;
-      const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
-      const deleted = await prisma.activitySignal.deleteMany({
-        where: { occurredAt: { lt: cutoff } },
-      });
-      if (deleted.count > 0) {
-        console.log(`[retention] Cleaned up ${deleted.count} old ActivitySignals`);
-      }
-    } catch (err) {
-      console.error("[retention] Cleanup error:", err);
-    }
-  }, 24 * 60 * 60 * 1000); // daily
-
-  console.log("[retention] Started: ActivitySignal cleanup every 24h (90-day retention)");
 }
