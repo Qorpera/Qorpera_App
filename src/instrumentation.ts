@@ -1,6 +1,6 @@
 export async function register() {
   // Sentry server-side init (works for both nodejs and edge runtimes)
-  if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
+  if (process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN) {
     await import("../sentry.server.config");
   }
 

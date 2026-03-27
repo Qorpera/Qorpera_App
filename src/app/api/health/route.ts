@@ -40,7 +40,7 @@ export async function GET() {
   }
 
   // Check Sentry
-  checks.sentry = process.env.NEXT_PUBLIC_SENTRY_DSN ? 'configured' : 'not_configured';
+  checks.sentry = (process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN) ? 'configured' : 'not_configured';
 
   // Only database being down makes health fail (503)
   const statusCode = checks.database === 'ok' ? 200 : 503;
