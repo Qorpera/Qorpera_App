@@ -2538,6 +2538,9 @@ function ConnectionsTab({
   const { toast } = useToast();
   const { isAdmin } = useUser();
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [preAuthModal, setPreAuthModal] = useState<{ providerId: string; label: string; placeholder: string; paramName: string } | null>(null);
+  const [preAuthInput, setPreAuthInput] = useState("");
+  const [preAuthLoading, setPreAuthLoading] = useState(false);
 
   const connectedProviderIds = new Set(connectors.map((c) => c.provider));
   const unconnectedProviders = providers.filter((p) => !connectedProviderIds.has(p.id));
@@ -2590,32 +2593,59 @@ function ConnectionsTab({
     }
   };
 
+  const authRoutes: Record<string, string> = {
+    google: "/api/connectors/google/auth",
+    "google-sheets": "/api/connectors/google/auth",
+    "google-ads": "/api/connectors/google-ads/auth",
+    "google-workspace": "/api/connectors/google-workspace/auth-url",
+    microsoft: "/api/connectors/microsoft/auth",
+    slack: "/api/connectors/slack/auth-url",
+    hubspot: "/api/connectors/hubspot/auth-url",
+    pipedrive: "/api/auth/pipedrive/auth-url",
+    salesforce: "/api/auth/salesforce/auth-url",
+    intercom: "/api/auth/intercom/auth-url",
+    zendesk: "/api/auth/zendesk/auth-url",
+    shopify: "/api/connectors/shopify/auth-url",
+    stripe: "/api/connectors/stripe/auth-url",
+    linkedin: "/api/connectors/linkedin/auth-url",
+    "meta-ads": "/api/connectors/meta-ads/auth-url",
+  };
+
+  const preAuthProviders: Record<string, { label: string; placeholder: string; paramName: string }> = {
+    shopify: { label: "Shopify store domain", placeholder: "mystore.myshopify.com", paramName: "store_domain" },
+    zendesk: { label: "Zendesk subdomain", placeholder: "yourcompany", paramName: "subdomain" },
+  };
+
   const handleConnect = async (providerId: string) => {
-    const authRoutes: Record<string, string> = {
-      google: "/api/connectors/google/auth",
-      "google-sheets": "/api/connectors/google/auth",
-      "google-ads": "/api/connectors/google-ads/auth",
-      "google-workspace": "/api/connectors/google-workspace/auth-url",
-      microsoft: "/api/connectors/microsoft/auth",
-      slack: "/api/connectors/slack/auth-url",
-      hubspot: "/api/connectors/hubspot/auth-url",
-      pipedrive: "/api/auth/pipedrive/auth-url",
-      salesforce: "/api/auth/salesforce/auth-url",
-      intercom: "/api/auth/intercom/auth-url",
-      zendesk: "/api/auth/zendesk/auth-url",
-      shopify: "/api/connectors/shopify/auth-url",
-      stripe: "/api/connectors/stripe/auth-url",
-      linkedin: "/api/connectors/linkedin/auth-url",
-      "meta-ads": "/api/connectors/meta-ads/auth-url",
-    };
     const authRoute = authRoutes[providerId];
     if (!authRoute) {
       toast("This integration isn\u2019t available for self-service connection yet.", "info");
       return;
     }
 
+    const preAuth = preAuthProviders[providerId];
+    if (preAuth) {
+      setPreAuthModal({ providerId, ...preAuth });
+      setPreAuthInput("");
+      return;
+    }
+
+    await startOAuthFlow(authRoute);
+  };
+
+  const handlePreAuthSubmit = async () => {
+    if (!preAuthModal || !preAuthInput.trim()) return;
+    setPreAuthLoading(true);
+    const authRoute = authRoutes[preAuthModal.providerId];
+    const sep = authRoute.includes("?") ? "&" : "?";
+    await startOAuthFlow(`${authRoute}${sep}${preAuthModal.paramName}=${encodeURIComponent(preAuthInput.trim())}`);
+    setPreAuthLoading(false);
+    setPreAuthModal(null);
+  };
+
+  const startOAuthFlow = async (url: string) => {
     try {
-      const res = await fetch(authRoute);
+      const res = await fetch(url);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Unknown error" }));
         toast(err.error || "Failed to start connection", "error");
@@ -2919,6 +2949,43 @@ function ConnectionsTab({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── Pre-Auth Input Modal (Shopify domain, Zendesk subdomain, etc.) ── */}
+      {preAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+          <div className="wf-soft p-6 w-[420px] space-y-4" style={{ background: "var(--elevated)" }}>
+            <div className="flex items-center justify-between">
+              <div className="text-[15px] font-semibold text-foreground">{preAuthModal.label}</div>
+              <button onClick={() => setPreAuthModal(null)} className="text-[var(--fg3)] hover:text-foreground text-lg">&times;</button>
+            </div>
+            <input
+              type="text"
+              placeholder={preAuthModal.placeholder}
+              value={preAuthInput}
+              onChange={(e) => setPreAuthInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handlePreAuthSubmit()}
+              autoFocus
+              className="w-full rounded-lg px-3 py-2 text-[13px] bg-hover border border-border text-foreground"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPreAuthModal(null)}
+                className="rounded-lg text-[13px] font-medium px-4 py-2 text-[var(--fg2)] hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePreAuthSubmit}
+                disabled={preAuthLoading || !preAuthInput.trim()}
+                className="rounded-lg text-[13px] font-medium px-5 py-2 disabled:opacity-50"
+                style={{ background: "#8b5cf6", color: "#fff" }}
+              >
+                {preAuthLoading ? "Connecting..." : "Connect"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
