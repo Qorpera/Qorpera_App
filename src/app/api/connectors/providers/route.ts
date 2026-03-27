@@ -28,10 +28,12 @@ export async function GET() {
     zendesk: () => !!(process.env.ZENDESK_CLIENT_ID && process.env.ZENDESK_CLIENT_SECRET),
   };
 
-  const result = providers.map((p) => ({
-    ...p,
-    configured: ENV_CHECKS[p.id]?.() ?? true,
-  }));
+  const result = providers
+    .filter((p) => p.id !== "google-sheets") // Hide legacy standalone connector
+    .map((p) => ({
+      ...p,
+      configured: ENV_CHECKS[p.id]?.() ?? true,
+    }));
 
   return NextResponse.json({ providers: result });
 }

@@ -23,7 +23,7 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
   },
 
   async advance_step(payload) {
-    const { stepId, action, userId } = payload as { stepId: string; action: string; userId: string };
+    const { stepId, action, userId } = payload as { stepId: string; action: "approve" | "reject" | "skip"; userId: string };
     await advanceStep(stepId, action, userId);
   },
 

@@ -2911,7 +2911,7 @@ function ConnectionsTab({
                   return (
                     <div
                       key={p.id}
-                      className={`wf-soft p-4 flex items-start gap-3 ${!p.configured ? "opacity-60" : ""} ${isTier1 ? "lg:col-span-2 border-accent/20" : ""}`}
+                      className={`wf-soft p-4 flex items-start gap-3 ${!p.configured ? "opacity-60" : ""} ${isTier1 ? "border-accent/20" : ""}`}
                     >
                       <div className="mt-0.5 shrink-0">
                         <ConnectorLogo provider={p.id} size={28} />
