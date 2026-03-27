@@ -2590,24 +2590,45 @@ function ConnectionsTab({
     }
   };
 
-  const handleConnect = (providerId: string) => {
+  const handleConnect = async (providerId: string) => {
     const authRoutes: Record<string, string> = {
       google: "/api/connectors/google/auth",
       "google-sheets": "/api/connectors/google/auth",
       "google-ads": "/api/connectors/google-ads/auth",
+      "google-workspace": "/api/connectors/google-workspace/auth-url",
       microsoft: "/api/connectors/microsoft/auth",
       slack: "/api/connectors/slack/auth-url",
       hubspot: "/api/connectors/hubspot/auth-url",
+      pipedrive: "/api/auth/pipedrive/auth-url",
+      salesforce: "/api/auth/salesforce/auth-url",
+      intercom: "/api/auth/intercom/auth-url",
+      zendesk: "/api/auth/zendesk/auth-url",
+      shopify: "/api/connectors/shopify/auth-url",
       stripe: "/api/connectors/stripe/auth-url",
       linkedin: "/api/connectors/linkedin/auth-url",
       "meta-ads": "/api/connectors/meta-ads/auth-url",
-      shopify: "/api/connectors/shopify/auth-url",
     };
     const authRoute = authRoutes[providerId];
-    if (authRoute) {
-      window.location.href = authRoute;
-    } else {
+    if (!authRoute) {
       toast("This integration isn\u2019t available for self-service connection yet.", "info");
+      return;
+    }
+
+    try {
+      const res = await fetch(authRoute);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        toast(err.error || "Failed to start connection", "error");
+        return;
+      }
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast("Failed to get authorization URL", "error");
+      }
+    } catch (err) {
+      toast("Failed to start connection", "error");
     }
   };
 
