@@ -77,8 +77,9 @@ describe("Registration page ToS", () => {
     // Links to terms and privacy
     expect(source).toContain('href="/terms"');
     expect(source).toContain('href="/privacy"');
-    // Submit disabled without checkbox
-    expect(source).toContain("!tosAccepted");
+    // Submit gated by canSubmit which requires tosAccepted
+    expect(source).toContain("canSubmit");
+    expect(source).toContain("!canSubmit");
   });
 });
 

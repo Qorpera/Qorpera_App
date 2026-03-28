@@ -19,12 +19,14 @@ export type CommunicationItem = {
 
 type EvaluationResult = {
   messageIndex: number;
-  actionRequired: boolean;
+  classification: "action_required" | "awareness" | "irrelevant";
   summary: string;
-  urgency: "low" | "medium" | "high";
+  urgency: "low" | "medium" | "high" | null; // null for irrelevant
+  confidence: number;
   relatedSituationId: string | null;
   updatedSummary: string | null;
   evidence: string;
+  reasoning: string; // NEW: why the LLM classified it this way
 };
 
 type ActorBatch = {
@@ -220,18 +222,20 @@ async function loadOpenSituations(
 
 // ── LLM Evaluation ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are evaluating incoming business communications to determine if they require action from a specific person.
+const SYSTEM_PROMPT = `You are evaluating incoming business communications to determine what attention they require from a specific person within their organization.
 
-For each message, determine:
-1. Does this message require the recipient to perform a concrete action? (task assignment, request, question needing a response, deadline, decision needed, follow-up required)
-2. If yes — is this related to an existing open situation, or is it a new action item?
+Classify each message into one of three categories:
 
-Things that are NOT action-required:
-- FYI/informational messages with no ask
-- Newsletter or automated emails (already filtered, but double-check)
-- Messages where the recipient already responded (look at thread context)
-- Social/casual messages
-- Read receipts, calendar notifications, automated system messages
+**action_required** — The recipient needs to perform a concrete action: respond to a question, complete a task, make a decision, attend a meeting, review a document, follow up on something, approve/reject something. The action must be relevant to legitimate business operations — not personal purchases, spam, or solicitations.
+
+**awareness** — The recipient should know about this but doesn't need to do anything specific. They are CC'd or BCC'd with no direct ask. It's a status update, FYI, or informational share relevant to their work. Includes meeting notes they weren't actioned on, announcements, or context they may need later.
+
+**irrelevant** — This has nothing to do with the recipient's work responsibilities. Spam, marketing solicitations, newsletters they didn't subscribe to for work purposes, automated system notifications with no actionable content, social/casual messages with no work relevance, promotional offers (gambling, personal shopping, etc).
+
+For each message, also assess:
+- **urgency** (low/medium/high) — only for action_required and awareness. null for irrelevant.
+- **confidence** (0.0-1.0) — how confident you are in the classification
+- **reasoning** — one sentence explaining why you chose this classification
 
 Respond with ONLY valid JSON (no markdown fences):`;
 
@@ -273,12 +277,14 @@ For each message, respond with:
 [
   {
     "messageIndex": 0,
-    "actionRequired": true/false,
-    "summary": "Brief description of what needs to be done (1-2 sentences)",
-    "urgency": "low" | "medium" | "high",
-    "relatedSituationId": "existing situation ID if this is about the same thing, or null",
-    "updatedSummary": "If related to existing situation, the updated summary reflecting new information, or null",
-    "evidence": "The specific text from the message that implies action is needed"
+    "classification": "action_required" | "awareness" | "irrelevant",
+    "summary": "Brief description (1-2 sentences). For awareness: what the person should know. For irrelevant: why it doesn't matter.",
+    "urgency": "low" | "medium" | "high" | null,
+    "confidence": 0.0-1.0,
+    "relatedSituationId": "existing situation ID if this updates an open situation, or null",
+    "updatedSummary": "If related to existing situation, the updated summary, or null",
+    "evidence": "The specific text that drove the classification",
+    "reasoning": "One sentence: why this classification"
   }
 ]`;
 
@@ -299,14 +305,18 @@ For each message, respond with:
 
   return parsed.map((r) => ({
     messageIndex: Number(r.messageIndex ?? 0),
-    actionRequired: Boolean(r.actionRequired),
+    classification: (["action_required", "awareness", "irrelevant"].includes(r.classification as string)
+      ? r.classification
+      : r.actionRequired === true ? "action_required" : "irrelevant") as "action_required" | "awareness" | "irrelevant",
     summary: String(r.summary ?? ""),
-    urgency: (["low", "medium", "high"].includes(r.urgency as string)
+    urgency: r.urgency === null ? null : (["low", "medium", "high"].includes(r.urgency as string)
       ? r.urgency
-      : "medium") as "low" | "medium" | "high",
+      : "medium") as "low" | "medium" | "high" | null,
+    confidence: typeof r.confidence === "number" ? r.confidence : 0.5,
     relatedSituationId: r.relatedSituationId ? String(r.relatedSituationId) : null,
     updatedSummary: r.updatedSummary ? String(r.updatedSummary) : null,
     evidence: String(r.evidence ?? ""),
+    reasoning: String(r.reasoning ?? ""),
   }));
 }
 
@@ -360,6 +370,18 @@ async function handleActionRequired(
         data: { contextSnapshot: JSON.stringify(snapshot) },
       });
 
+      // Link evaluation log
+      await prisma.evaluationLog.updateMany({
+        where: {
+          operatorId,
+          sourceId: item.sourceId,
+          sourceType: item.sourceType,
+          actorEntityId: batch.actorEntityId,
+          situationId: null,
+        },
+        data: { situationId: result.relatedSituationId },
+      }).catch(() => {});
+
       console.log(
         `[content-detection] Updated situation ${result.relatedSituationId} with new evidence from ${item.sourceType}`,
       );
@@ -410,6 +432,18 @@ async function handleActionRequired(
 
   createdInBatch.add(dedupeKey);
 
+  // Link situation back to evaluation log
+  await prisma.evaluationLog.updateMany({
+    where: {
+      operatorId,
+      sourceId: item.sourceId,
+      sourceType: item.sourceType,
+      actorEntityId: batch.actorEntityId,
+      situationId: null,
+    },
+    data: { situationId: situation.id },
+  }).catch(() => {});
+
   // Notification
   await sendNotificationToAdmins({
     operatorId,
@@ -440,6 +474,189 @@ async function handleActionRequired(
   console.log(
     `[content-detection] Created situation for ${batch.actorName}: ${result.summary}`,
   );
+}
+
+// ── Evaluation Logging ───────────────────────────────────────────────────────
+
+async function logEvaluation(
+  operatorId: string,
+  batch: ActorBatch,
+  result: EvaluationResult,
+  item: CommunicationItem | undefined,
+): Promise<void> {
+  await prisma.evaluationLog.create({
+    data: {
+      operatorId,
+      actorEntityId: batch.actorEntityId,
+      sourceType: item?.sourceType ?? "unknown",
+      sourceId: item?.sourceId ?? "unknown",
+      classification: result.classification,
+      summary: result.summary || null,
+      reasoning: result.reasoning || null,
+      urgency: result.urgency,
+      confidence: result.confidence,
+      situationId: null, // Updated after situation creation if applicable
+      metadata: item?.metadata ? (item.metadata as Record<string, unknown>) : undefined,
+    },
+  });
+}
+
+// ── Awareness Handling ───────────────────────────────────────────────────────
+
+async function handleAwareness(
+  operatorId: string,
+  batch: ActorBatch,
+  result: EvaluationResult,
+  createdInBatch: Set<string>,
+): Promise<void> {
+  const item = batch.items[result.messageIndex];
+  if (!item) return;
+
+  const meta = item.metadata ?? {};
+
+  // If related to an existing situation, just update context (same as action_required)
+  if (result.relatedSituationId) {
+    const openIds = new Set(batch.openSituations.map((s) => s.id));
+    if (openIds.has(result.relatedSituationId)) {
+      const existing = await prisma.situation.findUnique({
+        where: { id: result.relatedSituationId },
+        select: { contextSnapshot: true },
+      });
+
+      let snapshot: Record<string, unknown> = {};
+      if (existing?.contextSnapshot) {
+        try { snapshot = JSON.parse(existing.contextSnapshot); } catch { /* ignore */ }
+      }
+
+      const evidenceArr = Array.isArray(snapshot.contentEvidence)
+        ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
+        : [];
+      evidenceArr.push({
+        sourceId: item.sourceId,
+        sourceType: item.sourceType,
+        sender: meta.from ?? meta.authorEmail ?? "unknown",
+        subject: meta.subject ?? null,
+        date: meta.date ?? new Date().toISOString(),
+        summary: result.summary,
+        classification: "awareness",
+      });
+      snapshot.contentEvidence = evidenceArr;
+      if (result.updatedSummary) snapshot.currentSummary = result.updatedSummary;
+
+      await prisma.situation.update({
+        where: { id: result.relatedSituationId },
+        data: { contextSnapshot: JSON.stringify(snapshot) },
+      });
+
+      // Link evaluation log
+      await prisma.evaluationLog.updateMany({
+        where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+        data: { situationId: result.relatedSituationId },
+      }).catch(() => {});
+
+      return;
+    }
+  }
+
+  // Dedup
+  const dedupeKey = `${batch.actorEntityId}:awareness:${result.summary.slice(0, 50)}`;
+  if (createdInBatch.has(dedupeKey)) return;
+
+  // Resolve department
+  const departmentId = batch.departmentId
+    ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0];
+  if (!departmentId) return;
+
+  const situationTypeId = await ensureAwarenessType(operatorId, departmentId);
+
+  // Create situation at lowest possible severity and confidence
+  const situation = await prisma.situation.create({
+    data: {
+      operatorId,
+      situationTypeId,
+      triggerEntityId: batch.actorEntityId,
+      source: "content_detected",
+      status: "resolved", // Pre-resolved — no action needed
+      confidence: result.confidence ?? 0.3,
+      severity: 0.1, // Lowest priority
+      contextSnapshot: JSON.stringify({
+        contentEvidence: [{
+          sourceId: item.sourceId,
+          sourceType: item.sourceType,
+          sender: meta.from ?? meta.authorEmail ?? "unknown",
+          subject: meta.subject ?? null,
+          date: meta.date ?? new Date().toISOString(),
+          summary: result.summary,
+          classification: "awareness",
+        }],
+        currentSummary: result.summary,
+      }),
+      reasoning: JSON.stringify({
+        analysis: result.summary,
+        classification: "awareness",
+        reasoning: result.reasoning,
+        actionPlan: null, // No action needed
+      }),
+    },
+  });
+
+  createdInBatch.add(dedupeKey);
+
+  // Link evaluation log
+  await prisma.evaluationLog.updateMany({
+    where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+    data: { situationId: situation.id },
+  }).catch(() => {});
+
+  // No notification for awareness items — they surface passively in the feed
+  // No reasoning enqueue — already resolved
+  // No free tier tracking — awareness items don't count toward the 50-situation cap
+
+  console.log(`[content-detection] Created awareness situation for ${batch.actorName}: ${result.summary}`);
+}
+
+// ── Awareness SituationType Cache ────────────────────────────────────────────
+
+const awarenessTypeCache = new Map<string, string>();
+
+export async function ensureAwarenessType(
+  operatorId: string,
+  departmentId: string,
+): Promise<string> {
+  const cacheKey = `${operatorId}:${departmentId}`;
+  const cached = awarenessTypeCache.get(cacheKey);
+  if (cached) return cached;
+
+  const dept = await prisma.entity.findUnique({
+    where: { id: departmentId },
+    select: { displayName: true },
+  });
+  const deptSlug = (dept?.displayName ?? "general")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const slug = `awareness-${deptSlug}`;
+
+  const sitType = await prisma.situationType.upsert({
+    where: { operatorId_slug: { operatorId, slug } },
+    create: {
+      operatorId,
+      slug,
+      name: "Awareness",
+      description: "Items the employee should be aware of but that don't require direct action.",
+      detectionLogic: JSON.stringify({
+        mode: "content",
+        description: "Awareness items detected from incoming communications",
+      }),
+      autonomyLevel: "supervised",
+      scopeEntityId: departmentId,
+      enabled: true,
+    },
+    update: {},
+  });
+
+  awarenessTypeCache.set(cacheKey, sitType.id);
+  return sitType.id;
 }
 
 // ── Main Entry Point ─────────────────────────────────────────────────────────
@@ -510,8 +727,19 @@ export async function evaluateContentForSituations(
 
       // Handle results
       for (const result of results) {
-        if (!result.actionRequired) continue;
-        await handleActionRequired(operatorId, batch, result, createdInBatch);
+        const item = batch.items[result.messageIndex];
+
+        // Log EVERY evaluation to EvaluationLog
+        await logEvaluation(operatorId, batch, result, item).catch((err) =>
+          console.error("[content-detection] Failed to log evaluation:", err),
+        );
+
+        if (result.classification === "action_required") {
+          await handleActionRequired(operatorId, batch, result, createdInBatch);
+        } else if (result.classification === "awareness") {
+          await handleAwareness(operatorId, batch, result, createdInBatch);
+        }
+        // irrelevant items: logged but no situation created
       }
     } catch (err) {
       console.error(

@@ -5,8 +5,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─── Billing ────────────────────────────────────────────────
@@ -1152,4 +1153,24 @@ model WorkerJob {
   completedAt DateTime?
 
   @@index([status, createdAt])
+}
+
+model EvaluationLog {
+  id              String   @id @default(cuid())
+  operatorId      String
+  actorEntityId   String?  // The person evaluated as needing to act (null if no actor resolved)
+  sourceType      String   // "email" | "slack_message" | "teams_message"
+  sourceId        String   // External message ID
+  classification  String   // "action_required" | "awareness" | "irrelevant"
+  summary         String?  // LLM-generated summary of the item
+  reasoning       String?  // Why the LLM classified it this way
+  urgency         String?  // "low" | "medium" | "high" (null for irrelevant)
+  confidence      Float?   // 0.0-1.0
+  situationId     String?  // If promoted to a situation, link it here
+  metadata        Json?    // Original message metadata (from, to, subject, date)
+  evaluatedAt     DateTime @default(now())
+
+  @@index([operatorId, evaluatedAt])
+  @@index([operatorId, classification])
+  @@index([operatorId, actorEntityId])
 }

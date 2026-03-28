@@ -31,6 +31,10 @@ vi.mock("@/lib/db", () => ({
     operator: {
       findUnique: vi.fn(),
     },
+    evaluationLog: {
+      create: vi.fn().mockResolvedValue({ id: "eval-001" }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
   },
 }));
 
@@ -66,6 +70,7 @@ import {
   evaluateContentForSituations,
   isEligibleCommunication,
   ensureActionRequiredType,
+  ensureAwarenessType,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
 
@@ -81,6 +86,10 @@ const mockPrisma = prisma as unknown as {
   };
   situationType: { upsert: ReturnType<typeof vi.fn> };
   notification: { create: ReturnType<typeof vi.fn> };
+  evaluationLog: {
+    create: ReturnType<typeof vi.fn>;
+    updateMany: ReturnType<typeof vi.fn>;
+  };
 };
 
 const mockCallLLM = callLLM as ReturnType<typeof vi.fn>;
@@ -446,6 +455,130 @@ describe("evaluateContentForSituations", () => {
       expect.stringContaining("exceeds limit of 20"),
     );
     consoleSpy.mockRestore();
+  });
+});
+
+describe("3-category classification", () => {
+  it("creates situation for action_required items", async () => {
+    setupStandardMocks();
+    mockCallLLM.mockResolvedValue({
+      text: JSON.stringify([{
+        messageIndex: 0,
+        classification: "action_required",
+        summary: "Prepare Q3 report by Friday",
+        urgency: "high",
+        confidence: 0.9,
+        relatedSituationId: null,
+        updatedSummary: null,
+        evidence: "Please prepare the Q3 report by Friday",
+        reasoning: "Direct task assignment with deadline",
+      }]),
+    });
+
+    await evaluateContentForSituations("op-1", [makeEmail()]);
+
+    expect(mockPrisma.situation.create).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueJob).toHaveBeenCalledWith("reason_situation", "op-1", expect.any(Object));
+  });
+
+  it("creates pre-resolved awareness situation for awareness items", async () => {
+    setupStandardMocks();
+    mockCallLLM.mockResolvedValue({
+      text: JSON.stringify([{
+        messageIndex: 0,
+        classification: "awareness",
+        summary: "Team standup notes shared",
+        urgency: "low",
+        confidence: 0.8,
+        relatedSituationId: null,
+        updatedSummary: null,
+        evidence: "FYI — sharing standup notes",
+        reasoning: "CC'd on informational email, no action requested",
+      }]),
+    });
+
+    await evaluateContentForSituations("op-1", [makeEmail()]);
+
+    // Should create situation with status "resolved" and severity 0.1
+    expect(mockPrisma.situation.create).toHaveBeenCalledTimes(1);
+    const createCall = mockPrisma.situation.create.mock.calls[0][0].data;
+    expect(createCall.status).toBe("resolved");
+    expect(createCall.severity).toBe(0.1);
+    // Should NOT enqueue reasoning — already resolved
+    expect(mockEnqueueJob).not.toHaveBeenCalled();
+  });
+
+  it("does not create situation for irrelevant items", async () => {
+    setupStandardMocks();
+    mockCallLLM.mockResolvedValue({
+      text: JSON.stringify([{
+        messageIndex: 0,
+        classification: "irrelevant",
+        summary: "Casino promotion email",
+        urgency: null,
+        confidence: 0.95,
+        relatedSituationId: null,
+        updatedSummary: null,
+        evidence: "Win big at CasinoLive!",
+        reasoning: "Spam/promotional content unrelated to work",
+      }]),
+    });
+
+    await evaluateContentForSituations("op-1", [makeEmail()]);
+
+    expect(mockPrisma.situation.create).not.toHaveBeenCalled();
+    expect(mockEnqueueJob).not.toHaveBeenCalled();
+  });
+
+  it("logs ALL evaluations to EvaluationLog regardless of classification", async () => {
+    setupStandardMocks();
+    mockCallLLM.mockResolvedValue({
+      text: JSON.stringify([
+        { messageIndex: 0, classification: "irrelevant", summary: "Spam", urgency: null, confidence: 0.9, relatedSituationId: null, updatedSummary: null, evidence: "Buy now!", reasoning: "Spam" },
+      ]),
+    });
+
+    await evaluateContentForSituations("op-1", [makeEmail()]);
+
+    expect((prisma as any).evaluationLog.create).toHaveBeenCalledTimes(1);
+    const logData = (prisma as any).evaluationLog.create.mock.calls[0][0].data;
+    expect(logData.classification).toBe("irrelevant");
+    expect(logData.operatorId).toBe("op-1");
+  });
+
+  it("falls back to actionRequired boolean for backward compat", async () => {
+    setupStandardMocks();
+    mockCallLLM.mockResolvedValue({
+      text: JSON.stringify([{
+        messageIndex: 0,
+        actionRequired: true,
+        summary: "Task assigned",
+        urgency: "medium",
+        relatedSituationId: null,
+        updatedSummary: null,
+        evidence: "Please do this",
+      }]),
+    });
+
+    await evaluateContentForSituations("op-1", [makeEmail()]);
+
+    // Should still create a situation via backward compat mapping
+    expect(mockPrisma.situation.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ensureAwarenessType", () => {
+  it("creates awareness situation type for department", async () => {
+    mockPrisma.entity.findUnique.mockResolvedValue({ displayName: "Finance" });
+    mockPrisma.situationType.upsert.mockResolvedValue({ id: "st-awareness-finance" });
+
+    const id = await ensureAwarenessType("op-awareness-test", "dept-finance-awareness");
+    expect(id).toBe("st-awareness-finance");
+    expect(mockPrisma.situationType.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { operatorId_slug: { operatorId: "op-awareness-test", slug: "awareness-finance" } },
+      }),
+    );
   });
 });
 

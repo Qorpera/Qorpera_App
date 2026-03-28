@@ -65,7 +65,7 @@ if (typeof setInterval !== "undefined") {
 const TIER_DEFAULTS: Record<Tier, { maxRequests: number; windowMs: number }> = {
   global: { maxRequests: 300, windowMs: 60_000 },
   auth: { maxRequests: 10, windowMs: 60_000 },
-  billing: { maxRequests: 30, windowMs: 60_000 },
+  billing: { maxRequests: 5, windowMs: 60_000 },
   copilot: { maxRequests: 30, windowMs: 60_000 },
 };
 

@@ -15,7 +15,7 @@ describe("Mobile sidebar drawer", () => {
     // Has mobile nav state
     expect(source).toContain("mobileNavOpen");
     // Has backdrop for drawer
-    expect(source).toContain("bg-black/");
+    expect(source).toContain("bg-overlay");
     // Has media query usage
     expect(source).toContain("useMediaQuery");
     // Closes on Escape

@@ -44,7 +44,8 @@
     "admin": "Admin",
     "setup": "Setup",
     "systemHealth": "System Health",
-    "account": "Account"
+    "account": "Account",
+    "evaluationLog": "Evaluation Log"
   },
   "shell": {
     "aiPaused": "AI activity is paused.",

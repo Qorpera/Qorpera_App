@@ -76,6 +76,9 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   await prisma.onboardingAgentRun.deleteMany({ where: { analysis: { operatorId } } });
   await prisma.onboardingAnalysis.deleteMany({ where: { operatorId } });
 
+  // Evaluation logs
+  await prisma.evaluationLog.deleteMany({ where: { operatorId } });
+
   // Situations & detection
   await prisma.situationEvent.deleteMany({ where: { situation: { operatorId } } });
   await prisma.situation.deleteMany({ where: { operatorId } });

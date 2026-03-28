@@ -44,7 +44,8 @@
     "admin": "Admin",
     "setup": "Opsætning",
     "systemHealth": "Systemstatus",
-    "account": "Konto"
+    "account": "Konto",
+    "evaluationLog": "Evalueringslog"
   },
   "shell": {
     "aiPaused": "AI-aktivitet er sat på pause.",
