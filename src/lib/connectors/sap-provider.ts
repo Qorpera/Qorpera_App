@@ -36,6 +36,7 @@ async function* sapPaginate<T>(
   servicePath: string,
   entitySet: string,
   filter?: string,
+  extraParams?: Record<string, string>,
 ): AsyncGenerator<T> {
   let skip = 0;
   const top = 500;
@@ -44,6 +45,7 @@ async function* sapPaginate<T>(
     const params: Record<string, string> = {
       $top: String(top),
       $skip: String(skip),
+      ...extraParams,
     };
     if (filter) params.$filter = filter;
 
@@ -157,6 +159,7 @@ export const sapProvider: ConnectorProvider = {
       "API_BUSINESS_PARTNER",
       "A_BusinessPartner",
       sinceFilter,
+      { $expand: "to_BusinessPartnerAddress" },
     )) {
       if (bp.BusinessPartnerCategory === "1") {
         // Person
