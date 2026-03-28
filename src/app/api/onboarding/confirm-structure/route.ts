@@ -67,6 +67,15 @@ export async function POST(request: Request) {
     data: updateData,
   });
 
+  // Advance orientation session to active (skip orienting — copilot orientation is optional)
+  // TODO: Once copilot 403 is resolved, change to phase: "orienting" and let the
+  // copilot conversation advance to "active". Currently skipping to "active"
+  // so users aren't blocked by the broken copilot.
+  await prisma.orientationSession.updateMany({
+    where: { operatorId },
+    data: { phase: "active" },
+  });
+
   // Backfill content/activity linkage — must complete before detection sweep
   try {
     const { backfillContentLinkage } = await import("@/lib/onboarding-intelligence/content-linkage");

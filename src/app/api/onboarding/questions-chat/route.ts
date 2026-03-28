@@ -1,0 +1,138 @@
+import { NextRequest } from "next/server";
+import { getSessionUser } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { streamLLM, getModel } from "@/lib/ai-provider";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(req: NextRequest) {
+  const su = await getSessionUser();
+  if (!su) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+
+  const { operatorId } = su;
+  const body = await req.json();
+  const { message, history = [] } = body;
+
+  // Load admin-scoped questions from the analysis
+  const analysis = await prisma.onboardingAnalysis.findUnique({
+    where: { operatorId },
+    select: { uncertaintyLog: true, synthesisOutput: true },
+  });
+
+  if (!analysis) {
+    return new Response(JSON.stringify({ error: "No analysis found" }), { status: 404 });
+  }
+
+  const allQuestions = Array.isArray(analysis.uncertaintyLog) ? analysis.uncertaintyLog as any[] : [];
+  const adminQuestions = allQuestions.filter((q: any) => (q.scope ?? "admin") === "admin");
+  const departmentQuestions = allQuestions.filter((q: any) => q.scope === "department");
+
+  // Build the system prompt
+  const systemPrompt = buildQuestionsSystemPrompt(adminQuestions, departmentQuestions, analysis.synthesisOutput);
+
+  // Build messages
+  const messages = [
+    ...history.map((m: any) => ({ role: m.role, content: m.content })),
+  ];
+
+  if (message) {
+    messages.push({ role: "user", content: message });
+  }
+
+  // Stream the response
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of streamLLM({
+          instructions: systemPrompt,
+          messages,
+          aiFunction: "copilot",
+          model: getModel("copilot"),
+          operatorId,
+        })) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+      } catch (err) {
+        console.error("[questions-chat] Stream error:", err);
+        controller.enqueue(encoder.encode("\n\n[Error: Could not generate response]"));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
+
+function buildQuestionsSystemPrompt(
+  adminQuestions: any[],
+  departmentQuestions: any[],
+  synthesisOutput: any,
+): string {
+  let prompt = `You are Qorpera's AI assistant, helping the company admin complete their onboarding by discussing a few strategic questions about their organization.
+
+## Your Role
+
+You've just finished analyzing the company's connected data (emails, documents, calendar, etc.) and have built a comprehensive understanding of the organization. Now you need to clarify a few things that the data alone couldn't answer.
+
+## Conversation Style
+
+- Be warm, professional, and conversational — NOT like a survey or interrogation
+- Ask 1-2 questions at a time, not all at once
+- When the admin answers, acknowledge their response naturally and connect it to what you know
+- If they say "I don't know" or "not sure," that's completely fine — say so and move on
+- If they want to discuss something beyond your questions, engage naturally
+- Use the company's language (Danish if the data was predominantly Danish)
+- Reference specific details from the analysis to show you understand their business
+
+## Your Questions for the Admin
+
+These are strategic questions that only the company admin can answer:
+
+`;
+
+  if (adminQuestions.length > 0) {
+    for (let i = 0; i < adminQuestions.length; i++) {
+      prompt += `${i + 1}. **${adminQuestions[i].question}**\n   Context: ${adminQuestions[i].context}\n`;
+      if (adminQuestions[i].possibleAnswers?.length) {
+        prompt += `   Possible answers: ${adminQuestions[i].possibleAnswers.join(", ")}\n`;
+      }
+      prompt += "\n";
+    }
+  } else {
+    prompt += "No strategic questions needed — the analysis was comprehensive.\n\n";
+  }
+
+  if (departmentQuestions.length > 0) {
+    prompt += `## Questions You're Saving for Team Members
+
+You also have ${departmentQuestions.length} operational question(s) that are better answered by specific team members. Do NOT ask the admin these — mention that you'll ask the relevant people when they join. If the admin volunteers information about these topics, accept it gratefully.
+
+`;
+    for (const q of departmentQuestions) {
+      prompt += `- ${q.question} (for: ${q.targetEmail ?? q.department ?? "team member"})\n`;
+    }
+  }
+
+  prompt += `
+## First Message
+
+Start by briefly summarizing what you discovered about their organization (2-3 sentences showing you understand their business), then naturally transition into your first question. If you have no admin questions, tell them the analysis was thorough and ask if there's anything they'd like to add or correct about the organizational map.
+
+## Important
+
+- Do NOT dump all questions at once
+- Do NOT use numbered lists of questions
+- Do NOT sound like a form or survey
+- Each of your messages should feel like a natural conversation turn
+- After all questions are discussed, wrap up by thanking them and letting them know they can proceed with confirming the organizational map`;
+
+  return prompt;
+}

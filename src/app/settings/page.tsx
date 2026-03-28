@@ -1759,7 +1759,7 @@ function UsageTab() {
 
   if (!data) return <div className="text-[var(--fg3)] text-sm p-6">Loading usage data...</div>;
 
-  const period = data.currentPeriod;
+  const period = data.currentPeriod ?? { totalBilledCents: 0, copilotCostCents: 0, situationsByAutonomy: {}, departmentUsage: [], projectedMonthEndCents: 0, dailyBreakdown: [] };
   const totalSpend = period.totalBilledCents + period.copilotCostCents;
   const supervised = period.situationsByAutonomy.supervised ?? { count: 0, totalCents: 0 };
   const notify = period.situationsByAutonomy.notify ?? { count: 0, totalCents: 0 };

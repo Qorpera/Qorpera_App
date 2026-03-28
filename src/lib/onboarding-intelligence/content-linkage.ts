@@ -165,10 +165,21 @@ function extractEmailsFromMetadata(meta: Record<string, unknown>): string[] {
   const emailFields = ["from", "to", "cc", "bcc", "sender", "authorEmail", "author"];
   for (const field of emailFields) {
     const val = meta[field];
-    if (typeof val === "string" && val.includes("@")) emails.push(val);
+    if (typeof val === "string") {
+      // Handle comma-separated email lists (common in CC/BCC fields)
+      const parts = val.split(",").map(s => s.trim());
+      for (const part of parts) {
+        if (part.includes("@")) emails.push(part);
+      }
+    }
     if (Array.isArray(val)) {
       for (const v of val) {
-        if (typeof v === "string" && v.includes("@")) emails.push(v);
+        if (typeof v === "string") {
+          const parts = v.split(",").map(s => s.trim());
+          for (const part of parts) {
+            if (part.includes("@")) emails.push(part);
+          }
+        }
       }
     }
   }

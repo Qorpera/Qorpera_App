@@ -71,6 +71,8 @@ export interface CompanyModel {
     context: string;
     possibleAnswers?: string[];
     department?: string;
+    scope: "admin" | "department";
+    targetEmail?: string;
   }>;
 }
 
@@ -140,7 +142,13 @@ export function normalizeCompanyModel(
       dataCompleteness: "low",
     },
     situationTypeRecommendations: Array.isArray(model.situationTypeRecommendations) ? model.situationTypeRecommendations : [],
-    uncertaintyLog: Array.isArray(model.uncertaintyLog) ? model.uncertaintyLog : [],
+    uncertaintyLog: Array.isArray(model.uncertaintyLog)
+      ? model.uncertaintyLog.map((q: any) => ({
+          ...q,
+          scope: q.scope ?? "admin",
+          targetEmail: q.targetEmail ?? null,
+        }))
+      : [],
   };
 }
 
@@ -220,6 +228,8 @@ interface CompanyModel {
     context: string;
     possibleAnswers?: string[];
     department?: string;
+    scope: "admin" | "department";  // "admin" = strategic/company-wide, "department" = operational/team-specific
+    targetEmail?: string;    // For department-scoped: the employee best positioned to answer
   }>;
 }
 \`\`\`
@@ -242,7 +252,12 @@ Produce a SINGLE JSON object matching the interface above:
 - Department names should use the language most commonly found in the company's own documents (Danish companies often use Danish dept names internally)
 - Situation type recommendations should be deduplicated across agents — if three agents recommend invoice overdue detection, merge them into one recommendation
 - The uncertainty log should be formatted as direct questions: "Is Thomas the Finance team lead, or does he report to someone else?" — not agent jargon
-- Include ALL internal people from the People Registry. If someone can't be confidently assigned, put them in an "Unassigned" group and flag in uncertainty log.`;
+- Include ALL internal people from the People Registry. If someone can't be confidently assigned, put them in an "Unassigned" group and flag in uncertainty log.
+- Each uncertainty question MUST have a scope field:
+  - scope: "admin" — strategic questions only the company owner/admin can answer (hiring plans, partnership decisions, pricing strategy, company-wide policies)
+  - scope: "department" — operational questions a specific team member or department lead can answer (process details, tool configurations, individual workload, technical procedures)
+  - When scope is "department", include targetEmail pointing to the person best equipped to answer, based on the agent findings about who handles that area
+  - When in doubt, use "admin" — it's better to ask the admin an operational question than to miss a strategic one`;
 
 
 // ── Build Synthesis Input ────────────────────────────────────────────────────

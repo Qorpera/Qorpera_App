@@ -75,6 +75,21 @@ function getEstimateLabel(phase: string, t: ReturnType<typeof useTranslations>) 
   }
 }
 
+function getPhaseProgress(phase: string): number {
+  switch (phase) {
+    case "idle": return 0;
+    case "syncing": return 5;
+    case "round_0": return 15;
+    case "round_1": return 35;
+    case "organizer_1": return 60;
+    case "round_2": return 70;
+    case "organizer_2": return 80;
+    case "round_3": return 85;
+    case "synthesis": return 92;
+    default: return 5;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                           */
 /* ------------------------------------------------------------------ */
@@ -286,6 +301,15 @@ export function StepAnalysis({ onComplete, demoMode }: StepAnalysisProps) {
           <p className="text-sm text-accent/80 font-medium">
             {syncPhase === "syncing" ? t("syncing") : getPhaseLabel(phase, t)}
           </p>
+          {/* Progress bar */}
+          <div className="w-full max-w-xs">
+            <div className="h-1.5 rounded-full bg-skeleton overflow-hidden">
+              <div
+                className="h-full rounded-full bg-accent/60 transition-all duration-1000 ease-out"
+                style={{ width: `${getPhaseProgress(phase)}%` }}
+              />
+            </div>
+          </div>
           <p className="text-xs text-[var(--fg3)]">{getEstimateLabel(phase, t)}</p>
         </div>
       )}
@@ -344,7 +368,7 @@ export function StepAnalysis({ onComplete, demoMode }: StepAnalysisProps) {
         <div className="flex justify-center sm:sticky sm:bottom-4">
           <button
             onClick={() => setEmailOptIn(true)}
-            className="text-xs text-accent/60 hover:text-accent/90 transition underline underline-offset-2 min-h-[44px]"
+            className="text-xs text-foreground/70 hover:text-foreground transition underline underline-offset-2 min-h-[44px]"
           >
             {t("emailMe")}
           </button>

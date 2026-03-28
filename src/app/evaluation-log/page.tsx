@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
+import { AppShell } from "@/components/app-shell";
 
 type Classification = "action_required" | "awareness" | "irrelevant";
 
@@ -114,13 +115,14 @@ export default function EvaluationLogPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <AppShell><div className="flex items-center justify-center h-64">
         <div className="animate-spin h-6 w-6 border-2 border-accent border-t-transparent rounded-full" />
-      </div>
+      </div></AppShell>
     );
   }
 
   return (
+    <AppShell>
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <h1 className="text-lg font-medium text-foreground">Evaluation Log</h1>
 
@@ -231,6 +233,7 @@ export default function EvaluationLogPage() {
         </div>
       )}
     </div>
+    </AppShell>
   );
 }
 

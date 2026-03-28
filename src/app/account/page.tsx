@@ -225,63 +225,6 @@ function AccountPageInner() {
         {/* ── Tab: Profile & AI ── */}
         {activeTab === "profile" && (
           <div className="space-y-5">
-            {/* AI Assistant */}
-            <section className="bg-surface border border-border rounded-lg overflow-hidden">
-              <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-hover">
-                <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-                </svg>
-                <h2 className="text-[13px] font-semibold text-foreground">{t("myAiAssistant")}</h2>
-              </div>
-
-          {aiEntity === undefined ? (
-            <div className="px-5 py-4 text-xs text-[var(--fg3)]">Loading...</div>
-          ) : aiEntity === null ? (
-            <div className="px-5 py-6 text-center">
-              <p className="text-sm text-[var(--fg2)]">{t("noAiAssistant")}</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              <div className="flex items-center justify-between px-5 py-3">
-                <span className="text-sm text-[var(--fg2)]">Name</span>
-                <span className="text-sm text-foreground">{aiEntity.displayName}</span>
-              </div>
-              {aiEntity.departments.length > 0 && (
-                <div className="flex items-center justify-between px-5 py-3">
-                  <span className="text-sm text-[var(--fg2)]">Departments</span>
-                  <span className="text-sm text-foreground">{aiEntity.departments.map(d => d.displayName).join(", ")}</span>
-                </div>
-              )}
-              {paRows.length > 0 && (
-                <div className="px-5 py-3">
-                  <p className="text-xs text-[var(--fg2)] mb-2 font-medium">{t("learningProgress")}</p>
-                  <div className="space-y-1.5">
-                    {paRows.map((pa) => {
-                      const total = pa.totalProposed;
-                      const rate = total > 0 ? Math.round((pa.totalApproved / total) * 100) : 0;
-                      const levelColors: Record<string, string> = {
-                        supervised: "bg-skeleton text-[var(--fg2)]",
-                        notify: "bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn",
-                        autonomous: "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok",
-                      };
-                      const lc = levelColors[pa.autonomyLevel] ?? levelColors.supervised;
-                      return (
-                        <div key={pa.id} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${lc}`}>{pa.autonomyLevel}</span>
-                            <span className="text-[var(--fg2)]">{pa.situationType.name}</span>
-                          </div>
-                          <span className="text-xs text-[var(--fg3)]">{rate}% · {pa.consecutiveApprovals} streak</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-            </section>
-
             {/* Export */}
             <section className="bg-surface border border-border rounded-lg p-5 flex items-center justify-between">
               <div>

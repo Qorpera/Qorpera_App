@@ -77,6 +77,38 @@ describe("backfillContentLinkage", () => {
     });
   });
 
+  it("handles comma-separated CC email strings", async () => {
+    mockPrisma.entity.findMany.mockResolvedValue([
+      {
+        id: "ent-sofie",
+        parentDepartmentId: "dept-ops",
+        propertyValues: [{ value: "sofie@boltly.dk", property: { identityRole: "email", slug: "email" } }],
+      },
+      {
+        id: "ent-emil",
+        parentDepartmentId: "dept-ops",
+        propertyValues: [{ value: "emil@boltly.dk", property: { identityRole: "email", slug: "email" } }],
+      },
+    ]);
+
+    mockPrisma.contentChunk.findMany.mockResolvedValue([
+      {
+        id: "chunk-cc",
+        metadata: JSON.stringify({ from: "lars@boltly.dk", to: "mikkel@boltly.dk", cc: "sofie@boltly.dk, emil@boltly.dk" }),
+      },
+    ]);
+    mockPrisma.contentChunk.update.mockResolvedValue({});
+    mockPrisma.activitySignal.findMany.mockResolvedValue([]);
+
+    const result = await backfillContentLinkage("op-1");
+
+    expect(result.chunksUpdated).toBe(1);
+    expect(mockPrisma.contentChunk.update).toHaveBeenCalledWith({
+      where: { id: "chunk-cc" },
+      data: { departmentIds: expect.stringContaining("dept-ops") },
+    });
+  });
+
   it("skips when no team members have departments", async () => {
     mockPrisma.entity.findMany.mockResolvedValue([]);
     const result = await backfillContentLinkage("op-1");
