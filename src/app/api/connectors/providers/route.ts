@@ -29,6 +29,7 @@ export async function GET() {
     "dynamics-bc": () => !!(process.env.DYNAMICS_BC_CLIENT_ID && process.env.DYNAMICS_BC_CLIENT_SECRET),
     "sap-s4hana": () => true,
     "oracle-erp": () => true,
+    maersk: () => true,
   };
 
   const result = providers

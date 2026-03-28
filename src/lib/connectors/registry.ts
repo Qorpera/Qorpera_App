@@ -17,8 +17,9 @@ import { zendeskProvider } from "./zendesk-provider";
 import { dynamicsBcProvider } from "./dynamics-bc-provider";
 import { sapProvider } from "./sap-provider";
 import { oracleErpProvider } from "./oracle-erp-provider";
+import { maerskProvider } from "./maersk-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider, maerskProvider];
 
 export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support" | "erp" | "logistics";
 
@@ -118,6 +119,11 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     description: "Oracle ERP Cloud — purchase orders, invoices, suppliers, general ledger",
     category: "erp",
     scopes: ["Purchase Orders", "Invoices", "Suppliers", "General Ledger"],
+  },
+  maersk: {
+    description: "Maersk ocean freight — container tracking, shipment visibility, ETA updates",
+    category: "logistics",
+    scopes: ["Shipments", "Containers", "Tracking Events"],
   },
 };
 
