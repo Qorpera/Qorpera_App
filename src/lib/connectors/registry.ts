@@ -16,8 +16,9 @@ import { intercomProvider } from "./intercom-provider";
 import { zendeskProvider } from "./zendesk-provider";
 import { dynamicsBcProvider } from "./dynamics-bc-provider";
 import { sapProvider } from "./sap-provider";
+import { oracleErpProvider } from "./oracle-erp-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider];
 
 export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support" | "erp" | "logistics";
 
@@ -112,6 +113,11 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     description: "SAP S/4HANA Cloud — sales orders, purchase orders, business partners, accounting",
     category: "erp",
     scopes: ["Business Partners", "Sales Orders", "Purchase Orders", "Accounting"],
+  },
+  "oracle-erp": {
+    description: "Oracle ERP Cloud — purchase orders, invoices, suppliers, general ledger",
+    category: "erp",
+    scopes: ["Purchase Orders", "Invoices", "Suppliers", "General Ledger"],
   },
 };
 

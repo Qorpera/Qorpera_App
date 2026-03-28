@@ -37,6 +37,9 @@ export function ConnectorLogo({ provider, size = 20 }: { provider: string; size?
   if (p === "salesforce") return (
     <svg width={s} height={s} viewBox="0 0 24 24"><path d="M10.006 5.415a4.195 4.195 0 013.045-1.306c1.56 0 2.954.9 3.69 2.205.63-.3 1.35-.45 2.1-.45 2.85 0 5.16 2.34 5.16 5.22s-2.31 5.22-5.16 5.22c-.45 0-.87-.06-1.29-.165a3.87 3.87 0 01-3.39 2.01 3.93 3.93 0 01-1.89-.48 4.8 4.8 0 01-4.17 2.445c-2.37 0-4.38-1.71-4.77-3.99a4.095 4.095 0 01-1.62.33C.84 16.455 0 14.865 0 13.455c0-1.68.99-3.135 2.43-3.78-.15-.465-.24-.96-.24-1.485C2.19 5.43 4.62 3 7.605 3c1.2 0 2.31.45 3.15 1.17l-.75 1.245z" fill="#00A1E0"/></svg>
   );
+  if (p === "oracle-erp" || p === "oracle") return (
+    <svg width={s} height={s} viewBox="0 0 24 24"><rect rx="4" width="24" height="24" fill="#C74634"/><text x="12" y="16" textAnchor="middle" fill="#fff" fontSize="7" fontWeight="700">ORA</text></svg>
+  );
   if (p === "sap-s4hana" || p === "sap") return (
     <svg width={s} height={s} viewBox="0 0 24 24"><rect rx="4" width="24" height="24" fill="#0070F2"/><text x="12" y="16" textAnchor="middle" fill="#fff" fontSize="8" fontWeight="700">SAP</text></svg>
   );

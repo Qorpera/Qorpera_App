@@ -28,6 +28,7 @@ export async function GET() {
     zendesk: () => !!(process.env.ZENDESK_CLIENT_ID && process.env.ZENDESK_CLIENT_SECRET),
     "dynamics-bc": () => !!(process.env.DYNAMICS_BC_CLIENT_ID && process.env.DYNAMICS_BC_CLIENT_SECRET),
     "sap-s4hana": () => true,
+    "oracle-erp": () => true,
   };
 
   const result = providers
