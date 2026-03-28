@@ -114,7 +114,7 @@ export async function GET() {
         });
         variants.push({
           operatorId: op.id,
-          displayName: op.companyName,
+          displayName: op.companyName ?? slug,
           model: analysis?.modelOverride ?? "default",
           phase: orientation?.phase ?? "unknown",
           analysisStatus: analysis?.status ?? "unknown",
