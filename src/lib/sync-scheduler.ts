@@ -44,8 +44,15 @@ function decrementRunning(operatorId: string): void {
 
 async function tick() {
   try {
+    // Exclude test/synthetic operators — their connectors have dummy tokens
+    // and should never be synced. Also prevents synthetic data from polluting
+    // future training loops and anonymized benchmarks.
     const connectors = await prisma.sourceConnector.findMany({
-      where: { status: "active", deletedAt: null },
+      where: {
+        status: "active",
+        deletedAt: null,
+        operator: { isTestOperator: false },
+      },
       select: {
         id: true,
         operatorId: true,

@@ -14,7 +14,10 @@ export function startCronScheduler() {
   timers.push(
     setInterval(async () => {
       try {
-        const operators = await prisma.operator.findMany({ select: { id: true } });
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false },
+          select: { id: true },
+        });
         for (const op of operators) {
           const results = await detectSituations(op.id);
           if (results.length > 0) {
@@ -31,7 +34,10 @@ export function startCronScheduler() {
   timers.push(
     setInterval(async () => {
       try {
-        const operators = await prisma.operator.findMany({ select: { id: true } });
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false },
+          select: { id: true },
+        });
         for (const op of operators) {
           const results = await auditPreFilters(op.id);
           const totalMisses = results.reduce((sum, r) => sum + r.missesFound, 0);
@@ -66,6 +72,7 @@ export function startCronScheduler() {
           where: {
             entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
             status: "active",
+            operator: { isTestOperator: false },
           },
           select: { id: true, operatorId: true },
         });
@@ -108,7 +115,10 @@ export function startCronScheduler() {
   timers.push(
     setInterval(async () => {
       try {
-        const operators = await prisma.operator.findMany({ select: { id: true } });
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false },
+          select: { id: true },
+        });
         for (const op of operators) {
           await computePriorityScores(op.id).catch((err) =>
             console.error(`[cron:priorities] Operator ${op.id} failed:`, err),
