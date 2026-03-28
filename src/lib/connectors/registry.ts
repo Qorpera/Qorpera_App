@@ -18,8 +18,9 @@ import { dynamicsBcProvider } from "./dynamics-bc-provider";
 import { sapProvider } from "./sap-provider";
 import { oracleErpProvider } from "./oracle-erp-provider";
 import { maerskProvider } from "./maersk-provider";
+import { cargowiseProvider } from "./cargowise-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider, maerskProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider, maerskProvider, cargowiseProvider];
 
 export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support" | "erp" | "logistics";
 
@@ -124,6 +125,11 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     description: "Maersk ocean freight — container tracking, shipment visibility, ETA updates",
     category: "logistics",
     scopes: ["Shipments", "Containers", "Tracking Events"],
+  },
+  cargowise: {
+    description: "CargoWise logistics ERP — shipments, customs, milestones, charges",
+    category: "logistics",
+    scopes: ["Shipments", "Customs", "Milestones", "Charges"],
   },
 };
 

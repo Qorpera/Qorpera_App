@@ -30,6 +30,7 @@ export async function GET() {
     "sap-s4hana": () => true,
     "oracle-erp": () => true,
     maersk: () => true,
+    cargowise: () => true,
   };
 
   const result = providers
