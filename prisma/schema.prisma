@@ -391,6 +391,7 @@ model SyncLog {
   eventsSkipped  Int      @default(0)
   errors         String?  // JSON
   durationMs     Int?     // how long the sync took
+  diagnostics    String?  // JSON: post-sync quality metrics
   createdAt      DateTime @default(now())
 
   connector SourceConnector @relation(fields: [connectorId], references: [id])

@@ -11,6 +11,7 @@ import {
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { captureApiError } from "@/lib/api-error";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
+import { runSyncDiagnostics } from "@/lib/sync-diagnostics";
 
 // ── Retry helpers ────────────────────────────────────────────────────────────
 
@@ -281,7 +282,7 @@ export async function runConnectorSync(
   }
 
   // Log the sync
-  await prisma.syncLog.create({
+  const syncLog = await prisma.syncLog.create({
     data: {
       connectorId,
       status: syncStatus,
@@ -290,7 +291,17 @@ export async function runConnectorSync(
       errors: errors.length > 0 ? JSON.stringify(errors) : null,
       durationMs,
     },
+    select: { id: true },
   });
+
+  // Post-sync diagnostics (developer observability, non-blocking)
+  runSyncDiagnostics(
+    operatorId,
+    connectorId,
+    syncLog.id,
+    connector.provider,
+    { eventsCreated, contentIngested, activitiesIngested },
+  ).catch((err) => console.error("[sync-diagnostics] Failed:", err));
 
   // Register action capabilities from this connector
   if (provider.getCapabilities) {
