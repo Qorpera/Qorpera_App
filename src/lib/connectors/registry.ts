@@ -15,8 +15,9 @@ import { salesforceProvider } from "./salesforce-provider";
 import { intercomProvider } from "./intercom-provider";
 import { zendeskProvider } from "./zendesk-provider";
 import { dynamicsBcProvider } from "./dynamics-bc-provider";
+import { sapProvider } from "./sap-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider];
 
 export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support" | "erp" | "logistics";
 
@@ -106,6 +107,11 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     description: "Financials, sales orders, purchase orders, inventory",
     category: "erp",
     scopes: ["Customers", "Vendors", "Sales Orders", "Purchase Orders", "Invoices", "Items"],
+  },
+  "sap-s4hana": {
+    description: "SAP S/4HANA Cloud — sales orders, purchase orders, business partners, accounting",
+    category: "erp",
+    scopes: ["Business Partners", "Sales Orders", "Purchase Orders", "Accounting"],
   },
 };
 
