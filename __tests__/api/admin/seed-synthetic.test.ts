@@ -6,7 +6,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/db", () => ({
   prisma: {
-    operator: { findFirst: vi.fn() },
+    operator: { findFirst: vi.fn(), findMany: vi.fn() },
     onboardingAnalysis: { findUnique: vi.fn() },
     orientationSession: { findFirst: vi.fn() },
   },
@@ -29,7 +29,7 @@ describe("GET /api/admin/seed-synthetic", () => {
 
   it("returns available companies with seed status", async () => {
     mockAuth.mockResolvedValue({ user: { role: "superadmin" }, isSuperadmin: true });
-    mockPrisma.operator.findFirst.mockResolvedValue(null);
+    mockPrisma.operator.findMany.mockResolvedValue([]);
 
     const res = await GET();
     expect(res.status).toBe(200);

@@ -49,7 +49,10 @@ async function ensureRelType(
 
 // ── Main Runner ─────────────────────────────────────────────────────
 
-export async function runSyntheticSeed(company: SyntheticCompany): Promise<{
+export async function runSyntheticSeed(
+  company: SyntheticCompany,
+  options?: { modelOverride?: string },
+): Promise<{
   operatorId: string;
   userCredentials: Array<{ name: string; email: string; password: string; role: string }>;
   stats: Record<string, number>;
@@ -57,11 +60,15 @@ export async function runSyntheticSeed(company: SyntheticCompany): Promise<{
 }> {
   console.log(`[synthetic-seed] Starting seed for ${company.name}...`);
 
+  const modelLabel = options?.modelOverride
+    ? ` (${options.modelOverride.includes("sonnet") ? "Sonnet" : options.modelOverride.includes("opus") ? "Opus" : options.modelOverride})`
+    : "";
+
   // ── 1. Operator ──────────────────────────────────────────────────
   const operator = await prisma.operator.create({
     data: {
-      displayName: company.name,
-      companyName: company.name,
+      displayName: company.name + modelLabel,
+      companyName: company.name + modelLabel,
       industry: company.industry,
       isTestOperator: true,
     },
@@ -369,6 +376,7 @@ export async function runSyntheticSeed(company: SyntheticCompany): Promise<{
       status: "pending",
       currentPhase: "idle",
       startedAt: new Date(),
+      modelOverride: options?.modelOverride ?? null,
     },
   });
   console.log(`[synthetic-seed] Created pending analysis ${analysis.id} — worker will pick up shortly`);

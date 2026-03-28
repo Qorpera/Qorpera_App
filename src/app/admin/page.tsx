@@ -55,9 +55,7 @@ export default function AdminPage() {
   const [confirmDelete, setConfirmDelete] = useState<OperatorInfo | null>(null);
   const [syntheticCompanies, setSyntheticCompanies] = useState<Record<string, {
     seeded: boolean;
-    operatorId?: string;
-    phase?: string;
-    analysisStatus?: string;
+    variants: Array<{ operatorId: string; displayName: string; model: string; phase: string; analysisStatus: string }>;
   }>>({});
   const [seedingCompany, setSeedingCompany] = useState<string | null>(null);
   const [seedResult, setSeedResult] = useState<{ company: string; credentials: Array<{ name: string; email: string; role: string }> } | null>(null);
@@ -106,20 +104,21 @@ export default function AdminPage() {
   // Poll while any company is analyzing
   useEffect(() => {
     const hasAnalyzing = Object.values(syntheticCompanies).some(
-      (c) => c.seeded && c.analysisStatus === "analyzing"
+      (c) => c.seeded && c.variants?.some((v) => v.analysisStatus === "analyzing")
     );
     if (!hasAnalyzing) return;
     const interval = setInterval(fetchSyntheticStatus, 10000);
     return () => clearInterval(interval);
   }, [syntheticCompanies]);
 
-  const seedCompany = async (slug: string) => {
-    setSeedingCompany(slug);
+  const seedCompany = async (slug: string, model?: string) => {
+    const seedKey = model?.includes("sonnet") ? `${slug}-sonnet` : model?.includes("opus") ? `${slug}-opus` : slug;
+    setSeedingCompany(seedKey);
     try {
       const res = await fetch("/api/admin/seed-synthetic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: slug }),
+        body: JSON.stringify({ company: slug, model }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -135,12 +134,12 @@ export default function AdminPage() {
     }
   };
 
-  const deleteSyntheticCompany = async (slug: string) => {
+  const deleteSyntheticCompany = async (slug: string, operatorId: string) => {
     try {
       await fetch("/api/admin/seed-synthetic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: slug, action: "delete" }),
+        body: JSON.stringify({ company: slug, action: "delete", operatorId }),
       });
       await Promise.all([refreshOperators(), fetchSyntheticStatus()]);
     } catch { /* best-effort */ }
@@ -273,70 +272,56 @@ export default function AdminPage() {
         {Object.keys(syntheticCompanies).length > 0 && (
           <div className="mb-8">
             <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">Simulated Companies</h2>
-            <div className="space-y-3">
-              {Object.entries(syntheticCompanies).map(([slug, status]) => {
-                const isSeeding = seedingCompany === slug;
-                const displayName = slug.charAt(0).toUpperCase() + slug.slice(1);
-
-                const phaseLabel = !status.seeded ? "Not seeded"
-                  : status.analysisStatus === "analyzing" ? "Agents analyzing..."
-                  : status.analysisStatus === "confirming" ? "Ready for review"
-                  : status.analysisStatus === "complete" ? "Complete"
-                  : status.phase === "active" ? "Active"
-                  : status.phase ?? "Unknown";
-
-                const phaseColor = !status.seeded ? "text-[var(--fg3)]"
-                  : status.analysisStatus === "analyzing" ? "text-warn"
-                  : status.analysisStatus === "confirming" || status.analysisStatus === "complete" ? "text-ok"
-                  : status.phase === "active" ? "text-ok"
-                  : "text-[var(--fg2)]";
-
-                return (
-                  <div key={slug} className="wf-soft p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <h3 className="text-foreground font-medium text-sm">{displayName}</h3>
-                        <span className={`text-xs ${phaseColor}`}>{phaseLabel}</span>
-                        {status.analysisStatus === "analyzing" && (
-                          <span className="ml-2 inline-block w-3 h-3 rounded-full border-2 border-[color-mix(in_srgb,var(--warn)_40%,transparent)] border-t-warn animate-spin" />
-                        )}
+            <div className="space-y-4">
+              {Object.entries(syntheticCompanies).map(([slug, data]) => (
+                <div key={slug} className="space-y-2">
+                  <h3 className="text-sm font-medium text-foreground capitalize">{slug}</h3>
+                  {!data.seeded && (
+                    <div className="wf-soft p-4 flex items-center justify-between">
+                      <span className="text-xs text-[var(--fg3)]">Not seeded</span>
+                      <div className="flex items-center gap-2">
+                        <Button variant="primary" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug, "claude-sonnet-4-20250514")}>
+                          {seedingCompany === `${slug}-sonnet` ? "Seeding..." : "Seed (Sonnet)"}
+                        </Button>
+                        <Button variant="primary" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug, "claude-opus-4-6-20250415")}>
+                          {seedingCompany === `${slug}-opus` ? "Seeding..." : "Seed (Opus)"}
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {!status.seeded && (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          disabled={isSeeding || !!seedingCompany}
-                          onClick={() => seedCompany(slug)}
-                        >
-                          {isSeeding ? "Seeding..." : "Seed"}
-                        </Button>
-                      )}
-                      {status.seeded && status.operatorId && (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => deleteSyntheticCompany(slug)}
-                            className="text-danger hover:text-danger hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
-                          >
+                  )}
+                  {data.seeded && data.variants?.map((v) => {
+                    const phaseLabel = v.analysisStatus === "analyzing" ? "Analyzing..."
+                      : v.analysisStatus === "confirming" ? "Ready for review"
+                      : v.analysisStatus === "complete" ? "Complete"
+                      : v.phase === "active" ? "Active"
+                      : v.phase ?? "Unknown";
+                    const phaseColor = v.analysisStatus === "analyzing" ? "text-warn"
+                      : v.analysisStatus === "confirming" || v.analysisStatus === "complete" || v.phase === "active" ? "text-ok"
+                      : "text-[var(--fg2)]";
+
+                    return (
+                      <div key={v.operatorId} className="wf-soft p-4 flex items-center justify-between">
+                        <div>
+                          <span className="text-sm text-foreground">{v.displayName}</span>
+                          <span className={`ml-3 text-xs ${phaseColor}`}>{phaseLabel}</span>
+                          {v.analysisStatus === "analyzing" && (
+                            <span className="ml-2 inline-block w-3 h-3 rounded-full border-2 border-[color-mix(in_srgb,var(--warn)_40%,transparent)] border-t-warn animate-spin" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => deleteSyntheticCompany(slug, v.operatorId)}
+                            className="text-danger hover:text-danger hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]">
                             Delete
                           </Button>
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            disabled={entering === status.operatorId}
-                            onClick={() => enterOperator(status.operatorId!)}
-                          >
-                            {entering === status.operatorId ? "Entering..." : "Enter"}
+                          <Button variant="primary" size="sm" disabled={entering === v.operatorId} onClick={() => enterOperator(v.operatorId)}>
+                            {entering === v.operatorId ? "Entering..." : "Enter"}
                           </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         )}

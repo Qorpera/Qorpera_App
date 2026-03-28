@@ -1070,6 +1070,7 @@ model OnboardingAnalysis {
   // Tracking
   totalTokensUsed  Int     @default(0)
   totalCostCents   Int     @default(0)
+  modelOverride    String?                         // If set, pipeline uses this model instead of MODEL_ROUTES.onboardingAgent
   startedAt        DateTime?
   completedAt      DateTime?
   workerClaimedAt  DateTime?                     // When worker picked up the job

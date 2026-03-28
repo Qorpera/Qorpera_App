@@ -30,6 +30,8 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   if (!analysis) throw new Error("Analysis not found");
 
   const operatorId = analysis.operatorId;
+  const modelOverride = analysis.modelOverride ?? undefined;
+  const analysisModel = modelOverride ?? getModel("onboardingAgent");
 
   // ═══ ROUND 0: Foundation ═══════════════════════════════════════════════════
   await updatePhase(prisma, analysisId, "round_0");
@@ -97,6 +99,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
     analysisId,
     operatorId,
     toolContext: temporalCtx,
+    modelOverride,
   }, 0);
 
   const temporalReport = parseJsonReport<TemporalReport>(temporalResult.report);
@@ -138,6 +141,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
         analysisId,
         operatorId,
         toolContext: round1ToolCtx,
+        modelOverride,
       }, 1)
     )
   );
@@ -158,7 +162,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
 
   // ═══ ORGANIZER 1: Cross-Pollination ════════════════════════════════════════
   await updatePhase(prisma, analysisId, "organizer_1");
-  const organizerResult = await runOrganizerCall(prisma, analysisId, round1Results, round1Agents, 1);
+  const organizerResult = await runOrganizerCall(prisma, analysisId, round1Results, round1Agents, 1, modelOverride);
 
   // ═══ ROUND 2: Targeted Follow-Ups (if needed) ═════════════════════════════
   let round2Results: AgentResult[] = [];
@@ -188,6 +192,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
           analysisId,
           operatorId,
           toolContext: round1ToolCtx,
+          modelOverride,
         }, 2)
       )
     );
@@ -202,7 +207,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   let round3Results: AgentResult[] = [];
   if (organizerResult.unresolvedContradictions.some((c) => c.resolvable)) {
     await updatePhase(prisma, analysisId, "organizer_2");
-    const orgResult2 = await runOrganizerCall(prisma, analysisId, round2Results, round2AgentNames, 2);
+    const orgResult2 = await runOrganizerCall(prisma, analysisId, round2Results, round2AgentNames, 2, modelOverride);
 
     if (orgResult2.followUpBriefs.length > 0) {
       await updatePhase(prisma, analysisId, "round_3");
@@ -227,6 +232,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
             analysisId,
             operatorId,
             toolContext: round1ToolCtx,
+            modelOverride,
           }, 3)
         )
       );
@@ -241,7 +247,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   // ═══ SYNTHESIS ═════════════════════════════════════════════════════════════
   await updatePhase(prisma, analysisId, "synthesis");
   await addProgressMessage(analysisId, "All investigations complete. Synthesizing company model...");
-  await runSynthesis(prisma, analysisId, operatorId, round1Results, round2Results, round3Results, round1Agents, organizerResult);
+  await runSynthesis(prisma, analysisId, operatorId, round1Results, round2Results, round3Results, round1Agents, organizerResult, modelOverride);
 
   // Update analysis totals from all agent runs
   const allRuns = await prisma.onboardingAgentRun.findMany({
@@ -254,8 +260,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   const allResults = [...round1Results, ...round2Results, ...round3Results];
   const totalInput = allResults.reduce((sum, r) => sum + r.totalInputTokens, 0);
   const totalOutput = allResults.reduce((sum, r) => sum + r.totalOutputTokens, 0);
-  const costModel = getModel("onboardingAgent");
-  const totalCost = calculateCallCostCents(costModel, { inputTokens: totalInput, outputTokens: totalOutput });
+  const totalCost = calculateCallCostCents(analysisModel, { inputTokens: totalInput, outputTokens: totalOutput });
 
   await prisma.onboardingAnalysis.update({
     where: { id: analysisId },
@@ -273,6 +278,7 @@ async function runOrganizerCall(
   agentResults: AgentResult[],
   agentNames: string[],
   afterRound: number,
+  modelOverride?: string,
 ): Promise<OrganizerOutput> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -285,7 +291,7 @@ async function runOrganizerCall(
     input += `### ${formatAgentName(name)} Report\n\n${agentResults[i].report}\n\n---\n\n`;
   }
 
-  const organizerModel = getModel("onboardingAgent");
+  const organizerModel = modelOverride ?? getModel("onboardingAgent");
   const response = await client.messages.create({
     model: organizerModel,
     max_tokens: getMaxOutputTokens(organizerModel),
@@ -347,6 +353,7 @@ async function runSynthesis(
   round3: AgentResult[],
   round1Agents: string[],
   organizerResult: OrganizerOutput,
+  modelOverride?: string,
 ): Promise<void> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -366,7 +373,7 @@ async function runSynthesis(
 
   const synthesisInput = buildSynthesisInput(allReports);
 
-  const synthesisModel = getModel("onboardingAgent");
+  const synthesisModel = modelOverride ?? getModel("onboardingAgent");
   const response = await client.messages.create({
     model: synthesisModel,
     max_tokens: getMaxOutputTokens(synthesisModel),

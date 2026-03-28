@@ -13,6 +13,7 @@ export interface AgentConfig {
   analysisId: string;
   operatorId: string;
   toolContext: ToolContext;
+  modelOverride?: string;     // If set, uses this model instead of MODEL_ROUTES.onboardingAgent
 }
 
 export interface AgentResult {
@@ -25,7 +26,7 @@ export interface AgentResult {
 
 export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const model = getModel("onboardingAgent");
+  const model = config.modelOverride ?? getModel("onboardingAgent");
 
   // Convert existing AgentTool[] to Anthropic tool format
   const agentTools = getToolsForAgent(config.name);

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SyntheticCompany } from "@/lib/demo/synthetic-types";
+import type { runSyntheticSeed } from "@/lib/demo/synthetic-seed-runner";
 
 describe("SyntheticCompany type", () => {
   it("compiles with a minimal valid company definition", () => {
@@ -37,5 +38,13 @@ describe("SyntheticCompany type", () => {
     expect(company.slug).toBe("test");
     expect(company.employees).toHaveLength(1);
     expect(company.content).toHaveLength(1);
+  });
+
+  it("accepts modelOverride option", () => {
+    // Type-level test — validates the function signature accepts the option
+    type Params = Parameters<typeof runSyntheticSeed>;
+    type SecondArg = Params[1];
+    const opts: SecondArg = { modelOverride: "claude-sonnet-4-20250514" };
+    expect(opts!.modelOverride).toBe("claude-sonnet-4-20250514");
   });
 });
