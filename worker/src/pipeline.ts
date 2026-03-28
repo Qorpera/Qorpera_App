@@ -12,6 +12,7 @@ import {
   buildSynthesisInput,
   createEntitiesFromModel,
   createSituationTypesFromModel,
+  normalizeCompanyModel,
   sendAnalysisCompleteEmail,
   type CompanyModel,
 } from "@/lib/onboarding-intelligence/synthesis";
@@ -388,7 +389,8 @@ async function runSynthesis(
 
   let companyModel: CompanyModel;
   try {
-    companyModel = JSON.parse(extractJson(text));
+    const rawModel = JSON.parse(extractJson(text));
+    companyModel = normalizeCompanyModel(rawModel);
   } catch (parseErr) {
     const reason = `Synthesis JSON parse failed: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`;
     console.error(`[pipeline] ${reason}`);

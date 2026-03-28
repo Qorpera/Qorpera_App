@@ -74,6 +74,77 @@ export interface CompanyModel {
   }>;
 }
 
+// ── Normalize LLM Output ─────────────────────────────────────────────────────
+
+/**
+ * Normalizes a raw LLM synthesis output into a valid CompanyModel.
+ * Handles common schema drift: members nested inside departments instead of
+ * top-level people array, missing fields, alternative key names, etc.
+ */
+export function normalizeCompanyModel(
+  raw: Record<string, unknown>,
+  fallback?: { companyName?: string; industry?: string },
+): CompanyModel {
+  const model = raw as Partial<CompanyModel> & Record<string, unknown>;
+
+  // ── Flatten departments[].members[] into top-level people[] ──
+  let people = Array.isArray(model.people) ? model.people : [];
+
+  if (people.length === 0 && Array.isArray(model.departments)) {
+    for (const dept of model.departments as Array<Record<string, unknown>>) {
+      const members = (dept.members ?? dept.people ?? []) as Array<Record<string, unknown>>;
+      for (const m of members) {
+        people.push({
+          email: (m.email as string) ?? "",
+          displayName: (m.displayName ?? m.name ?? "") as string,
+          primaryDepartment: (dept.name as string) ?? "Unknown",
+          role: (m.role ?? m.title ?? "Member") as string,
+          roleLevel: (m.roleLevel ?? "ic") as "ic" | "lead" | "manager" | "director" | "c_level",
+          reportsToEmail: m.reportsToEmail as string | undefined,
+        });
+      }
+    }
+  }
+
+  // ── Resolve reporting relationships from separate array ──
+  const relationships = (model.reportingRelationships ?? []) as Array<Record<string, unknown>>;
+  if (relationships.length > 0 && people.some((p) => !p.reportsToEmail)) {
+    for (const rel of relationships) {
+      const reportEmail = (rel.report ?? rel.reportEmail) as string | undefined;
+      const managerEmail = (rel.manager ?? rel.managerEmail) as string | undefined;
+      if (!reportEmail || !managerEmail) continue;
+      const person = people.find((p) => p.email === reportEmail);
+      if (person && !person.reportsToEmail) {
+        person.reportsToEmail = managerEmail;
+      }
+    }
+  }
+
+  // ── Clean department objects (strip members — they're now in people[]) ──
+  const departments = (Array.isArray(model.departments) ? model.departments : []).map((d: Record<string, unknown>) => ({
+    name: (d.name as string) ?? "Unknown",
+    description: (d.description as string) ?? "",
+    confidence: ((d.confidence as string) ?? "medium") as "high" | "medium" | "low",
+    suggestedLeadEmail: d.suggestedLeadEmail as string | undefined,
+  }));
+
+  return {
+    departments,
+    people,
+    crossFunctionalPeople: Array.isArray(model.crossFunctionalPeople) ? model.crossFunctionalPeople : [],
+    processes: Array.isArray(model.processes) ? model.processes : [],
+    keyRelationships: Array.isArray(model.keyRelationships) ? model.keyRelationships : [],
+    financialSnapshot: (model.financialSnapshot as CompanyModel["financialSnapshot"]) ?? {
+      currency: "DKK",
+      revenueTrend: "unknown",
+      overdueInvoiceCount: 0,
+      dataCompleteness: "low",
+    },
+    situationTypeRecommendations: Array.isArray(model.situationTypeRecommendations) ? model.situationTypeRecommendations : [],
+    uncertaintyLog: Array.isArray(model.uncertaintyLog) ? model.uncertaintyLog : [],
+  };
+}
+
 // ── Synthesis Prompt ─────────────────────────────────────────────────────────
 
 export const SYNTHESIS_PROMPT = `You are compiling the output of a multi-agent organizational intelligence analysis into a single, coherent company model. You have reports from:
@@ -88,19 +159,86 @@ export const SYNTHESIS_PROMPT = `You are compiling the output of a multi-agent o
 
 Plus one or more Organizer reports with confirmed overlaps, resolved contradictions, and synthesis notes.
 
+## Required Output Schema
+
+Your response MUST be a single JSON object matching this exact TypeScript interface. Do NOT nest people inside departments — list ALL people in the top-level \`people\` array with their \`primaryDepartment\` field.
+
+\`\`\`typescript
+interface CompanyModel {
+  departments: Array<{
+    name: string;           // Department name (use company's own language)
+    description: string;    // What this department does
+    confidence: "high" | "medium" | "low";
+    suggestedLeadEmail?: string;
+  }>;
+  people: Array<{           // ALL internal people — one entry per person
+    email: string;
+    displayName: string;
+    primaryDepartment: string;  // Must match a department name above
+    role: string;               // Job title or function
+    roleLevel: "ic" | "lead" | "manager" | "director" | "c_level";
+    reportsToEmail?: string;    // Email of direct manager (omit if unknown)
+  }>;
+  crossFunctionalPeople: Array<{
+    email: string;
+    departments: string[];
+    evidence: string;
+  }>;
+  processes: Array<{
+    name: string;
+    description: string;
+    department: string;
+    ownerEmail?: string;
+    frequency: string;
+    steps: Array<{ order: number; actor: string; action: string }>;
+  }>;
+  keyRelationships: Array<{
+    companyName?: string;
+    contactName: string;
+    contactEmail: string;
+    type: "customer" | "prospect" | "partner" | "vendor";
+    healthScore: "healthy" | "at_risk" | "cold" | "critical";
+    primaryInternalContact: string;
+  }>;
+  financialSnapshot: {
+    estimatedMonthlyRevenue?: number;
+    currency: string;
+    revenueTrend: string;
+    overdueInvoiceCount: number;
+    pipelineValue?: number;
+    dataCompleteness: string;
+  };
+  situationTypeRecommendations: Array<{
+    name: string;
+    description: string;
+    detectionLogic: string;    // How to detect this situation from available data
+    department: string;
+    severity: "high" | "medium" | "low";
+    expectedFrequency: string;
+  }>;
+  uncertaintyLog: Array<{
+    question: string;    // Direct question for the CEO
+    context: string;
+    possibleAnswers?: string[];
+    department?: string;
+  }>;
+}
+\`\`\`
+
 ## Your Task
 
-Produce a SINGLE coherent company model that:
+Produce a SINGLE JSON object matching the interface above:
 
 1. **Resolves conflicts** between agents (use Organizer's resolution where available)
 2. **Merges overlapping findings** into unified entries (don't duplicate)
-3. **Assigns every internal person to exactly one primary department** (cross-functional people get a primary + listed in crossFunctionalPeople)
+3. **Assigns every internal person to exactly one primary department** in the top-level \`people\` array (cross-functional people get a primary + listed in crossFunctionalPeople)
 4. **Produces actionable situation type recommendations** synthesized from all agents
 5. **Generates the uncertainty log** — specific questions for the CEO that the data couldn't answer
 
 ## Critical Rules
 
-- Every department MUST have at least one member. Don't create empty departments.
+- The \`people\` array is top-level — do NOT embed people inside department objects.
+- Every department MUST have at least one person assigned to it via \`primaryDepartment\`.
 - People assignment priority: documented org structure > CRM teams > calendar cluster analysis > email patterns
 - Department names should use the language most commonly found in the company's own documents (Danish companies often use Danish dept names internally)
 - Situation type recommendations should be deduplicated across agents — if three agents recommend invoice overdue detection, merge them into one recommendation
