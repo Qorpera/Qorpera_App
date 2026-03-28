@@ -232,7 +232,7 @@ export async function createEntitiesFromModel(
   // 2. Create departments
   const departmentMap = new Map<string, string>(); // name → entityId
 
-  for (const dept of model.departments) {
+  for (const dept of model.departments ?? []) {
     let deptEntity = await prisma.entity.findFirst({
       where: {
         operatorId,
@@ -263,7 +263,7 @@ export async function createEntitiesFromModel(
   );
 
   // 3. Create people and assign to departments
-  for (const person of model.people) {
+  for (const person of model.people ?? []) {
     const deptEntityId = departmentMap.get(person.primaryDepartment);
     if (!deptEntityId) continue;
 
@@ -334,7 +334,7 @@ export async function createEntitiesFromModel(
     operatorId, "reports-to", "Reports To", teamMemberTypeId, teamMemberTypeId,
   );
 
-  for (const person of model.people.filter((p) => p.reportsToEmail)) {
+  for (const person of (model.people ?? []).filter((p) => p.reportsToEmail)) {
     const reportEntity = await findEntityByEmail(operatorId, person.email);
     const managerEntity = await findEntityByEmail(operatorId, person.reportsToEmail!);
 
@@ -364,7 +364,7 @@ export async function createSituationTypesFromModel(
   operatorId: string,
   model: CompanyModel,
 ): Promise<void> {
-  for (const rec of model.situationTypeRecommendations) {
+  for (const rec of model.situationTypeRecommendations ?? []) {
     const slug = rec.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
