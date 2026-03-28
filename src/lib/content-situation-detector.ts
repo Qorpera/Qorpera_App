@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { resolveEntity } from "@/lib/entity-resolution";
 import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
@@ -403,7 +404,7 @@ async function handleActionRequired(
 
   const situationTypeId = await ensureActionRequiredType(operatorId, departmentId);
 
-  const confidence = URGENCY_CONFIDENCE[result.urgency] ?? 0.7;
+  const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.7;
 
   const situation = await prisma.situation.create({
     data: {
@@ -496,7 +497,7 @@ async function logEvaluation(
       urgency: result.urgency,
       confidence: result.confidence,
       situationId: null, // Updated after situation creation if applicable
-      metadata: item?.metadata ? (item.metadata as Record<string, unknown>) : undefined,
+      metadata: item?.metadata ? (item.metadata as Prisma.InputJsonValue) : undefined,
     },
   });
 }
