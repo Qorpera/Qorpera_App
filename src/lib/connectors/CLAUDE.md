@@ -4,7 +4,7 @@
 Every connector provider exports a `sync()` method returning `AsyncGenerator<SyncYield>`.
 
 SyncYield is `{ kind: "event" | "content" | "activity", data: ... }`:
-- `event`: HubSpot/Stripe only. Outcome data materialized into entities.
+- `event`: Outcome data materialized into entities via EVENT_MATERIALIZERS rules.
 - `content`: Text content → ContentChunk with pgvector embedding. sourceType must be one of: "email", "slack_message", "teams_message", "drive_doc", "calendar_note"
 - `activity`: Behavioral metadata → ActivitySignal. signalType must be one of: "email_sent", "email_received", "slack_message", "teams_message", "doc_edit", "doc_created", "doc_shared", "meeting_held", "meeting_frequency"
 
@@ -22,6 +22,11 @@ SyncYield is `{ kind: "event" | "content" | "activity", data: ... }`:
 | `hubspot-auth.ts` | — | Token refresh helper for HubSpot OAuth | — | `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` |
 | `stripe.ts` | Company (admin installs) | Stripe API (customers, invoices, payments) | events | `STRIPE_SECRET_KEY` |
 | `stripe-auth.ts` | — | Token management for Stripe (API key based) | — | `STRIPE_SECRET_KEY` |
+| `dynamics-bc-provider.ts` | Company (Azure AD OAuth) | Dynamics 365 Business Central API v2.0 | events | `DYNAMICS_BC_CLIENT_ID`, `DYNAMICS_BC_CLIENT_SECRET`, `DYNAMICS_BC_TENANT_ID` |
+| `sap-provider.ts` | Company (Basic Auth) | SAP S/4HANA Cloud OData API | events | (none — credentials in connector config) |
+| `oracle-erp-provider.ts` | Company (OAuth 2.0 Client Credentials) | Oracle ERP Cloud REST API | events | (none — credentials in connector config) |
+| `maersk-provider.ts` | Company (OAuth 2.0 Client Credentials) | Maersk Track & Trace API | events | (none — credentials in connector config) |
+| `cargowise-provider.ts` | Company (Basic Auth) | CargoWise eAdaptor XML | events | (none — credentials in connector config) |
 | `registry.ts` | — | Provider lookup by ID, list all providers | — | — |
 | `types.ts` | — | ConnectorProvider interface, SyncEvent, ConnectorCapability types | — | — |
 | `sync-types.ts` | — | SyncYield discriminated union type definition | — | — |

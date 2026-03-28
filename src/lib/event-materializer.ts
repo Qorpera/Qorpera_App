@@ -248,6 +248,78 @@ const EVENT_MATERIALIZERS: Record<string, EventMaterializerRule> = {
       externalId: String(p.id),
     }),
   },
+  "sales-order.synced": {
+    entityTypeSlug: "sales-order",
+    extractDisplayName: (p) => p.orderNumber ? `SO-${p.orderNumber}` : `Sales Order ${p.id || ""}`,
+    extractProperties: (p) => ({
+      "order-number": p.orderNumber,
+      amount: p.amount,
+      currency: p.currency,
+      status: p.status,
+      "order-date": p.orderDate,
+      "delivery-date": p.deliveryDate,
+      "customer-name": p.customerName,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
+  "purchase-order.synced": {
+    entityTypeSlug: "purchase-order",
+    extractDisplayName: (p) => p.orderNumber ? `PO-${p.orderNumber}` : `Purchase Order ${p.id || ""}`,
+    extractProperties: (p) => ({
+      "order-number": p.orderNumber,
+      amount: p.amount,
+      currency: p.currency,
+      status: p.status,
+      "order-date": p.orderDate,
+      "expected-delivery": p.expectedDelivery,
+      supplier: p.supplier,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
+  "shipment.synced": {
+    entityTypeSlug: "shipment",
+    extractDisplayName: (p) => p.trackingNumber || p.bookingNumber || `Shipment ${p.id || ""}`,
+    extractProperties: (p) => ({
+      "tracking-number": p.trackingNumber,
+      status: p.status,
+      origin: p.origin,
+      destination: p.destination,
+      carrier: p.carrier,
+      mode: p.mode,
+      eta: p.eta,
+      "departure-date": p.departureDate,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
+  "container.synced": {
+    entityTypeSlug: "container",
+    extractDisplayName: (p) => p.number || `Container ${p.id || ""}`,
+    extractProperties: (p) => ({
+      number: p.number,
+      status: p.status,
+      "seal-number": p.sealNumber,
+      size: p.size,
+      weight: p.weight,
+      carrier: p.carrier,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
   "row.synced": {
     entityTypeSlug: "record",
     extractDisplayName: (p) =>

@@ -17,7 +17,7 @@ import { zendeskProvider } from "./zendesk-provider";
 
 const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider];
 
-export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support";
+export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support" | "erp" | "logistics";
 
 export type ProviderMeta = {
   description: string;
@@ -108,8 +108,10 @@ export const CATEGORY_LABELS: Record<ProviderCategory, string> = {
   communication: "Communication",
   crm: "CRM",
   finance: "Finance",
+  erp: "ERP",
   marketing: "Marketing",
   ecommerce: "E-commerce",
+  logistics: "Logistics",
   support: "Support",
 };
 
@@ -119,8 +121,10 @@ export const CATEGORY_ORDER: ProviderCategory[] = [
   "communication",
   "crm",
   "finance",
+  "erp",
   "marketing",
   "ecommerce",
+  "logistics",
   "support",
 ];
 
