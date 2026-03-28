@@ -83,7 +83,6 @@ export interface CompanyModel {
  */
 export function normalizeCompanyModel(
   raw: Record<string, unknown>,
-  fallback?: { companyName?: string; industry?: string },
 ): CompanyModel {
   const model = raw as Partial<CompanyModel> & Record<string, unknown>;
 
@@ -245,83 +244,6 @@ Produce a SINGLE JSON object matching the interface above:
 - The uncertainty log should be formatted as direct questions: "Is Thomas the Finance team lead, or does he report to someone else?" — not agent jargon
 - Include ALL internal people from the People Registry. If someone can't be confidently assigned, put them in an "Unassigned" group and flag in uncertainty log.`;
 
-const SYNTHESIS_OUTPUT_SCHEMA = {
-  type: "object",
-  properties: {
-    departments: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          description: { type: "string" },
-          confidence: { type: "string", enum: ["high", "medium", "low"] },
-          suggestedLeadEmail: { type: "string" },
-        },
-        required: ["name", "description", "confidence"],
-      },
-    },
-    people: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          email: { type: "string" },
-          displayName: { type: "string" },
-          primaryDepartment: { type: "string" },
-          role: { type: "string" },
-          roleLevel: { type: "string", enum: ["ic", "lead", "manager", "director", "c_level"] },
-          reportsToEmail: { type: "string" },
-        },
-        required: ["email", "displayName", "primaryDepartment", "role", "roleLevel"],
-      },
-    },
-    crossFunctionalPeople: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          email: { type: "string" },
-          departments: { type: "array", items: { type: "string" } },
-          evidence: { type: "string" },
-        },
-        required: ["email", "departments", "evidence"],
-      },
-    },
-    processes: { type: "array", items: { type: "object" } },
-    keyRelationships: { type: "array", items: { type: "object" } },
-    financialSnapshot: { type: "object" },
-    situationTypeRecommendations: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          description: { type: "string" },
-          detectionLogic: { type: "string" },
-          department: { type: "string" },
-          severity: { type: "string", enum: ["high", "medium", "low"] },
-          expectedFrequency: { type: "string" },
-        },
-        required: ["name", "description", "detectionLogic", "department", "severity", "expectedFrequency"],
-      },
-    },
-    uncertaintyLog: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          question: { type: "string" },
-          context: { type: "string" },
-          possibleAnswers: { type: "array", items: { type: "string" } },
-          department: { type: "string" },
-        },
-        required: ["question", "context"],
-      },
-    },
-  },
-  required: ["departments", "people", "crossFunctionalPeople", "situationTypeRecommendations", "uncertaintyLog"],
-};
 
 // ── Build Synthesis Input ────────────────────────────────────────────────────
 
