@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +54,7 @@ Return ONLY the JSON object, no other text.`;
   try {
     const response = await callLLM({
       aiFunction: "copilot",
+      model: getModel("onboardingExtraction"),
       instructions: "You extract structured data from conversations. Return only valid JSON.",
       messages: [{ role: "user", content: extractionPrompt }],
       operatorId,

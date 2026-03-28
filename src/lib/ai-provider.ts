@@ -23,7 +23,14 @@ const MODEL_ROUTES = {
   embedding: "text-embedding-3-small",
   onboardingIntelligence: "gpt-5.4",
   onboardingMemory: "gpt-5.4-mini",
-  onboardingAgent: "claude-opus-4-6-20250415",
+  // Onboarding pipeline — per-component routing
+  onboardingTemporal: "claude-haiku-4-5-20251001",
+  onboardingAgent: "claude-sonnet-4-20250514",
+  onboardingAgentFollowup: "claude-sonnet-4-20250514",
+  onboardingOrganizer: "claude-opus-4-6-20250415",
+  onboardingSynthesis: "claude-sonnet-4-20250514",
+  onboardingChat: "claude-sonnet-4-20250514",
+  onboardingExtraction: "claude-haiku-4-5-20251001",
 } as const;
 
 export type ModelRoute = keyof typeof MODEL_ROUTES;
@@ -32,9 +39,30 @@ export function getModel(route: ModelRoute): string {
   return MODEL_ROUTES[route];
 }
 
+/**
+ * Extended thinking budget per route (tokens).
+ * null = no extended thinking for this component.
+ * The worker SDK (0.39.x) uses budget_tokens, not the newer effort parameter.
+ */
+export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
+  onboardingTemporal: null,
+  onboardingAgent: 4096,
+  onboardingAgentFollowup: 8192,
+  onboardingOrganizer: 8192,
+  onboardingSynthesis: 16384,
+  onboardingChat: null,
+  onboardingExtraction: null,
+};
+
+export function getThinkingBudget(route: ModelRoute): number | null {
+  return THINKING_BUDGET[route] ?? null;
+}
+
 const MAX_OUTPUT_TOKENS: Record<string, number> = {
   "claude-opus-4-6-20250415": 32_768,
   "claude-sonnet-4-20250514": 16_384,
+  "claude-sonnet-4-6-20250514": 16_384,
+  "claude-haiku-4-5-20251001": 8_192,
   "claude-haiku-3-5-20241022": 8_192,
   "gpt-5.4": 16_384,
   "gpt-5.4-mini": 16_384,

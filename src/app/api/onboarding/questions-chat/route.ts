@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
           instructions: systemPrompt,
           messages,
           aiFunction: "copilot",
-          model: getModel("copilot"),
+          model: getModel("onboardingChat"),
           operatorId,
         })) {
           controller.enqueue(encoder.encode(chunk));

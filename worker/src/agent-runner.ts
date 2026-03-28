@@ -3,7 +3,7 @@ import { executeTool, getToolsForAgent } from "@/lib/onboarding-intelligence/too
 import type { ToolContext } from "@/lib/onboarding-intelligence/types";
 import { addProgressMessage } from "@/lib/onboarding-intelligence/progress";
 import { estimateTokenCount, shouldPrune, pruneOldToolResults } from "./context-manager";
-import { getModel, getMaxOutputTokens } from "@/lib/ai-provider";
+import { getModel, getMaxOutputTokens, getThinkingBudget, type ModelRoute } from "@/lib/ai-provider";
 
 export interface AgentConfig {
   name: string;
@@ -13,7 +13,8 @@ export interface AgentConfig {
   analysisId: string;
   operatorId: string;
   toolContext: ToolContext;
-  modelOverride?: string;     // If set, uses this model instead of MODEL_ROUTES.onboardingAgent
+  modelOverride?: string;     // If set, uses this model instead of the route default
+  modelRoute?: ModelRoute;    // For thinking budget lookup
 }
 
 export interface AgentResult {
@@ -56,6 +57,9 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       console.log(`[${config.name}] Context pruned at iteration ${iterationCount}`);
     }
 
+    const route = config.modelRoute ?? "onboardingAgent";
+    const thinkingBudget = getThinkingBudget(route);
+
     const response = await client.messages.create({
       model,
       max_tokens: getMaxOutputTokens(model),
@@ -68,6 +72,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       ],
       messages,
       tools: anthropicTools,
+      ...(thinkingBudget ? { thinking: { type: "enabled" as const, budget_tokens: thinkingBudget } } : {}),
     }, { timeout: 20 * 60 * 1000 });
 
     totalInputTokens += response.usage.input_tokens;
