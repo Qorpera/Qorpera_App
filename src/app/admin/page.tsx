@@ -35,12 +35,6 @@ interface SystemStatus {
   cronRunning: boolean;
 }
 
-interface TestCompanyResult {
-  success: boolean;
-  credentials: { email: string; password: string };
-  stats: Record<string, unknown>;
-}
-
 export default function AdminPage() {
   const router = useRouter();
   const [operators, setOperators] = useState<OperatorInfo[]>([]);
@@ -48,17 +42,13 @@ export default function AdminPage() {
   const [userName, setUserName] = useState("");
   const [entering, setEntering] = useState<string | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
-  const [creatingTest, setCreatingTest] = useState(false);
-  const [testResult, setTestResult] = useState<TestCompanyResult | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<OperatorInfo | null>(null);
   const [syntheticCompanies, setSyntheticCompanies] = useState<Record<string, {
     seeded: boolean;
     variants: Array<{ operatorId: string; displayName: string; model: string; phase: string; analysisStatus: string }>;
   }>>({});
   const [seedingCompany, setSeedingCompany] = useState<string | null>(null);
   const [seedResult, setSeedResult] = useState<{ company: string; credentials: Array<{ name: string; email: string; role: string }> } | null>(null);
+  const [seedError, setSeedError] = useState<string | null>(null);
 
   useEffect(() => {
     // Verify superadmin access
@@ -112,6 +102,7 @@ export default function AdminPage() {
   }, [syntheticCompanies]);
 
   const seedCompany = async (slug: string, model?: string) => {
+    setSeedError(null);
     const seedKey = model?.includes("sonnet") ? `${slug}-sonnet` : model?.includes("opus") ? `${slug}-opus` : slug;
     setSeedingCompany(seedKey);
     try {
@@ -125,10 +116,10 @@ export default function AdminPage() {
         setSeedResult({ company: slug, credentials: data.credentials });
         await Promise.all([refreshOperators(), fetchSyntheticStatus()]);
       } else {
-        setTestError(data.error || `Failed to seed ${slug}`);
+        setSeedError(data.error || `Failed to seed ${slug}`);
       }
     } catch {
-      setTestError(`Network error seeding ${slug}`);
+      setSeedError(`Network error seeding ${slug}`);
     } finally {
       setSeedingCompany(null);
     }
@@ -167,39 +158,6 @@ export default function AdminPage() {
   const refreshOperators = async () => {
     const ops = await fetch("/api/admin/operators").then((r) => r.json());
     setOperators(ops);
-  };
-
-  const createTestCompany = async () => {
-    setCreatingTest(true);
-    setTestError(null);
-    setTestResult(null);
-    try {
-      const res = await fetch("/api/admin/create-test-company", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setTestError(data.error || "Failed to create test company");
-        return;
-      }
-      setTestResult(data);
-      await refreshOperators();
-    } catch {
-      setTestError("Network error");
-    } finally {
-      setCreatingTest(false);
-    }
-  };
-
-  const deleteOperator = async (id: string) => {
-    setDeleting(id);
-    try {
-      const res = await fetch(`/api/admin/operators/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        await refreshOperators();
-      }
-    } finally {
-      setDeleting(null);
-      setConfirmDelete(null);
-    }
   };
 
   if (loading) {
@@ -248,33 +206,15 @@ export default function AdminPage() {
 
       {/* Content */}
       <div className="max-w-5xl mx-auto px-8 py-8">
-        {/* Demo Tools */}
-        <div className="mb-8 wf-soft p-5 flex items-center justify-between">
-          <div>
-            <h3 className="text-foreground font-medium text-sm">Demo Tools</h3>
-            <p className="text-xs text-[var(--fg2)] mt-0.5">
-              Create a fully-populated test operator with realistic data
-            </p>
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={creatingTest}
-            onClick={createTestCompany}
-          >
-            {creatingTest ? "Creating..." : "Create Test Company"}
-          </Button>
-        </div>
-        {testError && (
-          <div className="mb-4 p-3 rounded-lg bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] text-danger text-sm">
-            {testError}
-          </div>
-        )}
-
         {/* Synthetic Companies */}
         {Object.keys(syntheticCompanies).length > 0 && (
           <div className="mb-8">
             <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">Simulated Companies</h2>
+            {seedError && (
+              <div className="mb-4 p-3 rounded-lg bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] text-danger text-sm">
+                {seedError}
+              </div>
+            )}
             <div className="space-y-4">
               {Object.entries(syntheticCompanies).map(([slug, data]) => (
                 <div key={slug} className="space-y-2">
@@ -422,65 +362,6 @@ export default function AdminPage() {
           );
         })()}
 
-        {/* Test Operators */}
-        {(() => {
-          const testOps = operators.filter((o) => o.isTestOperator);
-          if (testOps.length === 0) return null;
-          return (
-            <div className="mt-10">
-              <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">
-                Test Operators ({testOps.length})
-              </h2>
-              <div className="grid gap-3">
-                {testOps.map((op) => (
-                  <div
-                    key={op.id}
-                    className="wf-soft p-5 flex items-center gap-6 hover:border-border-strong transition-colors"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-foreground font-medium truncate">
-                        {op.companyName}
-                        <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] text-warn align-middle">
-                          test
-                        </span>
-                      </h3>
-                      <div className="flex items-center gap-4 mt-1.5 text-xs text-[var(--fg2)]">
-                        <span>{op.userCount} user{op.userCount !== 1 ? "s" : ""}</span>
-                        <span>{op.departmentCount} dept{op.departmentCount !== 1 ? "s" : ""}</span>
-                        <span>{op.entityCount} entities</span>
-                        <span className={phaseColors[op.onboardingPhase] || "text-[var(--fg2)]"}>
-                          {op.onboardingPhase}
-                        </span>
-                        <span>
-                          {new Date(op.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={deleting === op.id}
-                        onClick={() => setConfirmDelete(op)}
-                        className="text-danger hover:text-danger hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
-                      >
-                        {deleting === op.id ? "Deleting..." : "Delete"}
-                      </Button>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        disabled={entering === op.id}
-                        onClick={() => enterOperator(op.id)}
-                      >
-                        {entering === op.id ? "Entering..." : "Enter"}
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
         {/* System Status — superadmin only */}
         {systemStatus && (
           <div className="mt-10">
@@ -552,35 +433,6 @@ export default function AdminPage() {
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
-          <div className="wf-soft max-w-sm w-full mx-4 p-6 space-y-4">
-            <h3 className="text-lg font-medium text-foreground">Delete Test Operator</h3>
-            <p className="text-sm text-[var(--fg2)]">
-              Delete <span className="text-foreground">{confirmDelete.companyName}</span> and all its data?
-            </p>
-            <p className="text-xs text-[var(--fg3)]">
-              This will permanently remove all users, entities, documents, situations, and configuration for this operator.
-            </p>
-            <div className="flex justify-end gap-3 pt-2">
-              <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={deleting === confirmDelete.id}
-                onClick={() => deleteOperator(confirmDelete.id)}
-                className="bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] text-danger hover:bg-[color-mix(in_srgb,var(--danger)_30%,transparent)] border-[color-mix(in_srgb,var(--danger)_20%,transparent)]"
-              >
-                {deleting === confirmDelete.id ? "Deleting..." : "Delete"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Synthetic Seed Result Modal */}
       {seedResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
@@ -610,46 +462,6 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Success Modal */}
-      {testResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
-          <div className="wf-soft max-w-md w-full mx-4 p-6 space-y-4">
-            <h3 className="text-lg font-medium text-foreground">Test Company Created</h3>
-            <p className="text-sm text-[var(--fg2)]">
-              Nordic Digital Solutions is ready. Log in with these credentials:
-            </p>
-            <div className="bg-hover rounded-lg p-4 space-y-2 font-mono text-sm">
-              <div className="flex justify-between">
-                <span className="text-[var(--fg2)]">Email</span>
-                <span className="text-foreground">{testResult.credentials.email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--fg2)]">Password</span>
-                <span className="text-foreground">{testResult.credentials.password}</span>
-              </div>
-            </div>
-            <p className="text-xs text-[var(--fg3)]">
-              3 departments, 15 team members, 11 documents, 3 connectors,
-              46 entities, 8 situation types, 15 situations, 3 policies
-            </p>
-            <div className="flex justify-end gap-3 pt-2">
-              <Button variant="ghost" size="sm" onClick={() => setTestResult(null)}>
-                Close
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  const op = operators.find((o) => o.companyName === "Nordic Digital Solutions");
-                  if (op) enterOperator(op.id);
-                }}
-              >
-                Enter Operator
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
