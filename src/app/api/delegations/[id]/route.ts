@@ -21,8 +21,8 @@ export async function GET(
   }
 
   // Members can only see their own delegations
-  if (user.role !== "admin" && user.role !== "superadmin") {
-    if (delegation.toUserId !== user.id) {
+  if (su.effectiveRole !== "admin" && su.effectiveRole !== "superadmin") {
+    if (delegation.toUserId !== su.effectiveUserId) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
   }

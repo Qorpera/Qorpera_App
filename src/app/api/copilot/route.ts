@@ -50,10 +50,10 @@ export async function POST(req: NextRequest) {
   });
 
   // Build scope info for copilot system prompt
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
   let scopeInfo: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" } | undefined;
   if (visibleDepts !== "all") {
-    const scopeUser = await prisma.user.findUnique({ where: { id: user.id }, select: { name: true, entityId: true, entity: { select: { parentDepartmentId: true } } } });
+    const scopeUser = await prisma.user.findUnique({ where: { id: su.effectiveUserId }, select: { name: true, entityId: true, entity: { select: { parentDepartmentId: true } } } });
     let departmentName: string | undefined;
     if (scopeUser?.entity?.parentDepartmentId) {
       const dept = await prisma.entity.findUnique({ where: { id: scopeUser.entity.parentDepartmentId }, select: { displayName: true } });
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
           ctxType = null; ctxId = null;
         }
       } else if (ctxType === "workstream") {
-        const canAccess = await canMemberAccessWorkStream(user.id, ctxId, operatorId, visibleDepts);
+        const canAccess = await canMemberAccessWorkStream(su.effectiveUserId, ctxId, operatorId, visibleDepts);
         if (!canAccess) {
           ctxType = null; ctxId = null;
         }
@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
     return rateLimitResponse(userRateCheck.reset);
   }
 
-  const stream = await chat(operatorId, message, history, user.role, orientation, scopeInfo, user.id, contextInfo, user.locale);
+  const stream = await chat(operatorId, message, history, su.effectiveRole, orientation, scopeInfo, su.effectiveUserId, contextInfo, user.locale);
 
   // Tee the stream: one for the HTTP response, one to capture for persistence
   const [responseStream, captureStream] = stream.tee();

@@ -11,11 +11,14 @@ export async function GET(req: NextRequest) {
 
   const { user, operatorId, isSuperadmin, actingAsOperator } = su;
 
-  // Get scopes
+  // Get scopes — use effective user identity for impersonation
   let scopes: string[] | "all" = "all";
-  if (user.role !== "admin" && user.role !== "superadmin") {
+  const scopeRole = su.actingAsUser ? su.effectiveRole : user.role;
+  const scopeUserId = su.actingAsUser ? su.effectiveUserId : user.id;
+
+  if (scopeRole !== "admin" && scopeRole !== "superadmin") {
     const userScopes = await prisma.userScope.findMany({
-      where: { userId: user.id },
+      where: { userId: scopeUserId },
       select: { departmentEntityId: true },
     });
     scopes = userScopes.map((s) => s.departmentEntityId);
@@ -33,18 +36,42 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // When impersonating, show the impersonated user's info
+  let responseUser = {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    entityId: user.entityId,
+    locale: user.locale,
+  };
+
+  if (su.actingAsUser) {
+    const impersonated = await prisma.user.findUnique({
+      where: { id: su.effectiveUserId },
+      select: { id: true, name: true, email: true, role: true, entityId: true, locale: true },
+    });
+    if (impersonated) {
+      responseUser = {
+        id: impersonated.id,
+        name: impersonated.name,
+        email: impersonated.email,
+        role: impersonated.role,
+        entityId: impersonated.entityId,
+        locale: impersonated.locale ?? user.locale,
+      };
+    }
+  }
+
   return NextResponse.json({
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      entityId: user.entityId,
-      locale: user.locale,
-    },
+    user: responseUser,
     operator,
     isSuperadmin,
     actingAsOperator,
+    actingAsUser: su.actingAsUser,
+    impersonatedUserName: su.impersonatedUserName,
+    effectiveUserId: su.effectiveUserId,
+    effectiveRole: su.effectiveRole,
     scopes,
   });
 }

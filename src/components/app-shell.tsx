@@ -88,7 +88,7 @@ function BillingStatusBanner() {
 
 function SuperadminBanner() {
   const router = useRouter();
-  const { isSuperadmin, actingAsOperator } = useUser();
+  const { isSuperadmin, actingAsOperator, actingAsUser, impersonatedUserName, refresh } = useUser();
   const t = useTranslations("shell");
   const [companyName, setCompanyName] = useState<string | null>(null);
 
@@ -107,16 +107,35 @@ function SuperadminBanner() {
     <div className="bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] border-b border-[color-mix(in_srgb,var(--warn)_20%,transparent)] px-4 py-1.5 flex items-center justify-between flex-shrink-0">
       <span className="text-xs text-warn">
         {t("viewingAs")} <span className="font-medium">{companyName}</span>
+        {actingAsUser && impersonatedUserName && (
+          <>
+            <span className="mx-1.5 text-[var(--fg3)]">→</span>
+            <span className="font-medium">{impersonatedUserName}</span>
+          </>
+        )}
       </span>
-      <button
-        className="text-xs text-warn hover:text-[var(--foreground)] font-medium"
-        onClick={async () => {
-          await fetch("/api/admin/exit-operator", { method: "POST" });
-          router.push("/admin");
-        }}
-      >
-        {t("exit")}
-      </button>
+      <div className="flex items-center gap-3">
+        {actingAsUser && (
+          <button
+            className="text-xs text-warn hover:text-[var(--foreground)] font-medium"
+            onClick={async () => {
+              await fetch("/api/admin/stop-impersonation", { method: "POST" });
+              refresh();
+            }}
+          >
+            {t("stopImpersonation")}
+          </button>
+        )}
+        <button
+          className="text-xs text-warn hover:text-[var(--foreground)] font-medium"
+          onClick={async () => {
+            await fetch("/api/admin/exit-operator", { method: "POST" });
+            router.push("/admin");
+          }}
+        >
+          {t("exit")}
+        </button>
+      </div>
     </div>
   );
 }

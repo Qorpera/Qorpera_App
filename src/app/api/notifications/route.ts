@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
-  const userId = su.user.id;
+  const userId = su.effectiveUserId;
   const url = new URL(req.url);
 
   const unreadOnly = url.searchParams.get("unreadOnly") === "true";

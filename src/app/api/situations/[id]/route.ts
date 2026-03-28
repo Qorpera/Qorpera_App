@@ -32,7 +32,7 @@ export async function GET(
   }
 
   // Scope check: deny if situation's type is scoped to a department the user can't see
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
   if (visibleDepts !== "all") {
     const scopeDept = situation.situationType?.scopeEntityId;
     if (scopeDept && !visibleDepts.includes(scopeDept)) {

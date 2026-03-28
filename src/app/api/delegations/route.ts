@@ -21,8 +21,8 @@ export async function GET(req: NextRequest) {
   if (toUserId) where.toUserId = toUserId;
 
   // Members: only see delegations where toUserId is their own
-  if (user.role !== "admin" && user.role !== "superadmin") {
-    where.toUserId = user.id;
+  if (su.effectiveRole !== "admin" && su.effectiveRole !== "superadmin") {
+    where.toUserId = su.effectiveUserId;
   }
 
   const delegations = await prisma.delegation.findMany({

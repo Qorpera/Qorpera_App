@@ -268,7 +268,7 @@ function DepartmentDetailInner() {
   const params = useParams();
   const router = useRouter();
   const deptId = params.departmentId as string;
-  const { isAdmin } = useUser();
+  const { isAdmin, isSuperadmin, actingAsOperator } = useUser();
   const t = useTranslations("map");
   const tc = useTranslations("common");
 
@@ -335,6 +335,7 @@ function DepartmentDetailInner() {
   const [inviteError, setInviteError] = useState("");
   const [entityAccountStatus, setEntityAccountStatus] = useState<Record<string, "account" | "pending" | null>>({});
   const [entityInviteLinks, setEntityInviteLinks] = useState<Record<string, string>>({});
+  const [entityUserIds, setEntityUserIds] = useState<Record<string, string>>({});
 
   const slotFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const contextFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -372,10 +373,14 @@ function DepartmentDetailInner() {
       ]);
       const statuses: Record<string, "account" | "pending" | null> = {};
       const links: Record<string, string> = {};
+      const userIdMap: Record<string, string> = {};
       if (usersRes.ok) {
-        const users: Array<{ entityId: string | null; email: string }> = await usersRes.json();
+        const users: Array<{ id: string; entityId: string | null; email: string }> = await usersRes.json();
         for (const u of users) {
-          if (u.entityId) statuses[u.entityId] = "account";
+          if (u.entityId) {
+            statuses[u.entityId] = "account";
+            userIdMap[u.entityId] = u.id;
+          }
         }
       }
       if (invitesRes.ok) {
@@ -387,6 +392,7 @@ function DepartmentDetailInner() {
       }
       setEntityAccountStatus(statuses);
       setEntityInviteLinks(links);
+      setEntityUserIds(userIdMap);
     } catch { /* best-effort */ }
   }, []);
 
@@ -994,6 +1000,23 @@ function DepartmentDetailInner() {
                         )}
                       </div>
                       <div className="flex gap-1 items-center">
+                        {isSuperadmin && actingAsOperator && acctStatus === "account" && !isAiAgent && (
+                          <button
+                            onClick={async () => {
+                              const userId = entityUserIds[m.id];
+                              if (!userId) return;
+                              await fetch("/api/admin/impersonate-user", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ userId }),
+                              });
+                              router.push("/situations");
+                            }}
+                            className="text-[10px] text-warn hover:text-warn mr-2 opacity-0 group-hover:opacity-100 transition"
+                          >
+                            {t("viewAs")}
+                          </button>
+                        )}
                         {isAdmin && !acctStatus && (
                           <button
                             onClick={() => {

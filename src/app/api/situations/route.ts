@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
   const params = req.nextUrl.searchParams;
 
   const statusParam = params.get("status");
@@ -22,8 +22,8 @@ export async function GET(req: NextRequest) {
   const where: Record<string, unknown> = { operatorId, ...situationScopeFilter(visibleDepts) };
 
   // Members only see their own assigned situations
-  if (user.role === "member") {
-    where.assignedUserId = user.id;
+  if (su.effectiveRole === "member") {
+    where.assignedUserId = su.effectiveUserId;
   }
 
   if (statusParam) {

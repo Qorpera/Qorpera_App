@@ -10,6 +10,8 @@ export interface UserContextValue {
   scopes: string[] | "all" | null;
   isSuperadmin: boolean;
   actingAsOperator: boolean;
+  actingAsUser: boolean;
+  impersonatedUserName: string | null;
   isAdmin: boolean;
   isLoading: boolean;
   refresh: () => void;
@@ -22,6 +24,8 @@ const UserContext = createContext<UserContextValue>({
   scopes: null,
   isSuperadmin: false,
   actingAsOperator: false,
+  actingAsUser: false,
+  impersonatedUserName: null,
   isAdmin: false,
   isLoading: true,
   refresh: () => {},
@@ -43,6 +47,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
     scopes: null,
     isSuperadmin: false,
     actingAsOperator: false,
+    actingAsUser: false,
+    impersonatedUserName: null,
     isAdmin: false,
     isLoading: true,
   });
@@ -72,6 +78,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
           scopes: data.scopes ?? null,
           isSuperadmin: data.isSuperadmin ?? false,
           actingAsOperator: data.actingAsOperator ?? false,
+          actingAsUser: data.actingAsUser ?? false,
+          impersonatedUserName: data.impersonatedUserName ?? null,
           isAdmin,
           isLoading: false,
         });

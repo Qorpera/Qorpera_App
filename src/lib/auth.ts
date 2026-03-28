@@ -8,6 +8,7 @@ import type { User, Operator } from "@prisma/client";
 const SESSION_COOKIE = "session_token";
 const SESSION_EXPIRY_DAYS = 30;
 const BCRYPT_SALT_ROUNDS = 12;
+const isLocalhost = () => (process.env.NEXT_PUBLIC_APP_URL || "").includes("localhost");
 
 // ── Types ────────────────────────────────────────────────
 
@@ -16,6 +17,10 @@ type SessionUser = {
   operatorId: string;
   isSuperadmin: boolean;
   actingAsOperator: boolean;
+  actingAsUser: boolean;
+  effectiveUserId: string;
+  effectiveRole: string;
+  impersonatedUserName: string | null;
 };
 
 // ── Password hashing ────────────────────────────────────
@@ -45,10 +50,9 @@ export async function deleteSession(token: string): Promise<void> {
 
 export async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
   const cookieStore = await cookies();
-  const isLocalhost = (process.env.NEXT_PUBLIC_APP_URL || "").includes("localhost");
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: !isLocalhost,
+    secure: !isLocalhost(),
     sameSite: "lax",
     path: "/",
     expires: expiresAt,
@@ -57,10 +61,9 @@ export async function setSessionCookie(token: string, expiresAt: Date): Promise<
 
 export async function clearSessionCookie(): Promise<void> {
   const cookieStore = await cookies();
-  const isLocalhost = (process.env.NEXT_PUBLIC_APP_URL || "").includes("localhost");
   cookieStore.set(SESSION_COOKIE, "", {
     httpOnly: true,
-    secure: !isLocalhost,
+    secure: !isLocalhost(),
     sameSite: "lax",
     path: "/",
     maxAge: 0,
@@ -111,6 +114,38 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     }
   }
 
+  // Superadmin user impersonation (must also be acting as operator)
+  let actingAsUser = false;
+  let effectiveUserId = user.id;
+  let effectiveRole = user.role;
+  let impersonatedUserName: string | null = null;
+
+  if (isSuperadmin && actingAsOperator) {
+    const actingUserId = cookieStore.get("acting_user_id")?.value;
+    if (actingUserId) {
+      const targetUser = await prisma.user.findUnique({
+        where: { id: actingUserId },
+        select: { id: true, name: true, role: true, operatorId: true },
+      });
+      // Only allow impersonation of users within the acting operator
+      if (targetUser && targetUser.operatorId === operatorId) {
+        actingAsUser = true;
+        effectiveUserId = targetUser.id;
+        effectiveRole = targetUser.role;
+        impersonatedUserName = targetUser.name;
+      } else {
+        // Stale cookie — user doesn't exist or wrong operator. Clear it silently.
+        cookieStore.set("acting_user_id", "", {
+          httpOnly: true,
+          secure: !isLocalhost(),
+          sameSite: "lax",
+          path: "/",
+          maxAge: 0,
+        });
+      }
+    }
+  }
+
   // Enrich Sentry scope with user context (never breaks auth)
   try {
     const { setSentryContext } = await import("@/lib/sentry-context");
@@ -119,7 +154,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     // Sentry not available, ignore
   }
 
-  return { user, operatorId, isSuperadmin, actingAsOperator };
+  return { user, operatorId, isSuperadmin, actingAsOperator, actingAsUser, effectiveUserId, effectiveRole, impersonatedUserName };
 }
 
 // Counts ALL users including superadmin. This means isFirstRun() returns false
