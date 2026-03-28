@@ -39,8 +39,6 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   const followupModel = modelOverride ?? getModel("onboardingAgentFollowup");
   const organizerModelId = modelOverride ?? getModel("onboardingOrganizer");
   const synthesisModelId = modelOverride ?? getModel("onboardingSynthesis");
-  // TODO: total cost calculation is approximate with mixed models — sum per-component costs for accuracy
-  const costModel = modelOverride ?? getModel("onboardingAgent");
 
   // ═══ ROUND 0: Foundation ═══════════════════════════════════════════════════
   await updatePhase(prisma, analysisId, "round_0");
@@ -262,18 +260,26 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   await addProgressMessage(analysisId, "All investigations complete. Synthesizing company model...");
   await runSynthesis(prisma, analysisId, operatorId, round1Results, round2Results, round3Results, round1Agents, organizerResult, synthesisModelId);
 
-  // Update analysis totals from all agent runs
+  // Update analysis totals — per-component cost using actual models
   const allRuns = await prisma.onboardingAgentRun.findMany({
     where: { analysisId },
-    select: { tokensUsed: true },
+    select: { agentName: true, round: true, tokensUsed: true },
   });
   const totalTokens = allRuns.reduce((sum, r) => sum + r.tokensUsed, 0);
 
-  // Estimate cost: collect input/output from all agent results
-  const allResults = [...round1Results, ...round2Results, ...round3Results];
-  const totalInput = allResults.reduce((sum, r) => sum + r.totalInputTokens, 0);
-  const totalOutput = allResults.reduce((sum, r) => sum + r.totalOutputTokens, 0);
-  const totalCost = calculateCallCostCents(costModel, { inputTokens: totalInput, outputTokens: totalOutput });
+  // Calculate cost per run using the model it actually ran on
+  let totalCost = 0;
+  for (const run of allRuns) {
+    const runModel = run.agentName === "temporal_analyst" ? temporalModel
+      : run.agentName === "organizer" ? organizerModelId
+      : run.agentName === "synthesis" ? synthesisModelId
+      : run.round >= 2 ? followupModel
+      : agentModel;
+    // Split tokens roughly 80/20 input/output for cost estimation
+    const inputTokens = Math.round(run.tokensUsed * 0.8);
+    const outputTokens = run.tokensUsed - inputTokens;
+    totalCost += calculateCallCostCents(runModel, { inputTokens, outputTokens });
+  }
 
   await prisma.onboardingAnalysis.update({
     where: { id: analysisId },
@@ -305,11 +311,11 @@ async function runOrganizerCall(
     input += `### ${formatAgentName(name)} Report\n\n${agentResults[i].report}\n\n---\n\n`;
   }
 
-  // modelOverride here is already the resolved organizerModelId from the caller
+  const orgModel = modelOverride ?? getModel("onboardingOrganizer");
   const orgThinking = getThinkingBudget("onboardingOrganizer");
   const response = await client.messages.create({
-    model: modelOverride ?? getModel("onboardingOrganizer"),
-    max_tokens: getMaxOutputTokens(modelOverride ?? getModel("onboardingOrganizer")),
+    model: orgModel,
+    max_tokens: getMaxOutputTokens(orgModel),
     ...(orgThinking ? { thinking: { type: "enabled" as const, budget_tokens: orgThinking } } : {}),
     system: [
       {

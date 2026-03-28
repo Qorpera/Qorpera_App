@@ -549,6 +549,11 @@ export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> 
   const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
 
+  // If the requested model is explicitly an Anthropic model, route directly regardless of provider config
+  if (model.startsWith("claude-") && process.env.ANTHROPIC_API_KEY) {
+    return callAnthropic(process.env.ANTHROPIC_API_KEY, model, options);
+  }
+
   // Non-OpenAI providers: route directly, no failover
   if (config.provider !== "openai") {
     switch (config.provider) {
@@ -610,6 +615,12 @@ export async function* streamLLM(
 
   const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
+
+  // If the requested model is explicitly an Anthropic model, route directly
+  if (model.startsWith("claude-") && process.env.ANTHROPIC_API_KEY) {
+    yield* streamAnthropic(process.env.ANTHROPIC_API_KEY, model, options);
+    return;
+  }
 
   // TODO: Anthropic streaming failover — when OpenAI streaming fails with
   // retryable error, fall back to Anthropic's streaming API (client.messages.stream()).
