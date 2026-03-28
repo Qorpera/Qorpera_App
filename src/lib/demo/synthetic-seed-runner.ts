@@ -364,14 +364,20 @@ export async function runSyntheticSeed(
   console.log(`[synthetic-seed] Created ${chunkCount} content chunks`);
 
   // ── 8. Activity Signals ──────────────────────────────────────────
-  // Build email → entity ID lookup (employees get looked up by email, contacts by name)
-  const emailToEntityId: Record<string, string> = {};
-  // We don't have entity IDs for employees yet (agents will create them),
-  // but ActivitySignals need actorEntityId. For now, store null — the agents
-  // query signals by signalType and time, not by entity ID.
-  // Contacts DO have entity IDs since we created them above.
+  // Build email → entity ID lookup from both employees and contacts
+  const employeeEntityIds: Record<string, string> = {};
+  const empEntities = await prisma.entity.findMany({
+    where: { operatorId, sourceSystem: "synthetic", entityType: { slug: "team-member" } },
+    include: { propertyValues: { include: { property: true } } },
+  });
+  for (const ent of empEntities) {
+    const emailPv = ent.propertyValues.find((pv: any) => pv.property.identityRole === "email" || pv.property.slug === "email");
+    if (emailPv) employeeEntityIds[emailPv.value.toLowerCase()] = ent.id;
+  }
+
+  const emailToEntityId: Record<string, string> = { ...employeeEntityIds };
   for (const c of company.contacts) {
-    emailToEntityId[c.email] = contactEntityIds[c.name] ?? "";
+    emailToEntityId[c.email.toLowerCase()] = contactEntityIds[c.name] ?? "";
   }
 
   let signalCount = 0;

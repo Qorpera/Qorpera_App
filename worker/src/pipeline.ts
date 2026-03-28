@@ -297,7 +297,17 @@ async function runOrganizerCall(
   const response = await client.messages.create({
     model: organizerModel,
     max_tokens: getMaxOutputTokens(organizerModel),
-    system: ORGANIZER_PROMPT,
+    thinking: {
+      type: "enabled",
+      budget_tokens: 8192,
+    },
+    system: [
+      {
+        type: "text" as const,
+        text: ORGANIZER_PROMPT,
+        cache_control: { type: "ephemeral" as const },
+      },
+    ],
     messages: [{ role: "user", content: input }],
   }, { timeout: 20 * 60 * 1000 });
 
@@ -380,7 +390,17 @@ async function runSynthesis(
   const response = await client.messages.create({
     model: synthesisModel,
     max_tokens: getMaxOutputTokens(synthesisModel),
-    system: SYNTHESIS_PROMPT,
+    thinking: {
+      type: "enabled",
+      budget_tokens: 16384,
+    },
+    system: [
+      {
+        type: "text" as const,
+        text: SYNTHESIS_PROMPT,
+        cache_control: { type: "ephemeral" as const },
+      },
+    ],
     messages: [{ role: "user", content: synthesisInput }],
   }, { timeout: 20 * 60 * 1000 });
 

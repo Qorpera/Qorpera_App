@@ -16,7 +16,7 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   "o3-mini": { input: 1.10, output: 4.40 },
 
   // Anthropic (fallback)
-  "claude-opus-4-6-20250415": { input: 15.00, output: 75.00 },
+  "claude-opus-4-6-20250415": { input: 5.00, output: 25.00 },
   "claude-sonnet-4-20250514": { input: 3.00, output: 15.00 },
   "claude-haiku-3-5-20241022": { input: 0.80, output: 4.00 },
 

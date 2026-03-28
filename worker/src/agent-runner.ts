@@ -59,13 +59,26 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     const response = await client.messages.create({
       model,
       max_tokens: getMaxOutputTokens(model),
-      system: config.systemPrompt,
+      system: [
+        {
+          type: "text" as const,
+          text: config.systemPrompt,
+          cache_control: { type: "ephemeral" as const },
+        },
+      ],
       messages,
       tools: anthropicTools,
     }, { timeout: 20 * 60 * 1000 });
 
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;
+
+    // Log cache performance for monitoring
+    if (iterationCount === 1 || iterationCount % 5 === 0) {
+      const cacheRead = (response.usage as any).cache_read_input_tokens ?? 0;
+      const cacheWrite = (response.usage as any).cache_creation_input_tokens ?? 0;
+      console.log(`[${config.name}] iter=${iterationCount} input=${response.usage.input_tokens} output=${response.usage.output_tokens} cache_read=${cacheRead} cache_write=${cacheWrite}`);
+    }
 
     // Add assistant response to conversation history
     messages.push({ role: "assistant", content: response.content });
