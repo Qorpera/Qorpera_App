@@ -46,10 +46,45 @@ export async function GET() {
     estimatedMinutesRemaining: estimateMinutesRemaining(analysis.currentPhase),
   };
 
-  // Include synthesis output when available
+  // Include synthesis output when available — transform CompanyModel to UI shape
   if (analysis.status === "confirming" || analysis.status === "complete") {
-    response.synthesisOutput = analysis.synthesisOutput as any;
-    response.uncertaintyLog = analysis.uncertaintyLog as any;
+    const raw = analysis.synthesisOutput as Record<string, unknown> | null;
+    if (raw) {
+      const departments = (raw.departments as Array<Record<string, unknown>> ?? []).map((d) => ({
+        name: d.name as string,
+        headCount: ((raw.people as Array<Record<string, unknown>> ?? []).filter((p) => p.primaryDepartment === d.name)).length,
+        keyPeople: ((raw.people as Array<Record<string, unknown>> ?? []).filter((p) => p.primaryDepartment === d.name && (p.roleLevel === "c_level" || p.roleLevel === "manager" || p.roleLevel === "lead" || p.roleLevel === "director"))).map((p) => p.displayName as string),
+        functions: d.description ? [d.description as string] : [],
+      }));
+      const people = (raw.people as Array<Record<string, unknown>> ?? []).map((p) => ({
+        name: (p.displayName as string) ?? "",
+        email: p.email as string | undefined,
+        department: p.primaryDepartment as string | undefined,
+        role: p.role as string | undefined,
+        relationships: p.reportsToEmail ? [`reports to ${p.reportsToEmail}`] : [],
+      }));
+      const situationRecommendations = (raw.situationTypeRecommendations as Array<Record<string, unknown>> ?? []).map((s) => ({
+        name: s.name as string,
+        description: s.description as string,
+        department: s.department as string | undefined,
+        priority: (s.severity as string ?? "medium") as "high" | "medium" | "low",
+      }));
+      const relationships = (raw.keyRelationships as Array<Record<string, unknown>> ?? []).map((r) => ({
+        from: (r.primaryInternalContact as string) ?? "",
+        to: (r.contactName as string) ?? "",
+        type: (r.type as string) ?? "customer",
+        strength: r.healthScore === "critical" || r.healthScore === "at_risk" ? "weak" as const : r.healthScore === "cold" ? "moderate" as const : "strong" as const,
+      }));
+      const knowledgeInventory: Array<{ topic: string; sources: string[]; coverage: string }> = [];
+      const processes = (raw.processes as Array<Record<string, unknown>> ?? []).map((proc) => ({
+        name: proc.name as string,
+        department: proc.department as string | undefined,
+        description: proc.description as string,
+        tools: [],
+      }));
+      response.synthesisOutput = { departments, people, processes, relationships, knowledgeInventory, situationRecommendations } as any;
+    }
+    response.uncertaintyLog = (raw?.uncertaintyLog ?? analysis.uncertaintyLog) as any;
   }
 
   return NextResponse.json(response);
