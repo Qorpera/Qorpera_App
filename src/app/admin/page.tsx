@@ -53,6 +53,14 @@ export default function AdminPage() {
   const [testError, setTestError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<OperatorInfo | null>(null);
+  const [syntheticCompanies, setSyntheticCompanies] = useState<Record<string, {
+    seeded: boolean;
+    operatorId?: string;
+    phase?: string;
+    analysisStatus?: string;
+  }>>({});
+  const [seedingCompany, setSeedingCompany] = useState<string | null>(null);
+  const [seedResult, setSeedResult] = useState<{ company: string; credentials: Array<{ name: string; email: string; role: string }> } | null>(null);
 
   useEffect(() => {
     // Verify superadmin access
@@ -79,6 +87,64 @@ export default function AdminPage() {
       .catch(() => router.replace("/map"))
       .finally(() => setLoading(false));
   }, [router]);
+
+  const fetchSyntheticStatus = async () => {
+    try {
+      const res = await fetch("/api/admin/seed-synthetic");
+      if (res.ok) {
+        const data = await res.json();
+        setSyntheticCompanies(data.companies);
+      }
+    } catch { /* best-effort */ }
+  };
+
+  // Fetch synthetic status on mount
+  useEffect(() => {
+    fetchSyntheticStatus();
+  }, []);
+
+  // Poll while any company is analyzing
+  useEffect(() => {
+    const hasAnalyzing = Object.values(syntheticCompanies).some(
+      (c) => c.seeded && c.analysisStatus === "analyzing"
+    );
+    if (!hasAnalyzing) return;
+    const interval = setInterval(fetchSyntheticStatus, 10000);
+    return () => clearInterval(interval);
+  }, [syntheticCompanies]);
+
+  const seedCompany = async (slug: string) => {
+    setSeedingCompany(slug);
+    try {
+      const res = await fetch("/api/admin/seed-synthetic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: slug }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSeedResult({ company: slug, credentials: data.credentials });
+        await Promise.all([refreshOperators(), fetchSyntheticStatus()]);
+      } else {
+        setTestError(data.error || `Failed to seed ${slug}`);
+      }
+    } catch {
+      setTestError(`Network error seeding ${slug}`);
+    } finally {
+      setSeedingCompany(null);
+    }
+  };
+
+  const deleteSyntheticCompany = async (slug: string) => {
+    try {
+      await fetch("/api/admin/seed-synthetic", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: slug, action: "delete" }),
+      });
+      await Promise.all([refreshOperators(), fetchSyntheticStatus()]);
+    } catch { /* best-effort */ }
+  };
 
   const enterOperator = async (operatorId: string) => {
     setEntering(operatorId);
@@ -200,6 +266,78 @@ export default function AdminPage() {
         {testError && (
           <div className="mb-4 p-3 rounded-lg bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] text-danger text-sm">
             {testError}
+          </div>
+        )}
+
+        {/* Synthetic Companies */}
+        {Object.keys(syntheticCompanies).length > 0 && (
+          <div className="mb-8">
+            <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">Simulated Companies</h2>
+            <div className="space-y-3">
+              {Object.entries(syntheticCompanies).map(([slug, status]) => {
+                const isSeeding = seedingCompany === slug;
+                const displayName = slug.charAt(0).toUpperCase() + slug.slice(1);
+
+                const phaseLabel = !status.seeded ? "Not seeded"
+                  : status.analysisStatus === "analyzing" ? "Agents analyzing..."
+                  : status.analysisStatus === "confirming" ? "Ready for review"
+                  : status.analysisStatus === "complete" ? "Complete"
+                  : status.phase === "active" ? "Active"
+                  : status.phase ?? "Unknown";
+
+                const phaseColor = !status.seeded ? "text-[var(--fg3)]"
+                  : status.analysisStatus === "analyzing" ? "text-warn"
+                  : status.analysisStatus === "confirming" || status.analysisStatus === "complete" ? "text-ok"
+                  : status.phase === "active" ? "text-ok"
+                  : "text-[var(--fg2)]";
+
+                return (
+                  <div key={slug} className="wf-soft p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div>
+                        <h3 className="text-foreground font-medium text-sm">{displayName}</h3>
+                        <span className={`text-xs ${phaseColor}`}>{phaseLabel}</span>
+                        {status.analysisStatus === "analyzing" && (
+                          <span className="ml-2 inline-block w-3 h-3 rounded-full border-2 border-[color-mix(in_srgb,var(--warn)_40%,transparent)] border-t-warn animate-spin" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!status.seeded && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={isSeeding || !!seedingCompany}
+                          onClick={() => seedCompany(slug)}
+                        >
+                          {isSeeding ? "Seeding..." : "Seed"}
+                        </Button>
+                      )}
+                      {status.seeded && status.operatorId && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteSyntheticCompany(slug)}
+                            className="text-danger hover:text-danger hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
+                          >
+                            Delete
+                          </Button>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={entering === status.operatorId}
+                            onClick={() => enterOperator(status.operatorId!)}
+                          >
+                            {entering === status.operatorId ? "Entering..." : "Enter"}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -441,6 +579,35 @@ export default function AdminPage() {
               >
                 {deleting === confirmDelete.id ? "Deleting..." : "Delete"}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Synthetic Seed Result Modal */}
+      {seedResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
+          <div className="wf-soft max-w-md w-full mx-4 p-6 space-y-4">
+            <h3 className="text-lg font-medium text-foreground">
+              {seedResult.company.charAt(0).toUpperCase() + seedResult.company.slice(1)} Seeded
+            </h3>
+            <p className="text-sm text-[var(--fg2)]">
+              Company created. Onboarding analysis is running — agents will analyze the data and build the org structure.
+            </p>
+            <div className="bg-hover rounded-lg p-4 space-y-2 font-mono text-xs max-h-60 overflow-y-auto">
+              {seedResult.credentials.map((cred, i) => (
+                <div key={i} className="flex justify-between py-1 border-b border-border last:border-0">
+                  <span className="text-[var(--fg2)]">{cred.name}</span>
+                  <span className="text-foreground">{cred.email}</span>
+                </div>
+              ))}
+              <div className="pt-2 text-[var(--fg3)]">Password: demo1234 (all accounts)</div>
+            </div>
+            <p className="text-xs text-[var(--fg3)]">
+              Use &quot;Enter&quot; to view as the company admin, then navigate to the org map and &quot;View as&quot; any employee.
+            </p>
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setSeedResult(null)}>Close</Button>
             </div>
           </div>
         </div>
