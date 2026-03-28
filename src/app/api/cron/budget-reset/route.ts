@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Daily cron: reset budget period for operators whose budgetPeriodStart
  * is in a previous calendar month.

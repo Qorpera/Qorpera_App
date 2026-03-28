@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:next": "next build",
     "setup": "prisma db push && tsx src/lib/seed.ts",
     "postinstall": "prisma generate",
     "start": "next start",
@@ -26,6 +27,7 @@
     "@react-email/components": "^1.0.10",
     "@react-email/render": "^2.0.4",
     "@sentry/nextjs": "^10.45.0",
+    "@swc/helpers": "^0.5.20",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
     "archiver": "^7.0.1",
