@@ -282,6 +282,7 @@ async function runOrganizerCall(
   modelOverride?: string,
 ): Promise<OrganizerOutput> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  (client as any)._calculateNonstreamingTimeout = () => 20 * 60 * 1000;
 
   await addProgressMessage(analysisId, `Cross-referencing findings from ${agentResults.length} specialist analyses...`, "organizer");
 
@@ -357,6 +358,7 @@ async function runSynthesis(
   modelOverride?: string,
 ): Promise<void> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  (client as any)._calculateNonstreamingTimeout = () => 20 * 60 * 1000;
 
   // Build input from ALL reports
   const allReports: Array<{ agent: string; round: number; report: unknown }> = [];

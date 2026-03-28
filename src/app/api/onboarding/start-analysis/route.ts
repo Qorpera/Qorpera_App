@@ -35,6 +35,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: reason }, { status: 400 });
   }
 
+  // Carry over modelOverride from previous analysis (if any)
+  const previousModelOverride = existing?.modelOverride ?? null;
+
   // Delete existing analysis and agent runs (restart)
   await prisma.onboardingAgentRun.deleteMany({ where: { analysis: { operatorId } } });
   await prisma.onboardingAnalysis.deleteMany({ where: { operatorId } });
@@ -46,6 +49,7 @@ export async function POST(request: Request) {
       status: "pending",
       currentPhase: "idle",
       startedAt: new Date(),
+      modelOverride: previousModelOverride,
     },
   });
 
