@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
     client_id: process.env.DYNAMICS_BC_CLIENT_ID,
     response_type: "code",
     redirect_uri: `${APP_BASE}/api/connectors/dynamics-bc/callback`,
-    scope: "https://api.businesscentral.dynamics.com/.default offline_access",
+    scope: "https://api.businesscentral.dynamics.com/.default offline_access openid",
     state,
   });
 

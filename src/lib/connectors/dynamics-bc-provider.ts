@@ -56,7 +56,6 @@ async function bcRequest(
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      ...(body && method === "PATCH" ? {} : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
