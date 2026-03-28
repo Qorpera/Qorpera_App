@@ -60,7 +60,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       system: config.systemPrompt,
       messages,
       tools: anthropicTools,
-    });
+    }, { timeout: 20 * 60 * 1000 });
 
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;

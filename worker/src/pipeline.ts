@@ -297,7 +297,7 @@ async function runOrganizerCall(
     max_tokens: getMaxOutputTokens(organizerModel),
     system: ORGANIZER_PROMPT,
     messages: [{ role: "user", content: input }],
-  });
+  }, { timeout: 20 * 60 * 1000 });
 
   const text = response.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -379,7 +379,7 @@ async function runSynthesis(
     max_tokens: getMaxOutputTokens(synthesisModel),
     system: SYNTHESIS_PROMPT,
     messages: [{ role: "user", content: synthesisInput }],
-  });
+  }, { timeout: 20 * 60 * 1000 });
 
   const text = response.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")

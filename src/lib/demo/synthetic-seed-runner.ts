@@ -178,6 +178,34 @@ export async function runSyntheticSeed(
     }
   }
 
+  // ── 6a. Internal team-member entities (bare — no department yet) ──
+  // The pipeline needs these to discover org structure. Without them,
+  // people discovery finds 0 internal people and synthesis fails.
+  for (const emp of company.employees) {
+    const entity = await prisma.entity.create({
+      data: {
+        operatorId,
+        entityTypeId: types["team-member"].typeId,
+        displayName: emp.name,
+        category: "base",
+        sourceSystem: "synthetic",
+        externalId: `synth_emp_${emp.email.split("@")[0]}`,
+      },
+    });
+
+    const props = types["team-member"].props;
+    const pvData: Array<{ entityId: string; propertyId: string; value: string }> = [];
+    if (props["email"]) pvData.push({ entityId: entity.id, propertyId: props["email"], value: emp.email });
+    if (props["role"]) pvData.push({ entityId: entity.id, propertyId: props["role"], value: emp.role === "admin" ? "Ejer" : "Medarbejder" });
+    if (pvData.length > 0) await prisma.propertyValue.createMany({ data: pvData });
+
+    // Link user account to entity
+    await prisma.user.update({
+      where: { id: userIds[emp.email] },
+      data: { entityId: entity.id },
+    });
+  }
+
   const companyEntityIds: Record<string, string> = {};
   for (const c of company.companies) {
     const entity = await prisma.entity.create({
