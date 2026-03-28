@@ -38,6 +38,10 @@ function isErrorResponse(xml: string): string | null {
   return null;
 }
 
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
 // ── Network Helpers ──────────────────────────────────────
 
 function basicAuthHeader(config: ConnectorConfig): string {
@@ -132,16 +136,18 @@ export const cargowiseProvider: ConnectorProvider = {
   },
 
   async *sync(config, since?) {
+    let shipmentResponseXml = "";
+
     // ── Shipments ─────────────────────────────────────────
     try {
       const queryXml = buildUniversalQuery("ForwardingShipment", since || undefined);
-      const responseXml = await cwPost(config, queryXml);
+      shipmentResponseXml = await cwPost(config, queryXml);
 
-      const error = isErrorResponse(responseXml);
+      const error = isErrorResponse(shipmentResponseXml);
       if (error) {
         console.warn(`[cargowise] Shipment query error: ${error}`);
       } else {
-        const shipments = parseXmlArray(responseXml, "UniversalShipment");
+        const shipments = parseXmlArray(shipmentResponseXml, "UniversalShipment");
 
         for (const shipmentXml of shipments) {
           const shipmentNumber = parseXmlValue(shipmentXml, "ShipmentNumber") || parseXmlValue(shipmentXml, "DataSourceID") || "";
@@ -220,14 +226,11 @@ export const cargowiseProvider: ConnectorProvider = {
       console.warn("[cargowise] Shipment sync error:", err);
     }
 
-    // ── Financial data (optional) ─────────────────────────
+    // ── Financial data (from shipment response) ────────────
     try {
-      const queryXml = buildUniversalQuery("ForwardingShipment", since || undefined);
-      // Reuse shipment query — charges are often nested in shipment XML
-      const responseXml = await cwPost(config, queryXml);
-      const error = isErrorResponse(responseXml);
-      if (!error) {
-        const invoices = parseXmlArray(responseXml, "Invoice");
+      // Charges are often nested in shipment XML — reuse the already-fetched response
+      if (shipmentResponseXml && !isErrorResponse(shipmentResponseXml)) {
+        const invoices = parseXmlArray(shipmentResponseXml, "Invoice");
         for (const invXml of invoices) {
           const invoiceNumber = parseXmlValue(invXml, "InvoiceNumber") || parseXmlValue(invXml, "Number");
           if (!invoiceNumber) continue;
@@ -269,13 +272,13 @@ export const cargowiseProvider: ConnectorProvider = {
   <Header><SenderID>QORPERA</SenderID><ReceiverID>CW1</ReceiverID></Header>
   <Body>
     <UniversalShipment>
-      <Consignor>${params.consignor}</Consignor>
-      <Consignee>${params.consignee}</Consignee>
-      <OriginPort>${params.origin}</OriginPort>
-      <DestinationPort>${params.destination}</DestinationPort>
-      <TransportMode>${params.transportMode}</TransportMode>
-      ${params.carrier ? `<Carrier>${params.carrier}</Carrier>` : ""}
-      ${params.commodity ? `<Commodity>${params.commodity}</Commodity>` : ""}
+      <Consignor>${escapeXml(String(params.consignor))}</Consignor>
+      <Consignee>${escapeXml(String(params.consignee))}</Consignee>
+      <OriginPort>${escapeXml(String(params.origin))}</OriginPort>
+      <DestinationPort>${escapeXml(String(params.destination))}</DestinationPort>
+      <TransportMode>${escapeXml(String(params.transportMode))}</TransportMode>
+      ${params.carrier ? `<Carrier>${escapeXml(String(params.carrier))}</Carrier>` : ""}
+      ${params.commodity ? `<Commodity>${escapeXml(String(params.commodity))}</Commodity>` : ""}
     </UniversalShipment>
   </Body>
 </UniversalInterchange>`;
@@ -295,12 +298,12 @@ export const cargowiseProvider: ConnectorProvider = {
   <Header><SenderID>QORPERA</SenderID><ReceiverID>CW1</ReceiverID></Header>
   <Body>
     <UniversalShipment>
-      <ShipmentNumber>${params.shipmentNumber}</ShipmentNumber>
+      <ShipmentNumber>${escapeXml(String(params.shipmentNumber))}</ShipmentNumber>
       <Milestone>
-        <MilestoneCode>${params.milestoneCode}</MilestoneCode>
-        <Date>${params.milestoneDate}</Date>
-        ${params.description ? `<Description>${params.description}</Description>` : ""}
-        ${params.location ? `<Location>${params.location}</Location>` : ""}
+        <MilestoneCode>${escapeXml(String(params.milestoneCode))}</MilestoneCode>
+        <Date>${escapeXml(String(params.milestoneDate))}</Date>
+        ${params.description ? `<Description>${escapeXml(String(params.description))}</Description>` : ""}
+        ${params.location ? `<Location>${escapeXml(String(params.location))}</Location>` : ""}
       </Milestone>
     </UniversalShipment>
   </Body>
@@ -319,11 +322,11 @@ export const cargowiseProvider: ConnectorProvider = {
   <Header><SenderID>QORPERA</SenderID><ReceiverID>CW1</ReceiverID></Header>
   <Body>
     <UniversalShipment>
-      <ShipmentNumber>${params.shipmentNumber}</ShipmentNumber>
-      ${params.vesselName ? `<VesselName>${params.vesselName}</VesselName>` : ""}
-      ${params.voyageNumber ? `<VoyageNumber>${params.voyageNumber}</VoyageNumber>` : ""}
-      ${params.etd ? `<ETD>${params.etd}</ETD>` : ""}
-      ${params.eta ? `<ETA>${params.eta}</ETA>` : ""}
+      <ShipmentNumber>${escapeXml(String(params.shipmentNumber))}</ShipmentNumber>
+      ${params.vesselName ? `<VesselName>${escapeXml(String(params.vesselName))}</VesselName>` : ""}
+      ${params.voyageNumber ? `<VoyageNumber>${escapeXml(String(params.voyageNumber))}</VoyageNumber>` : ""}
+      ${params.etd ? `<ETD>${escapeXml(String(params.etd))}</ETD>` : ""}
+      ${params.eta ? `<ETA>${escapeXml(String(params.eta))}</ETA>` : ""}
     </UniversalShipment>
   </Body>
 </UniversalInterchange>`;
@@ -371,4 +374,4 @@ export const cargowiseProvider: ConnectorProvider = {
 };
 
 // Export XML helpers for testing
-export { parseXmlValue, parseXmlArray, isErrorResponse };
+export { parseXmlValue, parseXmlArray, isErrorResponse, escapeXml };

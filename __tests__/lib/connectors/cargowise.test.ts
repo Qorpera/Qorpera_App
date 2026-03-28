@@ -91,12 +91,9 @@ describe("CargoWise testConnection", () => {
 
 describe("CargoWise sync: shipments", () => {
   test("yields shipment.synced events from parsed XML", async () => {
-    // Shipment query
     mockFetch.mockResolvedValueOnce(cwShipmentResponse([
       { number: "SHP-001", origin: "Shanghai", dest: "Rotterdam", status: "In Transit" },
     ]));
-    // Financial query
-    mockFetch.mockResolvedValueOnce(cwEmptyResponse());
 
     const items = [];
     for await (const item of cargowiseProvider.sync(validConfig)) {
@@ -129,7 +126,6 @@ describe("CargoWise sync: milestones", () => {
         ],
       },
     ]));
-    mockFetch.mockResolvedValueOnce(cwEmptyResponse());
 
     const items = [];
     for await (const item of cargowiseProvider.sync(validConfig)) {
@@ -153,7 +149,6 @@ describe("CargoWise sync: content", () => {
     mockFetch.mockResolvedValueOnce(cwShipmentResponse([
       { number: "SHP-003", origin: "Busan", dest: "LA", status: "Booked" },
     ]));
-    mockFetch.mockResolvedValueOnce(cwEmptyResponse());
 
     const items = [];
     for await (const item of cargowiseProvider.sync(validConfig)) {
@@ -197,10 +192,8 @@ describe("CargoWise XML helpers", () => {
 
 describe("CargoWise sync: error handling", () => {
   test("handles error XML gracefully and continues", async () => {
-    // Shipment query returns error
+    // Shipment query returns error — financial section reuses same response, also skipped
     mockFetch.mockResolvedValueOnce(cwErrorResponse("Invalid query"));
-    // Financial query works but empty
-    mockFetch.mockResolvedValueOnce(cwEmptyResponse());
 
     const items = [];
     for await (const item of cargowiseProvider.sync(validConfig)) {
