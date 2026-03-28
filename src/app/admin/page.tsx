@@ -136,12 +136,15 @@ export default function AdminPage() {
 
   const deleteSyntheticCompany = async (slug: string, operatorId: string) => {
     try {
-      await fetch("/api/admin/seed-synthetic", {
+      const res = await fetch("/api/admin/seed-synthetic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ company: slug, action: "delete", operatorId }),
       });
-      await Promise.all([refreshOperators(), fetchSyntheticStatus()]);
+      if (res.ok) {
+        await refreshOperators();
+        await fetchSyntheticStatus();
+      }
     } catch { /* best-effort */ }
   };
 
@@ -276,19 +279,28 @@ export default function AdminPage() {
               {Object.entries(syntheticCompanies).map(([slug, data]) => (
                 <div key={slug} className="space-y-2">
                   <h3 className="text-sm font-medium text-foreground capitalize">{slug}</h3>
-                  {!data.seeded && (
-                    <div className="wf-soft p-4 flex items-center justify-between">
-                      <span className="text-xs text-[var(--fg3)]">Not seeded</span>
-                      <div className="flex items-center gap-2">
-                        <Button variant="primary" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug, "claude-sonnet-4-20250514")}>
-                          {seedingCompany === `${slug}-sonnet` ? "Seeding..." : "Seed (Sonnet)"}
-                        </Button>
-                        <Button variant="primary" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug, "claude-opus-4-6-20250415")}>
-                          {seedingCompany === `${slug}-opus` ? "Seeding..." : "Seed (Opus)"}
-                        </Button>
+                  {(() => {
+                    const hasSonnet = data.variants?.some((v) => v.model?.includes("sonnet"));
+                    const hasOpus = data.variants?.some((v) => v.model?.includes("opus"));
+                    if (hasSonnet && hasOpus) return null;
+                    return (
+                      <div className="wf-soft p-4 flex items-center justify-between">
+                        <span className="text-xs text-[var(--fg3)]">{!data.seeded ? "Not seeded" : "Add variant"}</span>
+                        <div className="flex items-center gap-2">
+                          {!hasSonnet && (
+                            <Button variant="primary" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug, "claude-sonnet-4-20250514")}>
+                              {seedingCompany === `${slug}-sonnet` ? "Seeding..." : "Seed (Sonnet)"}
+                            </Button>
+                          )}
+                          {!hasOpus && (
+                            <Button variant="primary" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug, "claude-opus-4-6-20250415")}>
+                              {seedingCompany === `${slug}-opus` ? "Seeding..." : "Seed (Opus)"}
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   {data.seeded && data.variants?.map((v) => {
                     const phaseLabel = v.analysisStatus === "analyzing" ? "Analyzing..."
                       : v.analysisStatus === "confirming" ? "Ready for review"
