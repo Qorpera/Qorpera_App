@@ -21,6 +21,7 @@ const PUBLIC_PATHS = [
   "/api/connectors/meta-ads/callback",
   "/api/connectors/slack/callback",
   "/api/connectors/microsoft/callback",
+  "/api/connectors/dynamics-bc/callback",
   "/api/webhooks/",
   "/api/cron/",
   "/api/invite/",

@@ -26,6 +26,7 @@ export async function GET() {
     salesforce: () => !!(process.env.SALESFORCE_CLIENT_ID && process.env.SALESFORCE_CLIENT_SECRET),
     intercom: () => !!(process.env.INTERCOM_CLIENT_ID && process.env.INTERCOM_CLIENT_SECRET),
     zendesk: () => !!(process.env.ZENDESK_CLIENT_ID && process.env.ZENDESK_CLIENT_SECRET),
+    "dynamics-bc": () => !!(process.env.DYNAMICS_BC_CLIENT_ID && process.env.DYNAMICS_BC_CLIENT_SECRET),
   };
 
   const result = providers
