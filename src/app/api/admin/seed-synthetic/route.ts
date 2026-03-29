@@ -6,8 +6,8 @@ import { runSyntheticSeed, cleanupSyntheticCompany } from "@/lib/demo/synthetic-
 // Dynamic imports for company data packages (added in future prompts)
 const COMPANY_LOADERS: Record<string, () => Promise<{ default: import("@/lib/demo/synthetic-types").SyntheticCompany }>> = {
   boltly: () => import("@/lib/demo/companies/boltly"),
-  // tallyo: () => import("@/lib/demo/companies/tallyo"),
-  // meridian: () => import("@/lib/demo/companies/meridian-teknik"),
+  tallyo: () => import("@/lib/demo/companies/tallyo"),
+  "meridian-teknik": () => import("@/lib/demo/companies/meridian-teknik"),
 };
 
 export async function POST(req: NextRequest) {
@@ -17,6 +17,27 @@ export async function POST(req: NextRequest) {
   }
 
   const { company: companySlug, action, operatorId: targetOperatorId } = await req.json().catch(() => ({ company: null, action: null, operatorId: null }));
+
+  // ── seed-all action — seeds all companies sequentially ──────────
+  if (action === "seed-all") {
+    const results = [];
+    for (const [slug, loader] of Object.entries(COMPANY_LOADERS)) {
+      try {
+        const existing = await prisma.operator.findFirst({
+          where: { isTestOperator: true, companyName: { contains: slug, mode: "insensitive" } },
+        });
+        if (existing) await cleanupSyntheticCompany(existing.id);
+
+        const { default: companyData } = await loader();
+        const result = await runSyntheticSeed(companyData);
+        results.push({ slug, success: true, operatorId: result.operatorId, stats: result.stats });
+      } catch (error) {
+        console.error(`[synthetic-seed] Failed to seed ${slug}:`, error);
+        results.push({ slug, success: false, error: String(error) });
+      }
+    }
+    return NextResponse.json({ results });
+  }
 
   if (!companySlug || typeof companySlug !== "string") {
     return NextResponse.json({ error: "company slug is required" }, { status: 400 });
@@ -102,19 +123,27 @@ export async function GET() {
     } else {
       const variants = [];
       for (const op of matchingOps) {
-        const analysis = await prisma.onboardingAnalysis.findUnique({
-          where: { operatorId: op.id },
-          select: { status: true, currentPhase: true },
-        });
-        const orientation = await prisma.orientationSession.findFirst({
-          where: { operatorId: op.id },
-          select: { phase: true },
-        });
+        const [analysis, orientation, contentCount, activityCount, entityCount] = await Promise.all([
+          prisma.onboardingAnalysis.findUnique({
+            where: { operatorId: op.id },
+            select: { status: true, currentPhase: true },
+          }),
+          prisma.orientationSession.findFirst({
+            where: { operatorId: op.id },
+            select: { phase: true },
+          }),
+          prisma.contentChunk.count({ where: { operatorId: op.id } }),
+          prisma.activitySignal.count({ where: { operatorId: op.id } }),
+          prisma.entity.count({ where: { operatorId: op.id, status: "active" } }),
+        ]);
         variants.push({
           operatorId: op.id,
           displayName: op.companyName ?? slug,
           phase: orientation?.phase ?? "unknown",
           analysisStatus: analysis?.status ?? "unknown",
+          contentChunks: contentCount,
+          activitySignals: activityCount,
+          entities: entityCount,
         });
       }
       statuses[slug] = { seeded: true, variants };

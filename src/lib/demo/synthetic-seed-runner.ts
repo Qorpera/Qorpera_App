@@ -49,6 +49,8 @@ async function ensureRelType(
 
 // ── Main Runner ─────────────────────────────────────────────────────
 
+const ACTIVITY_BATCH_SIZE = 500;
+
 export async function runSyntheticSeed(
   company: SyntheticCompany,
   options?: { modelOverride?: string },
@@ -59,6 +61,7 @@ export async function runSyntheticSeed(
   analysisId: string;
 }> {
   console.log(`[synthetic-seed] Starting seed for ${company.name}...`);
+  console.time(`[synthetic-seed] Total seed time — ${company.slug}`);
 
   // ── 1. Operator ──────────────────────────────────────────────────
   const operator = await prisma.operator.create({
@@ -133,6 +136,7 @@ export async function runSyntheticSeed(
   }
 
   // ── 5. Entity types + relationship types ─────────────────────────
+  console.time(`[synthetic-seed] Entity creation — ${company.slug}`);
   const typeSlugs = ["organization", "department", "team-member", "company", "contact", "deal", "invoice", "ticket"];
   const types: Record<string, { typeId: string; props: Record<string, string> }> = {};
   for (const slug of typeSlugs) {
@@ -159,19 +163,21 @@ export async function runSyntheticSeed(
     },
   });
 
-  // Slack channel mappings (need hqEntity as placeholder departmentId)
-  if (connectorIds["slack"] && company.slackChannels) {
+  // Slack/Teams channel mappings (need hqEntity as placeholder departmentId)
+  const messagingConnectorId = connectorIds["slack"] ?? connectorIds["microsoft-365-teams"] ?? null;
+  if (messagingConnectorId && company.slackChannels) {
     for (const ch of company.slackChannels) {
       await prisma.slackChannelMapping.create({
         data: {
           operatorId,
-          connectorId: connectorIds["slack"],
+          connectorId: messagingConnectorId,
           channelId: ch.channelId,
           channelName: ch.channelName,
           departmentId: hqEntity.id, // Placeholder — remapped after onboarding discovers departments
         },
       });
     }
+    console.log(`[synthetic-seed] Created ${company.slackChannels.length} channel mappings`);
   }
 
   // ── 6a. Internal team-member entities (bare — no department yet) ──
@@ -311,19 +317,38 @@ export async function runSyntheticSeed(
     }
   }
 
+  console.timeEnd(`[synthetic-seed] Entity creation — ${company.slug}`);
+
   // ── 7. Content Chunks with embeddings ────────────────────────────
   console.log(`[synthetic-seed] Embedding ${company.content.length} content chunks...`);
+  console.time(`[synthetic-seed] Content ingestion + embedding — ${company.slug}`);
 
   const allTexts = company.content.map((c) => c.content);
   const allEmbeddings: (number[] | null)[] = [];
+  const totalBatches = Math.ceil(allTexts.length / EMBED_BATCH_SIZE);
+  let embeddingFailures = 0;
 
   for (let i = 0; i < allTexts.length; i += EMBED_BATCH_SIZE) {
     const batchNum = Math.floor(i / EMBED_BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(allTexts.length / EMBED_BATCH_SIZE);
     console.log(`[synthetic-seed] Embedding batch ${batchNum}/${totalBatches}...`);
     const batch = allTexts.slice(i, i + EMBED_BATCH_SIZE);
-    const embeddings = await embedChunks(batch);
-    allEmbeddings.push(...embeddings);
+    try {
+      const embeddings = await embedChunks(batch);
+      allEmbeddings.push(...embeddings);
+    } catch (err) {
+      const failedStart = i;
+      const failedEnd = Math.min(i + EMBED_BATCH_SIZE - 1, allTexts.length - 1);
+      console.warn(`[synthetic-seed] Embedding batch ${batchNum} failed (indices ${failedStart}-${failedEnd}): ${String(err)}`);
+      allEmbeddings.push(...batch.map(() => null));
+      embeddingFailures++;
+    }
+  }
+  if (embeddingFailures > 0) {
+    console.warn(`[synthetic-seed] ${embeddingFailures}/${totalBatches} embedding batches failed`);
+  }
+  const nullEmbeddingCount = allEmbeddings.filter(e => e === null).length;
+  if (nullEmbeddingCount > 0) {
+    console.warn(`[synthetic-seed] ${nullEmbeddingCount} of ${allEmbeddings.length} chunks have null embeddings and won't be searchable`);
   }
 
   let chunkCount = 0;
@@ -358,8 +383,12 @@ export async function runSyntheticSeed(
     chunkCount++;
   }
   console.log(`[synthetic-seed] Created ${chunkCount} content chunks`);
+  console.timeEnd(`[synthetic-seed] Content ingestion + embedding — ${company.slug}`);
 
   // ── 8. Activity Signals ──────────────────────────────────────────
+  console.log(`[synthetic-seed] Creating ${company.activitySignals.length} activity signals...`);
+  console.time(`[synthetic-seed] Activity signals — ${company.slug}`);
+
   // Build email → entity ID lookup from both employees and contacts
   const employeeEntityIds: Record<string, string> = {};
   const empEntities = await prisma.entity.findMany({
@@ -373,29 +402,42 @@ export async function runSyntheticSeed(
 
   const emailToEntityId: Record<string, string> = { ...employeeEntityIds };
   for (const c of company.contacts) {
-    emailToEntityId[c.email.toLowerCase()] = contactEntityIds[c.name] ?? "";
+    if (contactEntityIds[c.name]) {
+      emailToEntityId[c.email.toLowerCase()] = contactEntityIds[c.name];
+    }
   }
 
   let signalCount = 0;
-  for (const s of company.activitySignals) {
-    const actorEntityId = emailToEntityId[s.actorEmail] ?? null;
-    const targetEntityIds = s.targetEmails
-      ?.map((e) => emailToEntityId[e])
-      .filter(Boolean) ?? [];
+  const signalBatches = Math.ceil(company.activitySignals.length / ACTIVITY_BATCH_SIZE);
+  for (let b = 0; b < signalBatches; b++) {
+    const batch = company.activitySignals.slice(b * ACTIVITY_BATCH_SIZE, (b + 1) * ACTIVITY_BATCH_SIZE);
+    const data = batch.map((s) => {
+      const actorEntityId = emailToEntityId[s.actorEmail?.toLowerCase()] ?? null;
+      const targetEntityIds = s.targetEmails
+        ?.map((e) => emailToEntityId[e?.toLowerCase()])
+        .filter(Boolean) ?? [];
 
-    await prisma.activitySignal.create({
-      data: {
+      return {
         operatorId,
         signalType: s.signalType,
         actorEntityId,
         targetEntityIds: targetEntityIds.length > 0 ? JSON.stringify(targetEntityIds) : null,
         occurredAt: daysAgo(s.daysAgo),
         metadata: s.metadata ? JSON.stringify(s.metadata) : null,
-      },
+      };
     });
-    signalCount++;
+    try {
+      const result = await prisma.activitySignal.createMany({ data });
+      signalCount += result.count;
+    } catch (err) {
+      console.warn(`[synthetic-seed] Activity signal batch ${b + 1}/${signalBatches} failed: ${err instanceof Error ? err.message : String(err)}. Skipping ${data.length} signals.`);
+    }
+    if ((b + 1) % 10 === 0 || b === signalBatches - 1) {
+      console.log(`[synthetic-seed] Activity signal batch ${b + 1}/${signalBatches} (${signalCount} total)...`);
+    }
   }
   console.log(`[synthetic-seed] Created ${signalCount} activity signals`);
+  console.timeEnd(`[synthetic-seed] Activity signals — ${company.slug}`);
 
   // ── 9. Create pending OnboardingAnalysis ──────────────────────────
   // The Bastion worker polls for pending analyses every 5 seconds.
@@ -412,6 +454,7 @@ export async function runSyntheticSeed(
   console.log(`[synthetic-seed] Created pending analysis ${analysis.id} — worker will pick up shortly`);
 
   // ── Return stats ─────────────────────────────────────────────────
+  console.timeEnd(`[synthetic-seed] Total seed time — ${company.slug}`);
   return {
     operatorId,
     userCredentials,
@@ -433,6 +476,9 @@ export async function runSyntheticSeed(
 // ── Cleanup ─────────────────────────────────────────────────────────
 
 export async function cleanupSyntheticCompany(operatorId: string): Promise<void> {
+  console.log(`[synthetic-seed] Starting cleanup for operator ${operatorId}...`);
+  console.time(`[synthetic-seed] Cleanup — ${operatorId}`);
+
   // Reuse the cleanup pattern from seed-runner — same cascade order
   await prisma.entity.updateMany({
     where: { operatorId },
@@ -512,5 +558,6 @@ export async function cleanupSyntheticCompany(operatorId: string): Promise<void>
   // Operator
   await prisma.operator.delete({ where: { id: operatorId } });
 
+  console.timeEnd(`[synthetic-seed] Cleanup — ${operatorId}`);
   console.log(`[synthetic-seed] Cleaned up operator ${operatorId}`);
 }

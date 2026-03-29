@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import BOLTLY from "@/lib/demo/companies/boltly";
 
 describe("Boltly company data", () => {
-  it("has 5 employees", () => {
-    expect(BOLTLY.employees).toHaveLength(5);
+  it("has 11 employees", () => {
+    // 11 active — Jens Petersen left 3 months ago, not in list
+    expect(BOLTLY.employees).toHaveLength(11);
   });
 
   it("has exactly one admin", () => {
@@ -39,9 +40,9 @@ describe("Boltly company data", () => {
     }
   });
 
-  it("has enough content for agent discovery", () => {
-    // Agents need enough content to discover structure
-    expect(BOLTLY.content.length).toBeGreaterThanOrEqual(25);
+  it("has enough content for agent discovery (~200+ chunks)", () => {
+    // Stories (~80) + contradictions (~10) + generated clutter (~100)
+    expect(BOLTLY.content.length).toBeGreaterThanOrEqual(150);
   });
 
   it("has activity signals covering email and meeting patterns", () => {
@@ -56,6 +57,7 @@ describe("Boltly company data", () => {
     expect(sourceTypes.has("email")).toBe(true);
     expect(sourceTypes.has("drive_doc")).toBe(true);
     expect(sourceTypes.has("calendar_note")).toBe(true);
+    expect(sourceTypes.has("slack_message")).toBe(true);
   });
 
   it("all content has required metadata", () => {
