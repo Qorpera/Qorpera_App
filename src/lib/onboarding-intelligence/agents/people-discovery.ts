@@ -7,6 +7,7 @@
  */
 
 import { prisma } from "@/lib/db";
+import { decryptConfig } from "@/lib/config-encryption";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,13 @@ export interface PeopleRegistryEntry {
     documentsAuthored: number;
   };
   entityId?: string;
+
+  // Directory-verified fields (Google Admin SDK and/or Microsoft Graph)
+  adminApiVerified?: boolean;
+  adminDepartment?: string;
+  adminTitle?: string;
+  adminOrgUnit?: string;
+  adminIsAdmin?: boolean;
 }
 
 // ── Algorithm ────────────────────────────────────────────────────────────────
@@ -64,6 +72,74 @@ export async function buildPeopleRegistry(operatorId: string): Promise<PeopleReg
     }
     return entry;
   };
+
+  // Step 0: Pre-populate from directory API if delegation data exists
+  // Reads from both Google and Microsoft meta connectors — entries merge by email
+  const delegationMetas = await prisma.sourceConnector.findMany({
+    where: {
+      operatorId,
+      provider: { in: ["google-delegation-meta", "microsoft-delegation-meta"] },
+      status: "active",
+    },
+    select: { provider: true, config: true },
+  });
+
+  for (const meta of delegationMetas) {
+    if (!meta.config) continue;
+    try {
+      const decoded = decryptConfig(meta.config as string) as Record<string, unknown>;
+      const adminUsers = (decoded.users || []) as Array<{
+        email: string;
+        fullName: string;
+        department: string;
+        title: string;
+        orgUnitPath?: string;
+        isAdmin: boolean;
+      }>;
+
+      const sourceSystem = meta.provider === "google-delegation-meta"
+        ? "google-admin-sdk" : "microsoft-graph";
+
+      for (const adminUser of adminUsers) {
+        if (!adminUser.email) continue;
+        const entry = getOrCreate(adminUser.email, adminUser.fullName);
+        entry.isInternal = true;
+        entry.adminApiVerified = true;
+
+        // Merge: fill empty fields, don't overwrite existing values
+        if (adminUser.department && !entry.adminDepartment) {
+          entry.adminDepartment = adminUser.department;
+        }
+        if (adminUser.title && !entry.adminTitle) {
+          entry.adminTitle = adminUser.title;
+        }
+        if (adminUser.orgUnitPath && !entry.adminOrgUnit) {
+          entry.adminOrgUnit = adminUser.orgUnitPath;
+        }
+        if (adminUser.isAdmin) {
+          entry.adminIsAdmin = true;
+        }
+
+        // Add as a source (dedup by system name)
+        if (!entry.sources.find(s => s.system === sourceSystem)) {
+          entry.sources.push({
+            system: sourceSystem,
+            role: adminUser.isAdmin ? "admin" : undefined,
+            title: adminUser.title || undefined,
+          });
+        }
+
+        // Add domain to internal domains set
+        const domain = adminUser.email.split("@")[1];
+        if (domain) internalDomains.add(domain.toLowerCase());
+      }
+
+      console.log(`[people-discovery] Pre-populated ${adminUsers.length} employees from ${sourceSystem}`);
+    } catch (err) {
+      console.warn(`[people-discovery] Failed to read ${meta.provider} metadata:`, err);
+      // Non-fatal — continue with normal discovery
+    }
+  }
 
   // 2. Scan entities (contacts, team members) for people with email identity
   const entityPeople = await prisma.entity.findMany({

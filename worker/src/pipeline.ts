@@ -65,13 +65,18 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
     const registry = await buildPeopleRegistry(operatorId);
     peopleRegistry = registry;
 
-    const internalCount = registry.filter((p) => p.isInternal).length;
+    const verifiedCount = registry.filter((p) => p.adminApiVerified).length;
+    const inferredInternalCount = registry.filter((p) => p.isInternal && !p.adminApiVerified).length;
     const externalCount = registry.filter((p) => !p.isInternal).length;
-    await addProgressMessage(
-      analysisId,
-      `Discovered ${internalCount} team members and ${externalCount} external contacts across all sources`,
-      "people_discovery",
-    );
+
+    let progressMsg: string;
+    if (verifiedCount > 0) {
+      progressMsg = `Discovered ${verifiedCount} verified employees (company directory), ${inferredInternalCount} additional team members, and ${externalCount} external contacts`;
+    } else {
+      progressMsg = `Discovered ${inferredInternalCount} team members and ${externalCount} external contacts across all sources`;
+    }
+
+    await addProgressMessage(analysisId, progressMsg, "people_discovery");
 
     await prisma.onboardingAgentRun.update({
       where: { id: peopleRun.id },

@@ -5,10 +5,14 @@ import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConnectorConfigModal, type ConfigField } from "@/components/connector-config-modal";
+import { GoogleDelegationGuide } from "@/components/onboarding/google-delegation-guide";
+import { MicrosoftDelegationGuide } from "@/components/onboarding/microsoft-delegation-guide";
 
 /* ------------------------------------------------------------------ */
-/*  Connector config                                                    */
+/*  Types & constants                                                   */
 /* ------------------------------------------------------------------ */
+
+type FlowPhase = "email_input" | "detecting" | "guide_google" | "guide_microsoft" | "unknown_provider" | "connected" | "tier2";
 
 interface ConnectorCategory {
   labelKey: string;
@@ -101,20 +105,16 @@ const TIER2_CATEGORIES: ConnectorCategory[] = [
   },
 ];
 
-const GOOGLE_WORKSPACE_PROVIDERS = ["google-gmail", "google-drive", "google-calendar", "google-sheets", "google"];
-const MICROSOFT_PROVIDERS = ["microsoft-365", "microsoft"];
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                               */
-/* ------------------------------------------------------------------ */
-
 type Connector = {
   id: string;
   provider: string;
   name: string;
   status: string;
-  userId?: string | null;
 };
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                           */
+/* ------------------------------------------------------------------ */
 
 interface StepConnectToolsProps {
   onContinue: () => void;
@@ -122,25 +122,45 @@ interface StepConnectToolsProps {
   demoMode?: boolean;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                           */
-/* ------------------------------------------------------------------ */
-
 export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectToolsProps) {
   const t = useTranslations("onboarding.connectTools");
   const tc = useTranslations("common");
   const searchParams = useSearchParams();
+
+  const [phase, setPhase] = useState<FlowPhase>("email_input");
+  const [email, setEmail] = useState("");
+  const [detectedDomain, setDetectedDomain] = useState("");
+  const [connectedUserCount, setConnectedUserCount] = useState(0);
+  const [primaryProvider, setPrimaryProvider] = useState<"google" | "microsoft" | null>(null);
+  const [secondaryAvailable, setSecondaryAvailable] = useState(false);
+  const [secondaryChecked, setSecondaryChecked] = useState(false);
+  const [showSecondaryGuide, setShowSecondaryGuide] = useState(false);
+  const [secondaryConnected, setSecondaryConnected] = useState(false);
+  const [secondaryUserCount, setSecondaryUserCount] = useState(0);
+  const [advancing, setAdvancing] = useState(false);
+
+  // Tier 2 state
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [connecting, setConnecting] = useState<string | null>(null);
-  const [advancing, setAdvancing] = useState(false);
+  const [detectedTools, setDetectedTools] = useState<Map<string, number>>(new Map());
+  const [detectedCount, setDetectedCount] = useState(0);
   const [demoConnected, setDemoConnected] = useState<Set<string>>(new Set());
   const [demoAnimating, setDemoAnimating] = useState<string | null>(null);
-  const [demoSubSteps, setDemoSubSteps] = useState<string[]>([]);
   const [configModal, setConfigModal] = useState<{
     providerId: string;
     providerName: string;
     fields: ConfigField[];
   } | null>(null);
+
+  // Pre-fill email from session
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.user?.email) setEmail(data.user.email);
+      })
+      .catch(() => {});
+  }, []);
 
   const loadConnectors = useCallback(async () => {
     const res = await fetch("/api/connectors");
@@ -150,12 +170,9 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
     }
   }, []);
 
-  useEffect(() => {
-    loadConnectors();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { loadConnectors(); }, [loadConnectors]);
 
-  // Detect OAuth return
+  // Detect OAuth return for Tier 2
   useEffect(() => {
     const allProviders = [
       "workspace", "google", "microsoft", "slack", "hubspot", "stripe",
@@ -164,101 +181,105 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
     ];
     const connected = allProviders.some(p => searchParams.get(p) === "connected");
     if (!connected) return;
-
     (async () => {
       await loadConnectors();
       window.history.replaceState({}, "", "/onboarding");
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, loadConnectors]);
 
-  const activeConnectors = connectors.filter(c => c.status !== "error" && c.status !== "disconnected");
+  // Demo mode: skip to tier2 after a brief animation
+  async function handleDemoDetect() {
+    setPhase("detecting");
+    await new Promise(r => setTimeout(r, 800));
+    setConnectedUserCount(47);
+    setPhase("connected");
+  }
 
-  async function handleDemoConnect(providerId: string, subConnectors?: string[]) {
-    setDemoAnimating(providerId);
-    setDemoSubSteps([]);
+  async function handleDetect() {
+    if (demoMode) { await handleDemoDetect(); return; }
 
-    // Initial loading delay
-    await new Promise(r => setTimeout(r, 1000));
+    const domain = email.includes("@") ? email.split("@")[1] : email;
+    setDetectedDomain(domain);
+    setPhase("detecting");
 
-    if (subConnectors) {
-      // Animate sub-connectors appearing one by one
-      for (const sub of subConnectors) {
-        setDemoSubSteps(prev => [...prev, sub]);
-        await new Promise(r => setTimeout(r, 500));
-      }
+    try {
+      const res = await fetch("/api/connectors/detect-provider", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain }),
+      });
+      const data = await res.json();
+
+      if (data.provider === "google") setPhase("guide_google");
+      else if (data.provider === "microsoft") setPhase("guide_microsoft");
+      else setPhase("unknown_provider");
+    } catch {
+      setPhase("unknown_provider");
     }
-
-    setDemoConnected(prev => new Set([...prev, providerId]));
-    setDemoAnimating(null);
-    setDemoSubSteps([]);
   }
 
-  function isGoogleWorkspaceConnected() {
-    if (demoMode && demoConnected.has("google-workspace")) return true;
-    return GOOGLE_WORKSPACE_PROVIDERS.some(p => activeConnectors.some(c => c.provider === p));
+  function loadDetectedTools() {
+    fetch("/api/connectors/detect-tools")
+      .then((r) => r.json())
+      .then((data) => {
+        const tools = (data.tools || []) as Array<{ provider: string; emailCount: number; alreadyConnected: boolean }>;
+        const map = new Map<string, number>();
+        let count = 0;
+        for (const tool of tools) {
+          if (!tool.alreadyConnected) {
+            map.set(tool.provider, tool.emailCount);
+            count++;
+          }
+        }
+        setDetectedTools(map);
+        setDetectedCount(count);
+      })
+      .catch(() => {});
   }
 
-  function isMicrosoftConnected() {
-    if (demoMode && demoConnected.has("microsoft")) return true;
-    return MICROSOFT_PROVIDERS.some(p => activeConnectors.some(c => c.provider === p));
+  function handleDelegationComplete(userCount: number, provider: "google" | "microsoft") {
+    setPrimaryProvider(provider);
+    setConnectedUserCount(userCount);
+    setPhase("connected");
+    loadDetectedTools();
+
+    // Check if secondary provider is available
+    const secondaryEndpoint = provider === "google"
+      ? "/api/connectors/microsoft-365/delegation-info"
+      : "/api/connectors/google-workspace/delegation-info";
+
+    fetch(secondaryEndpoint)
+      .then((r) => r.json())
+      .then((data) => {
+        setSecondaryAvailable(!!(data.clientId));
+        setSecondaryChecked(true);
+      })
+      .catch(() => setSecondaryChecked(true));
+  }
+
+  function handleSecondaryComplete(userCount: number, _provider: "google" | "microsoft") {
+    setSecondaryConnected(true);
+    setSecondaryUserCount(userCount);
+    setShowSecondaryGuide(false);
   }
 
   function isProviderConnected(providerId: string) {
     if (demoMode && demoConnected.has(providerId)) return true;
-    return activeConnectors.some(c => c.provider === providerId);
-  }
-
-  const realConnected = new Set(activeConnectors.map(c => c.provider)).size;
-  const totalConnected = demoMode ? realConnected + demoConnected.size : realConnected;
-
-  async function handleConnectGoogleWorkspace() {
-    if (demoMode) {
-      await handleDemoConnect("google-workspace", ["Gmail", "Google Drive", "Google Calendar", "Google Sheets"]);
-      return;
-    }
-    setConnecting("google-workspace");
-    try {
-      const res = await fetch("/api/connectors/google-workspace/auth-url", { method: "POST" });
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-    } finally {
-      setConnecting(null);
-    }
-  }
-
-  async function handleConnectMicrosoft() {
-    if (demoMode) {
-      await handleDemoConnect("microsoft", ["Outlook", "OneDrive", "Teams Calendar"]);
-      return;
-    }
-    setConnecting("microsoft");
-    try {
-      const res = await fetch("/api/connectors/microsoft/auth?from=onboarding");
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-    } finally {
-      setConnecting(null);
-    }
+    return connectors.some(c => c.provider === providerId && c.status !== "error" && c.status !== "disconnected");
   }
 
   async function handleConnectTier2(def: ConnectorDef) {
     if (demoMode) {
-      const delay = 500;
       setDemoAnimating(def.id);
-      await new Promise(r => setTimeout(r, delay));
+      await new Promise(r => setTimeout(r, 500));
       setDemoConnected(prev => new Set([...prev, def.id]));
       setDemoAnimating(null);
       return;
     }
-
-    // Config-form connector — show modal
     if (def.configFields) {
       setConfigModal({ providerId: def.id, providerName: def.label, fields: def.configFields });
       return;
     }
-
-    // OAuth connector — redirect
     if (def.authEndpoint) {
       setConnecting(def.id);
       try {
@@ -269,6 +290,30 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
       } finally {
         setConnecting(null);
       }
+    }
+  }
+
+  async function handleConnectGoogleOAuth() {
+    if (demoMode) { setPhase("connected"); setConnectedUserCount(4); return; }
+    setConnecting("google-workspace");
+    try {
+      const res = await fetch("/api/connectors/google-workspace/auth-url", { method: "POST" });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } finally {
+      setConnecting(null);
+    }
+  }
+
+  async function handleConnectMicrosoftOAuth() {
+    if (demoMode) { setPhase("connected"); setConnectedUserCount(3); return; }
+    setConnecting("microsoft");
+    try {
+      const res = await fetch("/api/connectors/microsoft/auth?from=onboarding");
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } finally {
+      setConnecting(null);
     }
   }
 
@@ -287,17 +332,6 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
     }
   }
 
-  function getConfidenceMessage() {
-    if (totalConnected >= 6) return t("confidence6", { count: totalConnected });
-    if (totalConnected >= 3) return t("confidence3", { count: totalConnected });
-    if (totalConnected >= 1) return t("confidence1", { count: totalConnected });
-    return null;
-  }
-
-  const googleConnected = isGoogleWorkspaceConnected();
-  const microsoftConnected = isMicrosoftConnected();
-  const showNudge = totalConnected <= 1 && !googleConnected && !microsoftConnected;
-
   return (
     <div className="space-y-8">
       <div className="text-center space-y-2">
@@ -306,93 +340,209 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
         <p className="text-sm text-[var(--fg2)]">{t("subtitle")}</p>
       </div>
 
-      {/* Tier 1 — Workspace */}
-      <div className="space-y-3">
-        <h2 className="text-xs text-[var(--fg2)] uppercase tracking-wider px-1">{t("workspace")}</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Google Workspace */}
-          <WorkspaceCard
-            name={t("googleWorkspace")}
-            subtitle={t("googleSubtitle")}
-            connected={googleConnected}
-            connectedLabel={t("toolsConnected", { count: 4 })}
-            connecting={connecting === "google-workspace" || demoAnimating === "google-workspace"}
-            connectLabel={t("connect")}
-            connectingLabel={t("connecting")}
-            connectedTextLabel={t("connected")}
-            color="#4285f4"
-            icon={<GoogleIcon />}
-            onConnect={handleConnectGoogleWorkspace}
-            demoSubSteps={demoAnimating === "google-workspace" ? demoSubSteps : undefined}
+      {/* Phase: Email Input */}
+      {phase === "email_input" && (
+        <div className="max-w-md mx-auto space-y-4">
+          <label className="block text-sm font-medium text-foreground">{t("emailLabel")}</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder={t("emailPlaceholder")}
+            autoFocus
+            onKeyDown={(e) => e.key === "Enter" && email.includes("@") && handleDetect()}
+            className="w-full px-4 py-3 rounded-lg border border-border bg-hover text-sm text-foreground placeholder:text-[var(--fg3)] focus:outline-none focus:ring-1 focus:ring-accent"
           />
-          {/* Microsoft 365 */}
-          <WorkspaceCard
-            name={t("microsoft365")}
-            subtitle={t("microsoftSubtitle")}
-            connected={microsoftConnected}
-            connectedLabel={t("toolsConnected", { count: 4 })}
-            connecting={connecting === "microsoft" || demoAnimating === "microsoft"}
-            connectLabel={t("connect")}
-            connectingLabel={t("connecting")}
-            connectedTextLabel={t("connected")}
-            color="#00a4ef"
-            icon={<MicrosoftIcon />}
-            onConnect={handleConnectMicrosoft}
-            demoSubSteps={demoAnimating === "microsoft" ? demoSubSteps : undefined}
-          />
+          <p className="text-xs text-[var(--fg3)]">{t("emailSubtitle")}</p>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={handleDetect}
+            disabled={!email.includes("@")}
+            className="w-full min-h-[44px]"
+          >
+            {t("emailContinue")}
+          </Button>
         </div>
-      </div>
+      )}
 
-      {/* Tier 2 — Business Tools */}
-      <div className="space-y-3">
-        <h2 className="text-xs text-[var(--fg2)] uppercase tracking-wider px-1">{t("businessTools")}</h2>
-        {TIER2_CATEGORIES.map(cat => (
-          <div key={cat.labelKey}>
-            <div className="text-[11px] text-[var(--fg3)] uppercase tracking-wider px-1 mb-2">{t(cat.labelKey)}</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-              {cat.items.map(item => (
-                <Tier2Card
-                  key={item.id}
-                  def={item}
-                  connected={isProviderConnected(item.id)}
-                  connecting={connecting === item.id || demoAnimating === item.id}
-                  connectLabel={t("connect")}
-                  connectedLabel={t("connected")}
-                  onConnect={() => handleConnectTier2(item)}
-                />
-              ))}
+      {/* Phase: Detecting */}
+      {phase === "detecting" && (
+        <div className="flex flex-col items-center gap-3 py-8">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
+          <p className="text-sm text-[var(--fg2)]">{t("detecting", { domain: detectedDomain || email.split("@")[1] || "" })}</p>
+        </div>
+      )}
+
+      {/* Phase: Google Delegation Guide */}
+      {phase === "guide_google" && (
+        <GoogleDelegationGuide
+          adminEmail={email}
+          domain={detectedDomain}
+          onComplete={handleDelegationComplete}
+          onBack={() => setPhase("email_input")}
+        />
+      )}
+
+      {/* Phase: Microsoft Delegation Guide */}
+      {phase === "guide_microsoft" && (
+        <MicrosoftDelegationGuide
+          adminEmail={email}
+          domain={detectedDomain}
+          onComplete={handleDelegationComplete}
+          onBack={() => setPhase("email_input")}
+        />
+      )}
+
+      {/* Phase: Unknown Provider */}
+      {phase === "unknown_provider" && (
+        <div className="space-y-6">
+          <div className="wf-soft p-5 text-center space-y-4">
+            <p className="text-sm text-[var(--fg2)]">{t("detectedUnknown")}</p>
+            <p className="text-xs text-[var(--fg3)]">{t("manualConnect")}</p>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={handleConnectGoogleOAuth}
+                disabled={connecting === "google-workspace"}
+                className="flex items-center gap-2 px-5 py-3 rounded-lg border border-border bg-hover text-sm text-foreground hover:bg-skeleton transition min-h-[44px] disabled:opacity-40"
+              >
+                <GoogleIcon />
+                {t("googleWorkspace")}
+              </button>
+              <button
+                onClick={handleConnectMicrosoftOAuth}
+                disabled={connecting === "microsoft"}
+                className="flex items-center gap-2 px-5 py-3 rounded-lg border border-border bg-hover text-sm text-foreground hover:bg-skeleton transition min-h-[44px] disabled:opacity-40"
+              >
+                <MicrosoftIcon />
+                {t("microsoft365")}
+              </button>
             </div>
           </div>
-        ))}
-      </div>
 
-      {/* Confidence indicator */}
-      {totalConnected > 0 && (
-        <div className="flex items-center gap-2 px-1">
-          <div className={`w-2 h-2 rounded-full ${totalConnected >= 6 ? "bg-ok" : totalConnected >= 3 ? "bg-ok/70" : "bg-warn"}`} />
-          <span className="text-xs text-[var(--fg2)]">{getConfidenceMessage()}</span>
+          {/* Also show Tier 2 */}
+          <Tier2Section
+            t={t}
+            categories={TIER2_CATEGORIES}
+            isProviderConnected={isProviderConnected}
+            connecting={connecting}
+            demoAnimating={demoAnimating}
+            onConnect={handleConnectTier2}
+          />
+
+          <div className="flex items-center justify-between pt-2">
+            <button onClick={() => setPhase("email_input")} className="text-sm text-[var(--fg2)] hover:text-foreground transition min-h-[44px]">
+              &larr; {tc("back")}
+            </button>
+            <Button variant="primary" size="md" onClick={handleContinue} disabled={advancing} className="min-h-[44px]">
+              {advancing ? tc("saving") : tc("continue")}
+            </Button>
+          </div>
         </div>
       )}
 
-      {/* Nudge */}
-      {showNudge && (
-        <p className="text-xs text-warn/70 text-center px-4">
-          {t("nudge")}
-        </p>
+      {/* Phase: Connected → Secondary offer → Tier 2 */}
+      {(phase === "connected" || phase === "tier2") && (
+        <div className="space-y-6">
+          {/* Success banner */}
+          <div className="wf-soft p-5 flex items-center gap-3">
+            <svg className="w-6 h-6 text-ok shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-sm text-ok font-medium">
+              {secondaryConnected
+                ? t("connectedBoth", { count: connectedUserCount + secondaryUserCount })
+                : t("connectedCount", { count: connectedUserCount })}
+            </span>
+          </div>
+
+          {/* Secondary provider offer */}
+          {secondaryChecked && secondaryAvailable && !secondaryConnected && !showSecondaryGuide && (
+            <div className="wf-soft p-5 space-y-3">
+              <h3 className="text-sm font-medium text-foreground">
+                {primaryProvider === "google" ? t("alsoUseMicrosoft") : t("alsoUseGoogle")}
+              </h3>
+              <p className="text-xs text-[var(--fg2)]">
+                {primaryProvider === "google" ? t("alsoUseSubtitleMs") : t("alsoUseSubtitleGoogle")}
+              </p>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setShowSecondaryGuide(true)}
+                  className="min-h-[44px]"
+                >
+                  {t("setupSecondary", { provider: primaryProvider === "google" ? "Microsoft 365" : "Google Workspace" })}
+                </Button>
+                <button
+                  onClick={() => setSecondaryAvailable(false)}
+                  className="text-sm text-[var(--fg2)] hover:text-foreground transition min-h-[44px] px-3"
+                >
+                  {t("skipSecondary")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Secondary delegation guide (inline) */}
+          {showSecondaryGuide && primaryProvider === "google" && (
+            <MicrosoftDelegationGuide
+              adminEmail={email}
+              domain={detectedDomain}
+              onComplete={handleSecondaryComplete}
+              onBack={() => setShowSecondaryGuide(false)}
+            />
+          )}
+          {showSecondaryGuide && primaryProvider === "microsoft" && (
+            <GoogleDelegationGuide
+              adminEmail={email}
+              domain={detectedDomain}
+              onComplete={handleSecondaryComplete}
+              onBack={() => setShowSecondaryGuide(false)}
+            />
+          )}
+
+          {/* Tier 2 tools (show when not in secondary guide) */}
+          {!showSecondaryGuide && (
+            <>
+              <div className="space-y-2">
+                <h2 className="text-sm font-medium text-foreground">{t("additionalTools")}</h2>
+                <p className="text-xs text-[var(--fg3)]">
+                  {detectedCount > 0
+                    ? t("detectedSummary", { count: detectedCount })
+                    : t("detectedNone")}
+                </p>
+              </div>
+
+              <Tier2Section
+                t={t}
+                categories={TIER2_CATEGORIES}
+                isProviderConnected={isProviderConnected}
+                connecting={connecting}
+                demoAnimating={demoAnimating}
+                onConnect={handleConnectTier2}
+                detectedTools={detectedTools.size > 0 ? detectedTools : undefined}
+              />
+
+              <div className="flex items-center justify-end pt-2">
+                <Button variant="primary" size="md" onClick={handleContinue} disabled={advancing} className="min-h-[44px]">
+                  {advancing ? tc("saving") : tc("continue")}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
-      {/* Navigation */}
-      <div className="flex items-center justify-between pt-2">
-        <button
-          onClick={onBack}
-          className="text-sm text-[var(--fg2)] hover:text-foreground transition min-h-[44px]"
-        >
-          &larr; {tc("back")}
-        </button>
-        <Button variant="primary" size="md" onClick={handleContinue} disabled={advancing} className="min-h-[44px]">
-          {advancing ? tc("saving") : tc("continue")}
-        </Button>
-      </div>
+      {/* Phase: Back button for email input */}
+      {phase === "email_input" && (
+        <div className="flex items-center justify-between">
+          <button onClick={onBack} className="text-sm text-[var(--fg2)] hover:text-foreground transition min-h-[44px]">
+            &larr; {tc("back")}
+          </button>
+          <div />
+        </div>
+      )}
 
       {configModal && (
         <ConnectorConfigModal
@@ -411,85 +561,57 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
 }
 
 /* ------------------------------------------------------------------ */
-/*  Workspace card (Tier 1)                                             */
+/*  Tier 2 section                                                      */
 /* ------------------------------------------------------------------ */
 
-function WorkspaceCard({
-  name,
-  subtitle,
-  connected,
-  connectedLabel,
+function Tier2Section({
+  t,
+  categories,
+  isProviderConnected,
   connecting,
-  connectLabel,
-  connectingLabel,
-  connectedTextLabel,
-  color,
-  icon,
+  demoAnimating,
   onConnect,
-  demoSubSteps,
+  detectedTools,
 }: {
-  name: string;
-  subtitle: string;
-  connected: boolean;
-  connectedLabel: string;
-  connecting: boolean;
-  connectLabel: string;
-  connectingLabel: string;
-  connectedTextLabel: string;
-  color: string;
-  icon: React.ReactNode;
-  onConnect: () => void;
-  demoSubSteps?: string[];
+  t: ReturnType<typeof useTranslations>;
+  categories: ConnectorCategory[];
+  isProviderConnected: (id: string) => boolean;
+  connecting: string | null;
+  demoAnimating: string | null;
+  onConnect: (def: ConnectorDef) => void;
+  detectedTools?: Map<string, number>;
 }) {
   return (
-    <div className="wf-soft p-5 flex flex-col gap-3">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${color}20` }}>
-          {icon}
+    <div className="space-y-3">
+      {categories.map(cat => {
+        // Sort detected tools to the top of their category
+        const items = detectedTools
+          ? [...cat.items].sort((a, b) => {
+              const aDetected = detectedTools.has(a.id) ? 1 : 0;
+              const bDetected = detectedTools.has(b.id) ? 1 : 0;
+              return bDetected - aDetected;
+            })
+          : cat.items;
+        return (
+        <div key={cat.labelKey}>
+          <div className="text-[11px] text-[var(--fg3)] uppercase tracking-wider px-1 mb-2">{t(cat.labelKey)}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {items.map(item => (
+              <Tier2Card
+                key={item.id}
+                def={item}
+                connected={isProviderConnected(item.id)}
+                connecting={connecting === item.id || demoAnimating === item.id}
+                connectLabel={t("connect")}
+                connectedLabel={t("connected")}
+                detectedLabel={detectedTools?.has(item.id) ? t("detectedInEmail", { count: detectedTools.get(item.id)! }) : undefined}
+                onConnect={() => onConnect(item)}
+              />
+            ))}
+          </div>
         </div>
-        <div className="min-w-0">
-          <h3 className="text-sm font-medium text-foreground">{name}</h3>
-          <p className="text-xs text-[var(--fg2)]">{subtitle}</p>
-        </div>
-      </div>
-      {connected ? (
-        <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-ok shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-          <span className="text-xs text-ok font-medium">{connectedTextLabel}</span>
-          <span className="text-xs text-[var(--fg3)] ml-auto">{connectedLabel}</span>
-        </div>
-      ) : (
-        <>
-          <button
-            onClick={onConnect}
-            disabled={connecting}
-            className="w-full px-4 py-2.5 rounded-lg border border-border bg-hover text-sm text-[var(--fg2)] hover:bg-skeleton hover:text-foreground transition disabled:opacity-40 disabled:cursor-not-allowed min-h-[44px]"
-          >
-            {connecting ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-foreground/30 border-t-foreground" />
-                {connectingLabel}
-              </span>
-            ) : (
-              connectLabel
-            )}
-          </button>
-          {demoSubSteps && demoSubSteps.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {demoSubSteps.map(sub => (
-                <span
-                  key={sub}
-                  className="px-2 py-0.5 rounded-full bg-accent-light text-[10px] text-accent/70 animate-[fadeIn_0.3s_ease-in]"
-                >
-                  {sub}
-                </span>
-              ))}
-            </div>
-          )}
-        </>
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -504,6 +626,7 @@ function Tier2Card({
   connecting,
   connectLabel,
   connectedLabel,
+  detectedLabel,
   onConnect,
 }: {
   def: ConnectorDef;
@@ -511,6 +634,7 @@ function Tier2Card({
   connecting: boolean;
   connectLabel: string;
   connectedLabel: string;
+  detectedLabel?: string;
   onConnect: () => void;
 }) {
   return (
@@ -521,7 +645,14 @@ function Tier2Card({
       >
         {def.label.slice(0, 2).toUpperCase()}
       </span>
-      <span className="text-sm text-foreground flex-1 min-w-0 truncate">{def.label}</span>
+      <div className="flex-1 min-w-0">
+        <span className="text-sm text-foreground truncate block">{def.label}</span>
+        {detectedLabel && !connected && (
+          <span className="text-[10px] text-warn/80 bg-warn/10 px-1.5 py-0.5 rounded inline-block mt-0.5">
+            {detectedLabel}
+          </span>
+        )}
+      </div>
       {connected ? (
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-xs text-ok">{connectedLabel}</span>

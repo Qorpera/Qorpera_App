@@ -34,6 +34,7 @@
     "bcryptjs": "^3.0.3",
     "cron-parser": "^5.5.0",
     "docx": "^9.6.1",
+    "google-auth-library": "^10.6.2",
     "mammoth": "^1.11.0",
     "next": "^14.2.29",
     "next-intl": "^4.8.3",

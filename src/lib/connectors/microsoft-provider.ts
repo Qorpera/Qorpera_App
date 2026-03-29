@@ -23,6 +23,15 @@ async function getMicrosoftAccessToken(
   return getValidAccessToken(config);
 }
 
+// ── User endpoint prefix (delegation vs OAuth) ─────────────
+
+export function getUserEndpointPrefix(config: ConnectorConfig): string {
+  if (config.delegation_type === "app-permissions" && config.target_user_email) {
+    return `/users/${encodeURIComponent(config.target_user_email as string)}`;
+  }
+  return "/me";
+}
+
 // ── Graph API helper ────────────────────────────────────────
 
 async function graphFetch(
@@ -187,13 +196,15 @@ async function* syncOutlook(
   const { ensureHardcodedEntityType } = await import("@/lib/event-materializer");
   const { upsertEntity } = await import("@/lib/entity-resolution");
 
+  const prefix = getUserEndpointPrefix(config);
+
   // 1. Get user email
-  let userEmail = (config.email_address as string) || "";
+  let userEmail = (config.email_address as string) || (config.target_user_email as string) || "";
   if (!userEmail) {
-    const profileResp = await graphFetchWithRetry(accessToken, "/me");
+    const profileResp = await graphFetchWithRetry(accessToken, `${prefix}`);
     if (!profileResp.ok) {
       throw new Error(
-        `Microsoft Graph /me: ${profileResp.status} ${profileResp.statusText}`
+        `Microsoft Graph ${prefix}: ${profileResp.status} ${profileResp.statusText}`
       );
     }
     const profile = await profileResp.json();
@@ -211,11 +222,11 @@ async function* syncOutlook(
   let nextLink: string | undefined;
 
   // First request
-  const initialResp = await graphFetchWithRetry(accessToken, "/me/messages", {
+  const initialResp = await graphFetchWithRetry(accessToken, `${prefix}/messages`, {
     $filter: `receivedDateTime ge ${syncAfter.toISOString()}`,
     $orderby: "receivedDateTime desc",
     $top: "50",
-    $select: "id,subject,from,toRecipients,ccRecipients,body,receivedDateTime,conversationId,isRead,hasAttachments,internetMessageHeaders",
+    $select: "id,subject,from,toRecipients,ccRecipients,body,receivedDateTime,conversationId,isRead,hasAttachments,internetMessageHeaders,internetMessageId",
   });
 
   if (!initialResp.ok) {
@@ -269,6 +280,7 @@ async function* syncOutlook(
               to: toRecipients.map((r) => r.emailAddress?.address).filter(Boolean),
               cc: ccRecipients.map((r) => r.emailAddress?.address).filter(Boolean),
               threadId: conversationId,
+              messageId: (message as any).internetMessageId || undefined,
               date: date.toISOString(),
               direction,
               isAutomated: automated,
@@ -388,8 +400,9 @@ async function* syncOutlook(
 async function* syncOneDrive(
   accessToken: string,
   since: Date | undefined,
-  _config: ConnectorConfig
+  config: ConnectorConfig
 ): AsyncGenerator<SyncYield> {
+  const prefix = getUserEndpointPrefix(config);
   const syncAfter = since || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
   let fileCount = 0;
@@ -398,7 +411,7 @@ async function* syncOneDrive(
   let nextLink: string | undefined;
 
   // Use search with filter for modified files
-  const initialResp = await graphFetchWithRetry(accessToken, "/me/drive/root/search(q='')", {
+  const initialResp = await graphFetchWithRetry(accessToken, `${prefix}/drive/root/search(q='')`, {
     $select: "id,name,file,size,lastModifiedDateTime,createdDateTime,lastModifiedBy,shared",
     $top: "100",
   });
@@ -442,7 +455,7 @@ async function* syncOneDrive(
         // Download file content
         const dlResp = await graphFetchWithRetry(
           accessToken,
-          `/me/drive/items/${file.id}/content`
+          `${prefix}/drive/items/${file.id}/content`
         );
 
         if (!dlResp.ok) {
@@ -596,6 +609,8 @@ async function* syncTeams(
   since: Date | undefined,
   config: ConnectorConfig
 ): AsyncGenerator<SyncYield> {
+  const prefix = getUserEndpointPrefix(config);
+
   // Check if Teams scope was granted
   const scopes = config.scopes as string[] || [];
   if (!scopes.some((s) => s.includes("ChannelMessage"))) {
@@ -606,7 +621,7 @@ async function* syncTeams(
   const syncAfter = since || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
   // 1. List joined teams
-  const teamsResp = await graphFetchWithRetry(accessToken, "/me/joinedTeams");
+  const teamsResp = await graphFetchWithRetry(accessToken, `${prefix}/joinedTeams`);
   if (!teamsResp.ok) {
     console.warn(`[microsoft-sync] Teams: joinedTeams failed: ${teamsResp.status}`);
     return;
@@ -785,8 +800,9 @@ async function* syncTeams(
 async function* syncMicrosoftCalendar(
   accessToken: string,
   since: Date | undefined,
-  _config: ConnectorConfig
+  config: ConnectorConfig
 ): AsyncGenerator<SyncYield> {
+  const prefix = getUserEndpointPrefix(config);
   const syncAfter = since || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
   let eventCount = 0;
@@ -795,7 +811,7 @@ async function* syncMicrosoftCalendar(
 
   const initialResp = await graphFetchWithRetry(
     accessToken,
-    "/me/calendar/events",
+    `${prefix}/calendar/events`,
     {
       $filter: `start/dateTime ge '${syncAfter.toISOString()}'`,
       $orderby: "start/dateTime",
@@ -950,7 +966,8 @@ async function* syncMicrosoftCalendar(
 
 async function sendOutlookEmail(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const to = input.to as string;
   const subject = input.subject as string;
@@ -975,7 +992,7 @@ async function sendOutlookEmail(
       }))
     : [];
 
-  const resp = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+  const resp = await fetch(`${baseUrl}/sendMail`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -1002,13 +1019,14 @@ async function sendOutlookEmail(
 
 async function replyToOutlookThread(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const messageId = input.messageId as string;
   const body = input.body as string;
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/reply`,
+    `${baseUrl}/messages/${encodeURIComponent(messageId)}/reply`,
     {
       method: "POST",
       headers: {
@@ -1033,7 +1051,8 @@ async function replyToOutlookThread(
 
 async function createMicrosoftSpreadsheet(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const title = input.title as string;
   const sheetName = (input.sheetName as string) || "Sheet1";
@@ -1051,7 +1070,7 @@ async function createMicrosoftSpreadsheet(
   // Upload to OneDrive
   const fileName = title.endsWith(".xlsx") ? title : `${title}.xlsx`;
   const uploadResp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(fileName)}:/content`,
+    `${baseUrl}/drive/root:/${encodeURIComponent(fileName)}:/content`,
     {
       method: "PUT",
       headers: {
@@ -1073,7 +1092,8 @@ async function createMicrosoftSpreadsheet(
 
 async function updateMicrosoftSpreadsheetCells(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const fileId = input.fileId as string;
   const range = input.range as string;
@@ -1081,7 +1101,7 @@ async function updateMicrosoftSpreadsheetCells(
   const sheetName = (input.sheetName as string) || "Sheet1";
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}/workbook/worksheets/${encodeURIComponent(sheetName)}/range(address='${encodeURIComponent(range)}')`,
+    `${baseUrl}/drive/items/${encodeURIComponent(fileId)}/workbook/worksheets/${encodeURIComponent(sheetName)}/range(address='${encodeURIComponent(range)}')`,
     {
       method: "PATCH",
       headers: {
@@ -1110,7 +1130,8 @@ async function updateMicrosoftSpreadsheetCells(
 
 async function createMicrosoftDocument(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const title = input.title as string;
   const content = input.content as string | undefined;
@@ -1134,7 +1155,7 @@ async function createMicrosoftDocument(
 
   const fileName = title.endsWith(".docx") ? title : `${title}.docx`;
   const uploadResp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(fileName)}:/content`,
+    `${baseUrl}/drive/root:/${encodeURIComponent(fileName)}:/content`,
     {
       method: "PUT",
       headers: {
@@ -1156,14 +1177,15 @@ async function createMicrosoftDocument(
 
 async function appendToMicrosoftDocument(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const fileId = input.fileId as string;
   const content = input.content as string;
 
   // 1. Download existing .docx
   const dlResp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}/content`,
+    `${baseUrl}/drive/items/${encodeURIComponent(fileId)}/content`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
@@ -1195,7 +1217,7 @@ async function appendToMicrosoftDocument(
 
   // 4. Re-upload
   const uploadResp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}/content`,
+    `${baseUrl}/drive/items/${encodeURIComponent(fileId)}/content`,
     {
       method: "PUT",
       headers: {
@@ -1218,7 +1240,8 @@ async function appendToMicrosoftDocument(
 
 async function uploadFileOneDrive(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const name = input.name as string;
   if (!name) return { success: false, error: "name is required" };
@@ -1232,11 +1255,11 @@ async function uploadFileOneDrive(
   }
 
   const parentPath = folderId
-    ? `/me/drive/items/${encodeURIComponent(folderId)}:/${encodeURIComponent(name)}:/content`
-    : `/me/drive/root:/${encodeURIComponent(name)}:/content`;
+    ? `/drive/items/${encodeURIComponent(folderId)}:/${encodeURIComponent(name)}:/content`
+    : `/drive/root:/${encodeURIComponent(name)}:/content`;
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0${parentPath}`,
+    `${baseUrl}${parentPath}`,
     {
       method: "PUT",
       headers: {
@@ -1258,18 +1281,19 @@ async function uploadFileOneDrive(
 
 async function createFolderOneDrive(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const name = input.name as string;
   if (!name) return { success: false, error: "name is required" };
   const parentFolderId = input.parentFolderId as string | undefined;
 
   const parentPath = parentFolderId
-    ? `/me/drive/items/${encodeURIComponent(parentFolderId)}/children`
-    : "/me/drive/root/children";
+    ? `/drive/items/${encodeURIComponent(parentFolderId)}/children`
+    : "/drive/root/children";
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0${parentPath}`,
+    `${baseUrl}${parentPath}`,
     {
       method: "POST",
       headers: {
@@ -1295,7 +1319,8 @@ async function createFolderOneDrive(
 
 async function shareFileOneDrive(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const fileId = input.fileId as string;
   if (!fileId) return { success: false, error: "fileId is required" };
@@ -1307,7 +1332,7 @@ async function shareFileOneDrive(
   }
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}/invite`,
+    `${baseUrl}/drive/items/${encodeURIComponent(fileId)}/invite`,
     {
       method: "POST",
       headers: {
@@ -1334,7 +1359,8 @@ async function shareFileOneDrive(
 
 async function moveFileOneDrive(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const fileId = input.fileId as string;
   if (!fileId) return { success: false, error: "fileId is required" };
@@ -1342,7 +1368,7 @@ async function moveFileOneDrive(
   if (!targetFolderId) return { success: false, error: "targetFolderId is required" };
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}`,
+    `${baseUrl}/drive/items/${encodeURIComponent(fileId)}`,
     {
       method: "PATCH",
       headers: {
@@ -1365,7 +1391,8 @@ async function moveFileOneDrive(
 
 async function copyFileOneDrive(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const fileId = input.fileId as string;
   if (!fileId) return { success: false, error: "fileId is required" };
@@ -1377,7 +1404,7 @@ async function copyFileOneDrive(
   if (folderId) body.parentReference = { id: folderId };
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(fileId)}/copy`,
+    `${baseUrl}/drive/items/${encodeURIComponent(fileId)}/copy`,
     {
       method: "POST",
       headers: {
@@ -1401,7 +1428,8 @@ async function copyFileOneDrive(
 
 async function replyOutlookEmail(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const messageId = input.messageId as string;
   if (!messageId) return { success: false, error: "messageId is required" };
@@ -1418,7 +1446,7 @@ async function replyOutlookEmail(
 
   const endpoint = replyAll ? "replyAll" : "reply";
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/${endpoint}`,
+    `${baseUrl}/messages/${encodeURIComponent(messageId)}/${endpoint}`,
     {
       method: "POST",
       headers: {
@@ -1439,7 +1467,8 @@ async function replyOutlookEmail(
 
 async function forwardOutlookEmail(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const messageId = input.messageId as string;
   if (!messageId) return { success: false, error: "messageId is required" };
@@ -1459,7 +1488,7 @@ async function forwardOutlookEmail(
   }));
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/forward`,
+    `${baseUrl}/messages/${encodeURIComponent(messageId)}/forward`,
     {
       method: "POST",
       headers: {
@@ -1480,7 +1509,8 @@ async function forwardOutlookEmail(
 
 async function createOutlookDraft(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const to = input.to as string;
   if (!to) return { success: false, error: "to is required" };
@@ -1494,7 +1524,7 @@ async function createOutlookDraft(
   }));
 
   const resp = await fetch(
-    "https://graph.microsoft.com/v1.0/me/messages",
+    `${baseUrl}/messages`,
     {
       method: "POST",
       headers: {
@@ -1520,7 +1550,8 @@ async function createOutlookDraft(
 
 async function sendOutlookWithAttachment(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const to = input.to as string;
   if (!to) return { success: false, error: "to is required" };
@@ -1552,7 +1583,7 @@ async function sendOutlookWithAttachment(
 
   // Step 1: Create draft
   const draftResp = await fetch(
-    "https://graph.microsoft.com/v1.0/me/messages",
+    `${baseUrl}/messages`,
     {
       method: "POST",
       headers: {
@@ -1578,7 +1609,7 @@ async function sendOutlookWithAttachment(
   // Step 2: Attach files
   for (const att of attachments) {
     const attResp = await fetch(
-      `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(draftId)}/attachments`,
+      `${baseUrl}/messages/${encodeURIComponent(draftId)}/attachments`,
       {
         method: "POST",
         headers: {
@@ -1602,7 +1633,7 @@ async function sendOutlookWithAttachment(
 
   // Step 3: Send
   const sendResp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(draftId)}/send`,
+    `${baseUrl}/messages/${encodeURIComponent(draftId)}/send`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -1619,13 +1650,14 @@ async function sendOutlookWithAttachment(
 
 async function archiveOutlookMessage(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const messageId = input.messageId as string;
   if (!messageId) return { success: false, error: "messageId is required" };
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}/move`,
+    `${baseUrl}/messages/${encodeURIComponent(messageId)}/move`,
     {
       method: "POST",
       headers: {
@@ -1646,7 +1678,8 @@ async function archiveOutlookMessage(
 
 async function flagOutlookMessage(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const messageId = input.messageId as string;
   if (!messageId) return { success: false, error: "messageId is required" };
@@ -1656,7 +1689,7 @@ async function flagOutlookMessage(
   }
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    `${baseUrl}/messages/${encodeURIComponent(messageId)}`,
     {
       method: "PATCH",
       headers: {
@@ -1677,13 +1710,14 @@ async function flagOutlookMessage(
 
 async function markOutlookRead(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const messageId = input.messageId as string;
   if (!messageId) return { success: false, error: "messageId is required" };
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    `${baseUrl}/messages/${encodeURIComponent(messageId)}`,
     {
       method: "PATCH",
       headers: {
@@ -1788,7 +1822,8 @@ async function replyToTeamsThread(
 
 async function writeExcelCells(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const workbookId = input.workbookId as string;
   if (!workbookId) return { success: false, error: "workbookId is required" };
@@ -1800,7 +1835,7 @@ async function writeExcelCells(
   if (!values) return { success: false, error: "values is required" };
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(range)}')`,
+    `${baseUrl}/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(range)}')`,
     {
       method: "PATCH",
       headers: {
@@ -1822,7 +1857,8 @@ async function writeExcelCells(
 
 async function appendExcelRows(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const workbookId = input.workbookId as string;
   if (!workbookId) return { success: false, error: "workbookId is required" };
@@ -1833,7 +1869,7 @@ async function appendExcelRows(
 
   // Find the used range to determine the next empty row
   const usedResp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/usedRange`,
+    `${baseUrl}/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/usedRange`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
@@ -1850,7 +1886,7 @@ async function appendExcelRows(
   const range = `A${startRow}:${lastCol}${endRow}`;
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(range)}')`,
+    `${baseUrl}/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets('${encodeURIComponent(sheetName)}')/range(address='${encodeURIComponent(range)}')`,
     {
       method: "PATCH",
       headers: {
@@ -1872,7 +1908,8 @@ async function appendExcelRows(
 
 async function createExcelWorksheet(
   accessToken: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me"
 ): Promise<{ success: boolean; error?: string; result?: unknown }> {
   const workbookId = input.workbookId as string;
   if (!workbookId) return { success: false, error: "workbookId is required" };
@@ -1880,7 +1917,7 @@ async function createExcelWorksheet(
   if (!name) return { success: false, error: "name is required" };
 
   const resp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets`,
+    `${baseUrl}/drive/items/${encodeURIComponent(workbookId)}/workbook/worksheets`,
     {
       method: "POST",
       headers: {
@@ -1950,46 +1987,47 @@ export const microsoftProvider: ConnectorProvider = {
 
   async executeAction(config, actionId, params) {
     const accessToken = await getMicrosoftAccessToken(config);
+    const baseUrl = `https://graph.microsoft.com/v1.0${getUserEndpointPrefix(config)}`;
 
     switch (actionId) {
       // Outlook
       case "send_email":
-        return await sendOutlookEmail(accessToken, params);
+        return await sendOutlookEmail(accessToken, params, baseUrl);
       case "reply_to_thread":
-        return await replyToOutlookThread(accessToken, params);
+        return await replyToOutlookThread(accessToken, params, baseUrl);
       case "reply_email":
-        return await replyOutlookEmail(accessToken, params);
+        return await replyOutlookEmail(accessToken, params, baseUrl);
       case "forward_email":
-        return await forwardOutlookEmail(accessToken, params);
+        return await forwardOutlookEmail(accessToken, params, baseUrl);
       case "create_draft":
-        return await createOutlookDraft(accessToken, params);
+        return await createOutlookDraft(accessToken, params, baseUrl);
       case "send_with_attachment":
-        return await sendOutlookWithAttachment(accessToken, params);
+        return await sendOutlookWithAttachment(accessToken, params, baseUrl);
       case "archive":
-        return await archiveOutlookMessage(accessToken, params);
+        return await archiveOutlookMessage(accessToken, params, baseUrl);
       case "flag_message":
-        return await flagOutlookMessage(accessToken, params);
+        return await flagOutlookMessage(accessToken, params, baseUrl);
       case "mark_read":
-        return await markOutlookRead(accessToken, params);
+        return await markOutlookRead(accessToken, params, baseUrl);
       // OneDrive
       case "create_document":
-        return await createMicrosoftDocument(accessToken, params);
+        return await createMicrosoftDocument(accessToken, params, baseUrl);
       case "append_to_document":
-        return await appendToMicrosoftDocument(accessToken, params);
+        return await appendToMicrosoftDocument(accessToken, params, baseUrl);
       case "create_spreadsheet":
-        return await createMicrosoftSpreadsheet(accessToken, params);
+        return await createMicrosoftSpreadsheet(accessToken, params, baseUrl);
       case "update_spreadsheet_cells":
-        return await updateMicrosoftSpreadsheetCells(accessToken, params);
+        return await updateMicrosoftSpreadsheetCells(accessToken, params, baseUrl);
       case "upload_file":
-        return await uploadFileOneDrive(accessToken, params);
+        return await uploadFileOneDrive(accessToken, params, baseUrl);
       case "create_folder":
-        return await createFolderOneDrive(accessToken, params);
+        return await createFolderOneDrive(accessToken, params, baseUrl);
       case "share_file":
-        return await shareFileOneDrive(accessToken, params);
+        return await shareFileOneDrive(accessToken, params, baseUrl);
       case "move_file":
-        return await moveFileOneDrive(accessToken, params);
+        return await moveFileOneDrive(accessToken, params, baseUrl);
       case "copy_file":
-        return await copyFileOneDrive(accessToken, params);
+        return await copyFileOneDrive(accessToken, params, baseUrl);
       // Teams
       case "send_channel_message":
         return await sendTeamsChannelMessage(accessToken, params);
@@ -1997,16 +2035,16 @@ export const microsoftProvider: ConnectorProvider = {
         return await replyToTeamsThread(accessToken, params);
       // Excel
       case "write_cells":
-        return await writeExcelCells(accessToken, params);
+        return await writeExcelCells(accessToken, params, baseUrl);
       case "append_rows":
-        return await appendExcelRows(accessToken, params);
+        return await appendExcelRows(accessToken, params, baseUrl);
       case "create_worksheet":
-        return await createExcelWorksheet(accessToken, params);
+        return await createExcelWorksheet(accessToken, params, baseUrl);
       // Calendar
       case "create_calendar_event":
-        return await createMicrosoftCalendarEvent(accessToken, params);
+        return await createMicrosoftCalendarEvent(accessToken, params, baseUrl);
       case "update_calendar_event":
-        return await updateMicrosoftCalendarEvent(accessToken, params);
+        return await updateMicrosoftCalendarEvent(accessToken, params, baseUrl);
       default:
         return { success: false, error: `Unknown action: ${actionId}` };
     }
@@ -2106,6 +2144,7 @@ export const microsoftProvider: ConnectorProvider = {
 async function createMicrosoftCalendarEvent(
   accessToken: string,
   params: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me",
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   const body = {
     subject: params.summary,
@@ -2119,7 +2158,7 @@ async function createMicrosoftCalendarEvent(
     location: params.location ? { displayName: params.location } : undefined,
   };
 
-  const resp = await fetch("https://graph.microsoft.com/v1.0/me/events", {
+  const resp = await fetch(`${baseUrl}/events`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -2136,6 +2175,7 @@ async function createMicrosoftCalendarEvent(
 async function updateMicrosoftCalendarEvent(
   accessToken: string,
   params: Record<string, unknown>,
+  baseUrl = "https://graph.microsoft.com/v1.0/me",
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   const fields = (params.fields || {}) as Record<string, unknown>;
   const body: Record<string, unknown> = {};
@@ -2149,7 +2189,7 @@ async function updateMicrosoftCalendarEvent(
   }));
   if (fields.location) body.location = { displayName: fields.location };
 
-  const resp = await fetch(`https://graph.microsoft.com/v1.0/me/events/${params.eventId}`, {
+  const resp = await fetch(`${baseUrl}/events/${params.eventId}`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),

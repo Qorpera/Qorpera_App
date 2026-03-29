@@ -1,8 +1,15 @@
 import type { ConnectorConfig } from "./types";
+import { getAppTokenForUser } from "./microsoft-365-delegation";
 
 export async function getValidAccessToken(
   config: ConnectorConfig
 ): Promise<string> {
+  // Application Permissions: use client credentials flow
+  if (config.delegation_type === "app-permissions" && config.tenant_id && config.target_user_email) {
+    return getAppTokenForUser(config.tenant_id as string, config.target_user_email as string);
+  }
+
+  // Standard OAuth: check token expiry and refresh if needed
   const expiry = new Date(config.token_expiry as string);
 
   if (expiry.getTime() > Date.now() + 5 * 60 * 1000) {

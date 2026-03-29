@@ -21,6 +21,7 @@ vi.mock("@/lib/db", () => ({
     sourceConnector: {
       count: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
     },
@@ -45,6 +46,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/config-encryption", () => ({
   encryptConfig: vi.fn().mockReturnValue("encrypted-config"),
+  decryptConfig: vi.fn().mockReturnValue({}),
 }));
 
 vi.mock("@/lib/connectors/capability-registration", () => ({

@@ -124,12 +124,29 @@ export async function runConnectorSync(
 
         case "content": {
           try {
+            // Email dedup: skip if same Message-ID already ingested (dual-provider scenario)
+            const meta = item.data.metadata as Record<string, unknown> | undefined;
+            if (item.data.sourceType === "email" && meta?.messageId) {
+              const [existing] = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+                `SELECT id FROM "ContentChunk"
+                 WHERE "operatorId" = $1
+                   AND "sourceType" = 'email'
+                   AND metadata::jsonb->>'messageId' = $2
+                 LIMIT 1`,
+                operatorId,
+                meta.messageId as string,
+              );
+              if (existing) {
+                continue; // Already ingested from another provider
+              }
+            }
+
             const deptIds = await resolveDepartmentsFromEmails(
               operatorId,
               item.data.participantEmails,
             );
             // Merge channel-mapped departmentId if present (Slack channel→department mapping)
-            const mappedDeptId = (item.data.metadata as Record<string, unknown> | undefined)?.departmentId as string | null;
+            const mappedDeptId = (meta as Record<string, unknown> | undefined)?.departmentId as string | null;
             if (mappedDeptId && !deptIds.includes(mappedDeptId)) {
               deptIds.push(mappedDeptId);
             }

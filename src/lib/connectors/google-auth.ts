@@ -1,8 +1,15 @@
 import type { ConnectorConfig } from "./types";
+import { getImpersonatedAccessToken } from "./google-workspace-delegation";
 
 export async function getValidAccessToken(
   config: ConnectorConfig
 ): Promise<string> {
+  // Domain-wide delegation: use service account impersonation
+  if (config.delegation_type === "domain-wide" && config.impersonated_email) {
+    return getImpersonatedAccessToken(config.impersonated_email as string);
+  }
+
+  // Standard OAuth: check token expiry and refresh if needed
   const expiry = new Date(config.token_expiry as string);
 
   if (expiry.getTime() > Date.now() + 5 * 60 * 1000) {

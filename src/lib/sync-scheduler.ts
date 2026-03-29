@@ -9,6 +9,9 @@
 import { prisma } from "@/lib/db";
 import { runConnectorSync } from "@/lib/connector-sync";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
+import { decryptConfig } from "@/lib/config-encryption";
+
+const META_PROVIDERS = ["google-delegation-meta", "microsoft-delegation-meta"];
 
 const SYNC_INTERVALS: Record<string, number> = {
   "google": 5 * 60 * 1000,       // unified Google (Gmail, Drive, Calendar, Sheets)
@@ -57,6 +60,7 @@ async function tick() {
         status: "active",
         deletedAt: null,
         operator: { isTestOperator: false },
+        provider: { notIn: META_PROVIDERS },
       },
       select: {
         id: true,
@@ -112,6 +116,22 @@ async function syncConnector(
       `${result.eventsCreated} events, ${result.contentIngested} content, ` +
       `${result.activitiesIngested} activities in ${result.durationMs}ms`,
     );
+
+    // Rate limit delegation connectors: these share domain-level API quotas
+    try {
+      const conn = await prisma.sourceConnector.findUnique({
+        where: { id: connectorId },
+        select: { config: true },
+      });
+      if (conn?.config) {
+        const config = decryptConfig(conn.config as string) as Record<string, unknown>;
+        if (config.delegation_type) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    } catch {
+      // Non-critical — skip rate limit check on error
+    }
 
     // Health tracking (consecutiveFailures, healthStatus) is now handled inside
     // runConnectorSync — the scheduler only handles errors that bypass the sync

@@ -276,6 +276,7 @@ function processMessage(
           to: toParsed.map((p) => p.email),
           cc: ccParsed.map((p) => p.email),
           threadId: message.threadId,
+          messageId: messageIdHeader || undefined,
           date: date.toISOString(),
           direction,
           isAutomated: automated,
