@@ -606,19 +606,20 @@ export async function callLLM(options: LLMRequestOptions): Promise<LLMResponse> 
 export async function* streamLLM(
   options: LLMRequestOptions,
 ): AsyncGenerator<string> {
-  // Proxy through Bastion worker if WORKER_URL is set
-  const workerUrl = process.env.WORKER_URL;
-  if (workerUrl) {
-    yield* proxyStreamLLM(workerUrl, options);
-    return;
-  }
-
   const config = await getAIConfig(options.aiFunction, options.operatorId);
   const model = options.model || config.model;
 
-  // If the requested model is explicitly an Anthropic model, route directly
+  // Direct Anthropic streaming — preferred for interactive paths (copilot, chat)
+  // Avoids unnecessary proxy hop through worker when key is available locally
   if (model.startsWith("claude-") && process.env.ANTHROPIC_API_KEY) {
     yield* streamAnthropic(process.env.ANTHROPIC_API_KEY, model, options);
+    return;
+  }
+
+  // Worker proxy for non-Anthropic models or when no local key
+  const workerUrl = process.env.WORKER_URL;
+  if (workerUrl) {
+    yield* proxyStreamLLM(workerUrl, options);
     return;
   }
 
