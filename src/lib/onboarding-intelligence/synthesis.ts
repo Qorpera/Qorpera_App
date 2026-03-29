@@ -28,6 +28,7 @@ export interface CompanyModel {
     role: string;
     roleLevel: "ic" | "lead" | "manager" | "director" | "c_level";
     reportsToEmail?: string;
+    profile?: string;
   }>;
   crossFunctionalPeople: Array<{
     email: string;
@@ -185,6 +186,7 @@ interface CompanyModel {
     role: string;               // Job title or function
     roleLevel: "ic" | "lead" | "manager" | "director" | "c_level";
     reportsToEmail?: string;    // Email of direct manager (omit if unknown)
+    profile?: string;               // 2-3 sentence summary of how this person works day-to-day
   }>;
   crossFunctionalPeople: Array<{
     email: string;
@@ -243,6 +245,18 @@ Produce a SINGLE JSON object matching the interface above:
 3. **Assigns every internal person to exactly one primary department** in the top-level \`people\` array (cross-functional people get a primary + listed in crossFunctionalPeople)
 4. **Produces actionable situation type recommendations** synthesized from all agents
 5. **Generates the uncertainty log** — specific questions for the CEO that the data couldn't answer
+
+## Structural Classification Rules (MANDATORY)
+
+These rules override agent inference when they conflict. They prevent misclassification of common organizational patterns:
+
+1. **The CEO, owner, director, or founder is ALWAYS in a "Leadership", "Management", or "Ledelse" department.** Even if they also handle administrative tasks, finance, or client work. A CEO who manages invoices is still a CEO in Leadership — not an administrator.
+2. **A department must contain people who share the same primary function.** Do not group a CEO with bookkeepers just because they discuss finances. The CEO's primary function is leadership; the bookkeeper's primary function is administration.
+3. **Apprentices and trainees belong in the department of their work, not in a separate "Training" department.** An electrician apprentice belongs in Field Operations alongside their mentor.
+4. **Contractors and freelancers with internal email addresses should be assigned to the department matching their work but flagged in crossFunctionalPeople or a note.** Do not create a "Contractors" department.
+5. **If an org chart document was found and is less than 6 months old, prefer its department structure over behavioral inference.** Only deviate when clear evidence shows the structure has changed (new departments, merged teams, departed leaders).
+6. **One-person departments are acceptable** when that person has a distinct function (e.g., a solo sales hire, a solo project coordinator). Do not merge them into an unrelated department just to avoid small departments.
+7. **When two runs of this analysis would produce different department structures because the evidence is ambiguous, prefer the structure that matches the company's own documented terminology.** If the company calls it "Kontor" in their documents, use "Kontor" — not "Administration" or "Office Operations."
 
 ## Critical Rules
 

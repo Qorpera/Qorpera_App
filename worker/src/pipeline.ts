@@ -321,6 +321,7 @@ async function runOrganizerCall(
   const response = await client.messages.create({
     model: orgModel,
     max_tokens: getMaxOutputTokens(orgModel),
+    temperature: orgThinking ? undefined : 0,
     ...(orgThinking ? { thinking: { type: "enabled" as const, budget_tokens: orgThinking } } : {}),
     system: [
       {
@@ -412,6 +413,7 @@ async function runSynthesis(
   const response = await client.messages.create({
     model: synthModel,
     max_tokens: getMaxOutputTokens(synthModel),
+    temperature: synthThinking ? undefined : 0,
     ...(synthThinking ? { thinking: { type: "enabled" as const, budget_tokens: synthThinking } } : {}),
     system: [
       {

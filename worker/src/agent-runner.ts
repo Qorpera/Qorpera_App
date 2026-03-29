@@ -72,6 +72,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       ],
       messages,
       tools: anthropicTools,
+      temperature: thinkingBudget ? undefined : 0,
       ...(thinkingBudget ? { thinking: { type: "enabled" as const, budget_tokens: thinkingBudget } } : {}),
     }, { timeout: 20 * 60 * 1000 });
 
