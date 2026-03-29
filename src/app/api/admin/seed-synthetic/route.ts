@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { company: companySlug, action, model, operatorId: targetOperatorId } = await req.json().catch(() => ({ company: null, action: null, model: null, operatorId: null }));
+  const { company: companySlug, action, operatorId: targetOperatorId } = await req.json().catch(() => ({ company: null, action: null, operatorId: null }));
 
   if (!companySlug || typeof companySlug !== "string") {
     return NextResponse.json({ error: "company slug is required" }, { status: 400 });
@@ -51,19 +51,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Clean up existing variant with same model label
-    const modelLabel = model?.includes("sonnet") ? "Sonnet" : model?.includes("opus") ? "Opus" : null;
-    const searchName = modelLabel ? `${companySlug} (${modelLabel})` : companySlug;
+    // Clean up existing seeded operator for this company
     const existing = await prisma.operator.findFirst({
-      where: { isTestOperator: true, companyName: { contains: searchName, mode: "insensitive" } },
+      where: { isTestOperator: true, companyName: { contains: companySlug, mode: "insensitive" } },
     });
     if (existing) {
-      console.log(`[synthetic-seed] Removing existing ${searchName} operator...`);
+      console.log(`[synthetic-seed] Removing existing ${companySlug} operator...`);
       await cleanupSyntheticCompany(existing.id);
     }
 
     const { default: companyData } = await loader();
-    const result = await runSyntheticSeed(companyData, { modelOverride: model || undefined });
+    const result = await runSyntheticSeed(companyData);
 
     return NextResponse.json({
       success: true,
@@ -91,7 +89,7 @@ export async function GET() {
 
   // Return available companies and their current seed status
   const available = Object.keys(COMPANY_LOADERS);
-  const statuses: Record<string, { seeded: boolean; variants: Array<{ operatorId: string; displayName: string; model: string; phase: string; analysisStatus: string }> }> = {};
+  const statuses: Record<string, { seeded: boolean; variants: Array<{ operatorId: string; displayName: string; phase: string; analysisStatus: string }> }> = {};
 
   for (const slug of available) {
     const matchingOps = await prisma.operator.findMany({
@@ -106,7 +104,7 @@ export async function GET() {
       for (const op of matchingOps) {
         const analysis = await prisma.onboardingAnalysis.findUnique({
           where: { operatorId: op.id },
-          select: { status: true, currentPhase: true, modelOverride: true },
+          select: { status: true, currentPhase: true },
         });
         const orientation = await prisma.orientationSession.findFirst({
           where: { operatorId: op.id },
@@ -115,7 +113,6 @@ export async function GET() {
         variants.push({
           operatorId: op.id,
           displayName: op.companyName ?? slug,
-          model: analysis?.modelOverride ?? "default",
           phase: orientation?.phase ?? "unknown",
           analysisStatus: analysis?.status ?? "unknown",
         });

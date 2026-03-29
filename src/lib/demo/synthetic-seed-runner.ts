@@ -60,15 +60,11 @@ export async function runSyntheticSeed(
 }> {
   console.log(`[synthetic-seed] Starting seed for ${company.name}...`);
 
-  const modelLabel = options?.modelOverride
-    ? ` (${options.modelOverride.includes("sonnet") ? "Sonnet" : options.modelOverride.includes("opus") ? "Opus" : options.modelOverride})`
-    : "";
-
   // ── 1. Operator ──────────────────────────────────────────────────
   const operator = await prisma.operator.create({
     data: {
-      displayName: company.name + modelLabel,
-      companyName: company.name + modelLabel,
+      displayName: company.name,
+      companyName: company.name,
       industry: company.industry,
       isTestOperator: true,
     },
