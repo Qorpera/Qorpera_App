@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   prisma: {
+    orientationSession: {
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     onboardingAnalysis: {
       findUnique: vi.fn(),
       update: vi.fn(),

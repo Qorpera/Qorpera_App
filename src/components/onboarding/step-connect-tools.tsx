@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { ConnectorConfigModal, type ConfigField } from "@/components/connector-config-modal";
 
 /* ------------------------------------------------------------------ */
 /*  Connector config                                                    */
@@ -18,7 +19,8 @@ interface ConnectorDef {
   id: string;
   label: string;
   color: string;
-  authEndpoint: string;
+  authEndpoint?: string;
+  configFields?: ConfigField[];
 }
 
 const TIER2_CATEGORIES: ConnectorCategory[] = [
@@ -47,6 +49,9 @@ const TIER2_CATEGORIES: ConnectorCategory[] = [
     labelKey: "categoryAccounting",
     items: [
       { id: "stripe", label: "Stripe", color: "#635bff", authEndpoint: "/api/connectors/stripe/auth-url" },
+      { id: "economic", label: "e-conomic", color: "#2E7D32", configFields: [
+        { key: "grant_token", label: "Agreement Grant Token", type: "password", required: true, placeholder: "Paste from e-conomic Settings → Apps" },
+      ]},
     ],
   },
   {
@@ -61,6 +66,37 @@ const TIER2_CATEGORIES: ConnectorCategory[] = [
       { id: "google-ads", label: "Google Ads", color: "#4285f4", authEndpoint: "/api/connectors/google-ads/auth" },
       { id: "linkedin", label: "LinkedIn", color: "#0A66C2", authEndpoint: "/api/connectors/linkedin/auth-url" },
       { id: "meta-ads", label: "Meta Ads", color: "#1877F2", authEndpoint: "/api/connectors/meta-ads/auth-url" },
+    ],
+  },
+  {
+    labelKey: "categoryErp",
+    items: [
+      { id: "dynamics-bc", label: "Dynamics 365 BC", color: "#00467F", authEndpoint: "/api/connectors/dynamics-bc/auth-url" },
+      { id: "sap-s4hana", label: "SAP S/4HANA", color: "#0070F2", configFields: [
+        { key: "host_url", label: "S/4HANA Host URL", type: "url", required: true, placeholder: "https://your-company.s4hana.ondemand.com" },
+        { key: "username", label: "Communication User", type: "text", required: true, placeholder: "QORPERA_COMM_USER" },
+        { key: "password", label: "Password", type: "password", required: true },
+      ]},
+      { id: "oracle-erp", label: "Oracle ERP Cloud", color: "#C74634", configFields: [
+        { key: "host_url", label: "Oracle Cloud Host URL", type: "url", required: true, placeholder: "https://your-company.oraclecloud.com" },
+        { key: "client_id", label: "OAuth Client ID", type: "text", required: true },
+        { key: "client_secret", label: "OAuth Client Secret", type: "password", required: true },
+      ]},
+    ],
+  },
+  {
+    labelKey: "categoryLogistics",
+    items: [
+      { id: "maersk", label: "Maersk", color: "#42B0D5", configFields: [
+        { key: "consumer_key", label: "Consumer Key", type: "text", required: true, placeholder: "From Maersk Developer Portal" },
+        { key: "consumer_secret", label: "Consumer Secret", type: "password", required: true },
+        { key: "tracking_references", label: "Tracking References", type: "text", required: true, placeholder: "Container numbers, BL numbers (comma-separated)" },
+      ]},
+      { id: "cargowise", label: "CargoWise", color: "#1B365D", configFields: [
+        { key: "endpoint_url", label: "eAdaptor Endpoint URL", type: "url", required: true, placeholder: "https://your-instance.wisegrid.net/eadaptor" },
+        { key: "username", label: "eAdaptor Username", type: "text", required: true },
+        { key: "password", label: "eAdaptor Password", type: "password", required: true },
+      ]},
     ],
   },
 ];
@@ -100,6 +136,11 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
   const [demoConnected, setDemoConnected] = useState<Set<string>>(new Set());
   const [demoAnimating, setDemoAnimating] = useState<string | null>(null);
   const [demoSubSteps, setDemoSubSteps] = useState<string[]>([]);
+  const [configModal, setConfigModal] = useState<{
+    providerId: string;
+    providerName: string;
+    fields: ConfigField[];
+  } | null>(null);
 
   const loadConnectors = useCallback(async () => {
     const res = await fetch("/api/connectors");
@@ -119,7 +160,7 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
     const allProviders = [
       "workspace", "google", "microsoft", "slack", "hubspot", "stripe",
       "google-ads", "shopify", "linkedin", "meta-ads",
-      "pipedrive", "salesforce", "intercom", "zendesk",
+      "pipedrive", "salesforce", "intercom", "zendesk", "dynamics-bc",
     ];
     const connected = allProviders.some(p => searchParams.get(p) === "connected");
     if (!connected) return;
@@ -203,21 +244,31 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
 
   async function handleConnectTier2(def: ConnectorDef) {
     if (demoMode) {
-      const delay = def.id === "e-conomic" || def.id === "stripe" ? 500 : 1000;
+      const delay = 500;
       setDemoAnimating(def.id);
       await new Promise(r => setTimeout(r, delay));
       setDemoConnected(prev => new Set([...prev, def.id]));
       setDemoAnimating(null);
       return;
     }
-    setConnecting(def.id);
-    try {
-      const sep = def.authEndpoint.includes("?") ? "&" : "?";
-      const res = await fetch(`${def.authEndpoint}${sep}from=onboarding`);
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-    } finally {
-      setConnecting(null);
+
+    // Config-form connector — show modal
+    if (def.configFields) {
+      setConfigModal({ providerId: def.id, providerName: def.label, fields: def.configFields });
+      return;
+    }
+
+    // OAuth connector — redirect
+    if (def.authEndpoint) {
+      setConnecting(def.id);
+      try {
+        const sep = def.authEndpoint.includes("?") ? "&" : "?";
+        const res = await fetch(`${def.authEndpoint}${sep}from=onboarding`);
+        const data = await res.json();
+        if (data.url) window.location.href = data.url;
+      } finally {
+        setConnecting(null);
+      }
     }
   }
 
@@ -342,6 +393,19 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
           {advancing ? tc("saving") : tc("continue")}
         </Button>
       </div>
+
+      {configModal && (
+        <ConnectorConfigModal
+          providerId={configModal.providerId}
+          providerName={configModal.providerName}
+          fields={configModal.fields}
+          onClose={() => setConfigModal(null)}
+          onConnected={() => {
+            setConfigModal(null);
+            loadConnectors();
+          }}
+        />
+      )}
     </div>
   );
 }

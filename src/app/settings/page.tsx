@@ -12,6 +12,7 @@ import { useUser } from "@/components/user-provider";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { NotificationPreferences } from "@/components/settings/notification-preferences";
 import { ConnectorLogo } from "@/components/connector-logo";
+import { ConnectorConfigModal, type ConfigField } from "@/components/connector-config-modal";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing" | "usage" | "limits";
@@ -2541,6 +2542,11 @@ function ConnectionsTab({
   const [preAuthModal, setPreAuthModal] = useState<{ providerId: string; label: string; placeholder: string; paramName: string } | null>(null);
   const [preAuthInput, setPreAuthInput] = useState("");
   const [preAuthLoading, setPreAuthLoading] = useState(false);
+  const [settingsConfigModal, setSettingsConfigModal] = useState<{
+    providerId: string;
+    providerName: string;
+    fields: ConfigField[];
+  } | null>(null);
 
   const connectedProviderIds = new Set(connectors.map((c) => c.provider));
   const unconnectedProviders = providers.filter((p) => !connectedProviderIds.has(p.id));
@@ -2609,6 +2615,7 @@ function ConnectionsTab({
     stripe: "/api/connectors/stripe/auth-url",
     linkedin: "/api/connectors/linkedin/auth-url",
     "meta-ads": "/api/connectors/meta-ads/auth-url",
+    "dynamics-bc": "/api/connectors/dynamics-bc/auth-url",
   };
 
   const preAuthProviders: Record<string, { label: string; placeholder: string; paramName: string }> = {
@@ -2619,6 +2626,20 @@ function ConnectionsTab({
   const handleConnect = async (providerId: string) => {
     const authRoute = authRoutes[providerId];
     if (!authRoute) {
+      const provider = providers.find(p => p.id === providerId);
+      if (provider && provider.configSchema?.length > 0) {
+        const fields = (provider.configSchema ?? [])
+          .filter((f: any) => ["text", "password", "url"].includes(f.type))
+          .map((f: any) => ({ key: f.key, label: f.label, type: f.type, required: f.required ?? true, placeholder: f.placeholder }));
+        if (fields.length > 0) {
+          setSettingsConfigModal({
+            providerId: provider.id,
+            providerName: provider.name || providerId,
+            fields,
+          });
+          return;
+        }
+      }
       toast("This integration isn\u2019t available for self-service connection yet.", "info");
       return;
     }
@@ -2950,6 +2971,21 @@ function ConnectionsTab({
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── Config-Form Connector Modal ── */}
+      {settingsConfigModal && (
+        <ConnectorConfigModal
+          providerId={settingsConfigModal.providerId}
+          providerName={settingsConfigModal.providerName}
+          fields={settingsConfigModal.fields}
+          onClose={() => setSettingsConfigModal(null)}
+          onConnected={() => {
+            setSettingsConfigModal(null);
+            loadConnectors();
+            toast("Connected successfully!", "success");
+          }}
+        />
       )}
 
       {/* ── Pre-Auth Input Modal (Shopify domain, Zendesk subdomain, etc.) ── */}

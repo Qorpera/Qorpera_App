@@ -18,6 +18,7 @@ vi.mock("@/lib/db", () => ({
     orientationSession: {
       findFirst: (...a: unknown[]) => mockSessionFindFirst(...a),
       update: (...a: unknown[]) => mockSessionUpdate(...a),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     onboardingAnalysis: {
       findUnique: (...a: unknown[]) => mockAnalysisFindUnique(...a),
@@ -36,6 +37,9 @@ vi.mock("@/lib/db", () => ({
     },
     sourceConnector: {
       findMany: (...a: unknown[]) => mockConnectorFindMany(...a),
+    },
+    contentChunk: {
+      count: vi.fn().mockResolvedValue(0),
     },
   },
 }));

@@ -39,11 +39,14 @@ export async function GET() {
     }
   }
 
+  const chunkCount = await prisma.contentChunk.count({ where: { operatorId: session.operatorId } });
+
   const response: AnalysisProgressResponse = {
     status: analysis.status as AnalysisProgressResponse["status"],
     currentPhase: analysis.currentPhase,
     progressMessages: (analysis.progressMessages as unknown as ProgressMessage[]) || [],
     estimatedMinutesRemaining: estimateMinutesRemaining(analysis.currentPhase),
+    contentChunkCount: chunkCount,
   };
 
   // Include synthesis output when available — transform CompanyModel to UI shape

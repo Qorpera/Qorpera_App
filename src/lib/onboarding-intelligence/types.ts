@@ -134,6 +134,7 @@ export interface AnalysisProgressResponse {
   currentPhase: string;
   progressMessages: ProgressMessage[];
   estimatedMinutesRemaining?: number;
+  contentChunkCount?: number;
   synthesisOutput?: SynthesisOutput;
   uncertaintyLog?: Record<string, unknown>;
 }

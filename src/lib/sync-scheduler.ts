@@ -17,6 +17,11 @@ const SYNC_INTERVALS: Record<string, number> = {
   "microsoft": 5 * 60 * 1000,    // unified Microsoft (Outlook, OneDrive, Teams, Calendar)
   "hubspot": 15 * 60 * 1000,
   "stripe": 15 * 60 * 1000,
+  "dynamics-bc": 15 * 60 * 1000,
+  "sap-s4hana": 15 * 60 * 1000,
+  "oracle-erp": 15 * 60 * 1000,
+  "maersk": 5 * 60 * 1000,
+  "cargowise": 15 * 60 * 1000,
 };
 
 const DEFAULT_INTERVAL = 15 * 60 * 1000; // 15 min fallback

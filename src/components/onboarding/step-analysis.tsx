@@ -20,6 +20,7 @@ interface AnalysisProgress {
   currentPhase: string;
   progressMessages: ProgressMessage[];
   estimatedMinutesRemaining?: number;
+  contentChunkCount?: number;
   synthesisOutput?: unknown;
   uncertaintyLog?: unknown;
   failureReason?: string;
@@ -55,12 +56,14 @@ function getPhaseLabel(phase: string, t: ReturnType<typeof useTranslations>) {
   }
 }
 
-function getEstimateLabel(phase: string, t: ReturnType<typeof useTranslations>) {
+function getEstimateLabel(phase: string, chunkCount: number | undefined, t: ReturnType<typeof useTranslations>) {
   switch (phase) {
     case "idle":
     case "syncing":
     case "round_0":
-      return t("estimateRound0");
+      return chunkCount
+        ? t("estimateWithData", { count: chunkCount })
+        : t("estimateRound0");
     case "round_1":
       return t("estimateRound1");
     case "organizer_1":
@@ -310,7 +313,7 @@ export function StepAnalysis({ onComplete, demoMode }: StepAnalysisProps) {
               />
             </div>
           </div>
-          <p className="text-xs text-[var(--fg3)]">{getEstimateLabel(phase, t)}</p>
+          <p className="text-xs text-[var(--fg3)]">{getEstimateLabel(phase, progress?.contentChunkCount, t)}</p>
         </div>
       )}
 
@@ -368,7 +371,7 @@ export function StepAnalysis({ onComplete, demoMode }: StepAnalysisProps) {
         <div className="flex justify-center sm:sticky sm:bottom-4">
           <button
             onClick={() => setEmailOptIn(true)}
-            className="text-xs text-foreground/70 hover:text-foreground transition underline underline-offset-2 min-h-[44px]"
+            className="text-xs text-foreground hover:text-accent transition underline underline-offset-2 min-h-[44px]"
           >
             {t("emailMe")}
           </button>
