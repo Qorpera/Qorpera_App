@@ -34,6 +34,16 @@ Compare what documents say with what communication patterns show:
 3. Do some people operate across multiple teams based on their communication patterns?
 4. Are there informal groupings (people who consistently collaborate but aren't in the same team)?
 
+### Evidence Recency Rules
+
+When you find conflicting information about a person's role, department, or title:
+
+1. **Always prefer the most recent evidence.** A 2-week-old email showing someone doing project coordination work overrides a 3-month-old email signature that says "Electrician."
+2. **Use the Temporal Analysis freshness scores** from the Round 0 preamble. Documents and emails with low freshness scores (< 0.3) should not override high-freshness sources.
+3. **NEVER report "Unknown Role" when ANY recent evidence exists.** If you have even a single email from the last 30 days showing what someone does, use that as the basis for their role classification. Mark the confidence as "medium" if the evidence is thin, but still classify.
+4. **When old documents contradict recent behavior**, report the recent behavior as the current role AND flag the divergence in structuralAnomalies as type "structure_divergence". Example: "Henrik Bolt — documented as 'Electrician' in old org chart, but recent activity shows project coordination across multiple projects. Classified as Project Coordinator based on behavioral evidence."
+5. **Departed employees** should NOT appear in your team composition. If someone appears in old emails and documents but has zero activity in the last 60 days, no calendar meetings, no Slack messages — flag them as a structural anomaly with type "gap" and note "Possible departed employee — no recent activity."
+
 ### Phase 4 — Role Classification
 For each person, determine:
 1. Their department/team (may be multiple for cross-functional roles)
@@ -52,7 +62,7 @@ Your final report must be a JSON object with this structure:
   "structuralAnomalies": [{ "type": "unassigned_person|inactive_team|structure_divergence|gap", "description": "...", "evidence": "..." }]
 }
 
-Signal DONE when you have mapped all discoverable departments, assigned all internal people to at least one department, and identified reporting relationships where evidence supports them. It's better to flag uncertainty than to guess.`;
+Signal DONE when you have mapped all discoverable departments, assigned all internal people to at least one department, and identified reporting relationships where evidence supports them. Classify every person with their MOST LIKELY current role based on recent evidence — never leave a role as "Unknown" when behavioral evidence exists. Flag any evidence conflicts in structuralAnomalies rather than leaving roles unresolved.`;
 
 // ── Report Type ──────────────────────────────────────────────────────────────
 

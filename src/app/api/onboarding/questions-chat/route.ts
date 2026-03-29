@@ -39,6 +39,15 @@ export async function POST(req: NextRequest) {
     messages.push({ role: "user", content: message });
   }
 
+  // If no user message yet (initial chat load), add a synthetic prompt
+  // that triggers the AI's opening introduction
+  if (messages.length === 0) {
+    messages.push({
+      role: "user",
+      content: "Please introduce yourself, briefly summarize what you discovered about our organization, and begin with your first clarification question.",
+    });
+  }
+
   // Stream the response
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -54,7 +63,10 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode(chunk));
         }
       } catch (err) {
-        console.error("[questions-chat] Stream error:", err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const errStack = err instanceof Error ? err.stack : undefined;
+        console.error("[questions-chat] Stream error:", errMsg);
+        if (errStack) console.error("[questions-chat] Stack:", errStack);
         controller.enqueue(encoder.encode("\n\n[Error: Could not generate response]"));
       } finally {
         controller.close();

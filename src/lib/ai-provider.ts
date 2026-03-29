@@ -27,7 +27,7 @@ const MODEL_ROUTES = {
   onboardingTemporal: "claude-haiku-4-5-20251001",
   onboardingAgent: "claude-sonnet-4-20250514",
   onboardingAgentFollowup: "claude-sonnet-4-20250514",
-  onboardingOrganizer: "claude-opus-4-6-20250415",
+  onboardingOrganizer: "claude-sonnet-4-20250514",
   onboardingSynthesis: "claude-sonnet-4-20250514",
   onboardingChat: "claude-sonnet-4-20250514",
   onboardingExtraction: "claude-haiku-4-5-20251001",
@@ -60,7 +60,7 @@ export function getThinkingBudget(route: ModelRoute): number | null {
 
 const MAX_OUTPUT_TOKENS: Record<string, number> = {
   "claude-opus-4-6-20250415": 32_768,
-  "claude-sonnet-4-20250514": 16_384,
+  "claude-sonnet-4-20250514": 32_768,
   "claude-sonnet-4-6-20250514": 16_384,
   "claude-haiku-4-5-20251001": 8_192,
   "claude-haiku-3-5-20241022": 8_192,
