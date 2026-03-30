@@ -28,7 +28,7 @@ export async function GET() {
   const entities = await prisma.entity.findMany({
     where: {
       operatorId,
-      category: "digital",
+      category: { in: ["base", "external"] },
       status: "active",
       parentDepartmentId: null,
       ...(routedEntityIds.length > 0 ? { id: { notIn: routedEntityIds } } : {}),

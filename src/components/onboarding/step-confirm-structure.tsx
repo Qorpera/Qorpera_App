@@ -100,6 +100,12 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"map" | "questions" | "preview">("map");
 
+  // Detection loading screen state
+  const [detectingPhase, setDetectingPhase] = useState(false);
+  const [detectMsgIndex, setDetectMsgIndex] = useState(0);
+  const [detectMessages, setDetectMessages] = useState<string[]>([]);
+  const [detectResult, setDetectResult] = useState<{ count: number; message: string } | null>(null);
+
   // Inline-rename state
   const [renamingDept, setRenamingDept] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -354,8 +360,56 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
         return;
       }
 
-      window.location.href = "/map";
-    } finally {
+      const confirmData = await confirmRes.json();
+      const stNames: string[] = confirmData.situationTypeNames ?? [];
+
+      // Build progress messages from situation type names
+      const msgs = stNames.length > 0
+        ? stNames.map((n: string) => t("detectingScanning", { name: n.toLowerCase() }))
+        : [
+            "Analyzing payment patterns and overdue invoices...",
+            "Checking client communication frequency...",
+            "Reviewing upcoming deadlines and compliance dates...",
+            "Identifying resource bottlenecks...",
+            "Scanning for operational risks...",
+          ];
+      setDetectMessages(msgs);
+      setDetectMsgIndex(0);
+      setConfirming(false);
+      setDetectingPhase(true);
+
+      // Rotate messages every 3.5s
+      const msgInterval = setInterval(() => {
+        setDetectMsgIndex(prev => (prev + 1) % msgs.length);
+      }, 3500);
+
+      // Poll for situations every 2s, timeout after 90s
+      const pollStart = Date.now();
+      const pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch("/api/situations?limit=1");
+          if (res.ok) {
+            const data = await res.json();
+            const count = data.total ?? data.situations?.length ?? 0;
+            if (count > 0) {
+              clearInterval(pollInterval);
+              clearInterval(msgInterval);
+              setDetectResult({ count, message: t("detectingComplete", { count }) });
+              setTimeout(() => { window.location.href = "/situations"; }, 1500);
+              return;
+            }
+          }
+        } catch {}
+        if (Date.now() - pollStart > 90_000) {
+          clearInterval(pollInterval);
+          clearInterval(msgInterval);
+          setDetectResult({ count: 0, message: t("detectingTimeout") });
+          setTimeout(() => { window.location.href = "/map"; }, 2000);
+        }
+      }, 2000);
+
+      return; // Don't fall through to finally
+    } catch {
       setConfirming(false);
     }
   }
@@ -394,6 +448,46 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
     return (
       <div className="min-h-[300px] flex items-center justify-center">
         <div className="w-6 h-6 rounded-full border-2 border-accent/40 border-t-accent animate-spin" />
+      </div>
+    );
+  }
+
+  if (detectingPhase) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center space-y-8 w-full max-w-md mx-auto">
+        {/* Logo mark */}
+        <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center">
+          <div className="w-6 h-6 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+        </div>
+
+        {detectResult ? (
+          <div className="text-center space-y-2 animate-in fade-in duration-500">
+            {detectResult.count > 0 && (
+              <div className="text-3xl font-semibold text-accent">{detectResult.count}</div>
+            )}
+            <p className="text-sm text-foreground">{detectResult.message}</p>
+          </div>
+        ) : (
+          <>
+            <div className="text-center space-y-2">
+              <p className="text-base font-medium text-foreground">{t("detectingTitle")}</p>
+              <p
+                key={detectMsgIndex}
+                className="text-sm text-[var(--fg2)] transition-opacity duration-500"
+              >
+                {detectMessages[detectMsgIndex] ?? "Analyzing..."}
+              </p>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full space-y-2">
+              <div className="h-1 w-full rounded-full bg-hover overflow-hidden">
+                <div className="h-full bg-accent/60 rounded-full animate-pulse" style={{ width: "60%" }} />
+              </div>
+              <p className="text-[10px] text-[var(--fg3)] text-center">{t("detectingSubtitle")}</p>
+            </div>
+          </>
+        )}
       </div>
     );
   }

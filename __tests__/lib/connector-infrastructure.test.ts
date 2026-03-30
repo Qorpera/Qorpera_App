@@ -42,6 +42,43 @@ describe("Connector infrastructure: new entity types", () => {
   });
 });
 
+describe("P1 entity types", () => {
+  test("expense type exists with correct properties", () => {
+    const t = HARDCODED_TYPE_DEFS["expense"];
+    expect(t).toBeDefined();
+    const slugs = t.properties.map(p => p.slug);
+    expect(slugs).toContain("amount");
+    expect(slugs).toContain("merchant");
+    expect(slugs).toContain("employee");
+  });
+
+  test("task type exists with correct properties", () => {
+    const t = HARDCODED_TYPE_DEFS["task"];
+    expect(t).toBeDefined();
+    const slugs = t.properties.map(p => p.slug);
+    expect(slugs).toContain("status");
+    expect(slugs).toContain("assignee");
+    expect(slugs).toContain("priority");
+    expect(slugs).toContain("project-name");
+  });
+
+  test("project type exists with correct properties", () => {
+    const t = HARDCODED_TYPE_DEFS["project"];
+    expect(t).toBeDefined();
+    const slugs = t.properties.map(p => p.slug);
+    expect(slugs).toContain("status");
+    expect(slugs).toContain("owner");
+    expect(slugs).toContain("task-count");
+  });
+});
+
+describe("P1 categories", () => {
+  test("project-management and expense-management categories exist", () => {
+    expect(CATEGORY_LABELS["project-management"]).toBe("Project Management");
+    expect(CATEGORY_LABELS["expense-management"]).toBe("Expense Management");
+  });
+});
+
 describe("Connector infrastructure: new categories", () => {
   test("erp and logistics categories exist", () => {
     expect(CATEGORY_LABELS.erp).toBe("ERP");

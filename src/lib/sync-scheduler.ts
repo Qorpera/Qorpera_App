@@ -25,6 +25,22 @@ const SYNC_INTERVALS: Record<string, number> = {
   "oracle-erp": 15 * 60 * 1000,
   "maersk": 5 * 60 * 1000,
   "cargowise": 15 * 60 * 1000,
+  "dinero": 15 * 60 * 1000,
+  "pleo": 15 * 60 * 1000,
+  "xero": 15 * 60 * 1000,
+  "fortnox": 15 * 60 * 1000,
+  "vismanet": 15 * 60 * 1000,
+  "exact-online": 15 * 60 * 1000,
+  "sage": 15 * 60 * 1000,
+  "netsuite": 15 * 60 * 1000,
+  "sap-b1": 15 * 60 * 1000,
+  "hapag-lloyd": 5 * 60 * 1000,
+  "project44": 5 * 60 * 1000,
+  "xeneta": 60 * 60 * 1000,
+  "monday": 10 * 60 * 1000,
+  "asana": 10 * 60 * 1000,
+  "jira": 10 * 60 * 1000,
+  "woocommerce": 10 * 60 * 1000,
 };
 
 const DEFAULT_INTERVAL = 15 * 60 * 1000; // 15 min fallback

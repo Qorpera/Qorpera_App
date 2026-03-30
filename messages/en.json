@@ -136,6 +136,8 @@
       "categoryCommerce": "Commerce",
       "categoryMarketing": "Marketing",
       "categoryErp": "ERP / Accounting",
+      "categoryExpenses": "Expense Management",
+      "categoryProjectManagement": "Project Management",
       "categoryLogistics": "Logistics / Shipping",
       "nudge": "We recommend connecting at least your workspace (Gmail or M365) for the best results.",
       "confidence1": "{count} tool connected — connect more for a more accurate picture",
@@ -240,7 +242,12 @@
       "reload": "Reload",
       "people": "{count} people",
       "clickToRename": "Click to rename",
-      "moveToDepartment": "Move to department"
+      "moveToDepartment": "Move to department",
+      "detectingTitle": "Setting up your operational intelligence...",
+      "detectingSubtitle": "This usually takes about a minute",
+      "detectingComplete": "We found {count} situations that need your attention",
+      "detectingTimeout": "Your monitoring is active. Situations will appear as they\u2019re detected.",
+      "detectingScanning": "Scanning for {name}..."
     }
   },
   "situations": {

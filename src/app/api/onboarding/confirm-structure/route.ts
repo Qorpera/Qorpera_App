@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getBaseUrl } from "@/lib/internal-api";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 
 /**
  * POST /api/onboarding/confirm-structure
@@ -86,18 +86,22 @@ export async function POST(request: Request) {
     // Non-fatal — detection still runs, just with degraded context
   }
 
-  // Trigger detection sweep (non-blocking)
-  const baseUrl = getBaseUrl();
-  fetch(`${baseUrl}/api/cron/detect`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-internal-key": process.env.INTERNAL_API_KEY || "",
-      Origin: baseUrl,
-    },
-  }).catch(() => {});
+  // Enqueue a single detection sweep (the worker runs all situation types)
+  const situationTypes = await prisma.situationType.findMany({
+    where: { operatorId, enabled: true },
+    select: { name: true },
+  });
 
-  return NextResponse.json({ success: true });
+  await enqueueWorkerJob("detect_situations", operatorId, {
+    operatorId,
+    trigger: "onboarding_complete",
+  });
+
+  return NextResponse.json({
+    success: true,
+    detectionJobsQueued: 1,
+    situationTypeNames: situationTypes.map(st => st.name),
+  });
 }
 
 // ── Edit Application ─────────────────────────────────────────────────────────

@@ -320,6 +320,60 @@ const EVENT_MATERIALIZERS: Record<string, EventMaterializerRule> = {
       externalId: String(p.id),
     }),
   },
+  "expense.synced": {
+    entityTypeSlug: "expense",
+    extractDisplayName: (p) => p.merchant ? `${p.merchant} — ${p.amount || ""}` : `Expense ${p.id || ""}`,
+    extractProperties: (p) => ({
+      amount: p.amount != null ? String(p.amount) : undefined,
+      currency: p.currency,
+      merchant: p.merchant,
+      category: p.category,
+      status: p.status,
+      date: p.date,
+      employee: p.employee,
+      "receipt-url": p.receiptUrl,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
+  "task.synced": {
+    entityTypeSlug: "task",
+    extractDisplayName: (p) => p.name || p.title || p.subject || `Task ${p.id || ""}`,
+    extractProperties: (p) => ({
+      status: p.status,
+      assignee: p.assignee,
+      priority: p.priority,
+      "due-date": p.dueDate,
+      "project-name": p.projectName,
+      labels: p.labels,
+      "created-date": p.createdDate,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
+  "project.synced": {
+    entityTypeSlug: "project",
+    extractDisplayName: (p) => p.name || `Project ${p.id || ""}`,
+    extractProperties: (p) => ({
+      status: p.status,
+      owner: p.owner,
+      "due-date": p.dueDate,
+      "task-count": p.taskCount != null ? String(p.taskCount) : undefined,
+      "completed-count": p.completedCount != null ? String(p.completedCount) : undefined,
+      "created-date": p.createdDate,
+    }),
+    extractIdentity: () => ({}),
+    extractExternalRef: (p, source) => ({
+      sourceSystem: source,
+      externalId: String(p.id),
+    }),
+  },
   "row.synced": {
     entityTypeSlug: "record",
     extractDisplayName: (p) =>

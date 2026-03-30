@@ -19,10 +19,26 @@ import { sapProvider } from "./sap-provider";
 import { oracleErpProvider } from "./oracle-erp-provider";
 import { maerskProvider } from "./maersk-provider";
 import { cargowiseProvider } from "./cargowise-provider";
+import { dineroProvider } from "./dinero-provider";
+import { pleoProvider } from "./pleo-provider";
+import { xeroProvider } from "./xero-provider";
+import { vismanetProvider } from "./vismanet-provider";
+import { fortnoxProvider } from "./fortnox-provider";
+import { sageProvider } from "./sage-provider";
+import { exactOnlineProvider } from "./exact-online-provider";
+import { netsuiteProvider } from "./netsuite-provider";
+import { sapB1Provider } from "./sap-b1-provider";
+import { hapagLloydProvider } from "./hapag-lloyd-provider";
+import { project44Provider } from "./project44-provider";
+import { xenetaProvider } from "./xeneta-provider";
+import { mondayProvider } from "./monday-provider";
+import { asanaProvider } from "./asana-provider";
+import { jiraProvider } from "./jira-provider";
+import { woocommerceProvider } from "./woocommerce-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider, maerskProvider, cargowiseProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider, maerskProvider, cargowiseProvider, dineroProvider, pleoProvider, xeroProvider, vismanetProvider, fortnoxProvider, sageProvider, exactOnlineProvider, netsuiteProvider, sapB1Provider, hapagLloydProvider, project44Provider, xenetaProvider, mondayProvider, asanaProvider, jiraProvider, woocommerceProvider];
 
-export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support" | "erp" | "logistics";
+export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support" | "erp" | "logistics" | "project-management" | "expense-management";
 
 export type ProviderMeta = {
   description: string;
@@ -131,6 +147,86 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     category: "logistics",
     scopes: ["Shipments", "Customs", "Milestones", "Charges"],
   },
+  dinero: {
+    description: "Dinero accounting — invoices, contacts, products",
+    category: "finance",
+    scopes: ["Invoices", "Contacts", "Products"],
+  },
+  pleo: {
+    description: "Pleo expense management — expenses, receipts, team members",
+    category: "expense-management",
+    scopes: ["Expenses", "Receipts", "Team Members"],
+  },
+  xero: {
+    description: "Xero accounting — contacts, invoices, items",
+    category: "finance",
+    scopes: ["Contacts", "Invoices", "Items"],
+  },
+  vismanet: {
+    description: "Visma.net ERP — customers, invoices, suppliers",
+    category: "erp",
+    scopes: ["Customers", "Invoices", "Suppliers"],
+  },
+  fortnox: {
+    description: "Fortnox accounting — customers, invoices, articles",
+    category: "finance",
+    scopes: ["Customers", "Invoices", "Articles"],
+  },
+  sage: {
+    description: "Sage Business Cloud — contacts, invoices, products",
+    category: "finance",
+    scopes: ["Contacts", "Invoices", "Products"],
+  },
+  "exact-online": {
+    description: "Exact Online — invoices, accounts, items",
+    category: "finance",
+    scopes: ["Invoices", "Accounts", "Items"],
+  },
+  netsuite: {
+    description: "Oracle NetSuite — sales orders, invoices, customers, vendors",
+    category: "erp",
+    scopes: ["Sales Orders", "Invoices", "Customers", "Vendors"],
+  },
+  "sap-b1": {
+    description: "SAP Business One — orders, invoices, business partners",
+    category: "erp",
+    scopes: ["Orders", "Invoices", "Business Partners"],
+  },
+  "hapag-lloyd": {
+    description: "Hapag-Lloyd ocean freight — container tracking, shipment visibility",
+    category: "logistics",
+    scopes: ["Shipments", "Containers", "Tracking Events"],
+  },
+  project44: {
+    description: "project44 visibility — multi-carrier tracking, ETAs, milestones",
+    category: "logistics",
+    scopes: ["Shipments", "Containers", "Milestones"],
+  },
+  xeneta: {
+    description: "Xeneta rate benchmarking — market rates, lane analytics",
+    category: "logistics",
+    scopes: ["Rate Benchmarks", "Lane Analytics"],
+  },
+  monday: {
+    description: "Monday.com — boards, items, updates",
+    category: "project-management",
+    scopes: ["Boards", "Items", "Updates"],
+  },
+  asana: {
+    description: "Asana — projects, tasks, teams",
+    category: "project-management",
+    scopes: ["Projects", "Tasks", "Teams"],
+  },
+  jira: {
+    description: "Jira — issues, projects, sprints",
+    category: "project-management",
+    scopes: ["Issues", "Projects", "Sprints"],
+  },
+  woocommerce: {
+    description: "WooCommerce — orders, products, customers",
+    category: "ecommerce",
+    scopes: ["Orders", "Products", "Customers"],
+  },
 };
 
 export const CATEGORY_LABELS: Record<ProviderCategory, string> = {
@@ -138,10 +234,12 @@ export const CATEGORY_LABELS: Record<ProviderCategory, string> = {
   communication: "Communication",
   crm: "CRM",
   finance: "Finance",
+  "expense-management": "Expense Management",
   erp: "ERP",
   marketing: "Marketing",
   ecommerce: "E-commerce",
   logistics: "Logistics",
+  "project-management": "Project Management",
   support: "Support",
 };
 
@@ -151,10 +249,12 @@ export const CATEGORY_ORDER: ProviderCategory[] = [
   "communication",
   "crm",
   "finance",
+  "expense-management",
   "erp",
   "marketing",
   "ecommerce",
   "logistics",
+  "project-management",
   "support",
 ];
 

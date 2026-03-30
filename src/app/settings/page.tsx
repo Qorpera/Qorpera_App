@@ -2616,6 +2616,14 @@ function ConnectionsTab({
     linkedin: "/api/connectors/linkedin/auth-url",
     "meta-ads": "/api/connectors/meta-ads/auth-url",
     "dynamics-bc": "/api/connectors/dynamics-bc/auth-url",
+    xero: "/api/connectors/xero/auth-url",
+    fortnox: "/api/connectors/fortnox/auth-url",
+    vismanet: "/api/connectors/vismanet/auth-url",
+    "exact-online": "/api/connectors/exact-online/auth-url",
+    sage: "/api/connectors/sage/auth-url",
+    monday: "/api/connectors/monday/auth-url",
+    asana: "/api/connectors/asana/auth-url",
+    jira: "/api/connectors/jira/auth-url",
   };
 
   const preAuthProviders: Record<string, { label: string; placeholder: string; paramName: string }> = {

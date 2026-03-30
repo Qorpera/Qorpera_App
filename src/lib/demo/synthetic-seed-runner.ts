@@ -147,6 +147,7 @@ export async function runSyntheticSeed(
   const partnerOfRelId = await ensureRelType(operatorId, "partner-of", "Partner Of", types["company"].typeId, types["organization"].typeId);
   const vendorOfRelId = await ensureRelType(operatorId, "vendor-of", "Vendor Of", types["company"].typeId, types["organization"].typeId);
   const contactCompanyRelId = await ensureRelType(operatorId, "contact-company", "Contact → Company", types["contact"].typeId, types["company"].typeId);
+  const dealCompanyRelId = await ensureRelType(operatorId, "deal-company", "Deal → Company", types["deal"].typeId, types["company"].typeId);
   const dealContactRelId = await ensureRelType(operatorId, "deal-contact", "Deal → Contact", types["deal"].typeId, types["contact"].typeId);
   const invoiceCompanyRelId = await ensureRelType(operatorId, "invoice-company", "Invoice → Company", types["invoice"].typeId, types["company"].typeId);
 
@@ -283,6 +284,12 @@ export async function runSyntheticSeed(
     if (props["currency"]) pvData.push({ entityId: entity.id, propertyId: props["currency"], value: d.currency ?? "DKK" });
     if (pvData.length > 0) await prisma.propertyValue.createMany({ data: pvData });
 
+    if (companyEntityIds[d.company]) {
+      await prisma.relationship.create({
+        data: { relationshipTypeId: dealCompanyRelId, fromEntityId: entity.id, toEntityId: companyEntityIds[d.company] },
+      });
+    }
+
     if (d.contact && contactEntityIds[d.contact]) {
       await prisma.relationship.create({
         data: { relationshipTypeId: dealContactRelId, fromEntityId: entity.id, toEntityId: contactEntityIds[d.contact] },
@@ -317,6 +324,11 @@ export async function runSyntheticSeed(
     }
   }
 
+  // Count relationships created
+  const relationshipCount = await prisma.relationship.count({
+    where: { relationshipType: { operatorId } },
+  });
+  console.log(`[synthetic-seed] Created ${relationshipCount} entity relationships`);
   console.timeEnd(`[synthetic-seed] Entity creation — ${company.slug}`);
 
   // ── 7. Content Chunks with embeddings ────────────────────────────
@@ -466,6 +478,7 @@ export async function runSyntheticSeed(
       deals: company.deals.length,
       invoices: company.invoices.length,
       tickets: company.tickets?.length ?? 0,
+      relationships: relationshipCount,
       contentChunks: chunkCount,
       activitySignals: signalCount,
     },

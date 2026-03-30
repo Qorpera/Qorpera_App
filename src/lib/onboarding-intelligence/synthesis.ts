@@ -258,6 +258,24 @@ These rules override agent inference when they conflict. They prevent misclassif
 6. **One-person departments are acceptable** when that person has a distinct function (e.g., a solo sales hire, a solo project coordinator). Do not merge them into an unrelated department just to avoid small departments.
 7. **When two runs of this analysis would produce different department structures because the evidence is ambiguous, prefer the structure that matches the company's own documented terminology.** If the company calls it "Kontor" in their documents, use "Kontor" — not "Administration" or "Office Operations."
 
+## Dual-Routing Rule (MANDATORY)
+
+A finding MUST appear in BOTH situationTypeRecommendations AND uncertaintyLog when it has both a monitoring component and a knowledge gap. These are two different purposes:
+
+- situationTypeRecommendations = "what should the system continuously monitor and alert on?"
+- uncertaintyLog = "what does the CEO need to tell us that the data couldn't answer?"
+
+The same finding often has both. Examples:
+
+- Expiring certification → situation type: "Monitor authorization expiry, alert 60 days before deadline" AND uncertainty: "Who is the backup person for authorization renewal if Lars is unavailable?"
+- Cash flow risk → situation type: "Alert when outstanding receivables exceed X while material purchases are pending" AND uncertainty: "What is the company's cash reserve threshold before you consider it critical?"
+- Key person dependency → situation type: "Monitor when critical knowledge holders are unavailable for >3 consecutive days" AND uncertainty: "Is there a succession plan or documentation process for Henrik's CAD-to-CNC pipeline?"
+- Client relationship cooling → situation type: "Alert when communication frequency with key clients drops below historical baseline" AND uncertainty: "Are there any clients you're intentionally deprioritizing or planning to offboard?"
+
+When in doubt about whether a finding belongs in both, include it in both. It is always better to monitor something AND ask about it than to only ask and lose the monitoring.
+
+Do NOT reduce the number of situation type recommendations to avoid duplication — the lists serve different purposes and overlap is expected and correct.
+
 ## Critical Rules
 
 - The \`people\` array is top-level — do NOT embed people inside department objects.

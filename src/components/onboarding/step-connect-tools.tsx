@@ -56,12 +56,34 @@ const TIER2_CATEGORIES: ConnectorCategory[] = [
       { id: "economic", label: "e-conomic", color: "#2E7D32", configFields: [
         { key: "grant_token", label: "Agreement Grant Token", type: "password", required: true, placeholder: "Paste from e-conomic Settings → Apps" },
       ]},
+      { id: "dinero", label: "Dinero", color: "#1a73e8", configFields: [
+        { key: "api_key", label: "API Key", type: "password", required: true, placeholder: "From Dinero → Settings → Integrations" },
+        { key: "organization_id", label: "Organization ID", type: "text", required: true, placeholder: "Your Dinero organization ID" },
+      ]},
+      { id: "xero", label: "Xero", color: "#13B5EA", authEndpoint: "/api/connectors/xero/auth-url" },
+      { id: "fortnox", label: "Fortnox", color: "#1E6F3C", authEndpoint: "/api/connectors/fortnox/auth-url" },
+      { id: "vismanet", label: "Visma.net", color: "#1F2532", authEndpoint: "/api/connectors/vismanet/auth-url" },
+      { id: "exact-online", label: "Exact Online", color: "#E94D1A", authEndpoint: "/api/connectors/exact-online/auth-url" },
+      { id: "sage", label: "Sage", color: "#00DC00", authEndpoint: "/api/connectors/sage/auth-url" },
+    ],
+  },
+  {
+    labelKey: "categoryExpenses",
+    items: [
+      { id: "pleo", label: "Pleo", color: "#1a1a2e", configFields: [
+        { key: "api_key", label: "API Key", type: "password", required: true, placeholder: "From Pleo → Settings → API keys" },
+      ]},
     ],
   },
   {
     labelKey: "categoryCommerce",
     items: [
       { id: "shopify", label: "Shopify", color: "#96bf48", authEndpoint: "/api/connectors/shopify/auth-url" },
+      { id: "woocommerce", label: "WooCommerce", color: "#96588A", configFields: [
+        { key: "store_url", label: "Store URL", type: "url", required: true, placeholder: "https://yourstore.com" },
+        { key: "consumer_key", label: "Consumer Key", type: "text", required: true, placeholder: "ck_..." },
+        { key: "consumer_secret", label: "Consumer Secret", type: "password", required: true, placeholder: "cs_..." },
+      ]},
     ],
   },
   {
@@ -86,6 +108,19 @@ const TIER2_CATEGORIES: ConnectorCategory[] = [
         { key: "client_id", label: "OAuth Client ID", type: "text", required: true },
         { key: "client_secret", label: "OAuth Client Secret", type: "password", required: true },
       ]},
+      { id: "netsuite", label: "Oracle NetSuite", color: "#C74634", configFields: [
+        { key: "account_id", label: "Account ID", type: "text", required: true, placeholder: "e.g. 1234567" },
+        { key: "consumer_key", label: "Consumer Key", type: "text", required: true },
+        { key: "consumer_secret", label: "Consumer Secret", type: "password", required: true },
+        { key: "token_id", label: "Token ID", type: "text", required: true },
+        { key: "token_secret", label: "Token Secret", type: "password", required: true },
+      ]},
+      { id: "sap-b1", label: "SAP Business One", color: "#0070F2", configFields: [
+        { key: "host_url", label: "Service Layer URL", type: "url", required: true, placeholder: "https://your-server:50000" },
+        { key: "company_db", label: "Company Database", type: "text", required: true },
+        { key: "username", label: "Username", type: "text", required: true },
+        { key: "password", label: "Password", type: "password", required: true },
+      ]},
     ],
   },
   {
@@ -96,11 +131,32 @@ const TIER2_CATEGORIES: ConnectorCategory[] = [
         { key: "consumer_secret", label: "Consumer Secret", type: "password", required: true },
         { key: "tracking_references", label: "Tracking References", type: "text", required: true, placeholder: "Container numbers, BL numbers (comma-separated)" },
       ]},
+      { id: "hapag-lloyd", label: "Hapag-Lloyd", color: "#FF6600", configFields: [
+        { key: "client_id", label: "Client ID", type: "text", required: true, placeholder: "From Hapag-Lloyd Developer Portal" },
+        { key: "client_secret", label: "Client Secret", type: "password", required: true },
+        { key: "tracking_references", label: "Tracking References", type: "text", required: true, placeholder: "Container numbers, BL numbers (comma-separated)" },
+      ]},
+      { id: "project44", label: "project44", color: "#0066FF", configFields: [
+        { key: "client_id", label: "Client ID", type: "text", required: true },
+        { key: "client_secret", label: "Client Secret", type: "password", required: true },
+      ]},
+      { id: "xeneta", label: "Xeneta", color: "#00B4D8", configFields: [
+        { key: "api_key", label: "API Key", type: "password", required: true, placeholder: "From Xeneta → Settings → API" },
+        { key: "trade_lanes", label: "Trade Lanes", type: "text", required: true, placeholder: "e.g. CNSHA-NLRTM, CNSHA-DEHAM" },
+      ]},
       { id: "cargowise", label: "CargoWise", color: "#1B365D", configFields: [
         { key: "endpoint_url", label: "eAdaptor Endpoint URL", type: "url", required: true, placeholder: "https://your-instance.wisegrid.net/eadaptor" },
         { key: "username", label: "eAdaptor Username", type: "text", required: true },
         { key: "password", label: "eAdaptor Password", type: "password", required: true },
       ]},
+    ],
+  },
+  {
+    labelKey: "categoryProjectManagement",
+    items: [
+      { id: "monday", label: "Monday.com", color: "#FF3D57", authEndpoint: "/api/connectors/monday/auth-url" },
+      { id: "asana", label: "Asana", color: "#F06A6A", authEndpoint: "/api/connectors/asana/auth-url" },
+      { id: "jira", label: "Jira", color: "#0052CC", authEndpoint: "/api/connectors/jira/auth-url" },
     ],
   },
 ];
@@ -178,6 +234,8 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
       "workspace", "google", "microsoft", "slack", "hubspot", "stripe",
       "google-ads", "shopify", "linkedin", "meta-ads",
       "pipedrive", "salesforce", "intercom", "zendesk", "dynamics-bc",
+      "xero", "fortnox", "vismanet", "exact-online", "sage",
+      "monday", "asana", "jira",
     ];
     const connected = allProviders.some(p => searchParams.get(p) === "connected");
     if (!connected) return;

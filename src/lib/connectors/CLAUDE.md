@@ -4,7 +4,7 @@
 Every connector provider exports a `sync()` method returning `AsyncGenerator<SyncYield>`.
 
 SyncYield is `{ kind: "event" | "content" | "activity", data: ... }`:
-- `event`: Outcome data materialized into entities via EVENT_MATERIALIZERS rules.
+- `event`: Outcome data materialized into entities via EVENT_MATERIALIZERS rules. Valid event types include: `expense.synced`, `task.synced`, `project.synced` (P1 connectors), plus all existing types (contact.synced, company.synced, deal.synced, invoice.*, payment.*, order.synced, etc.).
 - `content`: Text content → ContentChunk with pgvector embedding. sourceType must be one of: "email", "slack_message", "teams_message", "drive_doc", "calendar_note"
 - `activity`: Behavioral metadata → ActivitySignal. signalType must be one of: "email_sent", "email_received", "slack_message", "teams_message", "doc_edit", "doc_created", "doc_shared", "meeting_held", "meeting_frequency"
 

@@ -31,6 +31,22 @@ export async function GET() {
     "oracle-erp": () => true,
     maersk: () => true,
     cargowise: () => true,
+    dinero: () => true,
+    pleo: () => true,
+    xero: () => !!(process.env.XERO_CLIENT_ID && process.env.XERO_CLIENT_SECRET),
+    fortnox: () => !!(process.env.FORTNOX_CLIENT_ID && process.env.FORTNOX_CLIENT_SECRET),
+    vismanet: () => !!(process.env.VISMANET_CLIENT_ID && process.env.VISMANET_CLIENT_SECRET),
+    "exact-online": () => !!(process.env.EXACT_CLIENT_ID && process.env.EXACT_CLIENT_SECRET),
+    sage: () => !!(process.env.SAGE_CLIENT_ID && process.env.SAGE_CLIENT_SECRET),
+    netsuite: () => true,
+    "sap-b1": () => true,
+    "hapag-lloyd": () => true,
+    project44: () => true,
+    xeneta: () => true,
+    monday: () => !!(process.env.MONDAY_CLIENT_ID && process.env.MONDAY_CLIENT_SECRET),
+    asana: () => !!(process.env.ASANA_CLIENT_ID && process.env.ASANA_CLIENT_SECRET),
+    jira: () => !!(process.env.JIRA_CLIENT_ID && process.env.JIRA_CLIENT_SECRET),
+    woocommerce: () => true,
   };
 
   const result = providers

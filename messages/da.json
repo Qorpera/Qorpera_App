@@ -136,6 +136,8 @@
       "categoryCommerce": "E-handel",
       "categoryMarketing": "Marketing",
       "categoryErp": "ERP / Regnskab",
+      "categoryExpenses": "Udgiftsstyring",
+      "categoryProjectManagement": "Projektstyring",
       "categoryLogistics": "Logistik / Shipping",
       "nudge": "Vi anbefaler at forbinde mindst dit workspace (Gmail eller M365) for de bedste resultater.",
       "confidence1": "{count} værktøj forbundet — forbind flere for et mere præcist billede",
@@ -240,7 +242,12 @@
       "reload": "Genindlæs",
       "people": "{count} personer",
       "clickToRename": "Klik for at omdøbe",
-      "moveToDepartment": "Flyt til afdeling"
+      "moveToDepartment": "Flyt til afdeling",
+      "detectingTitle": "Opsætter din operationelle intelligens...",
+      "detectingSubtitle": "Dette tager normalt omkring et minut",
+      "detectingComplete": "Vi fandt {count} situationer der kræver din opmærksomhed",
+      "detectingTimeout": "Din overvågning er aktiv. Situationer vises efterhånden som de opdages.",
+      "detectingScanning": "Scanner for {name}..."
     }
   },
   "situations": {
