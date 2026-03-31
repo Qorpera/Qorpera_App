@@ -163,6 +163,15 @@ export async function runConnectorSync(
             });
             contentIngested++;
 
+            // Inline classification of new chunks (algorithmic only, no LLM)
+            try {
+              const { classifyNewChunks } = await import("@/lib/knowledge/chunk-classifier");
+              await classifyNewChunks(operatorId, item.data.sourceType, item.data.sourceId);
+            } catch (err) {
+              // Non-fatal — chunks will be classified by the next cron or full classification run
+              console.warn("[connector-sync] Inline chunk classification failed:", err);
+            }
+
             // Collect eligible communication items for situation detection
             if (isEligibleCommunication(item.data)) {
               communicationBatch.push({

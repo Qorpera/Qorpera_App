@@ -1,8 +1,9 @@
+import { prisma } from "@/lib/db";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
 import { reassessWorkStream } from "@/lib/workstream-reassessment";
 import { advanceStep } from "@/lib/execution-engine";
 import { detectSituations } from "@/lib/situation-detector";
-import { evaluateContentForSituations, type CommunicationItem } from "@/lib/content-situation-detector";
+import { evaluateContentForSituations, isEligibleCommunication, type CommunicationItem } from "@/lib/content-situation-detector";
 import { generatePreFilter } from "@/lib/situation-prefilter";
 
 type JobPayload = Record<string, unknown>;
@@ -51,10 +52,83 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     await extractInsights(operatorId, aiEntityId);
   },
 
+  async evaluate_recent_content(payload) {
+    const { operatorId } = payload as { operatorId: string };
+
+    // Load recent communication content chunks (last 30 days, first chunk only)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+    const chunks = await prisma.contentChunk.findMany({
+      where: {
+        operatorId,
+        createdAt: { gte: thirtyDaysAgo },
+        sourceType: { in: ["email", "slack_message", "teams_message"] },
+        chunkIndex: 0, // Only first chunk per message (avoid duplicates from multi-chunk content)
+      },
+      select: {
+        sourceType: true,
+        sourceId: true,
+        content: true,
+        metadata: true,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    });
+
+    if (chunks.length === 0) {
+      console.log("[evaluate_recent_content] No recent communication content found");
+      return;
+    }
+
+    // Convert ContentChunks to CommunicationItems
+    const items: CommunicationItem[] = [];
+    for (const chunk of chunks) {
+      const meta = chunk.metadata ? JSON.parse(chunk.metadata) as Record<string, unknown> : undefined;
+
+      // Skip automated messages
+      if (!isEligibleCommunication({ sourceType: chunk.sourceType, metadata: meta })) continue;
+
+      // Reconstruct participantEmails from metadata (from, to, cc)
+      const emails: string[] = [];
+      if (meta) {
+        if (typeof meta.from === "string") emails.push(meta.from);
+        if (Array.isArray(meta.to)) emails.push(...(meta.to as string[]));
+        else if (typeof meta.to === "string") emails.push(...meta.to.split(/[,;]\s*/));
+        if (Array.isArray(meta.cc)) emails.push(...(meta.cc as string[]));
+        else if (typeof meta.cc === "string") emails.push(...meta.cc.split(/[,;]\s*/));
+      }
+
+      items.push({
+        sourceType: chunk.sourceType,
+        sourceId: chunk.sourceId,
+        content: chunk.content,
+        metadata: meta,
+        participantEmails: emails.length > 0 ? emails : undefined,
+      });
+    }
+
+    if (items.length === 0) {
+      console.log("[evaluate_recent_content] No eligible communication items after filtering");
+      return;
+    }
+
+    console.log(`[evaluate_recent_content] Evaluating ${items.length} items for operator ${operatorId}`);
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      await evaluateContentForSituations(operatorId, items.slice(i, i + BATCH_SIZE));
+    }
+  },
+
   async audit_prefilters(payload) {
     const { operatorId } = payload as { operatorId: string };
     const { auditPreFilters } = await import("@/lib/situation-audit");
     await auditPreFilters(operatorId);
+  },
+
+  async classify_chunks(payload) {
+    const { operatorId } = payload as { operatorId: string };
+    const { classifyOperatorChunks } = await import("@/lib/knowledge/chunk-classifier");
+    const result = await classifyOperatorChunks(operatorId);
+    console.log(`[classify_chunks] Result:`, result);
   },
 };
 

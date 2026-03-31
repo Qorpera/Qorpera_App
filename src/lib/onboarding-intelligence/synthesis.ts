@@ -62,7 +62,8 @@ export interface CompanyModel {
   situationTypeRecommendations: Array<{
     name: string;
     description: string;
-    detectionLogic: string;
+    detectionMode: "structured" | "content" | "natural";
+    detectionLogic: object;    // Schema depends on detectionMode — see SYNTHESIS_PROMPT
     department: string;
     severity: "high" | "medium" | "low";
     expectedFrequency: string;
@@ -220,7 +221,8 @@ interface CompanyModel {
   situationTypeRecommendations: Array<{
     name: string;
     description: string;
-    detectionLogic: string;    // How to detect this situation from available data
+    detectionMode: "structured" | "content" | "natural";
+    detectionLogic: object;    // Schema depends on detectionMode — see below
     department: string;
     severity: "high" | "medium" | "low";
     expectedFrequency: string;
@@ -235,6 +237,59 @@ interface CompanyModel {
   }>;
 }
 \`\`\`
+
+## Detection Mode Selection (CRITICAL)
+
+Each situation type must use the correct detection mode. The mode determines HOW detection works — using the wrong mode means the situation will never be detected.
+
+### Mode 1: "structured" — Entity property checks
+USE FOR: Situations detected by checking specific field values on a specific entity type.
+EXAMPLES: Overdue invoices (invoice.status = "overdue"), expired contracts (contract.end-date < today), stale deals (deal.lastActivityDaysAgo > 30)
+SCOPING: Scans ALL entities of the specified type operator-wide. Department scope determines who gets notified, NOT what gets scanned.
+DETECTION LOGIC FORMAT:
+{
+  "mode": "structured",
+  "structured": {
+    "entityType": "invoice",      // Entity type slug to scan
+    "signals": [
+      { "field": "status", "condition": "equals", "value": "overdue" },
+      { "field": "total-amount", "condition": "greater_than", "threshold": 5000 }
+    ]
+  }
+}
+Available conditions: "equals", "not_equals", "greater_than", "less_than", "days_past" (days since date field > threshold), "days_until" (days until date field < threshold), "contains", "is_empty", "is_not_empty"
+Available entity types: "invoice", "deal", "contact", "company", "ticket", "conversation", "task"
+IMPORTANT: Field names must match actual entity property slugs. Common slugs: "status", "total-amount", "due-date", "stage", "created-date", "priority"
+
+### Mode 2: "content" — Communication-based detection
+USE FOR: Situations detected from the content of emails, Slack/Teams messages, or documents. Things that happen in communication: client complaints, urgent requests, action items, escalations, approval requests, missed follow-ups mentioned in correspondence.
+EXAMPLES: Client escalation (angry email), action required (request with deadline), emergency (urgent language), authorization notices, compliance reminders
+SCOPING: Evaluates ALL incoming content operator-wide. Works retroactively on existing content AND on new content as it arrives.
+DETECTION LOGIC FORMAT:
+{
+  "mode": "content",
+  "description": "Emails or messages from regulatory authorities about license, certification, or authorization renewals, expirations, or compliance deadlines"
+}
+The description should be a clear natural language description of WHAT to look for in communications. The content evaluator LLM uses this to classify incoming content.
+
+### Mode 3: "natural" — Strategic cross-entity reasoning
+USE FOR: Situations that cannot be detected from a single entity or a single message. Requires reasoning across multiple entities, relationships, activity patterns, and content to identify strategic patterns, initiatives, or organizational health issues.
+EXAMPLES: Cash flow risk (aggregation across multiple invoices + planned purchases), resource bottleneck (workload distribution across team), key person dependency (knowledge concentration analysis), pipeline vs capacity mismatch (sales pipeline compared against delivery capacity)
+SCOPING: Reasons across the full company state — entity graph, activity patterns, content themes.
+DETECTION LOGIC FORMAT:
+{
+  "mode": "natural",
+  "naturalLanguage": "Clear natural language description of the strategic pattern to detect. Written as a paragraph, NOT as pseudo-SQL or field conditions. Example: 'The company has outstanding receivables from multiple clients that are significantly overdue, while upcoming project phases require material purchases that cannot be funded without those receivables being collected. This creates a liquidity risk that could delay project delivery.'"
+}
+IMPORTANT: Natural language descriptions must be genuine paragraphs describing the business situation, NOT field-level conditions like "status = overdue AND amount > X". If the situation CAN be expressed as field conditions, use structured mode instead.
+
+### Mode Selection Rule
+- Can it be expressed as field conditions on one entity type? → structured
+- Is it detected from the content of communications? → content
+- Does it require reasoning across multiple entities and patterns? → natural
+- When in doubt between structured and content → structured (cheaper, faster, deterministic)
+- When in doubt between content and natural → content (most situations have communication evidence)
+- Natural should be RARE — typically 0-2 per company, reserved for strategic/aggregate patterns
 
 ## Your Task
 
@@ -487,11 +542,12 @@ export async function createSituationTypesFromModel(
       },
     });
 
-    const detectionLogicJson = JSON.stringify({
-      mode: "natural",
-      naturalLanguage: rec.detectionLogic,
-      severity: rec.severity,
-    });
+    // The LLM now returns detectionLogic as a structured object with the
+    // correct mode already embedded (structured/content/natural).
+    // Pass it through directly — the detection engine handles all three modes.
+    const detectionLogicJson = typeof rec.detectionLogic === "object"
+      ? JSON.stringify(rec.detectionLogic)
+      : JSON.stringify({ mode: "natural", naturalLanguage: rec.detectionLogic });
 
     await prisma.situationType.upsert({
       where: { operatorId_slug: { operatorId, slug } },

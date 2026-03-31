@@ -100,9 +100,19 @@ export async function detectSituations(operatorId: string): Promise<DetectionRes
     where: { operatorId, enabled: true },
   });
 
+  // Pre-cache entity type categories to avoid repeated DB lookups per situation type
+  const entityTypeCategories = new Map<string, string>();
+  const allEntityTypes = await prisma.entityType.findMany({
+    where: { operatorId },
+    select: { slug: true, defaultCategory: true },
+  });
+  for (const et of allEntityTypes) {
+    entityTypeCategories.set(et.slug, et.defaultCategory);
+  }
+
   for (const st of situationTypes) {
     try {
-      const typeResults = await detectForSituationType(operatorId, st);
+      const typeResults = await detectForSituationType(operatorId, st, entityTypeCategories);
       results.push(...typeResults);
     } catch (err) {
       console.error(`[situation-detector] Error detecting ${st.slug}:`, err);
@@ -204,6 +214,7 @@ async function detectSituationsForEntity(
 async function detectForSituationType(
   operatorId: string,
   st: { id: string; slug: string; name: string; description: string; detectionLogic: string; preFilterPassCount: number; llmConfirmCount: number; scopeEntityId: string | null; scopeDepth: number | null },
+  entityTypeCategories?: Map<string, string>,
 ): Promise<DetectionResult[]> {
   const results: DetectionResult[] = [];
   const detection: DetectionLogic = safeParseDetection(st.detectionLogic);
@@ -225,15 +236,26 @@ async function detectForSituationType(
 
   if (candidates.length === 0) return results;
 
-  // Filter by scope if set
+  // Filter by scope if set — but skip for digital entity types (invoices, deals,
+  // tickets, etc.) which are operator-wide resources with no department membership.
+  // The scopeEntityId still determines who "owns" detected situations, but digital
+  // entities must be scanned operator-wide or they'll never be found.
   if (st.scopeEntityId) {
-    const scopeEntityId = st.scopeEntityId;
-    const scopeDepth = st.scopeDepth ?? null;
-    const inScopeChecks = await Promise.all(
-      candidates.map((c) => isEntityInScope(operatorId, scopeEntityId, scopeDepth, c.id)),
-    );
-    candidates = candidates.filter((_, i) => inScopeChecks[i]);
-    if (candidates.length === 0) return results;
+    const isDigitalScan = targetType
+      ? entityTypeCategories
+        ? entityTypeCategories.get(targetType) === "digital"
+        : await isDigitalEntityType(operatorId, targetType)
+      : false;
+
+    if (!isDigitalScan) {
+      const scopeEntityId = st.scopeEntityId;
+      const scopeDepth = st.scopeDepth ?? null;
+      const inScopeChecks = await Promise.all(
+        candidates.map((c) => isEntityInScope(operatorId, scopeEntityId, scopeDepth, c.id)),
+      );
+      candidates = candidates.filter((_, i) => inScopeChecks[i]);
+      if (candidates.length === 0) return results;
+    }
   }
 
   // Track pre-filter stats
@@ -753,6 +775,14 @@ function getTargetEntityType(detection: DetectionLogic): string | null {
   if (detection.structured?.entityType) return detection.structured.entityType;
   if (detection.preFilter?.entityType) return detection.preFilter.entityType;
   return null;
+}
+
+async function isDigitalEntityType(operatorId: string, entityTypeSlug: string): Promise<boolean> {
+  const et = await prisma.entityType.findFirst({
+    where: { operatorId, slug: entityTypeSlug },
+    select: { defaultCategory: true },
+  });
+  return et?.defaultCategory === "digital";
 }
 
 function safeParseDetection(str: string): DetectionLogic {

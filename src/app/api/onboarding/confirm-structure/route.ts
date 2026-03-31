@@ -97,9 +97,17 @@ export async function POST(request: Request) {
     trigger: "onboarding_complete",
   });
 
+  // Retroactive content scan — evaluate existing communication content against
+  // newly created content-mode situation types (emails/Slack messages ingested
+  // before situation types were created during synthesis)
+  await enqueueWorkerJob("evaluate_recent_content", operatorId, {
+    operatorId,
+    trigger: "onboarding_complete",
+  });
+
   return NextResponse.json({
     success: true,
-    detectionJobsQueued: 1,
+    detectionJobsQueued: 2,
     situationTypeNames: situationTypes.map(st => st.name),
   });
 }

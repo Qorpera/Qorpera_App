@@ -30,8 +30,9 @@ export type KnowledgeHealth = {
     gaps: string[];
   };
   documents: {
-    count: number;
-    ragChunks: number;
+    count: number;           // InternalDocument count (uploaded docs)
+    ragChunks: number;       // Knowledge chunks (uploaded + drive + slack) with department assignment
+    operationalChunks: number; // Operational data chunks (email + calendar) with department assignment
     staleCount: number;
   };
   operationalInsights: {
@@ -359,15 +360,30 @@ async function computeKnowledge(
     where: { operatorId, departmentId: departmentEntityId },
   });
 
-  // RAG chunks — ContentChunk with sourceType "uploaded_doc" linked to this department
+  // RAG chunks — knowledge-type ContentChunks linked to this department
   // departmentIds is a JSON string array — use raw SQL jsonb ? operator
   const ragChunkResult = await prisma.$queryRaw<[{ count: bigint }]>`
     SELECT COUNT(*) as count FROM "ContentChunk"
     WHERE "operatorId" = ${operatorId}
-      AND "sourceType" = 'uploaded_doc'
+      AND "sourceType" IN ('uploaded_doc', 'drive_doc', 'slack_message')
+      AND "departmentIds" IS NOT NULL
+      AND "departmentIds" != 'null'
+      AND "departmentIds" != '[]'
       AND "departmentIds"::jsonb ? ${departmentEntityId}
   `;
   const ragChunks = Number(ragChunkResult[0]?.count ?? 0);
+
+  // Operational data chunks (email + calendar) linked to this department
+  const operationalChunkResult = await prisma.$queryRaw<[{ count: bigint }]>`
+    SELECT COUNT(*) as count FROM "ContentChunk"
+    WHERE "operatorId" = ${operatorId}
+      AND "sourceType" IN ('email', 'calendar_note')
+      AND "departmentIds" IS NOT NULL
+      AND "departmentIds" != 'null'
+      AND "departmentIds" != '[]'
+      AND "departmentIds"::jsonb ? ${departmentEntityId}
+  `;
+  const operationalChunks = Number(operationalChunkResult[0]?.count ?? 0);
 
   // Stale docs: updated more than 90 days ago
   const ninetyDaysAgo = new Date();
@@ -412,17 +428,19 @@ async function computeKnowledge(
   let knowledgeStatus: KnowledgeHealth["status"];
   if (peopleCount > 0 && docCount > 0 && insightCount > 0) {
     knowledgeStatus = "complete";
-  } else if (peopleCount > 0 && (docCount > 0 || insightCount > 0)) {
+  } else if (peopleCount > 0 && (docCount > 0 || insightCount > 0 || ragChunks > 0)) {
     knowledgeStatus = "partial";
   } else if (peopleCount > 0) {
     knowledgeStatus = "minimal";
+  } else if (ragChunks > 0) {
+    knowledgeStatus = "partial";
   } else {
     knowledgeStatus = "empty";
   }
 
   return {
     people: { count: peopleCount, withRoles, withReportingLines, gaps },
-    documents: { count: docCount, ragChunks, staleCount },
+    documents: { count: docCount, ragChunks, operationalChunks, staleCount },
     operationalInsights: { count: insightCount, withPromptMods, situationTypeCoverage },
     status: knowledgeStatus,
   };

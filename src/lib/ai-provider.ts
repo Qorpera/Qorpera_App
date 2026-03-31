@@ -31,6 +31,7 @@ const MODEL_ROUTES = {
   onboardingSynthesis: "claude-sonnet-4-20250514",
   onboardingChat: "claude-sonnet-4-20250514",
   onboardingExtraction: "claude-haiku-4-5-20251001",
+  chunkClassification: "claude-haiku-4-5-20251001",
 } as const;
 
 export type ModelRoute = keyof typeof MODEL_ROUTES;

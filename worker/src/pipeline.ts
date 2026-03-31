@@ -492,6 +492,22 @@ async function runSynthesis(
 
   // Send email notification
   await sendAnalysisCompleteEmail(operatorId);
+
+  // Enqueue chunk classification — runs after synthesis creates departments + people
+  // The algorithmic pass resolves email→department chains unavailable at sync time
+  try {
+    await prisma.workerJob.create({
+      data: {
+        jobType: "classify_chunks",
+        operatorId,
+        payload: { operatorId } as any,
+      },
+    });
+    console.log(`[pipeline] Enqueued classify_chunks for operator ${operatorId}`);
+  } catch (err) {
+    console.error("[pipeline] Failed to enqueue classify_chunks:", err);
+    // Non-fatal — classification can be triggered manually later
+  }
 }
 
 // ── Agent Runner with Audit Record ───────────────────────────────────────────

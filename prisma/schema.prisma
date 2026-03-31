@@ -694,6 +694,9 @@ model ContentChunk {
   embedding       String?   // actually vector(1536) — see raw SQL migration
   tokenCount      Int?
   metadata        String?   // JSON: { subject, sender, timestamp, channel, fileName, etc. }
+  classifiedAt          DateTime?
+  classificationMethod  String?    // "algorithmic" | "llm" | "operator_wide"
+  reevaluatedAt         DateTime?
   createdAt       DateTime  @default(now())
 
   operator        Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
@@ -705,6 +708,7 @@ model ContentChunk {
   @@index([operatorId, sourceId])
   @@index([connectorId])
   @@index([operatorId, userId])
+  @@index([operatorId, classifiedAt])
 }
 
 // ─── Activity Signals ───────────────────────────────────
