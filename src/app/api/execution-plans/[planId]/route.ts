@@ -34,6 +34,7 @@ export async function GET(
           status: true,
           assignedUserId: true,
           parameters: true,
+          inputContext: true,
           outputResult: true,
           approvedAt: true,
           approvedById: true,
@@ -59,11 +60,27 @@ export async function GET(
     : [];
   const capMap = new Map(capabilities.map(c => [c.id, c]));
 
-  const stepsWithCapability = plan.steps.map(s => ({
-    ...s,
-    parameters: s.parameters ? (() => { try { return JSON.parse(s.parameters); } catch { return null; } })() : null,
-    actionCapability: s.actionCapabilityId ? capMap.get(s.actionCapabilityId) ?? null : null,
-  }));
+  const stepsWithCapability = plan.steps.map(s => {
+    const { inputContext: _ic, ...rest } = s;
+    return {
+      ...rest,
+      parameters: (() => {
+        // 1. Manual edits (PATCH endpoint) → stored in parameters
+        if (s.parameters) {
+          try { return JSON.parse(s.parameters); } catch { return null; }
+        }
+        // 2. AI-generated params → stored in inputContext.params
+        if (s.inputContext) {
+          try {
+            const ic = JSON.parse(s.inputContext);
+            return ic.params ?? ic;
+          } catch { return null; }
+        }
+        return null;
+      })(),
+      actionCapability: s.actionCapabilityId ? capMap.get(s.actionCapabilityId) ?? null : null,
+    };
+  });
 
   return NextResponse.json({ ...plan, steps: stepsWithCapability });
 }

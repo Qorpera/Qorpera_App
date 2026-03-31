@@ -12,6 +12,7 @@ import {
   buildSynthesisInput,
   createEntitiesFromModel,
   createSituationTypesFromModel,
+  createGoalsFromModel,
   normalizeCompanyModel,
   sendAnalysisCompleteEmail,
   type CompanyModel,
@@ -461,6 +462,7 @@ async function runSynthesis(
   // Create real entities from the company model
   await createEntitiesFromModel(operatorId, companyModel);
   await createSituationTypesFromModel(operatorId, companyModel);
+  await createGoalsFromModel(operatorId, companyModel);
 
   // Record synthesis run for audit
   await prisma.onboardingAgentRun.create({

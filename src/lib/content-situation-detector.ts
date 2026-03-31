@@ -111,6 +111,12 @@ export function isEligibleCommunication(item: {
   return true;
 }
 
+function extractSenderName(meta: Record<string, unknown>): { raw: string; name: string } {
+  const raw = String(meta.from ?? meta.authorEmail ?? "unknown");
+  const name = raw.split("@")[0].split("<").pop()?.trim() ?? "Unknown";
+  return { raw, name };
+}
+
 // ── Actor Resolution ─────────────────────────────────────────────────────────
 
 async function resolveActors(
@@ -406,6 +412,24 @@ async function handleActionRequired(
 
   const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.7;
 
+  const { raw: senderRaw, name: senderName } = extractSenderName(meta);
+  const subjectStr = meta.subject ? ` re: ${meta.subject}` : "";
+  const triggerSummary = `${senderName}${subjectStr} — ${result.summary}`.slice(0, 300);
+
+  const triggerEvidence = JSON.stringify({
+    type: "content",
+    sourceType: item.sourceType,
+    sourceId: item.sourceId,
+    sender: senderRaw,
+    subject: meta.subject ?? null,
+    date: meta.date ?? new Date().toISOString(),
+    content: item.content.slice(0, 2000),
+    summary: result.summary,
+    evidence: result.evidence,
+    reasoning: result.reasoning,
+    urgency: result.urgency,
+  });
+
   const situation = await prisma.situation.create({
     data: {
       operatorId,
@@ -415,6 +439,8 @@ async function handleActionRequired(
       status: "detected",
       confidence,
       severity: 0.5,
+      triggerEvidence,
+      triggerSummary,
       contextSnapshot: JSON.stringify({
         contentEvidence: [
           {
@@ -570,6 +596,21 @@ async function handleAwareness(
 
   const situationTypeId = await ensureAwarenessType(operatorId, departmentId);
 
+  const { raw: awarenessSenderRaw, name: awarenessSenderName } = extractSenderName(meta);
+  const awarenessTriggerSummary = `${awarenessSenderName}${meta.subject ? ` re: ${meta.subject}` : ""} — ${result.summary}`.slice(0, 300);
+
+  const awarenessTriggerEvidence = JSON.stringify({
+    type: "content",
+    sourceType: item.sourceType,
+    sourceId: item.sourceId,
+    sender: awarenessSenderRaw,
+    subject: meta.subject ?? null,
+    date: meta.date ?? new Date().toISOString(),
+    content: item.content.slice(0, 2000),
+    summary: result.summary,
+    classification: "awareness",
+  });
+
   // Create situation at lowest possible severity and confidence
   const situation = await prisma.situation.create({
     data: {
@@ -580,6 +621,8 @@ async function handleAwareness(
       status: "resolved", // Pre-resolved — no action needed
       confidence: result.confidence ?? 0.3,
       severity: 0.1, // Lowest priority
+      triggerEvidence: awarenessTriggerEvidence,
+      triggerSummary: awarenessTriggerSummary,
       contextSnapshot: JSON.stringify({
         contentEvidence: [{
           sourceId: item.sourceId,

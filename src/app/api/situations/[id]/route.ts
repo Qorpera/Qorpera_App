@@ -42,11 +42,11 @@ export async function GET(
 
   // Parse context snapshot
   let contextSnapshot = null;
-  try {
-    contextSnapshot = situation.contextSnapshot ? JSON.parse(situation.contextSnapshot) : null;
-  } catch {
-    contextSnapshot = null;
-  }
+  try { contextSnapshot = situation.contextSnapshot ? JSON.parse(situation.contextSnapshot) : null; } catch { contextSnapshot = null; }
+
+  // Parse trigger evidence
+  let triggerEvidence = null;
+  try { triggerEvidence = situation.triggerEvidence ? JSON.parse(situation.triggerEvidence) : null; } catch { triggerEvidence = null; }
 
   // Fetch current entity state (may differ from snapshot)
   let currentEntityState = null;
@@ -79,6 +79,8 @@ export async function GET(
     triggerEntityId: situation.triggerEntityId,
     triggerEventId: situation.triggerEventId,
     contextSnapshot,
+    triggerEvidence,
+    triggerSummary: situation.triggerSummary ?? null,
     currentEntityState,
     reasoning: situation.reasoning ? JSON.parse(situation.reasoning) : null,
     proposedAction: situation.proposedAction ? JSON.parse(situation.proposedAction) : null,

@@ -21,6 +21,7 @@ interface SituationItem {
   source: string;
   triggerEntityId: string | null;
   triggerEntityName: string | null;
+  triggerSummary: string | null;
   departmentName: string | null;
   editInstruction: string | null;
   createdAt: string;
@@ -111,6 +112,20 @@ interface SituationDetail {
     recentEvents?: Array<{ id: string; source: string; eventType: string; createdAt: string }>;
     priorSituations?: Array<{ id: string; triggerEntityName: string; status: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>;
   } | null;
+  triggerEvidence: {
+    type: "content" | "structured" | "natural" | "hybrid";
+    content?: string;
+    sender?: string;
+    subject?: string;
+    summary?: string;
+    evidence?: string;
+    reasoning?: string;
+    matchedSignals?: Array<{ field: string; condition: string; value?: string | number; threshold?: number }>;
+    matchedValues?: Record<string, string>;
+    entityName?: string;
+    entityType?: string;
+  } | null;
+  triggerSummary: string | null;
   currentEntityState: { id: string; displayName: string; typeName: string; properties: Record<string, string> } | null;
   reasoning: ReasoningData | null;
   proposedAction: ActionStep[] | null;
@@ -407,6 +422,11 @@ export default function SituationsPage() {
                     {formatRelativeTime(s.createdAt, locale)}
                   </span>
                 </div>
+                {s.triggerSummary && (
+                  <p style={{ fontSize: 12, color: "var(--fg3)", marginTop: 2 }} className="pl-[15px] line-clamp-2">
+                    {s.triggerSummary}
+                  </p>
+                )}
                 <div style={{ fontSize: 11, color: "var(--fg4)" }} className="pl-[15px] truncate">
                   {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
                 </div>
@@ -871,20 +891,90 @@ function DetailPane({
             </div>
           )}
 
-          {/* ── SITUATION section ── */}
-          {reasoning ? (
+          {/* ── TRIGGER EVIDENCE (primary) ── */}
+          {(detail.triggerSummary || reasoning) && (
             <div>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
-                Situation
+                {t("whatHappened")}
               </div>
+              <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
+                {detail.triggerSummary ? (
+                  <p style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg1)", fontWeight: 500 }}>
+                    {detail.triggerSummary}
+                  </p>
+                ) : reasoning ? (
+                  <p style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg1)", fontWeight: 500 }}>
+                    {reasoning.analysis.slice(0, 200)}{reasoning.analysis.length > 200 ? "..." : ""}
+                  </p>
+                ) : null}
+
+                {/* Raw trigger content for content-detected situations */}
+                {detail.triggerEvidence?.type === "content" && detail.triggerEvidence.content && (
+                  <div className="mt-3" style={{ padding: "10px 12px", background: "var(--bg)", borderRadius: 4, border: "1px solid var(--border)" }}>
+                    <div className="flex items-center gap-2 mb-1">
+                      {detail.triggerEvidence.sender && (
+                        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fg2)" }}>{detail.triggerEvidence.sender}</span>
+                      )}
+                      {detail.triggerEvidence.subject && (
+                        <span style={{ fontSize: 12, color: "var(--fg3)" }}>— {detail.triggerEvidence.subject}</span>
+                      )}
+                    </div>
+                    <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--fg3)", whiteSpace: "pre-wrap" }}>
+                      {detail.triggerEvidence.content.slice(0, 500)}{detail.triggerEvidence.content.length > 500 ? "..." : ""}
+                    </p>
+                  </div>
+                )}
+
+                {/* Matched signals for structured detection */}
+                {detail.triggerEvidence?.type === "structured" && detail.triggerEvidence.matchedSignals && (
+                  <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1">
+                    {detail.triggerEvidence.matchedSignals.map((signal, i) => (
+                      <div key={i} className="flex justify-between text-[12px] py-1" style={{ borderBottom: "1px solid var(--border)" }}>
+                        <span style={{ color: "var(--fg3)" }}>{signal.field}</span>
+                        <span style={{ color: "var(--fg2)" }}>{signal.condition} {signal.value ?? signal.threshold}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* LLM reasoning for natural/hybrid detection */}
+                {(detail.triggerEvidence?.type === "natural" || detail.triggerEvidence?.type === "hybrid") && detail.triggerEvidence.reasoning && (
+                  <div className="mt-3" style={{ padding: "10px 12px", background: "var(--bg)", borderRadius: 4, border: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: "var(--fg4)", marginBottom: 4 }}>
+                      {t("detectionReasoning")}
+                    </div>
+                    <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--fg3)" }}>
+                      {detail.triggerEvidence.reasoning}
+                    </p>
+                    {detail.triggerEvidence.entityName && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span style={{ fontSize: 11, color: "var(--fg4)" }}>{detail.triggerEvidence.entityType}:</span>
+                        <span style={{ fontSize: 12, color: "var(--fg2)" }}>{detail.triggerEvidence.entityName}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── WHY IT MATTERS (collapsible AI assessment) ── */}
+          {reasoning && detail.triggerSummary && (
+            <details>
+              <summary style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const, cursor: "pointer", userSelect: "none" }} className="mb-2">
+                {t("whyItMatters")}
+              </summary>
               <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
                 <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}>{reasoning.analysis}</p>
               </div>
-            </div>
-          ) : (s.status === "detected") ? (
+            </details>
+          )}
+
+          {/* Fallback for detected situations awaiting analysis */}
+          {!reasoning && !detail.triggerSummary && s.status === "detected" && (
             <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
               <p style={{ fontSize: 13, color: "var(--fg3)" }}>
-                Situation detected — awaiting AI analysis.
+                {t("awaitingAnalysis")}
               </p>
               {detail.contextSnapshot?.triggerEntity && (
                 <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1">
@@ -897,7 +987,7 @@ function DetailPane({
                 </div>
               )}
             </div>
-          ) : null}
+          )}
 
           {/* ── PROPOSED ACTION / PLAN section ── */}
           {reasoning && actionPlan && actionPlan.length === 1 ? (

@@ -73,6 +73,7 @@ export async function classifyOperatorChunks(
           classifiedAt: new Date(),
           classificationMethod: "algorithmic",
         },
+        select: { id: true }, // pgvector: Prisma cannot deserialize the embedding column
       });
       algorithmicCount++;
     } else {
@@ -144,6 +145,7 @@ ${contextString}`,
                   classifiedAt: new Date(),
                   classificationMethod: "llm",
                 },
+                select: { id: true }, // pgvector: Prisma cannot deserialize the embedding column
               });
               llmCount++;
             }
@@ -219,6 +221,7 @@ export async function classifyNewChunks(
           classifiedAt: new Date(),
           classificationMethod: "algorithmic",
         },
+        select: { id: true }, // pgvector: Prisma cannot deserialize the embedding column
       });
       classified++;
     }

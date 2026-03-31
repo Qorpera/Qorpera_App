@@ -130,6 +130,12 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     const result = await classifyOperatorChunks(operatorId);
     console.log(`[classify_chunks] Result:`, result);
   },
+
+  async strategic_scan(payload) {
+    const { operatorId } = payload as { operatorId: string };
+    const { runStrategicScan } = await import("@/lib/strategic-scan");
+    await runStrategicScan(operatorId);
+  },
 };
 
 export async function dispatchJob(jobType: string, payload: JobPayload): Promise<void> {

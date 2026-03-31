@@ -93,6 +93,7 @@ export async function GET(req: NextRequest) {
         : null,
       reasoning,
       proposedAction,
+      triggerSummary: s.triggerSummary ?? null,
       editInstruction: s.editInstruction,
       createdAt: s.createdAt.toISOString(),
       resolvedAt: s.resolvedAt?.toISOString() ?? null,

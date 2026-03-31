@@ -183,8 +183,15 @@ async function detectSituationsForEntity(
 
       // Assemble context and create situation
       const context = await assembleSituationContext(operatorId, st.id, entityId, triggerEventId);
+      const signals = detection.structured?.signals;
       const situation = await createDetectedSituation(
         operatorId, st, entityId, context, match.confidence, triggerEventId,
+        {
+          detectedBy: match.detectedBy,
+          llmReasoning: match.reasoning,
+          matchedSignals: signals,
+          matchedValues: signals ? Object.fromEntries(signals.map(s => [s.field, candidate.properties[s.field] ?? ""])) : undefined,
+        },
       );
 
       // Enqueue reasoning for Bastion worker
@@ -263,12 +270,20 @@ async function detectForSituationType(
   let llmConfirmCount = 0;
 
   // Evaluate candidates
-  const matches: Array<{ candidate: CandidateEntity; confidence: number; detectedBy: "structured" | "llm" | "both" }> = [];
+  const matches: Array<{
+    candidate: CandidateEntity;
+    confidence: number;
+    detectedBy: "structured" | "llm" | "both";
+    reasoning?: string;
+    matchedSignals?: StructuredSignal[];
+    matchedValues?: Record<string, string>;
+  }> = [];
 
   if (detection.mode === "structured") {
     for (const c of candidates) {
       if (evaluateStructuredSignals(c.properties, detection.structured?.signals ?? [], detection.structured?.excludeIf)) {
-        matches.push({ candidate: c, confidence: 1.0, detectedBy: "structured" });
+        const signalFields = detection.structured?.signals ?? [];
+        matches.push({ candidate: c, confidence: 1.0, detectedBy: "structured", matchedSignals: signalFields, matchedValues: Object.fromEntries(signalFields.map(s => [s.field, c.properties[s.field] ?? ""])) });
       }
     }
   } else if (detection.mode === "natural") {
@@ -277,7 +292,7 @@ async function detectForSituationType(
     for (const r of llmResults) {
       if (r.matches) {
         llmConfirmCount++;
-        matches.push({ candidate: r.candidate, confidence: r.confidence, detectedBy: "llm" });
+        matches.push({ candidate: r.candidate, confidence: r.confidence, detectedBy: "llm", reasoning: r.reasoning });
       }
     }
   } else if (detection.mode === "hybrid") {
@@ -295,7 +310,8 @@ async function detectForSituationType(
       for (const r of llmResults) {
         if (r.matches) {
           llmConfirmCount++;
-          matches.push({ candidate: r.candidate, confidence: r.confidence, detectedBy: "both" });
+          const hybridSignalFields = detection.structured?.signals ?? [];
+          matches.push({ candidate: r.candidate, confidence: r.confidence, detectedBy: "both", reasoning: r.reasoning, matchedSignals: hybridSignalFields, matchedValues: Object.fromEntries(hybridSignalFields.map(s => [s.field, r.candidate.properties[s.field] ?? ""])) });
         }
       }
     }
@@ -327,6 +343,8 @@ async function detectForSituationType(
     const context = await assembleSituationContext(operatorId, st.id, m.candidate.id);
     const situation = await createDetectedSituation(
       operatorId, st, m.candidate.id, context, m.confidence,
+      undefined,
+      { detectedBy: m.detectedBy, matchedSignals: m.matchedSignals, matchedValues: m.matchedValues, llmReasoning: m.reasoning },
     );
 
     // Enqueue reasoning for Bastion worker
@@ -488,7 +506,7 @@ async function evaluateCandidate(
   candidate: CandidateEntity,
   detection: DetectionLogic,
   description: string,
-): Promise<{ confidence: number; detectedBy: "structured" | "llm" | "both" } | null> {
+): Promise<{ confidence: number; detectedBy: "structured" | "llm" | "both"; reasoning?: string } | null> {
   if (detection.mode === "structured") {
     const signals = detection.structured?.signals ?? [];
     const excludeIf = detection.structured?.excludeIf;
@@ -506,7 +524,7 @@ async function evaluateCandidate(
       }
     }
     const result = await singleLLMEvaluate(candidate, description, detection.naturalLanguage ?? description);
-    return result?.matches ? { confidence: result.confidence, detectedBy: "llm" } : null;
+    return result?.matches ? { confidence: result.confidence, detectedBy: "llm", reasoning: result.reasoning } : null;
   }
 
   if (detection.mode === "hybrid") {
@@ -516,7 +534,7 @@ async function evaluateCandidate(
       return null;
     }
     const result = await singleLLMEvaluate(candidate, description, detection.naturalLanguage ?? description);
-    return result?.matches ? { confidence: result.confidence, detectedBy: "both" } : null;
+    return result?.matches ? { confidence: result.confidence, detectedBy: "both", reasoning: result.reasoning } : null;
   }
 
   return null;
@@ -594,7 +612,7 @@ async function singleLLMEvaluate(
   candidate: CandidateEntity,
   situationName: string,
   naturalLanguage: string,
-): Promise<{ matches: boolean; confidence: number } | null> {
+): Promise<{ matches: boolean; confidence: number; reasoning: string } | null> {
   const results = await batchLLMEvaluate([candidate], situationName, naturalLanguage);
   return results[0] ?? null;
 }
@@ -669,9 +687,50 @@ async function createDetectedSituation(
   context: SituationContext,
   confidence: number,
   triggerEventId?: string,
+  triggerInfo?: { detectedBy: "structured" | "llm" | "both"; matchedSignals?: StructuredSignal[]; matchedValues?: Record<string, string>; llmReasoning?: string },
 ) {
   // Calculate severity — if entity has a monetary property, use it
   const severity = calculateSeverity(context);
+
+  // Build trigger evidence based on detection method
+  let triggerEvidence: string | null = null;
+  let triggerSummary: string | null = null;
+
+  if (triggerInfo) {
+    if (triggerInfo.detectedBy === "structured") {
+      triggerEvidence = JSON.stringify({
+        type: "structured",
+        matchedSignals: triggerInfo.matchedSignals ?? [],
+        matchedValues: triggerInfo.matchedValues ?? {},
+        entityName: context.triggerEntity.displayName,
+        entityType: context.triggerEntity.type,
+      });
+      const signalDescriptions = (triggerInfo.matchedSignals ?? []).map(s => {
+        const val = triggerInfo.matchedValues?.[s.field] ?? s.value ?? s.threshold;
+        return `${s.field} ${s.condition} ${val}`;
+      });
+      triggerSummary = `${context.triggerEntity.displayName}: ${signalDescriptions.join(", ")}`.slice(0, 300);
+    } else if (triggerInfo.detectedBy === "llm") {
+      triggerEvidence = JSON.stringify({
+        type: "natural",
+        reasoning: triggerInfo.llmReasoning ?? "",
+        entityName: context.triggerEntity.displayName,
+        entityType: context.triggerEntity.type,
+        properties: context.triggerEntity.properties,
+      });
+      triggerSummary = (triggerInfo.llmReasoning ?? `Pattern detected for ${context.triggerEntity.displayName}`).slice(0, 300);
+    } else if (triggerInfo.detectedBy === "both") {
+      triggerEvidence = JSON.stringify({
+        type: "hybrid",
+        matchedSignals: triggerInfo.matchedSignals ?? [],
+        matchedValues: triggerInfo.matchedValues ?? {},
+        llmReasoning: triggerInfo.llmReasoning ?? "",
+        entityName: context.triggerEntity.displayName,
+        entityType: context.triggerEntity.type,
+      });
+      triggerSummary = (triggerInfo.llmReasoning ?? `${context.triggerEntity.displayName}: pattern confirmed by structured + AI analysis`).slice(0, 300);
+    }
+  }
 
   const situation = await prisma.situation.create({
     data: {
@@ -683,6 +742,8 @@ async function createDetectedSituation(
       status: "detected",
       confidence,
       severity,
+      triggerEvidence,
+      triggerSummary,
       contextSnapshot: JSON.stringify(context),
     },
   });

@@ -493,6 +493,8 @@ model Situation {
 
   // Context snapshot at detection time
   contextSnapshot String?  // JSON - entities, events, priors
+  triggerEvidence  String?  // JSON - the raw evidence that caused detection
+  triggerSummary   String?  // Human-readable 1-2 sentence headline
   triggerEntityId String?   // the primary entity this situation is about
   triggerEventId  String?
   assignedUserId  String?
@@ -789,8 +791,11 @@ model Goal {
   description       String
   measurableTarget  String?
   priority          Int       @default(3) // 1-5, 1 = highest
-  status            String    @default("active") // active, achieved, paused
+  status            String    @default("active") // active, achieved, paused, inferred
   deadline          DateTime?
+  source            String?   // "synthesis", "document", "communication", "manual"
+  sourceReference   String?   // Document name or chunk ID that contained this goal
+  extractionConfidence Float? // 0-1, how confident the system is this is a real strategic goal
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

@@ -299,7 +299,11 @@
     "planFailAuthLink": "Fix connection",
     "planFailAuthAfter": ", then retry.",
     "planFailLoop": "This plan exceeded the maximum execution attempts. It\u2019s been returned for your review.",
-    "planFailStep": "Step {step} failed{error}. The situation has been returned for review."
+    "planFailStep": "Step {step} failed{error}. The situation has been returned for review.",
+    "whatHappened": "What happened",
+    "whyItMatters": "Why it matters",
+    "awaitingAnalysis": "Situation detected — awaiting AI analysis.",
+    "detectionReasoning": "Detection reasoning"
   },
   "copilot": {
     "title": "Chat",
@@ -706,7 +710,18 @@
       "tagApplied": "Tag applied",
       "ticketRef": "Ticket #{id}",
       "conversationRef": "Conversation #{id}",
-      "unchanged": "unchanged"
+      "unchanged": "unchanged",
+      "document": "Document",
+      "documentTitle": "Title",
+      "documentContent": "Content",
+      "documentFolder": "Folder",
+      "spreadsheet": "Spreadsheet",
+      "spreadsheetSheet": "Sheet",
+      "spreadsheetNoData": "No data",
+      "spreadsheetTitle": "Title",
+      "presentation": "Presentation",
+      "presentationSlide": "Slide",
+      "presentationMoreSlides": "... and {count} more slides"
     }
   },
   "systemHealth": {

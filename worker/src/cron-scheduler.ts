@@ -6,6 +6,7 @@ import { extractInsights, getLastExtractionTime } from "@/lib/operational-knowle
 import { computePriorityScores } from "@/lib/prioritization-engine";
 import { processRecurringTasks } from "@/lib/recurring-tasks";
 import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
+import { runStrategicScan } from "@/lib/strategic-scan";
 
 const timers: ReturnType<typeof setInterval>[] = [];
 
@@ -187,10 +188,34 @@ export function startCronScheduler() {
     }, 24 * 60 * 60 * 1000),
   );
 
+  // ── Strategic Scan: every 2 hours ─────────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false },
+          select: { id: true },
+        });
+        for (const op of operators) {
+          try {
+            const result = await runStrategicScan(op.id);
+            if (result.results.length > 0) {
+              console.log(`[cron:strategic-scan] Operator ${op.id}: approach=${result.approach}, findings=${result.results.length}, initiatives=${result.initiativesCreated}`);
+            }
+          } catch (err) {
+            console.error(`[cron:strategic-scan] Operator ${op.id} failed:`, err);
+          }
+        }
+      } catch (err) {
+        console.error("[cron:strategic-scan] Error:", err);
+      }
+    }, 2 * 60 * 60 * 1000),
+  );
+
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), sync-scheduler, retention(24h)");
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), sync-scheduler, retention(24h), strategic-scan(2h)");
 }
 
 export function stopCronScheduler() {

@@ -299,7 +299,11 @@
     "planFailAuthLink": "Ret forbindelse",
     "planFailAuthAfter": ", og pr\u00f8v igen.",
     "planFailLoop": "Denne plan overskred det maksimale antal fors\u00f8g. Den er returneret til din gennemgang.",
-    "planFailStep": "Trin {step} mislykkedes{error}. Situationen er returneret til gennemgang."
+    "planFailStep": "Trin {step} mislykkedes{error}. Situationen er returneret til gennemgang.",
+    "whatHappened": "Hvad skete der",
+    "whyItMatters": "Hvorfor det er vigtigt",
+    "awaitingAnalysis": "Situation opdaget — afventer AI-analyse.",
+    "detectionReasoning": "Detektionsræsonnement"
   },
   "copilot": {
     "title": "Chat",
@@ -706,7 +710,18 @@
       "tagApplied": "Tag tilf\u00f8jet",
       "ticketRef": "Ticket #{id}",
       "conversationRef": "Samtale #{id}",
-      "unchanged": "u\u00e6ndret"
+      "unchanged": "u\u00e6ndret",
+      "document": "Dokument",
+      "documentTitle": "Titel",
+      "documentContent": "Indhold",
+      "documentFolder": "Mappe",
+      "spreadsheet": "Regneark",
+      "spreadsheetSheet": "Ark",
+      "spreadsheetNoData": "Ingen data",
+      "spreadsheetTitle": "Titel",
+      "presentation": "Pr\u00e6sentation",
+      "presentationSlide": "Dias",
+      "presentationMoreSlides": "... og {count} flere dias"
     }
   },
   "systemHealth": {
