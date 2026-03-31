@@ -138,6 +138,7 @@ async function detectSituationsForEntity(
   triggerEventId?: string,
 ): Promise<DetectionResult[]> {
   const results: DetectionResult[] = [];
+  const correlationId = `${operatorId}:reason_situation:${Date.now()}`;
 
   const situationTypes = await prisma.situationType.findMany({
     where: { operatorId, enabled: true },
@@ -195,7 +196,7 @@ async function detectSituationsForEntity(
       );
 
       // Enqueue reasoning for Bastion worker
-      enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }).catch((err) =>
+      enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }, correlationId).catch((err) =>
         console.error(`[situation-detector] Failed to enqueue reasoning for ${situation.id}:`, err),
       );
 
@@ -224,6 +225,7 @@ async function detectForSituationType(
   entityTypeCategories?: Map<string, string>,
 ): Promise<DetectionResult[]> {
   const results: DetectionResult[] = [];
+  const correlationId = `${operatorId}:reason_situation:${Date.now()}`;
   const detection: DetectionLogic = safeParseDetection(st.detectionLogic);
   const targetType = getTargetEntityType(detection);
 
@@ -348,7 +350,7 @@ async function detectForSituationType(
     );
 
     // Enqueue reasoning for Bastion worker
-    enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }).catch((err) =>
+    enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }, correlationId).catch((err) =>
       console.error(`[situation-detector] Failed to enqueue reasoning for ${situation.id}:`, err),
     );
 

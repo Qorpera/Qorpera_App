@@ -304,6 +304,61 @@ For each message, respond with:
   }));
 }
 
+// ── Response Linking ────────────────────────────────────────────────────────
+
+async function checkResponseToOpenSituation(
+  operatorId: string,
+  threadId: string | null,
+  inReplyTo: string | null,
+  subject: string | null,
+): Promise<string | null> {
+  if (!threadId && !inReplyTo) return null;
+
+  const conditions: Array<Record<string, unknown>> = [];
+  if (threadId) conditions.push({ outputResult: { contains: threadId } });
+  if (inReplyTo) conditions.push({ outputResult: { contains: inReplyTo } });
+
+  const matchingSteps = await prisma.executionStep.findMany({
+    where: {
+      plan: { operatorId },
+      executionMode: "action",
+      status: "completed",
+      OR: conditions,
+    },
+    include: {
+      plan: {
+        select: {
+          sourceType: true,
+          sourceId: true,
+        },
+      },
+    },
+    take: 10,
+    orderBy: { executedAt: "desc" },
+  });
+
+  for (const step of matchingSteps) {
+    if (step.plan.sourceType !== "situation") continue;
+    try {
+      const result = JSON.parse(step.outputResult!);
+      if (result.type === "email" && result.threadId) {
+        const matches = result.threadId === threadId || result.threadId === inReplyTo;
+        if (!matches) continue;
+
+        const situation = await prisma.situation.findUnique({
+          where: { id: step.plan.sourceId },
+          select: { id: true, status: true },
+        });
+        if (situation && ["monitoring", "executing", "proposed"].includes(situation.status)) {
+          return situation.id;
+        }
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
 // ── Situation Creation / Update ──────────────────────────────────────────────
 
 async function handleActionRequired(
@@ -311,6 +366,7 @@ async function handleActionRequired(
   batch: ActorBatch,
   result: EvaluationResult,
   createdInBatch: Set<string>,
+  correlationId?: string,
 ): Promise<void> {
   const item = batch.items[result.messageIndex];
   if (!item) return;
@@ -474,7 +530,7 @@ async function handleActionRequired(
   checkConfirmationRate(situationTypeId).catch(console.error);
 
   // Enqueue reasoning for Bastion worker
-  enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }).catch((err) =>
+  enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }, correlationId).catch((err) =>
     console.error("[content-detection] Failed to enqueue reasoning:", err),
   );
 
@@ -675,6 +731,7 @@ export async function evaluateContentForSituations(
 
   // Step 2–4: Process each actor batch
   const createdInBatch = new Set<string>();
+  const correlationId = `${operatorId}:reason_situation:${Date.now()}`;
 
   for (const [entityId, actor] of actorMap) {
     try {
@@ -704,6 +761,39 @@ export async function evaluateContentForSituations(
         openSituations,
       };
 
+      // Check if any item is a response to an open situation
+      const remainingItems: typeof actor.items = [];
+      for (const item of actor.items) {
+        const meta = item.metadata ?? {};
+        const linkedSituationId = await checkResponseToOpenSituation(
+          operatorId,
+          (meta.threadId as string) ?? null,
+          (meta.inReplyTo as string) ?? null,
+          (meta.subject as string) ?? null,
+        );
+        if (linkedSituationId) {
+          await prisma.situation.update({
+            where: { id: linkedSituationId },
+            data: {
+              status: "detected",
+              triggerEvidence: JSON.stringify({
+                type: "response",
+                content: item.content?.slice(0, 2000),
+                metadata: meta,
+              }),
+              triggerSummary: `Response received: ${((meta.subject as string) ?? "").slice(0, 150)}`,
+            },
+          });
+          await enqueueWorkerJob("reason_situation", operatorId, { situationId: linkedSituationId });
+          console.log(`[content-detector] Linked reply to open situation ${linkedSituationId}, triggered re-reasoning cycle`);
+        } else {
+          remainingItems.push(item);
+        }
+      }
+
+      if (remainingItems.length === 0) continue; // All items linked to open situations
+      batch.items = remainingItems;
+
       // LLM evaluation
       const results = await evaluateActorBatch(batch);
 
@@ -717,7 +807,7 @@ export async function evaluateContentForSituations(
         );
 
         if (result.classification === "action_required") {
-          await handleActionRequired(operatorId, batch, result, createdInBatch);
+          await handleActionRequired(operatorId, batch, result, createdInBatch, correlationId);
         } else if (result.classification === "awareness") {
           await handleAwareness(operatorId, batch, result, createdInBatch);
         }

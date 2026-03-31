@@ -501,7 +501,8 @@ model Situation {
   confidence      Float    @default(0.5) // 0-1
   source          String   @default("detected") // detected, retrospective, manual
   status          String   @default("detected")
-  // detected → reasoning → proposed → approved → executing → resolved
+  // detected → reasoning → proposed → approved → executing → monitoring → resolved
+  // monitoring: all current cycle steps complete, waiting for external signal to trigger next cycle
   // detected → reasoning → proposed → rejected → closed
   // detected → auto_executing → resolved (autonomous mode)
 
@@ -547,6 +548,7 @@ model Situation {
   events        SituationEvent[]
   executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
   delegation    Delegation?    @relation(fields: [delegationId], references: [id], onDelete: SetNull)
+  cycles        SituationCycle[]
 
   @@index([operatorId, status])
   @@index([situationTypeId, createdAt(sort: Desc)])
@@ -863,6 +865,7 @@ model ExecutionPlan {
   steps      ExecutionStep[]
   initiative Initiative?
   situation  Situation?
+  cycle      SituationCycle?
   priorityOverride PriorityOverride?
 
   @@index([operatorId, status])
@@ -1177,7 +1180,31 @@ model WorkerJob {
   claimedAt   DateTime?
   completedAt DateTime?
 
+  correlationId String?
+
   @@index([status, createdAt])
+  @@index([correlationId, status])
+}
+
+model SituationCycle {
+  id              String    @id @default(cuid())
+  situationId     String
+  cycleNumber     Int
+  triggerType     String    // "detection", "response_received", "timeout", "manual", "signal"
+  triggerSummary  String    // Human-readable: "No response after 3 days", "Reply received from accounting@nygade.dk"
+  triggerData     Json?     // Raw trigger context (email content, signal data, etc.)
+  reasoning       Json?     // The reasoning output JSON for this cycle
+  executionPlanId String?   @unique
+  status          String    @default("active")  // "active", "completed", "superseded"
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  situation     Situation      @relation(fields: [situationId], references: [id], onDelete: Cascade)
+  executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
+
+  @@index([situationId, cycleNumber])
+  @@index([situationId, status])
 }
 
 model EvaluationLog {

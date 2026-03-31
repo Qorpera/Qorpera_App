@@ -4,6 +4,7 @@ import { runAnalysisPipeline } from "./pipeline";
 import { createHttpServer } from "./http-server";
 import { dispatchJob } from "./job-dispatcher";
 import { startCronScheduler, stopCronScheduler } from "./cron-scheduler";
+import { isSystemicError } from "./error-classifier";
 
 const prisma = new PrismaClient();
 const WORKER_PORT = parseInt(process.env.WORKER_PORT || "3100", 10);
@@ -97,7 +98,7 @@ async function main() {
     // ── Poll 2: Worker job queue ─────────────────────────────────────────
     if (activeJobs < MAX_CONCURRENT_JOBS) {
       try {
-        const jobs = await prisma.$queryRaw<Array<{ id: string; jobType: string; payload: string }>>`
+        const jobs = await prisma.$queryRaw<Array<{ id: string; jobType: string; payload: string; correlationId: string | null }>>`
           UPDATE "WorkerJob"
           SET status = 'running', "claimedAt" = NOW()
           WHERE id = (
@@ -107,7 +108,7 @@ async function main() {
             LIMIT 1
             FOR UPDATE SKIP LOCKED
           )
-          RETURNING id, "jobType", payload::text
+          RETURNING id, "jobType", payload::text, "correlationId"
         `;
 
         if (jobs.length > 0) {
@@ -129,6 +130,24 @@ async function main() {
               where: { id: job.id },
               data: { status: "failed", error: message, completedAt: new Date() },
             });
+
+            // Cascading cancellation for systemic errors
+            if (job.correlationId && isSystemicError(message)) {
+              const cancelled = await prisma.workerJob.updateMany({
+                where: {
+                  correlationId: job.correlationId,
+                  status: "pending",
+                },
+                data: {
+                  status: "failed",
+                  error: `Cancelled: systemic failure in sibling job ${job.id}: ${message}`,
+                  completedAt: new Date(),
+                },
+              });
+              if (cancelled.count > 0) {
+                console.log(`[worker] Cancelled ${cancelled.count} pending jobs (correlationId: ${job.correlationId}) due to systemic failure`);
+              }
+            }
           } finally {
             activeJobs--;
             const durationMs = Math.round(performance.now() - startTime);

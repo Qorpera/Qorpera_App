@@ -7,6 +7,7 @@ import { computePriorityScores } from "@/lib/prioritization-engine";
 import { processRecurringTasks } from "@/lib/recurring-tasks";
 import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
 import { runStrategicScan } from "@/lib/strategic-scan";
+import { checkSituationTimeouts } from "@/lib/situation-timeout-detector";
 
 const timers: ReturnType<typeof setInterval>[] = [];
 
@@ -212,10 +213,32 @@ export function startCronScheduler() {
     }, 2 * 60 * 60 * 1000),
   );
 
+  // ── Situation Timeout Check: every 4 hours ───────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false },
+          select: { id: true },
+        });
+        for (const op of operators) {
+          try {
+            const count = await checkSituationTimeouts(op.id);
+            if (count > 0) console.log(`[cron:timeout-check] Operator ${op.id}: ${count} situations triggered`);
+          } catch (err) {
+            console.error(`[cron:timeout-check] Operator ${op.id} failed:`, err);
+          }
+        }
+      } catch (err) {
+        console.error("[cron:timeout-check] Error:", err);
+      }
+    }, 4 * 60 * 60 * 1000),
+  );
+
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), sync-scheduler, retention(24h), strategic-scan(2h)");
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), sync-scheduler, retention(24h), strategic-scan(2h), timeout-check(4h)");
 }
 
 export function stopCronScheduler() {

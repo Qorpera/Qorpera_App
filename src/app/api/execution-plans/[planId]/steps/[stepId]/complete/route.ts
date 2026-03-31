@@ -17,37 +17,25 @@ export async function POST(
   });
   if (!plan) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
 
-  const step = await prisma.executionStep.findUnique({
-    where: { id: stepId },
-  });
+  const step = await prisma.executionStep.findUnique({ where: { id: stepId } });
   if (!step || step.planId !== planId) {
     return NextResponse.json({ error: "Step not found" }, { status: 404 });
   }
 
-  if (step.executionMode !== "human_task" || step.status !== "executing") {
-    return NextResponse.json(
-      { error: "Step is not an executing human task" },
-      { status: 400 },
-    );
+  let notes: string | undefined;
+  try {
+    const body = await req.json();
+    notes = typeof body.notes === "string" ? body.notes.trim() : undefined;
+  } catch {
+    // Empty body is fine — notes are optional
   }
 
-  if (user.id !== step.assignedUserId) {
-    return NextResponse.json(
-      { error: "Only the assigned user can complete this task" },
-      { status: 403 },
-    );
+  try {
+    await completeHumanStep(stepId, user.id, notes);
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 400 });
   }
 
-  const body = await req.json();
-  if (!body.notes || typeof body.notes !== "string" || !body.notes.trim()) {
-    return NextResponse.json({ error: "notes is required" }, { status: 400 });
-  }
-
-  await completeHumanStep(stepId, user.id, body.notes.trim(), body.attachments);
-
-  const updated = await prisma.executionStep.findUnique({
-    where: { id: stepId },
-  });
-
+  const updated = await prisma.executionStep.findUnique({ where: { id: stepId } });
   return NextResponse.json(updated);
 }

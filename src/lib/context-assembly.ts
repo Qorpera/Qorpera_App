@@ -173,6 +173,14 @@ export interface SituationContext {
 
   // v3 day 6: operational knowledge
   operationalInsights: OperationalInsightContext[];
+
+  // Action cycles
+  actionCycles: Array<{
+    cycleNumber: number;
+    triggerType: string;
+    triggerSummary: string;
+    steps: Array<{ title: string; completed: boolean; notes?: string }>;
+  }>;
 }
 
 export interface OperationalInsightContext {
@@ -993,6 +1001,34 @@ export async function assembleSituationContext(
     ...(operationalInsights.length > 0 ? [{ section: "operational_knowledge", itemCount: operationalInsights.length, tokenEstimate: Math.ceil(JSON.stringify(operationalInsights).length / 4) }] : []),
   ];
 
+  // Load completed action cycles for this situation
+  const actionCycles = situationId ? await (async () => {
+    const completedCycles = await prisma.situationCycle.findMany({
+      where: { situationId, status: "completed" },
+      orderBy: { cycleNumber: "asc" },
+      include: {
+        executionPlan: {
+          include: { steps: { orderBy: { sequenceOrder: "asc" } } },
+        },
+      },
+    });
+    return completedCycles.map((c) => ({
+      cycleNumber: c.cycleNumber,
+      triggerType: c.triggerType,
+      triggerSummary: c.triggerSummary,
+      steps: (c.executionPlan?.steps ?? []).map((s) => ({
+        title: s.title,
+        completed: s.status === "completed",
+        notes: s.outputResult ? (() => {
+          try {
+            const r = JSON.parse(s.outputResult!);
+            return r.notes || r.description || undefined;
+          } catch { return undefined; }
+        })() : undefined,
+      })),
+    }));
+  })() : [];
+
   return {
     triggerEntity,
     departments,
@@ -1011,6 +1047,7 @@ export async function assembleSituationContext(
     workStreamContexts,
     delegationSource,
     operationalInsights,
+    actionCycles,
   };
 }
 

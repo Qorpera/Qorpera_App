@@ -781,6 +781,28 @@ export async function advancePlanAfterStep(
       where: { id: planId },
       data: { status: "completed", completedAt: new Date() },
     });
+
+    // Mark the active cycle as completed
+    await prisma.situationCycle.updateMany({
+      where: { executionPlanId: planId, status: "active" },
+      data: { status: "completed", completedAt: new Date() },
+    });
+
+    // Move source situation to monitoring (waiting for external signal)
+    if (completedPlan.sourceType === "situation") {
+      const situation = await prisma.situation.findUnique({
+        where: { id: completedPlan.sourceId },
+        select: { id: true, status: true },
+      });
+      if (situation && !["resolved", "closed", "rejected", "dismissed"].includes(situation.status)) {
+        await prisma.situation.update({
+          where: { id: situation.id },
+          data: { status: "monitoring" },
+        });
+        console.log(`[execution-engine] Situation ${situation.id} → monitoring (plan ${planId} completed)`);
+      }
+    }
+
     await sendNotificationToAdmins({
       operatorId,
       type: "system_alert",
@@ -886,7 +908,7 @@ export async function advanceStep(
 export async function completeHumanStep(
   stepId: string,
   userId: string,
-  notes: string,
+  notes?: string,
   attachments?: string[],
 ): Promise<void> {
   const step = await prisma.executionStep.findUnique({
@@ -894,11 +916,14 @@ export async function completeHumanStep(
     include: { plan: true },
   });
   if (!step) throw new Error("Step not found");
-  if (step.status !== "executing" || step.executionMode !== "human_task") {
-    throw new Error("Step is not an executing human task");
+  if (step.executionMode !== "human_task") {
+    throw new Error("Step is not a human task");
   }
-  if (userId !== step.assignedUserId) {
-    throw new Error("Only the assigned user can complete this task");
+  if (step.status === "completed") {
+    throw new Error("Step is already completed");
+  }
+  if (!["pending", "awaiting_approval", "executing"].includes(step.status)) {
+    throw new Error(`Cannot complete step in status "${step.status}"`);
   }
 
   await prisma.executionStep.update({
@@ -906,19 +931,13 @@ export async function completeHumanStep(
     data: {
       status: "completed",
       executedAt: new Date(),
-      outputResult: JSON.stringify({ type: "human_completion", notes, attachments }),
+      outputResult: JSON.stringify({ type: "human_completion", notes: notes ?? "", attachments }),
     },
   });
 
-  // Cancel any watching FollowUps for this step
   await prisma.followUp.updateMany({
-    where: {
-      executionStepId: step.id,
-      status: "watching",
-    },
-    data: {
-      status: "cancelled",
-    },
+    where: { executionStepId: step.id, status: "watching" },
+    data: { status: "cancelled" },
   });
 
   await advancePlanAfterStep(stepId, step.planId, step.sequenceOrder, step.plan.operatorId);

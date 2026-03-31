@@ -94,6 +94,38 @@ export async function GET(
     editInstruction: situation.editInstruction,
     resolvedAt: situation.resolvedAt?.toISOString() ?? null,
     createdAt: situation.createdAt.toISOString(),
+    cycles: await prisma.situationCycle.findMany({
+      where: { situationId: situation.id },
+      orderBy: { cycleNumber: "asc" },
+      select: {
+        id: true,
+        cycleNumber: true,
+        triggerType: true,
+        triggerSummary: true,
+        status: true,
+        completedAt: true,
+        createdAt: true,
+        executionPlan: {
+          select: {
+            id: true,
+            status: true,
+            steps: {
+              orderBy: { sequenceOrder: "asc" },
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                executionMode: true,
+                status: true,
+                assignedUserId: true,
+                outputResult: true,
+                executedAt: true,
+              },
+            },
+          },
+        },
+      },
+    }),
   });
 }
 

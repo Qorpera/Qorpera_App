@@ -630,7 +630,7 @@ async function callAnthropic(
     text,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     usage,
-    apiCostCents: calculateCallCostCents(model, usage),
+    apiCostCents: await calculateCallCostCents(model, usage),
     modelId: model,
   };
 }
@@ -914,7 +914,7 @@ async function callOpenAIResponses(
     text,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     usage,
-    apiCostCents: usage ? calculateCallCostCents(model, usage) : 0,
+    apiCostCents: usage ? await calculateCallCostCents(model, usage) : 0,
     modelId: model,
     webSources: webSources.length > 0 ? webSources : undefined,
   };

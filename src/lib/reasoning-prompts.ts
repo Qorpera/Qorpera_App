@@ -84,6 +84,12 @@ export interface ReasoningInput {
     promptModification: string | null;
     sampleSize: number;
   }>;
+  actionCycles?: Array<{
+    cycleNumber: number;
+    triggerType: string;
+    triggerSummary: string;
+    steps: Array<{ title: string; completed: boolean; notes?: string }>;
+  }>;
 }
 
 // ── Prior Outcome Aggregation (shared with multi-agent-reasoning) ───────────
@@ -405,6 +411,26 @@ ${propsStr || "  (no properties)"}`);
     sections.push(formatPriorOutcomeStats(input.priorSituations));
   } else {
     sections.push("PRIOR SIMILAR SITUATIONS:\nNo prior examples available. This is the first time this situation type has been encountered.");
+  }
+
+  // PRIOR ACTION CYCLES FOR THIS SITUATION
+  if (input.actionCycles && input.actionCycles.length > 0) {
+    const cycleLines = input.actionCycles.map((cycle) => {
+      const stepsStr = cycle.steps
+        .map((s) => `    ${s.completed ? "✓" : "○"} ${s.title}${s.notes ? ` — ${s.notes}` : ""}`)
+        .join("\n");
+      return `  Cycle ${cycle.cycleNumber} (${cycle.triggerType}): ${cycle.triggerSummary}\n${stepsStr}`;
+    }).join("\n\n");
+
+    sections.push(
+      `PRIOR ACTION CYCLES FOR THIS SITUATION:\n` +
+      `This situation has been worked on before. Here is what was already done:\n\n` +
+      `${cycleLines}\n\n` +
+      `Your action plan should build on this history. Do NOT repeat steps that were already completed successfully. ` +
+      `Focus only on what needs to happen NEXT given the current context and any new information (e.g., a response received, a timeout elapsed). ` +
+      `Your plan should ONLY include steps that are decidable with current information. ` +
+      `If the next step depends on an external response that hasn't arrived yet, do NOT include speculative future steps — the system will create a new cycle when that response arrives.`
+    );
   }
 
   // CROSS-DEPARTMENT SIGNALS (v3)

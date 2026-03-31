@@ -9,6 +9,8 @@ import { useIsMobile } from "@/hooks/use-media-query";
 import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { getPreviewComponent } from "@/components/execution/previews/get-preview-component";
+import { useToast } from "@/components/ui/toast";
+import { CycleTimeline } from "@/components/cycle-timeline";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,6 +140,29 @@ interface SituationDetail {
   outcome: string | null;
   outcomeDetails: string | null;
   createdAt: string;
+  cycles?: Array<{
+    id: string;
+    cycleNumber: number;
+    triggerType: string;
+    triggerSummary: string;
+    status: string;
+    completedAt: string | null;
+    createdAt: string;
+    executionPlan: {
+      id: string;
+      status: string;
+      steps: Array<{
+        id: string;
+        title: string;
+        description: string;
+        executionMode: string;
+        status: string;
+        assignedUserId: string | null;
+        outputResult: string | null;
+        executedAt: string | null;
+      }>;
+    } | null;
+  }>;
 }
 
 type ActiveMode = { id: string; mode: "reject" | "teach" | "outcome" } | null;
@@ -173,6 +198,7 @@ function extractDraftPayloads(raw: unknown): DraftPayload[] {
 function severityDotColor(s: SituationItem): string {
   if (s.status === "rejected") return "var(--fg3)";
   if (s.status === "approved" || s.status === "resolved") return "var(--ok)";
+  if (s.status === "monitoring") return "var(--accent)";
   if (s.severity >= 0.7) return "var(--danger)";
   if (s.severity >= 0.4) return "var(--warn)";
   return "var(--fg3)";
@@ -241,7 +267,7 @@ export default function SituationsPage() {
 
   const fetchSituations = useCallback(async () => {
     try {
-      const res = await fetch("/api/situations?status=detected,proposed,reasoning,auto_executing,executing,resolved");
+      const res = await fetch("/api/situations?status=detected,proposed,reasoning,auto_executing,executing,monitoring,resolved");
       if (res.ok) {
         const data = await res.json();
         setSituations(data.items);
@@ -654,6 +680,7 @@ function DetailPane({
   const t = useTranslations("situations");
   const tc = useTranslations("common");
   const locale = useLocale();
+  const { toast } = useToast();
   const [showEvidence, setShowEvidence] = useState(false);
   const [editingDraft, setEditingDraft] = useState(false);
   const [editedDraftBody, setEditedDraftBody] = useState("");
@@ -661,7 +688,6 @@ function DetailPane({
   const [executionPlan, setExecutionPlan] = useState<ExecutionPlanData | null>(null);
   const [linkedWorkStream, setLinkedWorkStream] = useState<{ id: string; title: string } | null>(null);
   const [showStarDropdown, setShowStarDropdown] = useState(false);
-  const [completedHumanSteps, setCompletedHumanSteps] = useState<Set<string>>(new Set());
   const [creatingProject, setCreatingProject] = useState(false);
   const [workStreams, setWorkStreams] = useState<Array<{ id: string; title: string }>>([]);
   const starDropdownRef = useRef<HTMLDivElement>(null);
@@ -723,12 +749,10 @@ function DetailPane({
   const actionPlan = reasoning?.actionPlan ?? (Array.isArray(detail?.proposedAction) ? detail!.proposedAction as ActionStep[] : null);
 
   const currentStepIndex = (() => {
-    if (!actionPlan) return -1;
+    if (!actionPlan || !executionPlan) return 0;
     for (let i = 0; i < actionPlan.length; i++) {
-      const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
-      const isServerCompleted = planStep?.status === "completed";
-      const isClientCompleted = completedHumanSteps.has(`${s.id}:${i}`);
-      if (!isServerCompleted && !isClientCompleted) return i;
+      const planStep = executionPlan.steps.find(es => es.sequenceOrder === i + 1);
+      if (!planStep || planStep.status !== "completed") return i;
     }
     return actionPlan.length;
   })();
@@ -783,6 +807,44 @@ function DetailPane({
       status: "approved",
       ...(savedEditedDraft ? { editedDraftPayload: savedEditedDraft } : {}),
     });
+  };
+
+  const handleCompleteStep = async (stepId: string) => {
+    if (!detail?.executionPlanId) return;
+    try {
+      const resp = await fetch(`/api/execution-plans/${detail.executionPlanId}/steps/${stepId}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null);
+        toast(body?.error ?? "Failed to complete step", "error");
+        return;
+      }
+      const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
+      if (res.ok) setExecutionPlan(await res.json());
+    } catch {
+      toast("Failed to complete step", "error");
+    }
+  };
+
+  const handleUndoStep = async (stepId: string) => {
+    if (!detail?.executionPlanId) return;
+    try {
+      const resp = await fetch(`/api/execution-plans/${detail.executionPlanId}/steps/${stepId}/undo`, {
+        method: "POST",
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null);
+        toast(body?.error ?? "Failed to undo step", "error");
+        return;
+      }
+      const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
+      if (res.ok) setExecutionPlan(await res.json());
+    } catch {
+      toast("Failed to undo step", "error");
+    }
   };
 
   return (
@@ -1003,6 +1065,16 @@ function DetailPane({
             </div>
           )}
 
+          {/* ── CYCLE TIMELINE ── */}
+          {detail.cycles && detail.cycles.filter(c => c.status === "completed").length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const, marginBottom: 16, textAlign: "center" as const }}>
+                Situation Timeline
+              </div>
+              <CycleTimeline cycles={detail.cycles.filter(c => c.status === "completed")} />
+            </div>
+          )}
+
           {/* ── PROPOSED ACTION / PLAN section ── */}
           {reasoning && actionPlan && actionPlan.length === 1 ? (
             /* Single-step plan: show as simple proposed action */
@@ -1011,21 +1083,25 @@ function DetailPane({
                 Proposed Action
               </div>
               <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
+                {(() => {
+                  const planStep = executionPlan?.steps.find(es => es.sequenceOrder === 1);
+                  const isStepDone = planStep?.status === "completed";
+                  return (
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <p style={{
-                        fontSize: 13, fontWeight: 500, lineHeight: 1.65, color: completedHumanSteps.has(`${s.id}:0`) ? "var(--fg3)" : "var(--fg2)",
-                        textDecoration: completedHumanSteps.has(`${s.id}:0`) ? "line-through" : "none",
+                        fontSize: 13, fontWeight: 500, lineHeight: 1.65, color: isStepDone ? "var(--fg3)" : "var(--fg2)",
+                        textDecoration: isStepDone ? "line-through" : "none",
                       }}>{actionPlan[0].title}</p>
                       <ExecutionModeBadge mode={actionPlan[0].executionMode} />
                     </div>
                     <p style={{
                       fontSize: 12, color: "var(--fg3)",
-                      textDecoration: completedHumanSteps.has(`${s.id}:0`) ? "line-through" : "none",
+                      textDecoration: isStepDone ? "line-through" : "none",
                     }} className="mt-1">{actionPlan[0].description}</p>
                   </div>
-                  {!completedHumanSteps.has(`${s.id}:0`) ? (
+                  {!isStepDone ? (
                     actionPlan[0].executionMode === "action" ? (
                       <button
                         onClick={handleApprove}
@@ -1037,18 +1113,9 @@ function DetailPane({
                       >
                         {t("executeAction") ?? "Execute Action"}
                       </button>
-                    ) : actionPlan[0].executionMode === "human_task" ? (
+                    ) : actionPlan[0].executionMode === "human_task" && planStep ? (
                       <button
-                        onClick={() => setCompletedHumanSteps(prev => {
-                          const next = new Set(prev);
-                          const key = `${s.id}:0`;
-                          if (next.has(key)) {
-                            next.delete(key);
-                          } else {
-                            next.add(key);
-                          }
-                          return next;
-                        })}
+                        onClick={() => handleCompleteStep(planStep.id)}
                         style={{
                           fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
                           background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
@@ -1058,13 +1125,9 @@ function DetailPane({
                         {t("markComplete") ?? "Mark complete"}
                       </button>
                     ) : null
-                  ) : actionPlan[0].executionMode === "human_task" ? (
+                  ) : actionPlan[0].executionMode === "human_task" && planStep ? (
                     <button
-                      onClick={() => setCompletedHumanSteps(prev => {
-                        const next = new Set(prev);
-                        next.delete(`${s.id}:0`);
-                        return next;
-                      })}
+                      onClick={() => handleUndoStep(planStep.id)}
                       style={{
                         fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
                         background: "var(--elevated)", color: "var(--fg2)", border: "1px solid var(--border)", cursor: "pointer",
@@ -1075,6 +1138,8 @@ function DetailPane({
                     </button>
                   ) : null}
                 </div>
+                  );
+                })()}
                 {policyNote && (
                   <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-1">{policyNote}</p>
                 )}
@@ -1091,10 +1156,9 @@ function DetailPane({
                   const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
                   const isCompleted = planStep?.status === "completed";
                   const isActive = planStep?.status === "executing" || planStep?.status === "awaiting_approval" || planStep?.status === "approved";
-                  const isStepDone = isCompleted || completedHumanSteps.has(`${s.id}:${i}`);
+                  const isStepDone = isCompleted;
                   const isCurrentStep = i === currentStepIndex;
                   const isFutureStep = i > currentStepIndex;
-                  const key = `${s.id}:${i}`;
                   return (
                     <div
                       key={i}
@@ -1120,7 +1184,7 @@ function DetailPane({
                           <span style={{
                             fontSize: 13, fontWeight: 500,
                             color: isStepDone ? "var(--fg3)" : "var(--fg2)",
-                            textDecoration: completedHumanSteps.has(key) ? "line-through" : "none",
+                            textDecoration: isStepDone ? "line-through" : "none",
                           }} className="truncate">
                             {step.title}
                           </span>
@@ -1128,7 +1192,7 @@ function DetailPane({
                         </div>
                         <p style={{
                           fontSize: 12, color: "var(--fg3)", marginTop: 2,
-                          textDecoration: completedHumanSteps.has(key) ? "line-through" : "none",
+                          textDecoration: isStepDone ? "line-through" : "none",
                         }} className="line-clamp-2">
                           {step.description}
                         </p>
@@ -1145,19 +1209,9 @@ function DetailPane({
                             >
                               {t("executeAction") ?? "Execute Action"}
                             </button>
-                          ) : step.executionMode === "human_task" ? (
+                          ) : step.executionMode === "human_task" && planStep ? (
                             <button
-                              onClick={() => setCompletedHumanSteps(prev => {
-                                const next = new Set(prev);
-                                if (next.has(key)) {
-                                  for (let j = i; j < actionPlan.length; j++) {
-                                    next.delete(`${s.id}:${j}`);
-                                  }
-                                } else {
-                                  next.add(key);
-                                }
-                                return next;
-                              })}
+                              onClick={() => handleCompleteStep(planStep.id)}
                               style={{
                                 fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
                                 background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
@@ -1167,15 +1221,9 @@ function DetailPane({
                               {t("markComplete") ?? "Mark complete"}
                             </button>
                           ) : null
-                        ) : isStepDone && step.executionMode === "human_task" && completedHumanSteps.has(key) ? (
+                        ) : isStepDone && step.executionMode === "human_task" && planStep ? (
                           <button
-                            onClick={() => setCompletedHumanSteps(prev => {
-                              const next = new Set(prev);
-                              for (let j = i; j < actionPlan.length; j++) {
-                                next.delete(`${s.id}:${j}`);
-                              }
-                              return next;
-                            })}
+                            onClick={() => handleUndoStep(planStep.id)}
                             style={{
                               fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
                               background: "var(--elevated)", color: "var(--fg2)", border: "1px solid var(--border)", cursor: "pointer",
@@ -1277,6 +1325,11 @@ function DetailPane({
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-ok" />
               <p style={{ fontSize: 13, color: "var(--fg3)" }}>Executing action...</p>
+            </div>
+          ) : s.status === "monitoring" ? (
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full" style={{ background: "var(--accent)" }} />
+              <p style={{ fontSize: 13, color: "var(--fg3)" }}>Monitoring — waiting for external response</p>
             </div>
           ) : null}
 

@@ -201,6 +201,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       workStreamContexts: context.workStreamContexts,
       delegationSource: context.delegationSource,
       operationalInsights: context.operationalInsights,
+      actionCycles: context.actionCycles,
     };
 
     // 6a. Compute edit instruction and prior feedback (needed by both paths)
@@ -343,6 +344,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         where: { id: situationId },
         data: updates,
       });
+
+      await createSituationCycle(situationId, situation, reasoning, updates.executionPlanId as string | undefined);
 
       // Workstream absorption: link situation to related workstream
       if (reasoning.relatedWorkStreamId) {
@@ -644,6 +647,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       data: updates,
     });
 
+    await createSituationCycle(situationId, situation, reasoning, updates.executionPlanId as string | undefined);
+
     // Workstream absorption: link situation to related workstream
     if (reasoning.relatedWorkStreamId) {
       absorbSituationIntoWorkStream(situationId, reasoning.relatedWorkStreamId, situation.operatorId).catch(err =>
@@ -848,5 +853,37 @@ async function absorbSituationIntoWorkStream(
     create: { workStreamId, itemType: "situation", itemId: situationId },
     update: {},
   });
+}
+
+// ── Cycle Record Creation ───────────────────────────────────────────────────
+
+async function createSituationCycle(
+  situationId: string,
+  situation: { triggerEvidence: string | null; triggerSummary: string | null },
+  reasoning: unknown,
+  executionPlanId: string | undefined,
+): Promise<void> {
+  try {
+    const cycleCount = await prisma.situationCycle.count({ where: { situationId } });
+    await prisma.situationCycle.create({
+      data: {
+        situationId,
+        cycleNumber: cycleCount + 1,
+        triggerType: cycleCount === 0 ? "detection" : (situation.triggerEvidence ? (() => {
+          try {
+            const ev = JSON.parse(situation.triggerEvidence!);
+            return ev.type === "response" ? "response_received" : ev.type === "timeout" ? "timeout" : "signal";
+          } catch { return "signal"; }
+        })() : "signal"),
+        triggerSummary: situation.triggerSummary ?? (cycleCount === 0 ? "Situation detected" : "Re-evaluation triggered"),
+        triggerData: situation.triggerEvidence ? JSON.parse(situation.triggerEvidence) : undefined,
+        reasoning: reasoning as any,
+        executionPlanId,
+        status: "active",
+      },
+    });
+  } catch (err) {
+    console.error("[reasoning-engine] Failed to create SituationCycle record:", err);
+  }
 }
 

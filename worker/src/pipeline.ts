@@ -285,7 +285,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
     // Split tokens roughly 80/20 input/output for cost estimation
     const inputTokens = Math.round(run.tokensUsed * 0.8);
     const outputTokens = run.tokensUsed - inputTokens;
-    totalCost += calculateCallCostCents(runModel, { inputTokens, outputTokens });
+    totalCost += await calculateCallCostCents(runModel, { inputTokens, outputTokens });
   }
 
   await prisma.onboardingAnalysis.update({
