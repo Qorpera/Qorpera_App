@@ -17,6 +17,7 @@ import {
   sendAnalysisCompleteEmail,
   type CompanyModel,
 } from "@/lib/onboarding-intelligence/synthesis";
+import { getArchetypeTaxonomy } from "@/lib/archetype-classifier";
 import { TEMPORAL_ANALYST_PROMPT } from "@/lib/onboarding-intelligence/agents/temporal-analyst";
 import type { TemporalReport } from "@/lib/onboarding-intelligence/agents/temporal-analyst";
 import { ORGANIZER_PROMPT } from "@/lib/onboarding-intelligence/agents/organizer";
@@ -409,6 +410,15 @@ async function runSynthesis(
 
   const synthesisInput = buildSynthesisInput(allReports);
 
+  const archetypeTaxonomy = await getArchetypeTaxonomy();
+  const synthesisSystemPrompt = SYNTHESIS_PROMPT + `
+
+## Archetype Taxonomy
+
+Each situationTypeRecommendation should include an archetypeSlug — the slug of the closest matching archetype from this taxonomy. Match based on the situation's purpose and detection intent, not just name similarity. Use null only if no archetype fits.
+
+${archetypeTaxonomy}`;
+
   const synthModel = modelOverride ?? getModel("onboardingSynthesis");
   const synthThinking = getThinkingBudget("onboardingSynthesis");
   const response = await client.messages.create({
@@ -419,7 +429,7 @@ async function runSynthesis(
     system: [
       {
         type: "text" as const,
-        text: SYNTHESIS_PROMPT,
+        text: synthesisSystemPrompt,
         cache_control: { type: "ephemeral" as const },
       },
     ],

@@ -350,6 +350,10 @@ ${propsStr || "  (no properties)"}`);
       })
       .join("\n");
     sections.push(`PRIOR SIMILAR SITUATIONS:\n${priorsStr}`);
+    sections.push(`LEARNING FROM PRIOR OUTCOMES:
+When a prior situation has a positive outcome or positive feedback: replicate the approach and reasoning pattern that led to it.
+When a prior situation has negative feedback or a poor outcome: identify what went wrong and explicitly avoid that pattern. State what you are doing differently and why.
+When a prior situation has no feedback: treat it as informational context only — neither replicate nor avoid.`);
   } else {
     sections.push("PRIOR SIMILAR SITUATIONS:\nNo prior examples available. This is the first time this situation type has been encountered.");
   }

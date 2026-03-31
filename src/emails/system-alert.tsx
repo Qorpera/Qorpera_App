@@ -12,9 +12,9 @@ interface SystemAlertEmailProps {
 }
 
 export function SystemAlertEmail({
-  alertTitle,
-  message,
-  severity,
+  alertTitle = "System Alert",
+  message = "",
+  severity = "info",
   viewUrl,
 }: SystemAlertEmailProps) {
   return (

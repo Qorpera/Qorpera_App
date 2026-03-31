@@ -473,7 +473,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           instructions: systemPrompt,
           messages: [{ role: "user", content: userContent }],
           temperature: 0.2,
-          maxTokens: 4096,
+          maxTokens: 8192,
           aiFunction: "reasoning",
           model: modelString,
           operatorId: situation.operatorId,

@@ -67,6 +67,7 @@ export interface CompanyModel {
     department: string;
     severity: "high" | "medium" | "low";
     expectedFrequency: string;
+    archetypeSlug: string | null;
   }>;
   strategicGoals: Array<{
     title: string;
@@ -252,6 +253,7 @@ interface CompanyModel {
     department: string;
     severity: "high" | "medium" | "low";
     expectedFrequency: string;
+    archetypeSlug: string | null;  // Best-matching archetype from the Archetype Taxonomy below, or null if none fit
   }>;
   strategicGoals: Array<{
     title: string;                    // Concise goal statement (e.g., "Reduce average invoice payment time")
@@ -624,10 +626,12 @@ export async function createSituationTypesFromModel(
         detectionLogic: detectionLogicJson,
         autonomyLevel: "supervised",
         scopeEntityId: deptEntity?.id,
+        archetypeSlug: rec.archetypeSlug ?? null,
       },
       update: {
         description: rec.description,
         detectionLogic: detectionLogicJson,
+        archetypeSlug: rec.archetypeSlug ?? null,
       },
     });
   }
@@ -707,8 +711,10 @@ export async function sendAnalysisCompleteEmail(operatorId: string): Promise<voi
     linkUrl: "/onboarding",
     emailContext: {
       templateType: "system-alert",
-      ctaText: "Review Your Map",
-      ctaUrl: "/onboarding",
+      alertTitle: "Your operational map is ready",
+      message: "Qorpera has finished analyzing your connected tools and built your company model. Review and confirm your organizational map to start receiving operational intelligence.",
+      severity: "info",
+      viewUrl: "/onboarding",
     },
   });
 

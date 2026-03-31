@@ -703,10 +703,10 @@ export async function assembleSituationContext(
     departmentIds.map((id) => loadDepartmentContext(operatorId, id)),
   );
 
-  // Step 4: RAG retrieval
+  // Step 4: RAG retrieval + archetype lookup
   const situationType = await prisma.situationType.findUnique({
     where: { id: situationTypeId },
-    select: { description: true, name: true },
+    select: { description: true, name: true, archetypeSlug: true },
   });
 
   const entityTypeName = rawEntity?.entityType?.name ?? "entity";
@@ -753,15 +753,27 @@ export async function assembleSituationContext(
         orderBy: { createdAt: "desc" },
         take: 20,
       }),
-      prisma.situation.findMany({
-        where: {
-          operatorId,
-          situationTypeId,
-          status: { in: ["resolved", "closed"] },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-      }),
+      (async () => {
+        let typeIds = [situationTypeId];
+        if (situationType?.archetypeSlug) {
+          const siblings = await prisma.situationType.findMany({
+            where: { operatorId, archetypeSlug: situationType.archetypeSlug },
+            select: { id: true },
+          });
+          if (siblings.length > 0) {
+            typeIds = siblings.map(t => t.id);
+          }
+        }
+        return prisma.situation.findMany({
+          where: {
+            operatorId,
+            situationTypeId: { in: typeIds },
+            status: { in: ["resolved", "closed"] },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+        });
+      })(),
       prisma.actionCapability.findMany({
         where: { operatorId, enabled: true },
       }),

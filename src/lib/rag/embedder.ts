@@ -68,20 +68,47 @@ export async function embedChunks(texts: string[]): Promise<(number[] | null)[]>
     return texts.map(() => null);
   }
 
-  const allEmbeddings: (number[] | null)[] = [];
-
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    try {
-      const embeddings = await embedBatch(config, batch);
-      allEmbeddings.push(...embeddings);
-    } catch (err) {
-      console.error(`[embedder] Batch ${i / BATCH_SIZE} failed, storing without embeddings:`, err);
-      allEmbeddings.push(...batch.map(() => null));
+  // Track which inputs are empty/whitespace — these get null embeddings without calling the API
+  const validIndices: number[] = [];
+  const validTexts: string[] = [];
+  for (let i = 0; i < texts.length; i++) {
+    if (texts[i].trim().length > 0) {
+      validIndices.push(i);
+      validTexts.push(texts[i]);
     }
   }
 
-  return allEmbeddings;
+  if (validIndices.length < texts.length) {
+    console.warn(
+      `[embedder] Skipped ${texts.length - validIndices.length} empty/whitespace chunk(s)`,
+    );
+  }
+
+  if (validTexts.length === 0) {
+    return texts.map(() => null);
+  }
+
+  // Embed only non-empty texts
+  const validEmbeddings: (number[] | null)[] = [];
+
+  for (let i = 0; i < validTexts.length; i += BATCH_SIZE) {
+    const batch = validTexts.slice(i, i + BATCH_SIZE);
+    try {
+      const embeddings = await embedBatch(config, batch);
+      validEmbeddings.push(...embeddings);
+    } catch (err) {
+      console.error(`[embedder] Batch ${Math.floor(i / BATCH_SIZE)} failed, storing without embeddings:`, err);
+      validEmbeddings.push(...batch.map(() => null));
+    }
+  }
+
+  // Map results back into original positions (empty inputs get null)
+  const result: (number[] | null)[] = texts.map(() => null);
+  for (let i = 0; i < validIndices.length; i++) {
+    result[validIndices[i]] = validEmbeddings[i];
+  }
+
+  return result;
 }
 
 async function embedBatch(config: EmbeddingConfig, texts: string[]): Promise<number[][]> {
