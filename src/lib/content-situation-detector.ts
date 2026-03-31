@@ -7,6 +7,11 @@ import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
+import { getArchetypeTaxonomy, ensureArchetypeSituationType } from "@/lib/archetype-classifier";
+import { ensureActionRequiredType, ensureAwarenessType } from "@/lib/situation-type-helpers";
+
+// Re-export so existing consumers don't break
+export { ensureActionRequiredType, ensureAwarenessType };
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +33,8 @@ type EvaluationResult = {
   updatedSummary: string | null;
   evidence: string;
   reasoning: string; // NEW: why the LLM classified it this way
+  archetypeSlug: string | null;
+  archetypeConfidence: number | null;
 };
 
 type ActorBatch = {
@@ -50,55 +57,6 @@ const URGENCY_CONFIDENCE: Record<string, number> = {
   medium: 0.7,
   low: 0.5,
 };
-
-// ── SituationType Cache ──────────────────────────────────────────────────────
-
-const actionRequiredTypeCache = new Map<string, string>();
-
-export async function ensureActionRequiredType(
-  operatorId: string,
-  departmentId: string,
-): Promise<string> {
-  const cacheKey = `${operatorId}:${departmentId}`;
-  const cached = actionRequiredTypeCache.get(cacheKey);
-  if (cached) return cached;
-
-  // Look up department name for slug
-  const dept = await prisma.entity.findUnique({
-    where: { id: departmentId },
-    select: { displayName: true },
-  });
-  const deptSlug = (dept?.displayName ?? "general")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  const slug = `action-required-${deptSlug}`;
-
-  const sitType = await prisma.situationType.upsert({
-    where: { operatorId_slug: { operatorId, slug } },
-    create: {
-      operatorId,
-      slug,
-      name: "Action Required",
-      description:
-        "Communication-detected situations requiring action from team members in this department.",
-      // mode: "content" is deliberately unrecognized by the cron detector's
-      // safeParseDetection(), so these types are skipped during cron detection.
-      // Content-detected situations are created inline by this module, not by the cron.
-      detectionLogic: JSON.stringify({
-        mode: "content",
-        description: "Detected from incoming communications",
-      }),
-      autonomyLevel: "supervised",
-      scopeEntityId: departmentId,
-      enabled: true,
-    },
-    update: {}, // no-op if exists
-  });
-
-  actionRequiredTypeCache.set(cacheKey, sitType.id);
-  return sitType.id;
-}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -229,7 +187,10 @@ async function loadOpenSituations(
 
 // ── LLM Evaluation ──────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are evaluating incoming business communications to determine what attention they require from a specific person within their organization.
+async function buildSystemPrompt(): Promise<string> {
+  const taxonomy = await getArchetypeTaxonomy();
+
+  return `You are evaluating incoming business communications to determine what attention they require from a specific person within their organization.
 
 Classify each message into one of three categories:
 
@@ -244,7 +205,13 @@ For each message, also assess:
 - **confidence** (0.0-1.0) — how confident you are in the classification
 - **reasoning** — one sentence explaining why you chose this classification
 
+For each message classified as "action_required", you must ALSO classify it against the situation archetype taxonomy. Pick the single best-matching archetype slug. If no archetype fits well, use "unclassified".
+
+SITUATION ARCHETYPE TAXONOMY:
+${taxonomy}
+
 Respond with ONLY valid JSON (no markdown fences):`;
+}
 
 async function evaluateActorBatch(batch: ActorBatch): Promise<EvaluationResult[]> {
   const openSitLines =
@@ -291,15 +258,19 @@ For each message, respond with:
     "relatedSituationId": "existing situation ID if this updates an open situation, or null",
     "updatedSummary": "If related to existing situation, the updated summary, or null",
     "evidence": "The specific text that drove the classification",
-    "reasoning": "One sentence: why this classification"
+    "reasoning": "One sentence: why this classification",
+    "archetypeSlug": "overdue_invoice | client_escalation | ... | unclassified (action_required only, null otherwise)",
+    "archetypeConfidence": "0.0-1.0 (action_required only, null otherwise)"
   }
 ]`;
 
+  const systemPrompt = await buildSystemPrompt();
+
   const response = await callLLM({
-    instructions: SYSTEM_PROMPT,
+    instructions: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
     temperature: 0.1,
-    maxTokens: 2000,
+    maxTokens: 4000,
     aiFunction: "reasoning",
     model: getModel("contentDetection"),
   });
@@ -324,6 +295,12 @@ For each message, respond with:
     updatedSummary: r.updatedSummary ? String(r.updatedSummary) : null,
     evidence: String(r.evidence ?? ""),
     reasoning: String(r.reasoning ?? ""),
+    archetypeSlug: r.classification === "action_required" && typeof r.archetypeSlug === "string"
+      ? r.archetypeSlug
+      : null,
+    archetypeConfidence: r.classification === "action_required" && typeof r.archetypeConfidence === "number"
+      ? r.archetypeConfidence
+      : null,
   }));
 }
 
@@ -408,7 +385,10 @@ async function handleActionRequired(
     return;
   }
 
-  const situationTypeId = await ensureActionRequiredType(operatorId, departmentId);
+  // Route to archetype-specific type, or generic "Action Required" for unclassified
+  const situationTypeId = result.archetypeSlug && result.archetypeSlug !== "unclassified" && result.archetypeConfidence && result.archetypeConfidence >= 0.6
+    ? await ensureArchetypeSituationType(operatorId, departmentId, result.archetypeSlug)
+    : await ensureActionRequiredType(operatorId, departmentId);
 
   const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.7;
 
@@ -522,6 +502,8 @@ async function logEvaluation(
       reasoning: result.reasoning || null,
       urgency: result.urgency,
       confidence: result.confidence,
+      archetypeSlug: result.archetypeSlug ?? null,
+      archetypeConfidence: result.archetypeConfidence ?? null,
       situationId: null, // Updated after situation creation if applicable
       metadata: item?.metadata ? (item.metadata as Prisma.InputJsonValue) : undefined,
     },
@@ -657,50 +639,6 @@ async function handleAwareness(
   // No free tier tracking — awareness items don't count toward the 50-situation cap
 
   console.log(`[content-detection] Created awareness situation for ${batch.actorName}: ${result.summary}`);
-}
-
-// ── Awareness SituationType Cache ────────────────────────────────────────────
-
-const awarenessTypeCache = new Map<string, string>();
-
-export async function ensureAwarenessType(
-  operatorId: string,
-  departmentId: string,
-): Promise<string> {
-  const cacheKey = `${operatorId}:${departmentId}`;
-  const cached = awarenessTypeCache.get(cacheKey);
-  if (cached) return cached;
-
-  const dept = await prisma.entity.findUnique({
-    where: { id: departmentId },
-    select: { displayName: true },
-  });
-  const deptSlug = (dept?.displayName ?? "general")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  const slug = `awareness-${deptSlug}`;
-
-  const sitType = await prisma.situationType.upsert({
-    where: { operatorId_slug: { operatorId, slug } },
-    create: {
-      operatorId,
-      slug,
-      name: "Awareness",
-      description: "Items the employee should be aware of but that don't require direct action.",
-      detectionLogic: JSON.stringify({
-        mode: "content",
-        description: "Awareness items detected from incoming communications",
-      }),
-      autonomyLevel: "supervised",
-      scopeEntityId: departmentId,
-      enabled: true,
-    },
-    update: {},
-  });
-
-  awarenessTypeCache.set(cacheKey, sitType.id);
-  return sitType.id;
 }
 
 // ── Main Entry Point ─────────────────────────────────────────────────────────

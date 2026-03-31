@@ -441,6 +441,19 @@ model Event {
   @@index([connectorId, createdAt(sort: Desc)])
 }
 
+// ─── Situation Archetypes ────────────────────────────
+
+model SituationArchetype {
+  slug             String   @id // "overdue_invoice", "client_escalation", etc.
+  name             String          // Human-readable: "Overdue Invoice"
+  description      String          // Used in LLM classification prompt
+  category         String          // "payment_financial", "sales_pipeline", "client_communication", "people_hr", "operations_delivery", "knowledge_governance"
+  detectionTemplate String?        // JSON — default detectionLogic for auto-created types
+  defaultSeverity  String  @default("medium") // "low" | "medium" | "high"
+  examplePhrases   String?        // JSON array of 3-5 example trigger descriptions for classification
+  createdAt        DateTime @default(now())
+}
+
 // ─── Layer 3: Situations ─────────────────────────────
 
 model SituationType {
@@ -459,6 +472,7 @@ model SituationType {
   scopeEntityId  String?   // anchor entity for scoped detection
   scopeDepth     Int?      // max hops from anchor (default: unlimited within subtree)
   enabled        Boolean @default(true)
+  archetypeSlug  String?   // Maps to SituationArchetype.slug — null for custom/unclassified types
   visibleToRoles String? // JSON array of role strings
   preFilterPassCount  Int       @default(0)
   llmConfirmCount     Int       @default(0)
@@ -1177,6 +1191,8 @@ model EvaluationLog {
   reasoning       String?  // Why the LLM classified it this way
   urgency         String?  // "low" | "medium" | "high" (null for irrelevant)
   confidence      Float?   // 0.0-1.0
+  archetypeSlug       String?   // Archetype classification from content detection
+  archetypeConfidence Float?    // 0.0-1.0 confidence of the classification
   situationId     String?  // If promoted to a situation, link it here
   metadata        Json?    // Original message metadata (from, to, subject, date)
   evaluatedAt     DateTime @default(now())

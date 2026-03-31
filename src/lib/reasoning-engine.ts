@@ -13,7 +13,7 @@ import { extractJSON } from "@/lib/json-helpers";
 import { parseCitedSections } from "@/lib/reasoning/citation-parser";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
-export const REASONING_PROMPT_VERSION = 2; // Day 16: quote-then-analyze + anti-sycophancy + devil's advocate
+export const REASONING_PROMPT_VERSION = 3; // v3: ideal plan first, human_task steps, situationTitle
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -334,6 +334,11 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         updates.status = "executing";
       }
 
+      // Fold situationTitle into the main update
+      if (reasoning.situationTitle) {
+        updates.triggerSummary = reasoning.situationTitle;
+      }
+
       await prisma.situation.update({
         where: { id: situationId },
         data: updates,
@@ -623,6 +628,11 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "proposed";
+    }
+
+    // Fold situationTitle into the main update
+    if (reasoning.situationTitle) {
+      updates.triggerSummary = reasoning.situationTitle;
     }
 
     await prisma.situation.update({

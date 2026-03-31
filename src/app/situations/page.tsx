@@ -416,17 +416,15 @@ export default function SituationsPage() {
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: severityDotColor(s) }} />
                   <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }} className="truncate flex-1">
-                    {s.triggerEntityName ?? "Unknown"}
+                    {s.triggerSummary
+                      ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
+                      : s.triggerEntityName ?? "Unknown"
+                    }
                   </span>
                   <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
                     {formatRelativeTime(s.createdAt, locale)}
                   </span>
                 </div>
-                {s.triggerSummary && (
-                  <p style={{ fontSize: 12, color: "var(--fg3)", marginTop: 2 }} className="pl-[15px] line-clamp-2">
-                    {s.triggerSummary}
-                  </p>
-                )}
                 <div style={{ fontSize: 11, color: "var(--fg4)" }} className="pl-[15px] truncate">
                   {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
                 </div>
@@ -663,6 +661,7 @@ function DetailPane({
   const [executionPlan, setExecutionPlan] = useState<ExecutionPlanData | null>(null);
   const [linkedWorkStream, setLinkedWorkStream] = useState<{ id: string; title: string } | null>(null);
   const [showStarDropdown, setShowStarDropdown] = useState(false);
+  const [completedHumanSteps, setCompletedHumanSteps] = useState<Set<string>>(new Set());
   const [creatingProject, setCreatingProject] = useState(false);
   const [workStreams, setWorkStreams] = useState<Array<{ id: string; title: string }>>([]);
   const starDropdownRef = useRef<HTMLDivElement>(null);
@@ -780,7 +779,10 @@ function DetailPane({
       <div>
         <div className="flex items-start justify-between">
           <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
-            {s.triggerEntityName ?? "Unknown"} &mdash; {s.situationType.name}
+            {s.triggerSummary
+              ? s.triggerSummary.slice(0, 80) + (s.triggerSummary.length > 80 ? "..." : "")
+              : `${s.triggerEntityName ?? "Unknown"} — ${s.situationType.name}`
+            }
           </h1>
           <div className="flex items-center gap-2 flex-shrink-0">
             <Badge variant={sev.variant}>{sev.label}</Badge>
@@ -997,8 +999,33 @@ function DetailPane({
                 Proposed Action
               </div>
               <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
-                <p style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.65, color: "var(--fg2)" }}>{actionPlan[0].title}</p>
-                <p style={{ fontSize: 12, color: "var(--fg3)" }} className="mt-1">{actionPlan[0].description}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p style={{
+                        fontSize: 13, fontWeight: 500, lineHeight: 1.65, color: completedHumanSteps.has(`${s.id}:0`) ? "var(--fg3)" : "var(--fg2)",
+                        textDecoration: completedHumanSteps.has(`${s.id}:0`) ? "line-through" : "none",
+                      }}>{actionPlan[0].title}</p>
+                      <ExecutionModeBadge mode={actionPlan[0].executionMode} />
+                    </div>
+                    <p style={{
+                      fontSize: 12, color: "var(--fg3)",
+                      textDecoration: completedHumanSteps.has(`${s.id}:0`) ? "line-through" : "none",
+                    }} className="mt-1">{actionPlan[0].description}</p>
+                  </div>
+                  {actionPlan[0].executionMode === "human_task" && !completedHumanSteps.has(`${s.id}:0`) && (
+                    <button
+                      onClick={() => setCompletedHumanSteps(prev => new Set(prev).add(`${s.id}:0`))}
+                      style={{
+                        fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
+                        background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {t("markComplete") ?? "Mark complete"}
+                    </button>
+                  )}
+                </div>
                 {policyNote && (
                   <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-1">{policyNote}</p>
                 )}
@@ -1029,7 +1056,7 @@ function DetailPane({
                     >
                       {/* Step number or status icon */}
                       <div className="flex-shrink-0 mt-0.5" style={{ width: 20, textAlign: "center" }}>
-                        {isCompleted ? (
+                        {(isCompleted || completedHumanSteps.has(`${s.id}:${i}`)) ? (
                           <span style={{ color: "var(--ok)", fontSize: 14 }}>&#10003;</span>
                         ) : (
                           <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "var(--accent)" : "var(--fg4)" }}>({i + 1})</span>
@@ -1038,14 +1065,34 @@ function DetailPane({
                       {/* Step content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span style={{ fontSize: 13, fontWeight: 500, color: isCompleted ? "var(--fg3)" : "var(--fg2)" }} className="truncate">
+                          <span style={{
+                            fontSize: 13, fontWeight: 500,
+                            color: (isCompleted || completedHumanSteps.has(`${s.id}:${i}`)) ? "var(--fg3)" : "var(--fg2)",
+                            textDecoration: completedHumanSteps.has(`${s.id}:${i}`) ? "line-through" : "none",
+                          }} className="truncate">
                             {step.title}
                           </span>
                           <ExecutionModeBadge mode={step.executionMode} />
                         </div>
-                        <p style={{ fontSize: 12, color: "var(--fg3)", marginTop: 2 }} className="line-clamp-2">
+                        <p style={{
+                          fontSize: 12, color: "var(--fg3)", marginTop: 2,
+                          textDecoration: completedHumanSteps.has(`${s.id}:${i}`) ? "line-through" : "none",
+                        }} className="line-clamp-2">
                           {step.description}
                         </p>
+                        {/* Human task: mark complete toggle */}
+                        {step.executionMode === "human_task" && !isCompleted && !completedHumanSteps.has(`${s.id}:${i}`) && (
+                          <button
+                            onClick={() => setCompletedHumanSteps(prev => new Set(prev).add(`${s.id}:${i}`))}
+                            style={{
+                              fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
+                              background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+                              marginTop: 6,
+                            }}
+                          >
+                            {t("markComplete") ?? "Mark complete"}
+                          </button>
+                        )}
                         {/* Action preview */}
                         {planStep?.parameters && (() => {
                           const enrichedStep = {

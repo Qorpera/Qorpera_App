@@ -21,7 +21,7 @@ describe("Reasoning prompt structure", () => {
   it("contains quote-then-analyze directive", () => {
     expect(prompt).toContain("identify and quote the specific data points");
     expect(prompt).toContain("Reference each quoted piece of evidence by its source section");
-    expect(prompt).toContain("insufficient data");
+    expect(prompt).toContain("insufficient for a specific recommendation");
   });
 
   it("contains anti-sycophancy — independent analyst persona", () => {
@@ -29,11 +29,10 @@ describe("Reasoning prompt structure", () => {
     expect(prompt).toContain("accuracy and honest assessment");
   });
 
-  it("contains anti-sycophancy — explicit rejection permission", () => {
-    expect(prompt).toContain("No action needed");
-    expect(prompt).toContain("Insufficient data to act");
-    expect(prompt).toContain("Monitor and reassess");
-    expect(prompt).toContain("Do not force an action recommendation");
+  it("contains collaborative framing — always produce an action plan", () => {
+    expect(prompt).toContain("ALWAYS PRODUCE AN ACTION PLAN");
+    expect(prompt).toContain("human_task");
+    expect(prompt).toContain("should NEVER be null");
   });
 
   it("contains anti-sycophancy — devil's advocate on escalation", () => {
@@ -43,8 +42,8 @@ describe("Reasoning prompt structure", () => {
 });
 
 describe("REASONING_PROMPT_VERSION", () => {
-  it("is incremented to 2", () => {
-    expect(REASONING_PROMPT_VERSION).toBe(2);
+  it("is incremented to 3", () => {
+    expect(REASONING_PROMPT_VERSION).toBe(3);
   });
 });
 
@@ -53,7 +52,7 @@ describe("Existing reasoning structure preserved", () => {
 
   it("still contains core operating principle", () => {
     expect(prompt).toContain("CORE OPERATING PRINCIPLE");
-    expect(prompt).toContain("reason and act ONLY from the evidence provided");
+    expect(prompt).toContain("reason and propose ONLY from the evidence provided");
   });
 
   it("still contains governance section", () => {

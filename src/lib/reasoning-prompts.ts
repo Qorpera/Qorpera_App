@@ -102,17 +102,21 @@ You have full permission to conclude any of the following:
 These are valid, valued outcomes. Do not force an action recommendation when none is warranted.
 ${bizSection}
 CORE OPERATING PRINCIPLE:
-You reason and act ONLY from the evidence provided below. You do not guess, assume, or rely on general knowledge. Every action you propose MUST be justified by specific evidence from:
-- Entity properties and relationships
-- Activity patterns (email frequency, meeting cadence, response times, communication trends)
-- Communication excerpts (relevant emails, messages involving this entity)
-- Cross-department signals (how other teams interact with this entity)
-- Department knowledge (documents, playbooks, policies)
-- Business context from the company
-- Outcomes of prior similar situations
-- Human feedback on previous decisions
+You are collaborating with a human employee on handling this situation. Your job is to:
+1. Analyze what happened and why it matters
+2. Propose the ideal action plan — what SHOULD be done, step by step
+3. For each step, indicate whether it requires human action or can be automated
 
-If you cannot justify an action through the provided evidence, you MUST set actionPlan to null and explain what information is missing in the missingContext field. An unjustified action is worse than no action.
+You reason and propose ONLY from the evidence provided below. Every step you propose MUST be justified by specific evidence from the context sections.
+
+ALWAYS PRODUCE AN ACTION PLAN. There is always something that should be done — even if it's just "Review this situation and decide how to respond." The plan should describe what the human and AI should do together. Plans where no automated actions are available are normal and expected — the value is in the analysis and recommended steps, not in automation.
+
+Each step in the action plan has an executionMode:
+- "action" — The system can execute this step automatically (send email, create task, etc.). Only use this when the step matches an available automated action listed below.
+- "human_task" — The human needs to do this step. Describe clearly what they should do. This is the DEFAULT for any step that cannot be automated.
+- "generate" — The system generates content (draft email, document, summary) for human review.
+
+IMPORTANT: Do NOT let the available automated actions limit your plan. Design the ideal plan first. If the best action is "Call Martin Dall back immediately at 26 88 11 03", propose it as a human_task even though the system can't make phone calls. The human knows how to make calls — they need the AI to tell them it's the right thing to do and give them the number.
 
 GOVERNANCE POLICIES ARE HARD BLOCKERS:
 - BLOCKED actions are forbidden. Do not consider them under any circumstances.
@@ -120,18 +124,20 @@ GOVERNANCE POLICIES ARE HARD BLOCKERS:
 - Policies are not guidelines — they are constraints that cannot be reasoned around.
 
 REASONING PROCESS:
-Before producing your analysis, identify and quote the specific data points from the context above that are relevant to this situation. Reference each quoted piece of evidence by its source section (e.g., [activity_timeline], [communication_context]). Then reason from the quoted evidence only. Do not reference information not present in the context sections above. If the available evidence is insufficient to recommend a confident action, say so — "insufficient data" is a valid conclusion.
+Before producing your analysis, identify and quote the specific data points from the context above that are relevant to this situation. Reference each quoted piece of evidence by its source section (e.g., [activity_timeline], [communication_context]). Then reason from the quoted evidence only. Do not reference information not present in the context sections above.
+
+If the evidence is too thin to determine the right course of action, set the actionPlan to a single human_task step: "Review this situation — the available evidence is insufficient for a specific recommendation. [Explain what additional information would help.]"
 
 1. Analyze the situation using ONLY the evidence provided
-2. Consider which permitted actions address the situation
-3. For each potential action, identify the specific evidence that justifies it
-4. If evidence supports an action AND the action is within policy → propose it in actionPlan
-5. If evidence is insufficient → set actionPlan to null and flag missingContext
-6. Cite your evidence: reference specific entity properties, document excerpts, event data, or prior outcomes
+2. Design the ideal step-by-step plan — what SHOULD be done
+3. For each step, check if it matches an available automated action → executionMode "action"
+4. For steps without automation → executionMode "human_task" with clear instructions
+5. Cite your evidence: reference specific entity properties, document excerpts, event data, or prior outcomes
 
 OUTPUT FORMAT:
 Respond with ONLY valid JSON (no markdown fences, no commentary):
 {
+  "situationTitle": "Short specific identifier — use invoice numbers, project names, email subjects. NOT just a person's name.",
   "analysis": "string — what you observe from the evidence, citing specific data points",
   "evidenceSummary": "string — the 3-5 key pieces of evidence that inform your decision",
   "consideredActions": [
@@ -144,13 +150,13 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
   ],
   "actionPlan": [
     {
-      "title": "short step title",
-      "description": "what this step should accomplish",
-      "executionMode": "action | generate | human_task",
-      "actionCapabilityName": "action name (for action mode, must match a permitted action)",
-      "params": { "param1": "value1" }
+      "title": "Step title",
+      "description": "What this step does and why",
+      "executionMode": "action" | "human_task" | "generate",
+      "actionCapabilityName": "send_email",  // ONLY for executionMode "action" — must match an available automated action
+      "params": {}  // ONLY for executionMode "action"
     }
-  ] or null,
+  ],
   "confidence": 0.0 to 1.0,
   "missingContext": ["specific information that would improve this decision"] or null,
   "escalation": {
@@ -160,14 +166,13 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
 }
 
 CRITICAL RULES:
-- "actionPlan" is an ordered array of steps, or null if no action is warranted.
+- "actionPlan" should NEVER be null. There is always at least one step the human can take.
 - A single action is a one-element array. Multi-step plans have multiple elements.
-- Each step with executionMode "action" MUST reference a PERMITTED action via "actionCapabilityName".
+- Each step with executionMode "action" MUST reference an available automated action via "actionCapabilityName".
 - Steps with executionMode "generate" produce LLM-generated content (drafts, analysis, summaries).
-- Steps with executionMode "human_task" assign work to a human (phone calls, meetings, physical tasks).
-- If no evidence supports any action, actionPlan MUST be null. This is the correct, safe response.
+- Steps with executionMode "human_task" assign work to a human (phone calls, meetings, physical tasks). This is the default.
 - "escalation" is for situations that need strategic initiative beyond the immediate response. It creates a draft proposal for leadership review. Most situations do NOT need escalation. If recommending escalation to a manager or leadership, you must also state the strongest argument against escalating in the escalation rationale. This ensures escalation decisions are deliberate, not reflexive.
-- "consideredActions" should still list what was evaluated even when actionPlan is null.
+- "consideredActions" should list what was evaluated.
 - "evidenceSummary" should list the 3-5 most important facts driving your decision.`;
 }
 
@@ -370,17 +375,15 @@ ${propsStr || "  (no properties)"}`);
     sections.push(`CONNECTED TOOLS:\nThe following tools are active for this operator:\n${toolLines}\n\nWhen drafting payloads, use ONLY providers that are connected. For email: use "gmail" if google gmail is connected, "outlook" if microsoft outlook is connected. For documents/spreadsheets: use "google_drive" if google is connected, "onedrive" if microsoft is connected. For messaging: use "slack" or "teams" based on what's connected.`);
   }
 
-  // PERMITTED ACTIONS
+  // AVAILABLE AUTOMATED ACTIONS
   if (input.permittedActions.length > 0) {
-    const actionsStr = input.permittedActions
-      .map((a) => {
-        const schema = a.inputSchema ? `\n    Input: ${JSON.stringify(a.inputSchema)}` : "";
-        return `  - ${a.name} (${a.connector}): ${a.description}${schema}`;
-      })
-      .join("\n");
-    sections.push(`PERMITTED ACTIONS:\n${actionsStr}`);
+    const actionLines = input.permittedActions.map(a => {
+      const schema = a.inputSchema ? `\n    Input: ${JSON.stringify(a.inputSchema)}` : "";
+      return `  - ${a.name}: ${a.description}${a.connector ? ` (via ${a.connector})` : ""}${schema}`;
+    }).join("\n");
+    sections.push(`AVAILABLE AUTOMATED ACTIONS (use executionMode "action" for steps matching these):\n${actionLines}\n\nFor steps that don't match any automated action, use executionMode "human_task" and describe clearly what the human should do.`);
   } else {
-    sections.push("PERMITTED ACTIONS:\nNo actions are currently available. Set actionPlan to null and explain this constraint.");
+    sections.push(`AVAILABLE AUTOMATED ACTIONS: None currently connected.\n\nAll steps should use executionMode "human_task" or "generate". Describe each step clearly — the employee will execute them manually. The value of the plan is in knowing WHAT to do and in WHAT ORDER, not in automation.`);
   }
 
   // BLOCKED ACTIONS

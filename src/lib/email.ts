@@ -22,7 +22,7 @@ export async function sendEmail(params: {
   try {
     const resend = getResend();
     const base = {
-      from: process.env.EMAIL_FROM || "Qorpera <noreply@qorpera.com>",
+      from: process.env.EMAIL_FROM || "Qorpera <noreply@mail.qorpera.com>",
       to: params.to,
       subject: params.subject,
     };

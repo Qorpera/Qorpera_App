@@ -10,6 +10,7 @@ const ActionStepSchema = z.object({
 });
 
 export const ReasoningOutputSchema = z.object({
+  situationTitle: z.string().describe("Short, specific title identifying this situation. Use document numbers, project names, or specific subjects — not just person names. Examples: 'Invoice INV-2026-035 overdue', 'Nygade Center power outage — urgent dispatch', 'Emil cable type question (NOIKLX vs NYM)'").optional(),
   analysis: z.string().min(10),
   evidenceSummary: z.string().min(10),
   consideredActions: z.array(z.object({
@@ -18,7 +19,7 @@ export const ReasoningOutputSchema = z.object({
     evidenceAgainst: z.array(z.string()),
     expectedOutcome: z.string(),
   })),
-  actionPlan: z.array(ActionStepSchema).nullable(),  // null = no action, array = ordered steps (can be length 1)
+  actionPlan: z.array(ActionStepSchema).nullable(),  // Nullable kept for defensive parsing — prompt says "never null" but LLMs aren't deterministic
   confidence: z.number().min(0).max(1),
   missingContext: z.array(z.string()).nullable(),
   webSources: z.array(z.string()).optional(),  // URLs from web search results consulted during reasoning

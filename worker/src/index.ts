@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { runAnalysisPipeline } from "./pipeline";
 import { createHttpServer } from "./http-server";
