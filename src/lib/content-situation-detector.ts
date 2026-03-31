@@ -725,6 +725,25 @@ export async function evaluateContentForSituations(
     }
   }
 
+  // Dedup: filter out items already evaluated
+  const existingEvals = await prisma.evaluationLog.findMany({
+    where: {
+      operatorId,
+      sourceId: { in: items.map(i => i.sourceId) },
+    },
+    select: { sourceId: true },
+  });
+  const evaluatedIds = new Set(existingEvals.map(e => e.sourceId));
+  const originalCount = items.length;
+  items = items.filter(i => !evaluatedIds.has(i.sourceId));
+  if (items.length < originalCount) {
+    console.log(`[content-detection] Filtered ${originalCount - items.length} already-evaluated items, ${items.length} remaining`);
+  }
+  if (items.length === 0) {
+    console.log(`[content-detection] All items already evaluated, skipping`);
+    return;
+  }
+
   // Step 1: Resolve actors
   const actorMap = await resolveActors(operatorId, items);
   if (actorMap.size === 0) return;

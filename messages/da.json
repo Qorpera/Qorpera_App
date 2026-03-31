@@ -9,6 +9,7 @@
     "continue": "Fortsæt",
     "saving": "Gemmer...",
     "confirm": "Bekræft",
+    "undo": "Fortryd",
     "add": "Tilføj",
     "remove": "Fjern",
     "edit": "Rediger",
@@ -222,7 +223,6 @@
       "evidenceSource": "Fundet i {source}",
       "situationsBadge": "{count} situationer opdaget",
       "save": "Gem",
-      "undo": "Fortryd",
       "remove": "Fjern",
       "unassigned": "Ikke-tildelte personer",
       "detectedIntelligence": "Opdaget intelligens",
@@ -303,7 +303,12 @@
     "whatHappened": "Hvad skete der",
     "whyItMatters": "Hvorfor det er vigtigt",
     "awaitingAnalysis": "Situation opdaget — afventer AI-analyse.",
-    "detectionReasoning": "Detektionsræsonnement"
+    "detectionReasoning": "Detektionsræsonnement",
+    "markComplete": "Marker som afsluttet",
+    "executeAction": "Udfør handling",
+    "completeStepFirst": "Fuldfør trin {n} først",
+    "planPending": "Plan afventer",
+    "planExecuting": "Udfører"
   },
   "copilot": {
     "title": "Chat",
@@ -341,8 +346,6 @@
     "steps": "{count} trin",
     "impactAssessment": "Konsekvensvurdering",
     "approveStep": "Godkend trin",
-    "markComplete": "Marker som afsluttet",
-    "executeAction": "Udfør handling",
     "humanTaskPlaceholder": "Beskriv hvad du har gjort...",
     "goal": "Mål: {title}",
     "discuss": "Diskuter dette initiativ...",

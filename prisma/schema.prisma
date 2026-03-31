@@ -1227,4 +1227,5 @@ model EvaluationLog {
   @@index([operatorId, evaluatedAt])
   @@index([operatorId, classification])
   @@index([operatorId, actorEntityId])
+  @@index([operatorId, sourceId])
 }

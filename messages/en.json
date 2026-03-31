@@ -9,6 +9,7 @@
     "continue": "Continue",
     "saving": "Saving...",
     "confirm": "Confirm",
+    "undo": "Undo",
     "add": "Add",
     "remove": "Remove",
     "edit": "Edit",
@@ -222,7 +223,6 @@
       "evidenceSource": "Found in {source}",
       "situationsBadge": "{count} situations detected",
       "save": "Save",
-      "undo": "Undo",
       "remove": "Remove",
       "unassigned": "Unassigned people",
       "detectedIntelligence": "Detected intelligence",
@@ -303,7 +303,12 @@
     "whatHappened": "What happened",
     "whyItMatters": "Why it matters",
     "awaitingAnalysis": "Situation detected — awaiting AI analysis.",
-    "detectionReasoning": "Detection reasoning"
+    "detectionReasoning": "Detection reasoning",
+    "markComplete": "Mark complete",
+    "executeAction": "Execute Action",
+    "completeStepFirst": "Complete step {n} first",
+    "planPending": "Plan pending",
+    "planExecuting": "Executing"
   },
   "copilot": {
     "title": "Chat",
@@ -341,8 +346,6 @@
     "steps": "{count} steps",
     "impactAssessment": "Impact assessment",
     "approveStep": "Approve step",
-    "markComplete": "Mark complete",
-    "executeAction": "Execute Action",
     "humanTaskPlaceholder": "Describe what you did...",
     "goal": "Goal: {title}",
     "discuss": "Discuss this initiative...",

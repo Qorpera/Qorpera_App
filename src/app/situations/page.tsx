@@ -634,6 +634,26 @@ const EXEC_MODE_STYLES: Record<string, { bg: string; color: string; label: strin
   human_task: { bg: "rgba(245,158,11,0.12)", color: "var(--warn)", label: "human task" },
 };
 
+const STEP_BTN_PRIMARY: React.CSSProperties = {
+  fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
+  background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+};
+const STEP_BTN_SECONDARY: React.CSSProperties = {
+  fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
+  background: "var(--elevated)", color: "var(--fg2)", border: "1px solid var(--border)", cursor: "pointer",
+};
+const PLAN_STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
+  completed: { bg: "rgba(34,197,94,0.1)", color: "var(--ok)", label: "Completed" },
+  failed: { bg: "rgba(239,68,68,0.1)", color: "var(--danger)", label: "Failed" },
+  pending: { bg: "rgba(168,85,247,0.1)", color: "var(--accent)", label: "Plan pending" },
+  executing: { bg: "rgba(168,85,247,0.1)", color: "var(--accent)", label: "Executing" },
+};
+const CheckSvg = () => (
+  <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
 function ExecutionModeBadge({ mode }: { mode: string }) {
   const style = EXEC_MODE_STYLES[mode] ?? EXEC_MODE_STYLES.action;
   return (
@@ -692,6 +712,14 @@ function DetailPane({
   const [workStreams, setWorkStreams] = useState<Array<{ id: string; title: string }>>([]);
   const starDropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const [openSteps, setOpenSteps] = useState<Set<number>>(new Set([0]));
+  const toggleStep = (i: number) => {
+    setOpenSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  };
 
   // Outside-click dismiss for star dropdown
   useEffect(() => {
@@ -1077,242 +1105,249 @@ function DetailPane({
 
           {/* ── PROPOSED ACTION / PLAN section ── */}
           {reasoning && actionPlan && actionPlan.length === 1 ? (
-            /* Single-step plan: show as simple proposed action */
+            /* Single-step plan: timeline dot + left-border indent */
             <div>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const, marginBottom: 14 }}>
                 Proposed Action
               </div>
-              <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
-                {(() => {
-                  const planStep = executionPlan?.steps.find(es => es.sequenceOrder === 1);
-                  const isStepDone = planStep?.status === "completed";
-                  return (
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p style={{
-                        fontSize: 13, fontWeight: 500, lineHeight: 1.65, color: isStepDone ? "var(--fg3)" : "var(--fg2)",
+              {(() => {
+                const planStep = executionPlan?.steps.find(es => es.sequenceOrder === 1);
+                const isStepDone = planStep?.status === "completed";
+                return (
+                  <div style={{ position: "relative", paddingLeft: 30 }}>
+                    <div style={{
+                      position: "absolute", left: 5, top: 4, width: 12, height: 12, borderRadius: "50%", zIndex: 1,
+                      background: isStepDone ? "var(--ok)" : "var(--accent)",
+                      border: `2px solid ${isStepDone ? "var(--ok)" : "var(--accent)"}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {isStepDone && (
+                        <CheckSvg />
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 2 }}>
+                      <span style={{
+                        fontSize: 13, fontWeight: 600, flex: 1,
+                        color: isStepDone ? "var(--fg3)" : "var(--fg1, var(--foreground))",
                         textDecoration: isStepDone ? "line-through" : "none",
-                      }}>{actionPlan[0].title}</p>
+                      }}>
+                        {actionPlan[0].title}
+                      </span>
                       <ExecutionModeBadge mode={actionPlan[0].executionMode} />
                     </div>
-                    <p style={{
-                      fontSize: 12, color: "var(--fg3)",
-                      textDecoration: isStepDone ? "line-through" : "none",
-                    }} className="mt-1">{actionPlan[0].description}</p>
+
+                    {/* Expanded content — always visible for single step */}
+                    <div style={{
+                      marginTop: 10, marginLeft: 2, paddingLeft: 14,
+                      borderLeft: "2px solid var(--accent)",
+                    }}>
+                      <p style={{ fontSize: 12, color: "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px" }}>{actionPlan[0].description}</p>
+
+                      {!isStepDone ? (
+                        actionPlan[0].executionMode === "action" ? (
+                          <button onClick={handleApprove} style={STEP_BTN_PRIMARY}>
+                            {t("executeAction") ?? "Execute Action"}
+                          </button>
+                        ) : actionPlan[0].executionMode === "human_task" && planStep ? (
+                          <button onClick={() => handleCompleteStep(planStep.id)} style={STEP_BTN_PRIMARY}>
+                            {t("markComplete") ?? "Mark complete"}
+                          </button>
+                        ) : null
+                      ) : actionPlan[0].executionMode === "human_task" && planStep ? (
+                        <button onClick={() => handleUndoStep(planStep.id)} style={STEP_BTN_SECONDARY}>
+                          {tc("undo") ?? "Undo"}
+                        </button>
+                      ) : null}
+
+                      {policyNote && (
+                        <p style={{ fontSize: 11, color: "var(--fg4)", marginTop: 6 }}>{policyNote}</p>
+                      )}
+                    </div>
                   </div>
-                  {!isStepDone ? (
-                    actionPlan[0].executionMode === "action" ? (
-                      <button
-                        onClick={handleApprove}
-                        style={{
-                          fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
-                          background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {t("executeAction") ?? "Execute Action"}
-                      </button>
-                    ) : actionPlan[0].executionMode === "human_task" && planStep ? (
-                      <button
-                        onClick={() => handleCompleteStep(planStep.id)}
-                        style={{
-                          fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
-                          background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {t("markComplete") ?? "Mark complete"}
-                      </button>
-                    ) : null
-                  ) : actionPlan[0].executionMode === "human_task" && planStep ? (
-                    <button
-                      onClick={() => handleUndoStep(planStep.id)}
-                      style={{
-                        fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
-                        background: "var(--elevated)", color: "var(--fg2)", border: "1px solid var(--border)", cursor: "pointer",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {tc("undo") ?? "Undo"}
-                    </button>
-                  ) : null}
-                </div>
-                  );
-                })()}
-                {policyNote && (
-                  <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-1">{policyNote}</p>
-                )}
-              </div>
+                );
+              })()}
             </div>
           ) : reasoning && actionPlan && actionPlan.length > 1 ? (
-            /* Multi-step plan display */
+            /* Multi-step plan: D-style timeline with independent toggles */
             <div>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
-                Proposed Plan &middot; {actionPlan.length} steps
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }}>
+                  Proposed Plan
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fg2)" }}>
+                  {executionPlan ? executionPlan.steps.filter(es => es.status === "completed").length : 0}/{actionPlan.length}
+                </span>
               </div>
-              <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, overflow: "hidden" }}>
+
+              <div style={{ position: "relative", paddingLeft: 30 }}>
+                {/* Timeline rail */}
+                <div style={{
+                  position: "absolute", left: 10, top: 6, bottom: 6, width: 2,
+                  background: "var(--fg4)", opacity: 0.12,
+                }} />
+                <div style={{
+                  position: "absolute", left: 10, top: 6, width: 2,
+                  height: `${Math.max(0, (currentStepIndex / actionPlan.length) * 100)}%`,
+                  background: "var(--ok)",
+                  transition: "height 0.4s",
+                }} />
+
                 {actionPlan.map((step, i) => {
                   const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
                   const isCompleted = planStep?.status === "completed";
-                  const isActive = planStep?.status === "executing" || planStep?.status === "awaiting_approval" || planStep?.status === "approved";
-                  const isStepDone = isCompleted;
                   const isCurrentStep = i === currentStepIndex;
                   const isFutureStep = i > currentStepIndex;
+                  const isOpen = openSteps.has(i);
+
                   return (
-                    <div
-                      key={i}
-                      style={{
-                        padding: "10px 16px",
-                        borderBottom: i < actionPlan.length - 1 ? "1px solid var(--border)" : "none",
-                        opacity: isFutureStep ? 0.45 : 1,
-                        background: isActive ? "rgba(168,85,247,0.04)" : "transparent",
-                      }}
-                      className="flex items-start gap-3"
-                    >
-                      {/* Step number or status icon */}
-                      <div className="flex-shrink-0 mt-0.5" style={{ width: 20, textAlign: "center" }}>
-                        {isStepDone ? (
-                          <span style={{ color: "var(--ok)", fontSize: 14 }}>&#10003;</span>
-                        ) : (
-                          <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "var(--accent)" : "var(--fg4)" }}>({i + 1})</span>
+                    <div key={i} style={{ position: "relative", paddingBottom: 14, opacity: isFutureStep ? 0.45 : 1, transition: "opacity 0.2s" }}>
+                      <div style={{
+                        position: "absolute", left: -30 + 5, top: 4, width: 12, height: 12, borderRadius: "50%", zIndex: 1,
+                        background: isCompleted ? "var(--ok)" : isCurrentStep ? "var(--accent)" : "var(--elevated)",
+                        border: `2px solid ${isCompleted ? "var(--ok)" : isCurrentStep ? "var(--accent)" : "var(--fg4)"}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "all 0.2s",
+                      }}>
+                        {isCompleted && (
+                          <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
                         )}
                       </div>
-                      {/* Step content */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span style={{
-                            fontSize: 13, fontWeight: 500,
-                            color: isStepDone ? "var(--fg3)" : "var(--fg2)",
-                            textDecoration: isStepDone ? "line-through" : "none",
-                          }} className="truncate">
-                            {step.title}
-                          </span>
-                          <ExecutionModeBadge mode={step.executionMode} />
+
+                      <div
+                        onClick={() => toggleStep(i)}
+                        style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginLeft: 2 }}
+                      >
+                        <span style={{
+                          fontSize: 13, fontWeight: isCurrentStep ? 600 : 500, flex: 1,
+                          color: isCompleted ? "var(--fg3)" : "var(--fg1, var(--foreground))",
+                          textDecoration: isCompleted ? "line-through" : "none",
+                        }}>
+                          {step.title}
+                        </span>
+                        <ExecutionModeBadge mode={step.executionMode} />
+                        <svg
+                          width="14" height="14" viewBox="0 0 24 24" fill="none"
+                          stroke="var(--fg3)" strokeWidth="2"
+                          style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s", flexShrink: 0 }}
+                        >
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                      </div>
+
+                      {isOpen && (
+                        <div style={{
+                          marginTop: 10, marginLeft: 2, paddingLeft: 14,
+                          borderLeft: `2px solid ${isCurrentStep ? "var(--accent)" : "var(--border)"}`,
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 11, color: "var(--fg3)" }}>
+                              {step.assignedUserId ? step.assignedUserId : (step.executionMode === "action" ? "AI" : "")}
+                            </span>
+                            {isCompleted && <span style={{ fontSize: 10, fontWeight: 600, color: "var(--ok)" }}>&#10003; Done</span>}
+                          </div>
+
+                          <p style={{ fontSize: 12, color: "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px" }}>{step.description}</p>
+
+                          {/* Action preview (for AI action steps with parameters) */}
+                          {planStep?.parameters && (() => {
+                            const enrichedStep = {
+                              ...planStep,
+                              plan: {
+                                sourceType: "situation" as const,
+                                situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } },
+                              },
+                            };
+                            const PreviewComponent = getPreviewComponent(enrichedStep);
+                            return (
+                              <div className="mt-2 mb-2">
+                                <PreviewComponent
+                                  step={enrichedStep}
+                                  isEditable={planStep.status === "pending"}
+                                  onParametersUpdate={async (params) => {
+                                    await fetch(`/api/execution-steps/${planStep.id}/parameters`, {
+                                      method: "PATCH",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ parameters: params }),
+                                    });
+                                    if (detail?.executionPlanId) {
+                                      const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
+                                      if (res.ok) setExecutionPlan(await res.json());
+                                    }
+                                  }}
+                                  locale={locale}
+                                />
+                              </div>
+                            );
+                          })()}
+
+                          {planStep?.errorMessage && (
+                            <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 2 }}>{planStep.errorMessage}</p>
+                          )}
+
+                          {isCurrentStep && !isCompleted ? (
+                            step.executionMode === "action" ? (
+                              <button onClick={handleApprove} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>
+                                {t("executeAction") ?? "Execute Action"}
+                              </button>
+                            ) : step.executionMode === "human_task" && planStep ? (
+                              <button onClick={() => handleCompleteStep(planStep.id)} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>
+                                {t("markComplete") ?? "Mark complete"}
+                              </button>
+                            ) : null
+                          ) : isCompleted && step.executionMode === "human_task" && planStep ? (
+                            <button onClick={() => handleUndoStep(planStep.id)} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>
+                              {tc("undo") ?? "Undo"}
+                            </button>
+                          ) : isFutureStep ? (
+                            <span style={{ fontSize: 10, color: "var(--fg4)", fontStyle: "italic", marginTop: 6, display: "inline-block" }}>
+                              {t("completeStepFirst")?.replace("{n}", String(currentStepIndex + 1)) ?? `Complete step ${currentStepIndex + 1} first`}
+                            </span>
+                          ) : null}
                         </div>
-                        <p style={{
-                          fontSize: 12, color: "var(--fg3)", marginTop: 2,
-                          textDecoration: isStepDone ? "line-through" : "none",
-                        }} className="line-clamp-2">
-                          {step.description}
-                        </p>
-                        {/* Action button: mode-aware */}
-                        {isCurrentStep && !isStepDone ? (
-                          step.executionMode === "action" ? (
-                            <button
-                              onClick={handleApprove}
-                              style={{
-                                fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
-                                background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
-                                marginTop: 6,
-                              }}
-                            >
-                              {t("executeAction") ?? "Execute Action"}
-                            </button>
-                          ) : step.executionMode === "human_task" && planStep ? (
-                            <button
-                              onClick={() => handleCompleteStep(planStep.id)}
-                              style={{
-                                fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
-                                background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
-                                marginTop: 6,
-                              }}
-                            >
-                              {t("markComplete") ?? "Mark complete"}
-                            </button>
-                          ) : null
-                        ) : isStepDone && step.executionMode === "human_task" && planStep ? (
-                          <button
-                            onClick={() => handleUndoStep(planStep.id)}
-                            style={{
-                              fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
-                              background: "var(--elevated)", color: "var(--fg2)", border: "1px solid var(--border)", cursor: "pointer",
-                              marginTop: 6,
-                            }}
-                          >
-                            {tc("undo") ?? "Undo"}
-                          </button>
-                        ) : isFutureStep ? (
-                          <span style={{ fontSize: 10, color: "var(--fg4)", fontStyle: "italic", marginTop: 6, display: "inline-block" }}>Complete step {currentStepIndex + 1} first</span>
-                        ) : null}
-                        {/* Action preview */}
-                        {planStep?.parameters && (() => {
-                          const enrichedStep = {
-                            ...planStep,
-                            plan: {
-                              sourceType: "situation" as const,
-                              situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } },
-                            },
-                          };
-                          const PreviewComponent = getPreviewComponent(enrichedStep);
-                          return (
-                            <div className="mt-2">
-                              <PreviewComponent
-                                step={enrichedStep}
-                                isEditable={planStep.status === "pending"}
-                                onParametersUpdate={async (params) => {
-                                  await fetch(`/api/execution-steps/${planStep.id}/parameters`, {
-                                    method: "PATCH",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ parameters: params }),
-                                  });
-                                  // Refetch execution plan
-                                  if (detail?.executionPlanId) {
-                                    const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
-                                    if (res.ok) setExecutionPlan(await res.json());
-                                  }
-                                }}
-                                locale={locale}
-                              />
-                            </div>
-                          );
-                        })()}
-                        {planStep?.errorMessage && (
-                          <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 2 }}>{planStep.errorMessage}</p>
-                        )}
-                      </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
+
               {policyNote && (
                 <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-2">{policyNote}</p>
               )}
-              {/* Execution plan status */}
-              {executionPlan && (
-                <div className="mt-2 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span style={{
-                      fontSize: 11,
-                      fontWeight: 500,
-                      padding: "2px 8px",
-                      borderRadius: 3,
-                      background: executionPlan.status === "completed" ? "rgba(34,197,94,0.1)" : executionPlan.status === "failed" ? "rgba(239,68,68,0.1)" : "rgba(168,85,247,0.1)",
-                      color: executionPlan.status === "completed" ? "var(--ok)" : executionPlan.status === "failed" ? "var(--danger)" : "var(--accent)",
-                    }}>
-                      Plan {executionPlan.status}
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--fg4)" }}>
-                      Step {executionPlan.currentStepOrder} of {executionPlan.steps.length}
-                    </span>
-                  </div>
-                  {executionPlan.status === "failed" && (() => {
-                    const failedStep = executionPlan.steps.find(s => s.status === "failed");
-                    const err = failedStep?.errorMessage?.toLowerCase() || "";
-                    const isAuthFailure = err.includes("deauthorized") || err.includes("revoked") || err.includes("401") || err.includes("unauthorized");
-                    const isLoopBreaker = err.includes("maximum") || err.includes("loop") || err.includes("attempts");
-                    return (
-                      <p style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4 }}>
-                        {isAuthFailure
-                          ? <>{t("planFailAuthBefore")} <a href="/settings?tab=connections" className="underline">{t("planFailAuthLink")}</a>{t("planFailAuthAfter")}</>
-                          : isLoopBreaker
-                          ? t("planFailLoop")
-                          : t("planFailStep", { step: String(failedStep?.sequenceOrder ?? "?"), error: failedStep?.errorMessage ? `: ${failedStep.errorMessage.slice(0, 100)}` : "" })}
-                      </p>
-                    );
-                  })()}
+
+              {/* Plan status footer */}
+              {executionPlan && (() => {
+                const ps = PLAN_STATUS_STYLES[executionPlan.status] ?? PLAN_STATUS_STYLES.executing;
+                return (
+                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                  <span style={{ padding: "2px 8px", borderRadius: 4, background: ps.bg, color: ps.color, fontWeight: 600, fontSize: 10 }}>
+                    {ps.label}
+                  </span>
+                  <span style={{ color: "var(--fg3)" }}>
+                    Step {currentStepIndex + 1} of {actionPlan.length}
+                  </span>
                 </div>
-              )}
+                );
+              })()}
+
+              {/* Failed plan error detail */}
+              {executionPlan?.status === "failed" && (() => {
+                const failedStep = executionPlan.steps.find(s => s.status === "failed");
+                const err = failedStep?.errorMessage?.toLowerCase() || "";
+                const isAuthFailure = err.includes("deauthorized") || err.includes("revoked") || err.includes("401") || err.includes("unauthorized");
+                const isLoopBreaker = err.includes("maximum") || err.includes("loop") || err.includes("attempts");
+                return (
+                  <p style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4, marginTop: 4 }}>
+                    {isAuthFailure
+                      ? <>{t("planFailAuthBefore")} <a href="/settings?tab=connections" className="underline">{t("planFailAuthLink")}</a>{t("planFailAuthAfter")}</>
+                      : isLoopBreaker
+                      ? t("planFailLoop")
+                      : t("planFailStep", { step: String(failedStep?.sequenceOrder ?? "?"), error: failedStep?.errorMessage ? `: ${failedStep.errorMessage.slice(0, 100)}` : "" })}
+                  </p>
+                );
+              })()}
             </div>
           ) : reasoning && !actionPlan ? (
             <p style={{ fontSize: 13, color: "var(--fg3)" }} className="italic">No action recommended — please review.</p>

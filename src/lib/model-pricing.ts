@@ -21,7 +21,7 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
 
   // Anthropic
   "claude-opus-4-6": { input: 5.00, output: 25.00 },
-  "claude-sonnet-4-6-20250514": { input: 3.00, output: 15.00 },
+  "claude-sonnet-4-6-20260218": { input: 3.00, output: 15.00 },
   "claude-sonnet-4-20250514": { input: 3.00, output: 15.00 },
   "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00 },
   "claude-haiku-3-5-20241022": { input: 0.80, output: 4.00 },
