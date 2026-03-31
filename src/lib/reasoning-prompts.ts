@@ -86,6 +86,69 @@ export interface ReasoningInput {
   }>;
 }
 
+// ── Prior Outcome Aggregation (shared with multi-agent-reasoning) ───────────
+
+type PriorSituation = ReasoningInput["priorSituations"][number];
+
+export function formatPriorOutcomeStats(priors: PriorSituation[]): string {
+  const negPattern = /negative|wrong|bad/i;
+  const posOutcomePattern = /resolved|positive/i;
+  const negOutcomePattern = /failed|negative/i;
+
+  // Group by approach
+  const groups = new Map<string, PriorSituation[]>();
+  for (const p of priors) {
+    const key = p.actionTaken
+      ? JSON.stringify(p.actionTaken).slice(0, 100)
+      : "no_action";
+    const list = groups.get(key) ?? [];
+    list.push(p);
+    groups.set(key, list);
+  }
+
+  const lines: string[] = [];
+  lines.push(`PRIOR OUTCOMES FOR THIS SITUATION TYPE:\nThis archetype has been handled ${priors.length} time(s) previously.\n`);
+
+  for (const [approach, items] of groups) {
+    let positiveCount = 0;
+    let negativeCount = 0;
+    let neutralCount = 0;
+    const feedbackPoints = new Set<string>();
+
+    for (const p of items) {
+      const isPositive =
+        (p.outcome && posOutcomePattern.test(p.outcome)) ||
+        (p.feedback && !negPattern.test(p.feedback));
+      const isNegative =
+        (p.feedback && negPattern.test(p.feedback)) ||
+        (p.outcome && negOutcomePattern.test(p.outcome));
+
+      if (isNegative) negativeCount++;
+      else if (isPositive) positiveCount++;
+      else neutralCount++;
+
+      if (p.feedback) feedbackPoints.add(p.feedback);
+    }
+
+    const successRate = positiveCount + negativeCount > 0
+      ? Math.round((positiveCount / (positiveCount + negativeCount)) * 100)
+      : null;
+
+    const brief = approach === "no_action" ? "No action taken" : approach;
+    lines.push(`Approach: ${brief}`);
+    lines.push(`  Used ${items.length} time(s). ${successRate !== null ? `Success rate: ${successRate}%` : "No success/failure data."} (${positiveCount} positive, ${negativeCount} negative, ${neutralCount} no feedback).`);
+    if (feedbackPoints.size > 0) {
+      lines.push(`  Key feedback: ${[...feedbackPoints].join(" | ")}`);
+    }
+    lines.push("");
+  }
+
+  lines.push(`LEARNING INSTRUCTION:
+Use these statistics to inform your approach. High success rate = proven approach worth replicating. Low success rate = historically underperformed, consider alternatives or identify what contextual differences might make it work this time. When feedback mentions specific patterns (timing, thresholds, tone), incorporate those learnings.`);
+
+  return lines.join("\n");
+}
+
 // ── System Prompt ────────────────────────────────────────────────────────────
 
 export function buildReasoningSystemPrompt(businessContext: string | null, companyName?: string): string {
@@ -337,23 +400,9 @@ ${propsStr || "  (no properties)"}`);
     sections.push(`RECENT EVENTS:\n${eventsStr}`);
   }
 
-  // PRIOR SIMILAR SITUATIONS
+  // PRIOR SIMILAR SITUATIONS — aggregated statistics
   if (input.priorSituations.length > 0) {
-    const priorsStr = input.priorSituations
-      .map((p) => {
-        const parts = [`  - ${p.createdAt}`];
-        if (p.outcome) parts.push(`    Outcome: ${p.outcome}`);
-        if (p.analysis) parts.push(`    Analysis: ${p.analysis.slice(0, 200)}`);
-        if (p.feedback) parts.push(`    Feedback: ${p.feedback}`);
-        if (p.actionTaken) parts.push(`    Action taken: ${JSON.stringify(p.actionTaken).slice(0, 200)}`);
-        return parts.join("\n");
-      })
-      .join("\n");
-    sections.push(`PRIOR SIMILAR SITUATIONS:\n${priorsStr}`);
-    sections.push(`LEARNING FROM PRIOR OUTCOMES:
-When a prior situation has a positive outcome or positive feedback: replicate the approach and reasoning pattern that led to it.
-When a prior situation has negative feedback or a poor outcome: identify what went wrong and explicitly avoid that pattern. State what you are doing differently and why.
-When a prior situation has no feedback: treat it as informational context only — neither replicate nor avoid.`);
+    sections.push(formatPriorOutcomeStats(input.priorSituations));
   } else {
     sections.push("PRIOR SIMILAR SITUATIONS:\nNo prior examples available. This is the first time this situation type has been encountered.");
   }

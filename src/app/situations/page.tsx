@@ -721,6 +721,18 @@ function DetailPane({
   const canAct = (s.status === "detected" || s.status === "proposed") && billingStatus === "active";
   const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
   const actionPlan = reasoning?.actionPlan ?? (Array.isArray(detail?.proposedAction) ? detail!.proposedAction as ActionStep[] : null);
+
+  const currentStepIndex = (() => {
+    if (!actionPlan) return -1;
+    for (let i = 0; i < actionPlan.length; i++) {
+      const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
+      const isServerCompleted = planStep?.status === "completed";
+      const isClientCompleted = completedHumanSteps.has(`${s.id}:${i}`);
+      if (!isServerCompleted && !isClientCompleted) return i;
+    }
+    return actionPlan.length;
+  })();
+
   const sev = severityBadge(s);
 
   // Draft payloads from raw reasoning
@@ -1013,18 +1025,55 @@ function DetailPane({
                       textDecoration: completedHumanSteps.has(`${s.id}:0`) ? "line-through" : "none",
                     }} className="mt-1">{actionPlan[0].description}</p>
                   </div>
-                  {actionPlan[0].executionMode === "human_task" && !completedHumanSteps.has(`${s.id}:0`) && (
+                  {!completedHumanSteps.has(`${s.id}:0`) ? (
+                    actionPlan[0].executionMode === "action" ? (
+                      <button
+                        onClick={handleApprove}
+                        style={{
+                          fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
+                          background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {t("executeAction") ?? "Execute Action"}
+                      </button>
+                    ) : actionPlan[0].executionMode === "human_task" ? (
+                      <button
+                        onClick={() => setCompletedHumanSteps(prev => {
+                          const next = new Set(prev);
+                          const key = `${s.id}:0`;
+                          if (next.has(key)) {
+                            next.delete(key);
+                          } else {
+                            next.add(key);
+                          }
+                          return next;
+                        })}
+                        style={{
+                          fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
+                          background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {t("markComplete") ?? "Mark complete"}
+                      </button>
+                    ) : null
+                  ) : actionPlan[0].executionMode === "human_task" ? (
                     <button
-                      onClick={() => setCompletedHumanSteps(prev => new Set(prev).add(`${s.id}:0`))}
+                      onClick={() => setCompletedHumanSteps(prev => {
+                        const next = new Set(prev);
+                        next.delete(`${s.id}:0`);
+                        return next;
+                      })}
                       style={{
                         fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
-                        background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+                        background: "var(--elevated)", color: "var(--fg2)", border: "1px solid var(--border)", cursor: "pointer",
                         flexShrink: 0,
                       }}
                     >
-                      {t("markComplete") ?? "Mark complete"}
+                      {tc("undo") ?? "Undo"}
                     </button>
-                  )}
+                  ) : null}
                 </div>
                 {policyNote && (
                   <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-1">{policyNote}</p>
@@ -1042,21 +1091,24 @@ function DetailPane({
                   const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
                   const isCompleted = planStep?.status === "completed";
                   const isActive = planStep?.status === "executing" || planStep?.status === "awaiting_approval" || planStep?.status === "approved";
-                  const isPending = !planStep || planStep.status === "pending";
+                  const isStepDone = isCompleted || completedHumanSteps.has(`${s.id}:${i}`);
+                  const isCurrentStep = i === currentStepIndex;
+                  const isFutureStep = i > currentStepIndex;
+                  const key = `${s.id}:${i}`;
                   return (
                     <div
                       key={i}
                       style={{
                         padding: "10px 16px",
                         borderBottom: i < actionPlan.length - 1 ? "1px solid var(--border)" : "none",
-                        opacity: executionPlan ? (isPending && !isActive ? 0.5 : 1) : 1,
+                        opacity: isFutureStep ? 0.45 : 1,
                         background: isActive ? "rgba(168,85,247,0.04)" : "transparent",
                       }}
                       className="flex items-start gap-3"
                     >
                       {/* Step number or status icon */}
                       <div className="flex-shrink-0 mt-0.5" style={{ width: 20, textAlign: "center" }}>
-                        {(isCompleted || completedHumanSteps.has(`${s.id}:${i}`)) ? (
+                        {isStepDone ? (
                           <span style={{ color: "var(--ok)", fontSize: 14 }}>&#10003;</span>
                         ) : (
                           <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "var(--accent)" : "var(--fg4)" }}>({i + 1})</span>
@@ -1067,8 +1119,8 @@ function DetailPane({
                         <div className="flex items-center gap-2">
                           <span style={{
                             fontSize: 13, fontWeight: 500,
-                            color: (isCompleted || completedHumanSteps.has(`${s.id}:${i}`)) ? "var(--fg3)" : "var(--fg2)",
-                            textDecoration: completedHumanSteps.has(`${s.id}:${i}`) ? "line-through" : "none",
+                            color: isStepDone ? "var(--fg3)" : "var(--fg2)",
+                            textDecoration: completedHumanSteps.has(key) ? "line-through" : "none",
                           }} className="truncate">
                             {step.title}
                           </span>
@@ -1076,23 +1128,65 @@ function DetailPane({
                         </div>
                         <p style={{
                           fontSize: 12, color: "var(--fg3)", marginTop: 2,
-                          textDecoration: completedHumanSteps.has(`${s.id}:${i}`) ? "line-through" : "none",
+                          textDecoration: completedHumanSteps.has(key) ? "line-through" : "none",
                         }} className="line-clamp-2">
                           {step.description}
                         </p>
-                        {/* Human task: mark complete toggle */}
-                        {step.executionMode === "human_task" && !isCompleted && !completedHumanSteps.has(`${s.id}:${i}`) && (
+                        {/* Action button: mode-aware */}
+                        {isCurrentStep && !isStepDone ? (
+                          step.executionMode === "action" ? (
+                            <button
+                              onClick={handleApprove}
+                              style={{
+                                fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
+                                background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+                                marginTop: 6,
+                              }}
+                            >
+                              {t("executeAction") ?? "Execute Action"}
+                            </button>
+                          ) : step.executionMode === "human_task" ? (
+                            <button
+                              onClick={() => setCompletedHumanSteps(prev => {
+                                const next = new Set(prev);
+                                if (next.has(key)) {
+                                  for (let j = i; j < actionPlan.length; j++) {
+                                    next.delete(`${s.id}:${j}`);
+                                  }
+                                } else {
+                                  next.add(key);
+                                }
+                                return next;
+                              })}
+                              style={{
+                                fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
+                                background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+                                marginTop: 6,
+                              }}
+                            >
+                              {t("markComplete") ?? "Mark complete"}
+                            </button>
+                          ) : null
+                        ) : isStepDone && step.executionMode === "human_task" && completedHumanSteps.has(key) ? (
                           <button
-                            onClick={() => setCompletedHumanSteps(prev => new Set(prev).add(`${s.id}:${i}`))}
+                            onClick={() => setCompletedHumanSteps(prev => {
+                              const next = new Set(prev);
+                              for (let j = i; j < actionPlan.length; j++) {
+                                next.delete(`${s.id}:${j}`);
+                              }
+                              return next;
+                            })}
                             style={{
                               fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
-                              background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+                              background: "var(--elevated)", color: "var(--fg2)", border: "1px solid var(--border)", cursor: "pointer",
                               marginTop: 6,
                             }}
                           >
-                            {t("markComplete") ?? "Mark complete"}
+                            {tc("undo") ?? "Undo"}
                           </button>
-                        )}
+                        ) : isFutureStep ? (
+                          <span style={{ fontSize: 10, color: "var(--fg4)", fontStyle: "italic", marginTop: 6, display: "inline-block" }}>Complete step {currentStepIndex + 1} first</span>
+                        ) : null}
                         {/* Action preview */}
                         {planStep?.parameters && (() => {
                           const enrichedStep = {
@@ -1300,13 +1394,6 @@ function DetailPane({
           {/* ── Action buttons ── */}
           {canAct && !currentMode && (
             <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-              <button
-                className="rounded-full text-[13px] font-medium px-4 py-1.5 transition hover:opacity-90"
-                style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
-                onClick={handleApprove}
-              >
-                {actionPlan && actionPlan.length > 1 ? t("approvePlan") : tc("approve")}
-              </button>
               <button
                 className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"
                 onClick={() => setActiveMode({ id: s.id, mode: "reject" })}

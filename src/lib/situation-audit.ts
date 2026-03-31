@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM, getModel } from "@/lib/ai-provider";
+import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { regeneratePreFilter } from "@/lib/situation-prefilter";
 import { extractJSONArray } from "@/lib/json-helpers";
 
@@ -102,6 +102,7 @@ async function auditSingleType(
   const missedDescriptions: string[] = [];
 
   try {
+    // Note: temperature is not set because thinking mode handles determinism via reasoning chain
     const response = await callLLM({
       messages: [{
         role: "user",
@@ -116,10 +117,11 @@ For each entity, determine if it currently matches the situation pattern.
 Respond with ONLY valid JSON (no markdown): an array with one object per entity in order:
 [{ "matches": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation" }]`,
       }],
-      temperature: 0.1,
-      maxTokens: 1500,
+      maxTokens: 2500,
       aiFunction: "reasoning",
-      model: getModel("contentDetection"),
+      model: getModel("situationAudit"),
+      thinking: true,
+      thinkingBudget: getThinkingBudget("situationAudit") ?? undefined,
     });
 
     const parsed = extractJSONArray(response.text);

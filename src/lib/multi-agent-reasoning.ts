@@ -1,5 +1,5 @@
-import { callLLM, getModel } from "@/lib/ai-provider";
-import type { ReasoningInput } from "@/lib/reasoning-prompts";
+import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
+import { formatPriorOutcomeStats, type ReasoningInput } from "@/lib/reasoning-prompts";
 import type { ContextSectionMeta, EntitySummary } from "@/lib/context-assembly";
 import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
 import { extractJSON } from "@/lib/json-helpers";
@@ -181,17 +181,7 @@ function formatDepartmentKnowledge(input: ReasoningInput): string {
 
 function formatPriorSituations(input: ReasoningInput): string {
   if (input.priorSituations.length > 0) {
-    const priorsStr = input.priorSituations
-      .map((p) => {
-        const parts = [`  - ${p.createdAt}`];
-        if (p.outcome) parts.push(`    Outcome: ${p.outcome}`);
-        if (p.analysis) parts.push(`    Analysis: ${p.analysis.slice(0, 200)}`);
-        if (p.feedback) parts.push(`    Feedback: ${p.feedback}`);
-        if (p.actionTaken) parts.push(`    Action taken: ${JSON.stringify(p.actionTaken).slice(0, 200)}`);
-        return parts.join("\n");
-      })
-      .join("\n");
-    return `PRIOR SIMILAR SITUATIONS:\n${priorsStr}`;
+    return formatPriorOutcomeStats(input.priorSituations);
   }
   return "PRIOR SIMILAR SITUATIONS:\nNo prior examples available.";
 }
@@ -367,8 +357,9 @@ async function runSpecialists(
       temperature: 0.2,
       maxTokens: 2048,
       aiFunction: "reasoning",
-      model: getModel("situationReasoning"),
+      model: getModel("multiAgentSpecialist"),
       thinking: true,
+      thinkingBudget: getThinkingBudget("multiAgentSpecialist") ?? undefined,
     });
 
     const parsed = extractJSON(response.text);
@@ -545,8 +536,9 @@ Gaps: ${f.gapsIdentified.join("; ") || "none"}`;
       temperature: 0.2,
       maxTokens: 4096,
       aiFunction: "reasoning",
-      model: getModel("situationReasoning"),
+      model: getModel("multiAgentCoordinator"),
       thinking: true,
+      thinkingBudget: getThinkingBudget("multiAgentCoordinator") ?? undefined,
     });
     rawResponse = response.text;
     coordinatorCostCents += response.apiCostCents;

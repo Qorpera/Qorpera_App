@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { callLLM, getModel } from "@/lib/ai-provider";
+import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ensureInternalCapabilities } from "@/lib/internal-capabilities";
@@ -348,6 +348,7 @@ async function callAndValidate(
         model: getModel("initiativeReasoning"),
         webSearch: true,
         thinking: true,
+        thinkingBudget: getThinkingBudget("initiativeReasoning") ?? undefined,
       });
       rawResponse = response.text;
 

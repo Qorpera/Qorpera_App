@@ -62,7 +62,7 @@ Keep the signals broad — 1-3 conditions maximum. Use days_past/days_until for 
       temperature: 0.1,
       maxTokens: 500,
       aiFunction: "reasoning",
-      model: getModel("contentDetection"),
+      model: getModel("contentPreFilter"),
     });
 
     const parsed = extractJSON(response.text);
@@ -127,7 +127,7 @@ Make this filter BROADER than before — it's a coarse filter, not a final decis
       temperature: 0.1,
       maxTokens: 500,
       aiFunction: "reasoning",
-      model: getModel("contentDetection"),
+      model: getModel("signalPreFilter"),
     });
 
     const parsed = extractJSON(response.text);

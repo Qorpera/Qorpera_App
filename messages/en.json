@@ -342,6 +342,7 @@
     "impactAssessment": "Impact assessment",
     "approveStep": "Approve step",
     "markComplete": "Mark complete",
+    "executeAction": "Execute Action",
     "humanTaskPlaceholder": "Describe what you did...",
     "goal": "Goal: {title}",
     "discuss": "Discuss this initiative...",

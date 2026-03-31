@@ -342,6 +342,7 @@
     "impactAssessment": "Konsekvensvurdering",
     "approveStep": "Godkend trin",
     "markComplete": "Marker som afsluttet",
+    "executeAction": "Udfør handling",
     "humanTaskPlaceholder": "Beskriv hvad du har gjort...",
     "goal": "Mål: {title}",
     "discuss": "Diskuter dette initiativ...",

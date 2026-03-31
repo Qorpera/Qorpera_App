@@ -14,16 +14,36 @@ type ContentBlock =
 // ── Model Routing ───────────────────────────────────────────────────────────
 
 const MODEL_ROUTES = {
-  situationReasoning: "gpt-5.4",
-  initiativeReasoning: "gpt-5.4",
-  copilot: "gpt-5.4",
+  // ── Situation reasoning (default fallback for custom/unclassified situation types) ──
+  situationReasoning: "claude-sonnet-4-6-20250514",
+
+  // ── Multi-agent pipeline ──
+  multiAgentSpecialist: "claude-sonnet-4-6-20250514",
+  multiAgentCoordinator: "claude-opus-4-6",
+
+  // ── Strategic intelligence ──
+  initiativeReasoning: "claude-opus-4-6",
+  strategicScan: "claude-opus-4-6",
+
+  // ── Content detection pipeline ──
   contentDetection: "gpt-5.4-mini",
-  insightExtraction: "gpt-5.4",
+  contentPreFilter: "gpt-5.4-nano",
+  signalPreFilter: "gpt-5.4-nano",
+  situationAudit: "claude-sonnet-4-6-20250514",
+
+  // ── Execution & extraction ──
+  copilot: "gpt-5.4",
+  insightExtraction: "claude-sonnet-4-6-20250514",
   executionGenerate: "gpt-5.4",
+  recurringTasks: "gpt-5.4-mini",
+
+  // ── Infrastructure ──
   embedding: "text-embedding-3-small",
+  chunkClassification: "claude-haiku-4-5-20251001",
+
+  // ── Onboarding pipeline (no changes) ──
   onboardingIntelligence: "gpt-5.4",
   onboardingMemory: "gpt-5.4-mini",
-  // Onboarding pipeline — per-component routing
   onboardingTemporal: "claude-haiku-4-5-20251001",
   onboardingAgent: "claude-sonnet-4-20250514",
   onboardingAgentFollowup: "claude-sonnet-4-20250514",
@@ -31,7 +51,6 @@ const MODEL_ROUTES = {
   onboardingSynthesis: "claude-sonnet-4-20250514",
   onboardingChat: "claude-sonnet-4-20250514",
   onboardingExtraction: "claude-haiku-4-5-20251001",
-  chunkClassification: "claude-haiku-4-5-20251001",
 } as const;
 
 export type ModelRoute = keyof typeof MODEL_ROUTES;
@@ -40,17 +59,105 @@ export function getModel(route: ModelRoute): string {
   return MODEL_ROUTES[route];
 }
 
+// ── Archetype-Based Dynamic Routing ─────────────────────────────────────────
+// Maps situation archetype slugs to model tiers for situation reasoning.
+// The archetype is available via situation.situationType.archetypeSlug at reasoning time.
+
+type ArchetypeTier = "deep" | "standard" | "structured" | "light";
+
+const ARCHETYPE_MODEL_TIER: Record<string, ArchetypeTier> = {
+  // Opus 4.6 — deep interpretive reasoning + strategic analysis
+  budget_variance: "deep",
+  cash_flow_alert: "deep",
+  deal_stagnation: "deep",
+  pipeline_risk: "deep",
+  client_escalation: "deep",
+  relationship_cooling: "deep",
+  workload_imbalance: "deep",
+  employee_concern: "deep",
+  delivery_risk: "deep",
+  decision_needed: "deep",
+
+  // Sonnet 4.6 — communication craft + factual grounding + moderate reasoning
+  overdue_invoice: "standard",
+  contract_renewal: "standard",
+  lead_follow_up: "standard",
+  upsell_opportunity: "standard",
+  response_overdue: "standard",
+  meeting_follow_up: "standard",
+  communication_gap: "standard",
+  deadline_approaching: "standard",
+  compliance_deadline: "standard",
+  process_bottleneck: "standard",
+  knowledge_request: "standard",
+  document_action: "standard",
+
+  // GPT-5.4 — structured precision + tool calling + speed
+  payment_reconciliation: "structured",
+  onboarding_task: "structured",
+  team_coordination: "structured",
+  material_order: "structured",
+  urgent_dispatch: "structured",
+
+  // GPT-5.4 Mini — procedural, low-stakes
+  expense_approval: "light",
+  access_request: "light",
+};
+
+const TIER_TO_MODEL: Record<ArchetypeTier, string> = {
+  deep: "claude-opus-4-6",
+  standard: "claude-sonnet-4-6-20250514",
+  structured: "gpt-5.4",
+  light: "gpt-5.4-mini",
+};
+
+const TIER_TO_THINKING_BUDGET: Record<ArchetypeTier, number | null> = {
+  deep: 16_384,
+  standard: 8_192,
+  structured: null,   // GPT uses reasoning.effort, not token budget
+  light: null,
+};
+
+/** Get the optimal model for a situation archetype. Falls back to Sonnet 4.6 for unknown archetypes. */
+export function getModelForArchetype(archetypeSlug: string | null | undefined): string {
+  if (!archetypeSlug) return MODEL_ROUTES.situationReasoning;
+  const tier = ARCHETYPE_MODEL_TIER[archetypeSlug] ?? "standard";
+  return TIER_TO_MODEL[tier];
+}
+
+/** Get the thinking token budget for a situation archetype. Returns null for non-thinking models. */
+export function getThinkingBudgetForArchetype(archetypeSlug: string | null | undefined): number | null {
+  if (!archetypeSlug) return 8_192;
+  const tier = ARCHETYPE_MODEL_TIER[archetypeSlug] ?? "standard";
+  return TIER_TO_THINKING_BUDGET[tier];
+}
+
+/** Get the archetype tier for logging/monitoring. */
+export function getArchetypeTier(archetypeSlug: string | null | undefined): ArchetypeTier {
+  if (!archetypeSlug) return "standard";
+  return ARCHETYPE_MODEL_TIER[archetypeSlug] ?? "standard";
+}
+
 /**
  * Extended thinking budget per route (tokens).
  * null = no extended thinking for this component.
  * The worker SDK (0.39.x) uses budget_tokens, not the newer effort parameter.
  */
 export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
+  // Situation reasoning uses per-archetype budgets via getThinkingBudgetForArchetype()
+  // These are for the non-archetype-routed calls:
+  multiAgentSpecialist: 4_096,
+  multiAgentCoordinator: 16_384,
+  initiativeReasoning: 16_384,
+  strategicScan: 16_384,
+  situationAudit: 2_048,
+  insightExtraction: 8_192,
+  // Onboarding (unchanged)
   onboardingTemporal: null,
-  onboardingAgent: 4096,
-  onboardingAgentFollowup: 8192,
-  onboardingOrganizer: 8192,
-  onboardingSynthesis: 16384,
+  onboardingAgent: 4_096,
+  onboardingAgentFollowup: 8_192,
+  onboardingOrganizer: 8_192,
+  onboardingSynthesis: 16_384,
   onboardingChat: null,
   onboardingExtraction: null,
 };
@@ -67,6 +174,7 @@ const MAX_OUTPUT_TOKENS: Record<string, number> = {
   "claude-haiku-3-5-20241022": 8_192,
   "gpt-5.4": 16_384,
   "gpt-5.4-mini": 16_384,
+  "gpt-5.4-nano": 16_384,
   "gpt-4o": 16_384,
   "gpt-4o-mini": 16_384,
   "gpt-4.1": 32_768,
@@ -86,6 +194,7 @@ export function getMaxOutputTokens(modelId: string): number {
 const ANTHROPIC_MODEL_MAP: Record<string, string> = {
   "gpt-5.4": "claude-sonnet-4-6-20250514",
   "gpt-5.4-mini": "claude-haiku-4-5-20251001",
+  "gpt-5.4-nano": "claude-haiku-4-5-20251001",
 };
 
 /** Per-provider in-flight call counters. */
@@ -159,6 +268,7 @@ export interface LLMRequestOptions {
   temperature?: number;
   maxTokens?: number;
   thinking?: boolean;
+  thinkingBudget?: number;  // Token budget for extended thinking (Anthropic only)
   aiFunction?: AIFunction;
 }
 
@@ -488,7 +598,7 @@ async function callAnthropic(
     ...(system && { system }),
     ...(tools && { tools }),
     // Anthropic extended thinking
-    ...(options.thinking && { thinking: { type: "enabled" as const, budget_tokens: 10_000 } }),
+    ...(options.thinking && { thinking: { type: "enabled" as const, budget_tokens: options.thinkingBudget ?? 10_000 } }),
     // Temperature not allowed with thinking
     ...(options.temperature !== undefined && !options.thinking && { temperature: options.temperature }),
   };

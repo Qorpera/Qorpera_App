@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM, getModel } from "@/lib/ai-provider";
+import { callLLM, getModel, getModelForArchetype, getThinkingBudgetForArchetype, getArchetypeTier } from "@/lib/ai-provider";
 import { assembleSituationContext } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import { buildReasoningSystemPrompt, buildReasoningUserPrompt, type ReasoningInput } from "@/lib/reasoning-prompts";
@@ -234,7 +234,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       console.log(`[reasoning-engine] Multi-agent path activated for situation ${situationId} (${context.contextSections.reduce((s, c) => s + c.tokenEstimate, 0)} estimated tokens)`);
 
       const maStartTime = performance.now();
-      const maModelString = getModel("situationReasoning");
+      const maModelString = getModel("multiAgentCoordinator");
       const multiAgentResult = await runMultiAgentReasoning(
         reasoningInput,
         context.contextSections,
@@ -457,7 +457,10 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
 
     // 7. Call LLM
     const reasoningStartTime = performance.now();
-    const modelString = getModel("situationReasoning");
+    const archetypeSlug = situation.situationType.archetypeSlug ?? null;
+    const modelString = getModelForArchetype(archetypeSlug);
+    const thinkingBudget = getThinkingBudgetForArchetype(archetypeSlug);
+    console.log(`[reasoning-engine] Situation ${situationId} reasoned with tier=${getArchetypeTier(archetypeSlug)} model=${modelString}`);
     let reasoning: ReasoningOutput | null = null;
     let rawResponse = "";
     let parseError = "";
@@ -473,12 +476,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           instructions: systemPrompt,
           messages: [{ role: "user", content: userContent }],
           temperature: 0.2,
-          maxTokens: 8192,
+          maxTokens: 16384,
           aiFunction: "reasoning",
           model: modelString,
           operatorId: situation.operatorId,
           webSearch: true,
-          thinking: true,
+          thinking: thinkingBudget !== null,
+          thinkingBudget: thinkingBudget ?? undefined,
         });
         rawResponse = response.text;
         reasoningApiCostCents += response.apiCostCents;

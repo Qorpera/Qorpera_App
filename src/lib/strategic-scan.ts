@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM, getModel } from "@/lib/ai-provider";
+import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { retrieveRelevantContext } from "@/lib/rag/retriever";
 import { extractJSON } from "@/lib/json-helpers";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
@@ -505,7 +505,9 @@ async function reasonAboutDepartment(
     temperature: 0.3,
     maxTokens: 3000,
     aiFunction: "reasoning",
-    model: getModel("initiativeReasoning"),
+    model: getModel("strategicScan"),
+    thinking: true,
+    thinkingBudget: getThinkingBudget("strategicScan") ?? undefined,
   });
 
   const parsed = extractJSON(response.text);

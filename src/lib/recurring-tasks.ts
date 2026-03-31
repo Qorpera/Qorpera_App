@@ -172,7 +172,7 @@ The plan should accomplish the task using the available actions and current cont
     aiFunction: "reasoning",
     temperature: 0.3,
     maxTokens: 4096,
-    model: getModel("executionGenerate"),
+    model: getModel("recurringTasks"),
   });
 
   // Parse response

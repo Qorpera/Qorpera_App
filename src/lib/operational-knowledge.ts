@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { callLLM, getModel } from "@/lib/ai-provider";
+import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { InsightExtractionOutputSchema } from "@/types/insight-types";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -472,6 +472,7 @@ export async function extractInsights(
     operatorId,
     webSearch: true,
     thinking: true,
+    thinkingBudget: getThinkingBudget("insightExtraction") ?? undefined,
   });
 
   // Parse and validate LLM output

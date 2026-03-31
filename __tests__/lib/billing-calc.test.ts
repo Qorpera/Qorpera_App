@@ -144,14 +144,14 @@ describe("calculateCallCostCents", () => {
   });
 
   it("larger token counts produce correct cost", () => {
-    // gpt-5.4: input $2.00/M, output $8.00/M
-    // 100,000 input = 0.20 USD, 50,000 output = 0.40 USD
-    // total = 0.60 USD = 60 cents
+    // gpt-5.4: input $2.50/M, output $15.00/M
+    // 100,000 input = 0.25 USD, 50,000 output = 0.75 USD
+    // total = 1.00 USD = 100 cents
     const result = calculateCallCostCents("gpt-5.4", {
       inputTokens: 100_000,
       outputTokens: 50_000,
     });
-    expect(result).toBe(60);
+    expect(result).toBe(100);
   });
 
   it("unknown model → returns 0 and warns", () => {

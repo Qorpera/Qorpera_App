@@ -40,6 +40,8 @@ Your final report must be a JSON object with this exact structure:
   "recencyWarnings": ["areas where recent data may not show full picture"]
 }
 
+Include at most 50 entries in temporalMap, prioritizing events with "major" significance. If more than 50 events exist, include the 50 most significant ones.
+
 ## Important
 
 - Documents may be in Danish or English. Work across both languages.
@@ -47,7 +49,9 @@ Your final report must be a JSON object with this exact structure:
 - Calendar data is inherently temporal — use meeting patterns to understand what's current (recurring meetings = active processes)
 - Slack/email threads near document creation dates often contain context about WHY something changed
 
-When you have sufficient evidence for your temporal map and freshness index, signal DONE with your report.`;
+When you have sufficient evidence for your temporal map and freshness index, signal DONE with your report.
+
+CRITICAL OUTPUT FORMAT RULE: Your final report MUST be ONLY the JSON object. No preamble, no explanation, no markdown code fences, no conversational text before or after. Start your response with { and end with }. Any text before the opening { wastes tokens and may cause truncation.`;
 
 // ── Report Type ──────────────────────────────────────────────────────────────
 
