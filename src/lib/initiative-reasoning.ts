@@ -344,7 +344,7 @@ async function callAndValidate(
         messages: [{ role: "user", content: userContent }],
         aiFunction: "reasoning",
         temperature: 0.3,
-        maxTokens: 4096,
+        maxTokens: 32768,
         model: getModel("initiativeReasoning"),
         webSearch: true,
         thinking: true,

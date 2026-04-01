@@ -503,7 +503,7 @@ async function reasonAboutDepartment(
     instructions: DEPARTMENT_AUDIT_SYSTEM_PROMPT,
     messages: [{ role: "user", content: userPrompt }],
     temperature: 0.3,
-    maxTokens: 3000,
+    maxTokens: 32768,
     aiFunction: "reasoning",
     model: getModel("strategicScan"),
     thinking: true,
