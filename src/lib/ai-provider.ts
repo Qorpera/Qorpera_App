@@ -15,10 +15,10 @@ type ContentBlock =
 
 const MODEL_ROUTES = {
   // ── Situation reasoning (default fallback for custom/unclassified situation types) ──
-  situationReasoning: "claude-sonnet-4-6-20260218",
+  situationReasoning: "claude-sonnet-4-6",
 
   // ── Multi-agent pipeline ──
-  multiAgentSpecialist: "claude-sonnet-4-6-20260218",
+  multiAgentSpecialist: "claude-sonnet-4-6",
   multiAgentCoordinator: "claude-opus-4-6",
 
   // ── Strategic intelligence ──
@@ -29,11 +29,11 @@ const MODEL_ROUTES = {
   contentDetection: "gpt-5.4-mini",
   contentPreFilter: "gpt-5.4-nano",
   signalPreFilter: "gpt-5.4-nano",
-  situationAudit: "claude-sonnet-4-6-20260218",
+  situationAudit: "claude-sonnet-4-6",
 
   // ── Execution & extraction ──
   copilot: "gpt-5.4",
-  insightExtraction: "claude-sonnet-4-6-20260218",
+  insightExtraction: "claude-sonnet-4-6",
   executionGenerate: "gpt-5.4",
   recurringTasks: "gpt-5.4-mini",
 
@@ -106,7 +106,7 @@ const ARCHETYPE_MODEL_TIER: Record<string, ArchetypeTier> = {
 
 const TIER_TO_MODEL: Record<ArchetypeTier, string> = {
   deep: "claude-opus-4-6",
-  standard: "claude-sonnet-4-6-20260218",
+  standard: "claude-sonnet-4-6",
   structured: "gpt-5.4",
   light: "gpt-5.4-mini",
 };
@@ -169,7 +169,7 @@ export function getThinkingBudget(route: ModelRoute): number | null {
 const MAX_OUTPUT_TOKENS: Record<string, number> = {
   "claude-opus-4-6": 32_768,
   "claude-sonnet-4-20250514": 32_768,
-  "claude-sonnet-4-6-20260218": 16_384,
+  "claude-sonnet-4-6": 16_384,
   "claude-haiku-4-5-20251001": 8_192,
   "claude-haiku-3-5-20241022": 8_192,
   "gpt-5.4": 16_384,
@@ -192,7 +192,7 @@ export function getMaxOutputTokens(modelId: string): number {
 
 /** Maps OpenAI models to equivalent Anthropic models for failover. */
 const ANTHROPIC_MODEL_MAP: Record<string, string> = {
-  "gpt-5.4": "claude-sonnet-4-6-20260218",
+  "gpt-5.4": "claude-sonnet-4-6",
   "gpt-5.4-mini": "claude-haiku-4-5-20251001",
   "gpt-5.4-nano": "claude-haiku-4-5-20251001",
 };
