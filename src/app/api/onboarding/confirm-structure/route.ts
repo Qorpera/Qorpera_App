@@ -100,14 +100,24 @@ export async function POST(request: Request) {
   // Retroactive content scan — evaluate existing communication content against
   // newly created content-mode situation types (emails/Slack messages ingested
   // before situation types were created during synthesis)
-  await enqueueWorkerJob("evaluate_recent_content", operatorId, {
-    operatorId,
-    trigger: "onboarding_complete",
+  // Guard: skip if evaluate_recent_content was already enqueued (e.g., by a prior run)
+  const existingContentJob = await prisma.workerJob.findFirst({
+    where: {
+      operatorId,
+      jobType: "evaluate_recent_content",
+      status: { in: ["pending", "running"] },
+    },
   });
+  if (!existingContentJob) {
+    await enqueueWorkerJob("evaluate_recent_content", operatorId, {
+      operatorId,
+      trigger: "onboarding_complete",
+    });
+  }
 
   return NextResponse.json({
     success: true,
-    detectionJobsQueued: 2,
+    detectionJobsQueued: existingContentJob ? 1 : 2,
     situationTypeNames: situationTypes.map(st => st.name),
   });
 }

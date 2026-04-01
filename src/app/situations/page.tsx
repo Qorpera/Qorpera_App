@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { ContextualChat } from "@/components/contextual-chat";
 import { useIsMobile } from "@/hooks/use-media-query";
+import { useUser } from "@/components/user-provider";
 import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { getPreviewComponent } from "@/components/execution/previews/get-preview-component";
@@ -248,7 +249,9 @@ export default function SituationsPage() {
   const tc = useTranslations("common");
   const locale = useLocale();
   const isMobile = useIsMobile();
+  const { isSuperadmin } = useUser();
   const [situations, setSituations] = useState<SituationItem[]>([]);
+  const [showAllStatuses, setShowAllStatuses] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SituationDetail | null>(null);
@@ -267,14 +270,17 @@ export default function SituationsPage() {
 
   const fetchSituations = useCallback(async () => {
     try {
-      const res = await fetch("/api/situations?status=detected,proposed,reasoning,auto_executing,executing,monitoring,resolved");
+      const statusParam = showAllStatuses
+        ? "detected,proposed,reasoning,auto_executing,executing,monitoring,resolved"
+        : "proposed,auto_executing,executing,monitoring,resolved";
+      const res = await fetch(`/api/situations?status=${statusParam}`);
       if (res.ok) {
         const data = await res.json();
         setSituations(data.items);
       }
     } catch {}
     setLoading(false);
-  }, []);
+  }, [showAllStatuses]);
 
   useEffect(() => { fetchSituations(); }, [fetchSituations]);
 
@@ -332,13 +338,17 @@ export default function SituationsPage() {
     filter === "all"
       ? situations
       : filter === "pending"
-      ? situations.filter(s => s.status === "detected" || s.status === "proposed")
+      ? showAllStatuses
+        ? situations.filter(s => s.status === "detected" || s.status === "proposed" || s.status === "reasoning")
+        : situations.filter(s => s.status === "proposed")
       : situations.filter(s => s.status === filter),
-    [situations, filter],
+    [situations, filter, showAllStatuses],
   );
 
   const selectedSituation = situations.find(s => s.id === selectedId) ?? null;
-  const pendingCount = situations.filter(s => s.status === "detected" || s.status === "proposed").length;
+  const pendingCount = showAllStatuses
+    ? situations.filter(s => s.status === "detected" || s.status === "proposed" || s.status === "reasoning").length
+    : situations.filter(s => s.status === "proposed").length;
 
   // Clear selection when filtered out
   useEffect(() => {
@@ -403,7 +413,7 @@ export default function SituationsPage() {
           </div>
 
           {/* Filter tabs */}
-          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div className="px-4 py-2 flex gap-1.5 items-center flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
             {(["all", "pending", "resolved"] as const).map(f => (
               <button
                 key={f}
@@ -418,6 +428,23 @@ export default function SituationsPage() {
                 {f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
+            {isSuperadmin && (
+              <button
+                onClick={() => setShowAllStatuses(prev => !prev)}
+                style={{
+                  fontSize: 11,
+                  padding: "3px 8px",
+                  borderRadius: 4,
+                  border: `1px solid ${showAllStatuses ? "var(--accent)" : "var(--border)"}`,
+                  background: showAllStatuses ? "var(--accent)" : "transparent",
+                  color: showAllStatuses ? "white" : "var(--fg3)",
+                  cursor: "pointer",
+                  marginLeft: 8,
+                }}
+              >
+                {showAllStatuses ? "All statuses" : "Ready only"}
+              </button>
+            )}
           </div>
 
           {/* List */}
@@ -494,6 +521,7 @@ export default function SituationsPage() {
                   outcomeNote={outcomeNote}
                   setOutcomeNote={setOutcomeNote}
                   billingStatus={billingStatus}
+                  showAllStatuses={showAllStatuses}
                 />
               </div>
               <ContextualChat
@@ -680,6 +708,7 @@ function DetailPane({
   outcomeValue, setOutcomeValue,
   outcomeNote, setOutcomeNote,
   billingStatus,
+  showAllStatuses,
 }: {
   situation: SituationItem;
   detail: SituationDetail | null;
@@ -696,6 +725,7 @@ function DetailPane({
   outcomeNote: string;
   setOutcomeNote: (n: string) => void;
   billingStatus: string;
+  showAllStatuses: boolean;
 }) {
   const t = useTranslations("situations");
   const tc = useTranslations("common");
@@ -772,7 +802,9 @@ function DetailPane({
 
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
-  const canAct = (s.status === "detected" || s.status === "proposed") && billingStatus === "active";
+  const canAct = showAllStatuses
+    ? (s.status === "detected" || s.status === "proposed") && billingStatus === "active"
+    : s.status === "proposed" && billingStatus === "active";
   const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
   const actionPlan = reasoning?.actionPlan ?? (Array.isArray(detail?.proposedAction) ? detail!.proposedAction as ActionStep[] : null);
 
@@ -1074,22 +1106,15 @@ function DetailPane({
             </details>
           )}
 
-          {/* Fallback for detected situations awaiting analysis */}
-          {!reasoning && !detail.triggerSummary && s.status === "detected" && (
-            <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
-              <p style={{ fontSize: 13, color: "var(--fg3)" }}>
-                {t("awaitingAnalysis")}
-              </p>
-              {detail.contextSnapshot?.triggerEntity && (
-                <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1">
-                  {Object.entries(detail.contextSnapshot.triggerEntity.properties).slice(0, 8).map(([k, v]) => (
-                    <div key={k} className="flex justify-between text-[13px] py-1" style={{ borderBottom: "1px solid var(--border)" }}>
-                      <span style={{ color: "var(--fg3)" }}>{k}</span>
-                      <span style={{ color: "var(--fg2)" }}>{v}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {showAllStatuses && !reasoning && s.status === "detected" && (
+            <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>
+              Awaiting reasoning…
+            </div>
+          )}
+
+          {showAllStatuses && s.status === "reasoning" && (
+            <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>
+              Reasoning in progress…
             </div>
           )}
 
@@ -1351,11 +1376,6 @@ function DetailPane({
             </div>
           ) : reasoning && !actionPlan ? (
             <p style={{ fontSize: 13, color: "var(--fg3)" }} className="italic">No action recommended — please review.</p>
-          ) : s.status === "reasoning" ? (
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-muted" />
-              <p style={{ fontSize: 13, color: "var(--fg3)" }}>AI is analyzing this situation...</p>
-            </div>
           ) : s.status === "executing" || s.status === "auto_executing" ? (
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-ok" />
@@ -1498,7 +1518,7 @@ function DetailPane({
             </div>
           )}
           {/* Billing gate message when actions are blocked */}
-          {!canAct && (s.status === "detected" || s.status === "proposed") && billingStatus !== "active" && !currentMode && (
+          {!canAct && s.status === "proposed" && billingStatus !== "active" && !currentMode && (
             <div className="pt-2 flex items-center gap-2" style={{ borderTop: "1px solid var(--border)" }}>
               <span className="text-[12px] text-[var(--fg3)]">
                 {billingStatus === "depleted"

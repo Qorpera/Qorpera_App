@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (statusParam) {
-    const statuses = statusParam.split(",").map((s) => s.trim());
+    const statuses = statusParam.split(",").map((s) => s.trim()).filter(s => s !== "detected" && s !== "reasoning");
     where.status = { in: statuses };
   } else {
     // Default: exclude closed and resolved

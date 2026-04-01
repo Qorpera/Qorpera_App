@@ -13,7 +13,7 @@ import { extractJSON } from "@/lib/json-helpers";
 import { parseCitedSections } from "@/lib/reasoning/citation-parser";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
-export const REASONING_PROMPT_VERSION = 3; // v3: ideal plan first, human_task steps, situationTitle
+export const REASONING_PROMPT_VERSION = 4; // v4: two-phase reasoning, external-only action plans, situationOwner
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 

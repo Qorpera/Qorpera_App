@@ -19,7 +19,12 @@ export const ReasoningOutputSchema = z.object({
     evidenceAgainst: z.array(z.string()),
     expectedOutcome: z.string(),
   })),
-  actionPlan: z.array(ActionStepSchema).nullable(),  // Nullable kept for defensive parsing — prompt says "never null" but LLMs aren't deterministic
+  situationOwner: z.object({
+    entityName: z.string(),
+    entityRole: z.string().optional(),
+    reasoning: z.string(),
+  }).nullable().optional(),
+  actionPlan: z.array(ActionStepSchema).nullable(),
   confidence: z.number().min(0).max(1),
   missingContext: z.array(z.string()).nullable(),
   webSources: z.array(z.string()).optional(),  // URLs from web search results consulted during reasoning

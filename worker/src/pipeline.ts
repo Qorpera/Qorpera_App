@@ -520,21 +520,6 @@ ${archetypeTaxonomy}`;
     console.error("[pipeline] Failed to enqueue classify_chunks:", err);
   }
 
-  // Start content evaluation in the background — gives situations time to appear
-  // before the user finishes reviewing the org map and clicks "Confirm & Continue"
-  try {
-    await prisma.workerJob.create({
-      data: {
-        jobType: "evaluate_recent_content",
-        operatorId,
-        payload: { operatorId } as any,
-      },
-    });
-    console.log(`[pipeline] Enqueued evaluate_recent_content for operator ${operatorId}`);
-  } catch (err) {
-    console.error("[pipeline] Failed to enqueue evaluate_recent_content:", err);
-    // Non-fatal — evaluation will run at confirmation time as fallback
-  }
 }
 
 // ── Agent Runner with Audit Record ───────────────────────────────────────────

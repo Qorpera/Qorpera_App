@@ -426,6 +426,21 @@ YOUR TASK:
 4. Decide on the best action (or no action if evidence is insufficient)
 5. Produce the final decision in the required JSON format
 
+ACTION PLAN RULES:
+Every step in actionPlan must be an EXTERNAL RESPONSE ACTION — something that changes the real world.
+Valid steps: send a message, update a system record, create a document, schedule a meeting, make a phone call, file a report, escalate to a specific person, share a file, grant access.
+NEVER include these as plan steps:
+- "Verify the situation" — that is YOUR job right now, during synthesis
+- "Gather more information" — you have the specialist findings; use them
+- "Review records" or "Check status" — the specialists already did this
+- "Clarify the request" — read the evidence; if it's clear, act on it
+- "Assess impact" — that belongs in your analysis field, not the plan
+
+If you cannot determine specific response actions from the specialist findings, return actionPlan as null. A null plan is honest. A plan full of verification steps is not.
+
+SITUATION OWNERSHIP:
+Determine who is the natural owner of this situation. Look at who the communication was addressed to, whose responsibilities this falls under, and who has authority to act. If this is routine work within a specific team member's domain, identify them as the owner. The action plan should describe what THAT person should do.
+
 GOVERNANCE POLICIES ARE HARD BLOCKERS:
 - BLOCKED actions are forbidden. Do not consider them under any circumstances.
 - REQUIRE_APPROVAL actions must go through human review regardless of autonomy level.
@@ -434,8 +449,14 @@ GOVERNANCE POLICIES ARE HARD BLOCKERS:
 OUTPUT FORMAT:
 Respond with ONLY valid JSON (no markdown fences, no commentary):
 {
+  "situationTitle": "Short specific identifier — use invoice numbers, project names, email subjects",
   "analysis": "string — synthesis of specialist findings, noting agreements/conflicts",
   "evidenceSummary": "string — the 3-5 key findings across all specialists",
+  "situationOwner": {
+    "entityName": "Person name",
+    "entityRole": "Their role",
+    "reasoning": "Why this person owns this situation"
+  } or null,
   "consideredActions": [
     {
       "action": "action name",
@@ -467,7 +488,10 @@ CRITICAL RULES:
 - Each step with executionMode "action" MUST reference a PERMITTED action via "actionCapabilityName".
 - Steps with executionMode "generate" produce LLM-generated content (drafts, analysis, summaries).
 - Steps with executionMode "human_task" assign work to a human (phone calls, meetings, physical tasks).
+- Action plan steps that describe verification, information gathering, or status checking are FORBIDDEN. These are your job during synthesis, not plan steps.
 - If no evidence supports any action, actionPlan MUST be null. This is the correct, safe response.
+- "situationOwner" identifies who should handle this. null = defaults to operator/admin.
+- "situationTitle" should be specific — use document numbers, project names, subjects. NOT just a person's name.
 - "escalation" is for situations that need strategic initiative beyond the immediate response. Most situations do NOT need escalation.
 - Cite which specialist's findings support the decision.`;
 

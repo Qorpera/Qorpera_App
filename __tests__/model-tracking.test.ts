@@ -19,7 +19,6 @@ vi.mock("@/lib/prioritization-engine", () => ({
 }));
 
 import { REASONING_PROMPT_VERSION } from "@/lib/reasoning-engine";
-import { PLAN_REASONING_PROMPT_VERSION } from "@/lib/reasoning-prompts";
 import { createExecutionPlan } from "@/lib/execution-engine";
 
 beforeEach(() => {
@@ -32,11 +31,6 @@ describe("model tracking", () => {
   it("REASONING_PROMPT_VERSION is a positive integer", () => {
     expect(REASONING_PROMPT_VERSION).toBeGreaterThan(0);
     expect(Number.isInteger(REASONING_PROMPT_VERSION)).toBe(true);
-  });
-
-  it("PLAN_REASONING_PROMPT_VERSION is a positive integer", () => {
-    expect(PLAN_REASONING_PROMPT_VERSION).toBeGreaterThan(0);
-    expect(Number.isInteger(PLAN_REASONING_PROMPT_VERSION)).toBe(true);
   });
 
   it("createExecutionPlan persists modelId and promptVersion", async () => {

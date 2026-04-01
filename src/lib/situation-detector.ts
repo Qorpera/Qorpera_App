@@ -6,7 +6,6 @@ import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { isEntityInScope } from "@/lib/situation-scope";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
-import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -756,16 +755,6 @@ async function createDetectedSituation(
       data: { situationId: situation.id, eventId: triggerEventId },
     }).catch(() => {}); // may fail if event doesn't exist
   }
-
-  // Create notification
-  await sendNotificationToAdmins({
-    operatorId,
-    type: "situation_proposed",
-    title: `${situationType.name}: ${context.triggerEntity.displayName}`,
-    body: `New situation detected with ${(confidence * 100).toFixed(0)}% confidence.`,
-    sourceType: "situation",
-    sourceId: situation.id,
-  }).catch(() => {});
 
   // Free tier tracking: set start date and increment counter
   trackFreeDetection(operatorId).catch(console.error);

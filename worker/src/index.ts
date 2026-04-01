@@ -48,7 +48,7 @@ async function main() {
   while (!shuttingDown) {
     // ── Concurrency gate ─────────────────────────────────────────────────
     if (activeJobs >= MAX_CONCURRENT_JOBS) {
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 500));
       continue;
     }
 
@@ -95,7 +95,7 @@ async function main() {
       console.error("[worker] Analysis poll error:", err);
     }
 
-    // ── Poll 2: Worker job queue ─────────────────────────────────────────
+    // ── Poll 2: Worker job queue (fire-and-forget) ────────────────────────
     if (activeJobs < MAX_CONCURRENT_JOBS) {
       try {
         const jobs = await prisma.$queryRaw<Array<{ id: string; jobType: string; payload: string; correlationId: string | null }>>`
@@ -114,46 +114,53 @@ async function main() {
         if (jobs.length > 0) {
           const job = jobs[0];
           activeJobs++;
+          didWork = true;
           const startTime = performance.now();
           console.log(`[worker] Job ${job.id} (${job.jobType}) started. Active: ${activeJobs}/${MAX_CONCURRENT_JOBS}`);
-          try {
-            const payload = typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload;
-            await dispatchJob(job.jobType, payload);
-            await prisma.workerJob.update({
-              where: { id: job.id },
-              data: { status: "completed", completedAt: new Date() },
-            });
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            console.error(`[worker] Job ${job.id} (${job.jobType}) failed:`, message);
-            await prisma.workerJob.update({
-              where: { id: job.id },
-              data: { status: "failed", error: message, completedAt: new Date() },
-            });
 
-            // Cascading cancellation for systemic errors
-            if (job.correlationId && isSystemicError(message)) {
-              const cancelled = await prisma.workerJob.updateMany({
-                where: {
-                  correlationId: job.correlationId,
-                  status: "pending",
-                },
-                data: {
-                  status: "failed",
-                  error: `Cancelled: systemic failure in sibling job ${job.id}: ${message}`,
-                  completedAt: new Date(),
-                },
+          // Fire-and-forget: don't await, let it run in the background
+          const jobPromise = (async () => {
+            try {
+              const payload = typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload;
+              await dispatchJob(job.jobType, payload);
+              await prisma.workerJob.update({
+                where: { id: job.id },
+                data: { status: "completed", completedAt: new Date() },
               });
-              if (cancelled.count > 0) {
-                console.log(`[worker] Cancelled ${cancelled.count} pending jobs (correlationId: ${job.correlationId}) due to systemic failure`);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              console.error(`[worker] Job ${job.id} (${job.jobType}) failed:`, message);
+              await prisma.workerJob.update({
+                where: { id: job.id },
+                data: { status: "failed", error: message, completedAt: new Date() },
+              });
+
+              // Cascading cancellation for systemic errors
+              if (job.correlationId && isSystemicError(message)) {
+                const cancelled = await prisma.workerJob.updateMany({
+                  where: {
+                    correlationId: job.correlationId,
+                    status: "pending",
+                  },
+                  data: {
+                    status: "failed",
+                    error: `Cancelled: systemic failure in sibling job ${job.id}: ${message}`,
+                    completedAt: new Date(),
+                  },
+                });
+                if (cancelled.count > 0) {
+                  console.log(`[worker] Cancelled ${cancelled.count} pending jobs (correlationId: ${job.correlationId}) due to systemic failure`);
+                }
               }
+            } finally {
+              activeJobs--;
+              const durationMs = Math.round(performance.now() - startTime);
+              console.log(`[worker] Job ${job.id} (${job.jobType}) completed in ${durationMs}ms. Active: ${activeJobs}/${MAX_CONCURRENT_JOBS}`);
             }
-          } finally {
-            activeJobs--;
-            const durationMs = Math.round(performance.now() - startTime);
-            console.log(`[worker] Job ${job.id} (${job.jobType}) completed in ${durationMs}ms. Active: ${activeJobs}/${MAX_CONCURRENT_JOBS}`);
-          }
-          didWork = true;
+          })();
+
+          // Don't await — the promise runs in the background
+          jobPromise.catch(() => {}); // errors already logged inside
         }
       } catch (err) {
         console.error("[worker] Job poll error:", err);
@@ -162,7 +169,10 @@ async function main() {
 
     // Only sleep if no work was done this cycle
     if (!didWork) {
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 2000));
+    } else {
+      // Brief yield to allow other promises to progress, then immediately check for more work
+      await new Promise((r) => setTimeout(r, 100));
     }
   }
 }

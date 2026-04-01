@@ -6,7 +6,6 @@ import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
-import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { getArchetypeTaxonomy, ensureArchetypeSituationType } from "@/lib/archetype-classifier";
 import { ensureActionRequiredType, ensureAwarenessType } from "@/lib/situation-type-helpers";
 
@@ -433,6 +432,67 @@ async function handleActionRequired(
   const dedupeKey = `${batch.actorEntityId}:${result.summary.slice(0, 50)}`;
   if (createdInBatch.has(dedupeKey)) return;
 
+  // Cross-mechanism dedup: check if entity-based detection already created
+  // a situation for this entity with the same archetype
+  if (result.archetypeSlug && result.archetypeSlug !== "unclassified") {
+    const existingSituation = await prisma.situation.findFirst({
+      where: {
+        operatorId,
+        triggerEntityId: batch.actorEntityId,
+        status: { notIn: ["resolved", "closed"] },
+        situationType: {
+          archetypeSlug: result.archetypeSlug,
+        },
+      },
+    });
+    if (existingSituation) {
+      // Situation already exists from entity-based detection — enrich context instead
+      const existing = await prisma.situation.findUnique({
+        where: { id: existingSituation.id },
+        select: { contextSnapshot: true },
+      });
+      let snapshot: Record<string, unknown> = {};
+      if (existing?.contextSnapshot) {
+        try { snapshot = JSON.parse(existing.contextSnapshot as string); } catch {}
+      }
+      const evidenceArr = Array.isArray(snapshot.contentEvidence)
+        ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
+        : [];
+      evidenceArr.push({
+        sourceId: item.sourceId,
+        sourceType: item.sourceType,
+        sender: meta.from ?? meta.authorEmail ?? "unknown",
+        subject: meta.subject ?? null,
+        date: meta.date ?? new Date().toISOString(),
+        summary: result.summary,
+        evidence: result.evidence,
+      });
+      snapshot.contentEvidence = evidenceArr;
+      await prisma.situation.update({
+        where: { id: existingSituation.id },
+        data: { contextSnapshot: JSON.stringify(snapshot) },
+      });
+
+      // Log evaluation linked to the existing situation
+      await prisma.evaluationLog.updateMany({
+        where: {
+          operatorId,
+          sourceId: item.sourceId,
+          sourceType: item.sourceType,
+          actorEntityId: batch.actorEntityId,
+          situationId: null,
+        },
+        data: { situationId: existingSituation.id },
+      }).catch(() => {});
+
+      console.log(
+        `[content-detection] Cross-mechanism dedup: enriched existing situation ${existingSituation.id} (${result.archetypeSlug}) instead of creating duplicate`,
+      );
+      createdInBatch.add(dedupeKey);
+      return;
+    }
+  }
+
   // Resolve department — prefer batch-level resolution, fall back to per-item
   const departmentId = batch.departmentId
     ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0];
@@ -505,16 +565,6 @@ async function handleActionRequired(
       situationId: null,
     },
     data: { situationId: situation.id },
-  }).catch(() => {});
-
-  // Notification
-  await sendNotificationToAdmins({
-    operatorId,
-    type: "situation_proposed",
-    title: `Action needed: ${result.summary}`,
-    body: result.summary,
-    sourceType: "situation",
-    sourceId: situation.id,
   }).catch(() => {});
 
   // Free tier tracking (fire-and-forget)
