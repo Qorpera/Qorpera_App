@@ -39,7 +39,7 @@ async function seedAISettingsFromEnv() {
     if (!provider) return;
 
     const defaultModels: Record<string, string> = {
-      anthropic: "claude-sonnet-4-20250514",
+      anthropic: "claude-sonnet-4-6",
       openai: "gpt-5.4",
       ollama: "llama3.2",
     };

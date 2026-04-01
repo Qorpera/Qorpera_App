@@ -75,8 +75,8 @@ const CLOUD_MODEL_OPTIONS: Record<string, Array<{ value: string; label: string }
     { value: "gpt-4o-mini", label: "GPT-4o Mini (Legacy)" },
   ],
   anthropic: [
-    { value: "claude-opus-4-20250514", label: "Claude Opus 4 (Most capable)" },
-    { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4 (Balanced)" },
+    { value: "claude-opus-4-6", label: "Claude Opus 4.6 (Most capable)" },
+    { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Balanced)" },
     { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 (Fastest)" },
   ],
 };

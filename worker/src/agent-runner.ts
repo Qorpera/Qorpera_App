@@ -27,8 +27,6 @@ export interface AgentResult {
 
 export async function runAgent(config: AgentConfig): Promise<AgentResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  // Bypass SDK's client-side nonstreaming timeout check (throws for max_tokens > ~21k)
-  (client as any)._calculateNonstreamingTimeout = () => 20 * 60 * 1000;
   const model = config.modelOverride ?? getModel("onboardingAgent");
 
   // Convert existing AgentTool[] to Anthropic tool format
@@ -60,7 +58,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
     const route = config.modelRoute ?? "onboardingAgent";
     const thinkingBudget = getThinkingBudget(route);
 
-    const response = await client.messages.create({
+    const stream = client.messages.stream({
       model,
       max_tokens: getMaxOutputTokens(model),
       system: [
@@ -74,7 +72,8 @@ export async function runAgent(config: AgentConfig): Promise<AgentResult> {
       tools: anthropicTools,
       temperature: thinkingBudget ? undefined : 0,
       ...(thinkingBudget ? { thinking: { type: "enabled" as const, budget_tokens: thinkingBudget } } : {}),
-    }, { timeout: 20 * 60 * 1000 });
+    });
+    const response = await stream.finalMessage();
 
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;

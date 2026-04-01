@@ -39,17 +39,19 @@ const MODEL_ROUTES = {
 
   // ── Infrastructure ──
   embedding: "text-embedding-3-small",
+  // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
   chunkClassification: "claude-haiku-4-5-20251001",
 
-  // ── Onboarding pipeline (no changes) ──
+  // ── Onboarding pipeline ──
   onboardingIntelligence: "gpt-5.4",
   onboardingMemory: "gpt-5.4-mini",
-  onboardingTemporal: "claude-haiku-4-5-20251001",
-  onboardingAgent: "claude-sonnet-4-20250514",
-  onboardingAgentFollowup: "claude-sonnet-4-20250514",
+  onboardingTemporal: "claude-sonnet-4-6",
+  onboardingAgent: "claude-sonnet-4-6",
+  onboardingAgentFollowup: "claude-sonnet-4-6",
   onboardingOrganizer: "claude-opus-4-6",
-  onboardingSynthesis: "claude-sonnet-4-20250514",
-  onboardingChat: "claude-sonnet-4-20250514",
+  onboardingSynthesis: "claude-sonnet-4-6",
+  onboardingChat: "claude-sonnet-4-6",
+  // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
   onboardingExtraction: "claude-haiku-4-5-20251001",
 } as const;
 
@@ -152,8 +154,8 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   strategicScan: 16_384,
   situationAudit: 2_048,
   insightExtraction: 8_192,
-  // Onboarding (unchanged)
-  onboardingTemporal: null,
+  // Onboarding
+  onboardingTemporal: 4_096,
   onboardingAgent: 4_096,
   onboardingAgentFollowup: 8_192,
   onboardingOrganizer: 8_192,
@@ -168,7 +170,6 @@ export function getThinkingBudget(route: ModelRoute): number | null {
 
 const MAX_OUTPUT_TOKENS: Record<string, number> = {
   "claude-opus-4-6": 32_768,
-  "claude-sonnet-4-20250514": 32_768,
   "claude-sonnet-4-6": 16_384,
   "claude-haiku-4-5-20251001": 8_192,
   "claude-haiku-3-5-20241022": 8_192,
@@ -360,7 +361,7 @@ function defaultModelForProvider(provider: string): string {
     case "openai":
       return "gpt-5.4";
     case "anthropic":
-      return "claude-sonnet-4-20250514";
+      return "claude-sonnet-4-6";
     case "ollama":
       return "llama3.2";
     default:
