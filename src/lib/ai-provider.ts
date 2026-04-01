@@ -603,7 +603,8 @@ async function callAnthropic(
     ...(options.temperature !== undefined && !options.thinking && { temperature: options.temperature }),
   };
 
-  const response = await client.messages.create(params);
+  const stream = client.messages.stream(params);
+  const response = await stream.finalMessage();
 
   // Translate response
   let text = "";

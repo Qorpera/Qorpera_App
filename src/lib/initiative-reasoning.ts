@@ -346,7 +346,6 @@ async function callAndValidate(
         temperature: 0.3,
         maxTokens: 32768,
         model: getModel("initiativeReasoning"),
-        webSearch: true,
         thinking: true,
         thinkingBudget: getThinkingBudget("initiativeReasoning") ?? undefined,
       });

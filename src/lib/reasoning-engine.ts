@@ -483,7 +483,6 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           aiFunction: "reasoning",
           model: modelString,
           operatorId: situation.operatorId,
-          webSearch: true,
           thinking: thinkingBudget !== null,
           thinkingBudget: thinkingBudget ?? undefined,
         });
