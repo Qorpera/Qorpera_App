@@ -86,7 +86,7 @@ export function NotificationBell() {
         <div className={
           isMobile
             ? "fixed inset-0 z-50 bg-elevated overflow-y-auto"
-            : "absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto rounded-xl border border-border bg-elevated shadow-2xl z-50"
+            : "absolute left-0 bottom-full mb-2 w-80 max-h-96 overflow-y-auto rounded-xl border border-border bg-elevated shadow-2xl z-50"
         }>
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             {isMobile && (

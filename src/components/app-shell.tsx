@@ -101,43 +101,7 @@ function SuperadminBanner() {
     }
   }, [isSuperadmin, actingAsOperator]);
 
-  if (!isSuperadmin || !actingAsOperator || !companyName) return null;
-
-  return (
-    <div className="bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] border-b border-[color-mix(in_srgb,var(--warn)_20%,transparent)] px-4 py-1.5 flex items-center justify-between flex-shrink-0">
-      <span className="text-xs text-warn">
-        {t("viewingAs")} <span className="font-medium">{companyName}</span>
-        {actingAsUser && impersonatedUserName && (
-          <>
-            <span className="mx-1.5 text-[var(--fg3)]">→</span>
-            <span className="font-medium">{impersonatedUserName}</span>
-          </>
-        )}
-      </span>
-      <div className="flex items-center gap-3">
-        {actingAsUser && (
-          <button
-            className="text-xs text-warn hover:text-[var(--foreground)] font-medium"
-            onClick={async () => {
-              await fetch("/api/admin/stop-impersonation", { method: "POST" });
-              refresh();
-            }}
-          >
-            {t("stopImpersonation")}
-          </button>
-        )}
-        <button
-          className="text-xs text-warn hover:text-[var(--foreground)] font-medium"
-          onClick={async () => {
-            await fetch("/api/admin/exit-operator", { method: "POST" });
-            router.push("/admin");
-          }}
-        >
-          {t("exit")}
-        </button>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 // ── Hamburger icon ──────────────────────────────────────────────────────────
@@ -194,7 +158,10 @@ function SidebarContent({
               <LocaleSwitcher currentLocale={locale} />
             </div>
           </div>
-          <p className="text-[10px] text-[var(--fg3)]">{t("version")}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-[var(--fg3)]">{t("version")}</p>
+            <NotificationBell />
+          </div>
           <div className="text-[10px] text-[var(--fg3)]">
             <a href="/terms" className="hover:text-[var(--fg2)]">Terms</a>
             {" · "}
@@ -375,11 +342,8 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
           <AiPausedBanner />
           <BillingStatusBanner />
 
-          {/* Desktop top bar (lg+) — CSS-only visibility */}
-            <div className="hidden lg:flex items-center justify-end gap-3 px-5 py-2 flex-shrink-0">
-              {topBarContent}
-              <NotificationBell />
-            </div>
+          {/* topBarContent rendered inline if provided */}
+          {topBarContent && <div className="hidden lg:block px-5 py-2">{topBarContent}</div>}
 
           {/* Page content */}
           <main className="flex-1 flex flex-col min-h-0 overflow-y-auto">

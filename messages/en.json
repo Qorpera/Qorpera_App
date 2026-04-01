@@ -284,7 +284,7 @@
     "evidenceSummary": "Evidence Summary",
     "consideredActions": "Considered actions",
     "missingContext": "Missing context",
-    "actionPlan": "Action plan",
+    "actionPlan": "Action Plan",
     "pros": "Pros",
     "cons": "Cons",
     "expectedOutcome": "Expected outcome",
@@ -314,7 +314,8 @@
     "stepsCompleted": "{n}/{total} steps",
     "activeCycle": "Active",
     "currentActionPlan": "Current Action Plan",
-    "evidenceAndReasoning": "Evidence & reasoning"
+    "evidenceAndReasoning": "Evidence & reasoning",
+    "situationOrigin": "Situation Origin"
   },
   "copilot": {
     "title": "Chat",

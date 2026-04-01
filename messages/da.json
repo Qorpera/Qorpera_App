@@ -314,7 +314,8 @@
     "stepsCompleted": "{n}/{total} trin",
     "activeCycle": "Aktiv",
     "currentActionPlan": "Nuværende handlingsplan",
-    "evidenceAndReasoning": "Evidens og begrundelse"
+    "evidenceAndReasoning": "Evidens og begrundelse",
+    "situationOrigin": "Situationsoprindelse"
   },
   "copilot": {
     "title": "Chat",

@@ -1,9 +1,37 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useUser } from "./user-provider";
+
+function SuperadminNavInfo() {
+  const { isSuperadmin } = useUser();
+  const [companyName, setCompanyName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isSuperadmin) {
+      fetch("/api/auth/me")
+        .then(r => r.json())
+        .then(data => setCompanyName(data.operator?.companyName || null))
+        .catch(() => {});
+    }
+  }, [isSuperadmin]);
+
+  if (!companyName) return null;
+
+  return (
+    <div className="px-2 pt-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-[var(--fg4)] truncate">{companyName}</span>
+        <a href="/admin" className="text-[10px] text-[var(--fg4)] hover:text-[var(--fg2)] transition-colors flex-shrink-0 ml-2">
+          Exit
+        </a>
+      </div>
+    </div>
+  );
+}
 
 type BadgeKey = "situations" | "health";
 type NavItem = { href: string; labelKey: string; icon: string; badgeKey?: BadgeKey; superadminOnly?: boolean; adminOnly?: boolean };
@@ -16,7 +44,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/situations", labelKey: "situations", icon: "alert-triangle", badgeKey: "situations" },
       { href: "/initiatives", labelKey: "initiatives", icon: "lightbulb", adminOnly: true },
       { href: "/projects", labelKey: "projects", icon: "layers", adminOnly: true },
-      { href: "/map", labelKey: "map", icon: "map" },
+      { href: "/map", labelKey: "map", icon: "map", adminOnly: true },
     ],
   },
   {
@@ -112,8 +140,8 @@ export function AppNav({ pendingApprovals = 0, healthIssues = 0, collapsed = fal
                     title={collapsed ? label : undefined}
                     className={`flex items-center ${collapsed ? "justify-center" : "gap-2.5"} rounded-lg ${collapsed ? "px-2 py-2" : "px-2.5 py-2"} text-[13px] font-medium transition min-h-[44px] ${
                       active
-                        ? "bg-accent-light text-accent"
-                        : "text-[var(--fg2)] hover:bg-hover hover:text-foreground"
+                        ? "bg-white/[0.06] text-[var(--foreground)]"
+                        : "text-[var(--fg2)] hover:bg-white/[0.04] hover:text-foreground"
                     }`}
                   >
                     <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -121,9 +149,7 @@ export function AppNav({ pendingApprovals = 0, healthIssues = 0, collapsed = fal
                     </svg>
                     {!collapsed && <span className="flex-1">{label}</span>}
                     {!collapsed && item.badgeKey && badgeCounts[item.badgeKey] > 0 && (
-                      <span className={`min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-bold px-1 ${
-                        item.badgeKey === "health" ? "bg-warn text-white" : "bg-accent text-accent-ink"
-                      }`}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--fg3)", textShadow: "0 0 4px rgba(0,0,0,0.5)" }}>
                         {badgeCounts[item.badgeKey]}
                       </span>
                     )}
@@ -143,6 +169,7 @@ export function AppNav({ pendingApprovals = 0, healthIssues = 0, collapsed = fal
           </span>
         </div>
       )}
+      {!collapsed && isSuperadmin && <SuperadminNavInfo />}
     </div>
   );
 }

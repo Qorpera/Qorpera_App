@@ -466,8 +466,8 @@ function DetailPane({
                       padding: "12px 16px",
                       borderBottom: i < d.steps.length - 1 ? "1px solid var(--border)" : "none",
                       opacity: isPending ? 0.5 : 1,
-                      background: isActive ? "rgba(168,85,247,0.04)" : "transparent",
-                      borderLeft: isActive ? "3px solid rgba(168,85,247,0.4)" : "3px solid transparent",
+                      background: isActive ? "rgba(255,255,255,0.04)" : "transparent",
+                      borderLeft: isActive ? "3px solid rgba(255,255,255,0.4)" : "3px solid transparent",
                     }}
                   >
                     <div className="flex items-start gap-3">

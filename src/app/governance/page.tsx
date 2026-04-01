@@ -327,9 +327,9 @@ export default function GovernancePage() {
 
                 {/* Counts */}
                 <div className="flex gap-6 mt-3 text-xs">
-                  <span className="text-[var(--fg2)]">Supervised: <span className="text-foreground font-medium">{supervisedCount}</span></span>
-                  <span className="text-[var(--fg2)]">Notify: <span className="text-warn font-medium">{notifyCount}</span></span>
-                  <span className="text-[var(--fg2)]">Autonomous: <span className="text-ok font-medium">{autonomousCount}</span></span>
+                  <span className="text-foreground font-medium">{supervisedCount}</span>
+                  <span className="text-foreground font-medium">{notifyCount}</span>
+                  <span className="text-foreground font-medium">{autonomousCount}</span>
                 </div>
               </>
             )}
@@ -654,7 +654,7 @@ export default function GovernancePage() {
                     onClick={() => setFormEffect(eff.value)}
                     className={`px-4 py-2 rounded text-sm font-medium border transition ${
                       formEffect === eff.value
-                        ? "border-[rgba(168,85,247,0.4)] bg-[var(--accent-light)] text-accent"
+                        ? "border-[rgba(255,255,255,0.4)] bg-[var(--accent-light)] text-accent"
                         : "border-border bg-elevated text-[var(--fg3)]"
                     }`}
                   >

@@ -167,7 +167,7 @@ interface SituationDetail {
 
 type ActiveMode = { id: string; mode: "reject" | "teach" | "outcome" } | null;
 
-type FilterValue = "all" | "pending" | "resolved";
+type FilterValue = "all" | "active" | "monitoring" | "resolved";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -195,13 +195,10 @@ function extractDraftPayloads(raw: unknown): DraftPayload[] {
   return Array.isArray(r.draftPayloads) ? r.draftPayloads : [];
 }
 
-function severityDotColor(s: SituationItem): string {
-  if (s.status === "rejected") return "var(--fg3)";
-  if (s.status === "approved" || s.status === "resolved") return "var(--ok)";
-  if (s.status === "monitoring") return "var(--accent)";
-  if (s.severity >= 0.7) return "var(--danger)";
-  if (s.severity >= 0.4) return "var(--warn)";
-  return "var(--fg3)";
+function statusDotColor(s: SituationItem): string {
+  if (["proposed", "executing", "auto_executing", "detected", "reasoning"].includes(s.status)) return "var(--foreground)";
+  if (s.status === "monitoring") return "var(--fg3)";
+  return "var(--fg4)";
 }
 
 function severityBadge(s: SituationItem): { label: string; variant: "red" | "amber" | "default" } {
@@ -263,6 +260,7 @@ export default function SituationsPage() {
   const [outcomeValue, setOutcomeValue] = useState("");
   const [outcomeNote, setOutcomeNote] = useState("");
   const [billingStatus, setBillingStatus] = useState<string>("active");
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [detectionCount, setDetectionCount] = useState(0);
 
   // ── Fetch situations ────────────────────────────────────────────────────
@@ -333,21 +331,16 @@ export default function SituationsPage() {
 
   // ── Derived ─────────────────────────────────────────────────────────────
 
-  const filteredSituations = useMemo(() =>
-    filter === "all"
-      ? situations
-      : filter === "pending"
-      ? showAllStatuses
-        ? situations.filter(s => s.status === "detected" || s.status === "proposed" || s.status === "reasoning")
-        : situations.filter(s => s.status === "proposed")
-      : situations.filter(s => s.status === filter),
-    [situations, filter, showAllStatuses],
-  );
+  const filteredSituations = useMemo(() => {
+    if (filter === "all") return situations;
+    if (filter === "active") return situations.filter(s => ["proposed", "executing", "auto_executing", "detected", "reasoning"].includes(s.status));
+    if (filter === "monitoring") return situations.filter(s => s.status === "monitoring");
+    if (filter === "resolved") return situations.filter(s => ["resolved", "rejected", "closed"].includes(s.status));
+    return situations;
+  }, [situations, filter]);
 
   const selectedSituation = situations.find(s => s.id === selectedId) ?? null;
-  const pendingCount = showAllStatuses
-    ? situations.filter(s => s.status === "detected" || s.status === "proposed" || s.status === "reasoning").length
-    : situations.filter(s => s.status === "proposed").length;
+  const activeCount = situations.filter(s => ["proposed", "executing", "auto_executing", "detected", "reasoning"].includes(s.status)).length;
 
   // Clear selection when filtered out
   useEffect(() => {
@@ -378,11 +371,11 @@ export default function SituationsPage() {
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <AppShell pendingApprovals={pendingCount}>
-      {billingStatus !== "active" && (
-        <div className="px-4 py-3 flex items-center justify-between bg-accent-light" style={{ borderBottom: "1px solid var(--accent)" }}>
+    <AppShell pendingApprovals={activeCount}>
+      {billingStatus !== "active" && !bannerDismissed && (
+        <div className="px-4 py-2 flex items-center justify-between" style={{ background: "var(--card-bg)", borderBottom: "1px solid var(--border)" }}>
           <div>
-            <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 500 }}>
+            <span style={{ fontSize: 12, color: "var(--fg3)", fontWeight: 400 }}>
               {billingStatus === "past_due"
                 ? "Payment needs updating. Situation actions are paused."
                 : billingStatus === "depleted"
@@ -390,12 +383,18 @@ export default function SituationsPage() {
                 : `You're viewing Qorpera's AI detections. ${detectionCount}/50 free situations detected.`}
             </span>
           </div>
-          <a
-            href="/settings?tab=billing"
-            className="rounded-full text-[12px] font-medium px-3 py-1 bg-accent text-accent-ink"
-          >
-            {billingStatus === "past_due" ? "Update payment" : "Add credits"}
-          </a>
+          <div className="flex items-center">
+            <a
+              href="/settings?tab=billing"
+              className="rounded-full text-[12px] font-medium px-3 py-1"
+              style={{ background: "var(--badge-bg)", color: "var(--fg2)" }}
+            >
+              {billingStatus === "past_due" ? "Update payment" : "Add credits"}
+            </a>
+            <button onClick={() => setBannerDismissed(true)} className="ml-2 p-1 rounded hover:bg-white/10 transition-colors" style={{ color: "var(--fg4)" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
         </div>
       )}
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -407,13 +406,13 @@ export default function SituationsPage() {
           <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>{t("title")}</div>
             <div style={{ fontSize: 11, color: "var(--fg3)" }} className="mt-0.5">
-              {situations.length} total &middot; {pendingCount} pending
+              {situations.length} total &middot; {activeCount} pending
             </div>
           </div>
 
           {/* Filter tabs */}
           <div className="px-4 py-2 flex gap-1.5 items-center flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-            {(["all", "pending", "resolved"] as const).map(f => (
+            {(["all", "active", "monitoring", "resolved"] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -458,15 +457,16 @@ export default function SituationsPage() {
               <button
                 key={s.id}
                 onClick={() => setSelectedId(s.id)}
-                className="w-full text-left px-4 py-2.5 transition"
+                className={`w-full text-left px-4 py-2.5 transition-colors ${
+                  selectedId === s.id ? "bg-[var(--surface)]" : "hover:bg-[var(--step-hover)]"
+                }`}
                 style={{
                   borderBottom: "1px solid var(--border)",
-                  borderLeft: selectedId === s.id ? "2px solid var(--accent)" : "2px solid transparent",
-                  background: selectedId === s.id ? "var(--surface)" : "transparent",
+                  borderLeft: selectedId === s.id ? "2px solid var(--dot-color)" : "2px solid transparent",
                 }}
               >
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: severityDotColor(s) }} />
+                  <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusDotColor(s) }} />
                   <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }} className="truncate flex-1">
                     {s.triggerSummary
                       ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
@@ -477,7 +477,7 @@ export default function SituationsPage() {
                     {formatRelativeTime(s.createdAt, locale)}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--fg4)" }} className="pl-[15px] truncate">
+                <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
                   {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
                 </div>
               </button>
@@ -531,7 +531,7 @@ export default function SituationsPage() {
               />
             </>
           ) : (
-            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
+            <div className="flex items-center justify-center h-full" style={{ fontSize: 18, color: "var(--fg3)" }}>
               {t("selectSituation")}
             </div>
           )}
@@ -656,14 +656,14 @@ function DelegationFeed() {
 // ── Execution Mode Badge ─────────────────────────────────────────────────────
 
 const EXEC_MODE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
-  action: { bg: "rgba(168,85,247,0.12)", color: "var(--accent)", label: "action" },
+  action: { bg: "var(--badge-bg)", color: "var(--accent)", label: "action" },
   generate: { bg: "rgba(59,130,246,0.12)", color: "var(--info)", label: "generate" },
   human_task: { bg: "rgba(245,158,11,0.12)", color: "var(--warn)", label: "human task" },
 };
 
 const STEP_BTN_PRIMARY: React.CSSProperties = {
-  fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
-  background: "var(--accent)", color: "white", border: "none", cursor: "pointer",
+  fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 4,
+  background: "var(--btn-primary-bg)", color: "var(--btn-primary-text)", border: "none", cursor: "pointer",
 };
 const STEP_BTN_SECONDARY: React.CSSProperties = {
   fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: 4,
@@ -672,8 +672,8 @@ const STEP_BTN_SECONDARY: React.CSSProperties = {
 const PLAN_STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
   completed: { bg: "rgba(34,197,94,0.1)", color: "var(--ok)", label: "Completed" },
   failed: { bg: "rgba(239,68,68,0.1)", color: "var(--danger)", label: "Failed" },
-  pending: { bg: "rgba(168,85,247,0.1)", color: "var(--accent)", label: "Plan pending" },
-  executing: { bg: "rgba(168,85,247,0.1)", color: "var(--accent)", label: "Executing" },
+  pending: { bg: "var(--badge-bg)", color: "var(--accent)", label: "Plan pending" },
+  executing: { bg: "transparent", color: "var(--fg3)", label: "Executing" },
 };
 const CheckSvg = () => (
   <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round">
@@ -743,6 +743,8 @@ function DetailPane({
   const router = useRouter();
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set([0]));
   const [expandedTimelineCards, setExpandedTimelineCards] = useState<Set<string>>(new Set());
+  const [showRejectForm, setShowRejectForm] = useState(false);
+  const [showTeachForm, setShowTeachForm] = useState(false);
   const toggleStep = (i: number) => {
     setOpenSteps(prev => {
       const next = new Set(prev);
@@ -811,8 +813,8 @@ function DetailPane({
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
   const canAct = showAllStatuses
-    ? (s.status === "detected" || s.status === "proposed") && billingStatus === "active"
-    : s.status === "proposed" && billingStatus === "active";
+    ? (s.status === "detected" || s.status === "proposed")
+    : s.status === "proposed";
   const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
   const actionPlan = reasoning?.actionPlan ?? (Array.isArray(detail?.proposedAction) ? detail!.proposedAction as ActionStep[] : null);
 
@@ -824,6 +826,10 @@ function DetailPane({
     }
     return actionPlan.length;
   })();
+
+  useEffect(() => {
+    setOpenSteps(new Set([currentStepIndex]));
+  }, [currentStepIndex]);
 
   const sev = severityBadge(s);
 
@@ -920,7 +926,7 @@ function DetailPane({
       {/* ── Header ── */}
       <div>
         <div className="flex items-start justify-between">
-          <h1 className="font-heading" style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
+          <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
             {s.triggerSummary
               ? s.triggerSummary.slice(0, 80) + (s.triggerSummary.length > 80 ? "..." : "")
               : `${s.triggerEntityName ?? "Unknown"} — ${s.situationType.name}`
@@ -1037,12 +1043,12 @@ function DetailPane({
 
           {/* ── SITUATION TIMELINE ── */}
           <div className="flex flex-col items-center py-8">
-            <div className="text-center text-xs uppercase tracking-widest mb-6" style={{ color: "rgba(255,255,255,0.4)" }}>
+            <div className="text-center text-xs uppercase tracking-widest mb-6" style={{ color: "var(--fg3)" }}>
               {t("situationTimeline")}
             </div>
             <div className="relative w-[80%]">
               {/* Center rail */}
-              <div className="absolute left-1/2 top-3 bottom-3 w-[2px] -translate-x-1/2 bg-white/20" />
+              <div className="absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2" style={{ background: "var(--rail-color)" }} />
 
               {/* Start node — card on LEFT */}
               {(() => {
@@ -1054,28 +1060,31 @@ function DetailPane({
                   ?? "";
                 return (
                   <div className="relative flex items-start mb-8">
-                    <div className="w-[calc(50%-16px)] flex justify-end">
-                      <div className="bg-white/[0.04] border border-white/[0.08] rounded-lg p-4 text-right cursor-pointer select-none" onClick={() => toggleTimelineCard("start")}>
+                    <div className="w-[calc(50%-70px)] flex justify-end">
+                      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg p-4 text-right cursor-pointer select-none hover:bg-[var(--step-hover)] transition-colors" onClick={() => toggleTimelineCard("start")}>
+                        <div className="text-[11px] font-semibold tracking-wide uppercase mb-1" style={{ color: "var(--fg3)" }}>
+                          {t("situationOrigin")}
+                        </div>
                         <div className="flex items-center justify-end gap-2">
-                          <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
+                          <p style={{ fontSize: 13, color: "var(--fg3)", lineHeight: 1.5 }}>
                             {startExpanded ? fullSrc : fullSrc.slice(0, 120) + (fullSrc.length > 120 ? "…" : "")}
                           </p>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" className="flex-shrink-0"
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--fg4)" strokeWidth="2" className="flex-shrink-0"
                             style={{ transform: startExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}>
                             <polyline points="6 9 12 15 18 9" />
                           </svg>
                         </div>
-                        <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>
+                        <p className="text-sm mt-1" style={{ color: "var(--fg3)" }}>
                           {formatRelativeTime(detail.createdAt, locale)}
                         </p>
                       </div>
                     </div>
-                    <div className="w-8 flex justify-center relative z-10 pt-1">
-                      <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center">
-                        <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                    <div className="w-[100px] flex justify-center relative z-10 pt-1">
+                      <div className="rounded-full flex items-center justify-center" style={{ width: 22, height: 22, background: "var(--dot-color)" }}>
+                        <div className="rounded-full bg-[var(--background)]" style={{ width: 10, height: 10 }} />
                       </div>
                     </div>
-                    <div className="w-[calc(50%-16px)]" />
+                    <div className="w-[calc(50%-70px)]" />
                   </div>
                 );
               })()}
@@ -1089,23 +1098,23 @@ function DetailPane({
                 const textAlign = isLeft ? "text-right" : "text-left";
                 const justifyMeta = isLeft ? "justify-end" : "";
                 const cardContent = (
-                  <div className={`bg-white/[0.04] border border-white/[0.08] rounded-lg p-4 ${textAlign} cursor-pointer select-none`} onClick={() => toggleTimelineCard(cycle.id)}>
+                  <div className={`bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg p-4 ${textAlign} cursor-pointer select-none hover:bg-[var(--step-hover)] transition-colors`} onClick={() => toggleTimelineCard(cycle.id)}>
                     <div className={`flex items-center gap-2 ${isLeft ? "justify-end" : ""}`}>
-                      <div className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: "rgba(255,255,255,0.4)" }}>
+                      <div className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: "var(--fg4)" }}>
                         {t("cycleN", { n: cycle.cycleNumber })}
                       </div>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" className="flex-shrink-0"
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--fg4)" strokeWidth="2" className="flex-shrink-0"
                         style={{ transform: cycleExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}>
                         <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </div>
                     <p style={{ fontSize: 13, color: "var(--fg2)", marginTop: 4 }}>{cycle.triggerSummary}</p>
-                    <div className={`flex gap-3 mt-2 ${justifyMeta}`} style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+                    <div className={`flex gap-3 mt-2 ${justifyMeta}`} style={{ fontSize: 11, color: "var(--fg4)" }}>
                       <span>{formatRelativeTime(cycle.createdAt, locale)}</span>
                       <span>{t("stepsCompleted", { n: completedSteps, total: totalSteps })}</span>
                     </div>
                     {cycleExpanded && cycle.executionPlan?.steps && (
-                      <div className={`mt-3 pt-3 space-y-1 ${textAlign}`} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                      <div className={`mt-3 pt-3 space-y-1 ${textAlign}`} style={{ borderTop: "1px solid var(--card-border)" }}>
                         {cycle.executionPlan.steps.map(es => (
                           <div key={es.id} className={`flex items-center gap-2 ${isLeft ? "justify-end" : ""}`} style={{ fontSize: 12 }}>
                             <span style={{ color: es.status === "completed" ? "var(--ok)" : "var(--fg4)" }}>
@@ -1120,17 +1129,17 @@ function DetailPane({
                 );
                 return (
                   <div key={cycle.id} className="relative flex items-start mb-8">
-                    <div className="w-[calc(50%-16px)] flex justify-end">
+                    <div className="w-[calc(50%-70px)] flex justify-end">
                       {isLeft ? cardContent : null}
                     </div>
-                    <div className="w-8 flex justify-center relative z-10 pt-1">
-                      <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
+                    <div className="w-[100px] flex justify-center relative z-10 pt-1">
+                      <div className="rounded-full flex items-center justify-center" style={{ width: 22, height: 22, background: "var(--dot-color)" }}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
                           <polyline points="20 6 9 17 4 12" />
                         </svg>
                       </div>
                     </div>
-                    <div className="w-[calc(50%-16px)] flex justify-start">
+                    <div className="w-[calc(50%-70px)] flex justify-start">
                       {!isLeft ? cardContent : null}
                     </div>
                   </div>
@@ -1143,15 +1152,15 @@ function DetailPane({
                 return (
                   <>
                     <div className="relative flex items-center">
-                      <div className="w-[calc(50%-16px)]" />
-                      <div className="w-8 flex justify-center relative z-10">
-                        <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center">
-                          <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                      <div className="w-[calc(50%-70px)]" />
+                      <div className="w-[100px] flex justify-center relative z-10">
+                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-[var(--background)]" />
                         </div>
                       </div>
-                      <div className="w-[calc(50%-16px)]" />
+                      <div className="w-[calc(50%-70px)]" />
                     </div>
-                    <div className="text-center text-sm mt-2" style={{ color: "rgb(96, 165, 250)" }}>
+                    <div className="text-center text-sm mt-2" style={{ color: "var(--fg3)" }}>
                       {t("activeCycle")} {activeCycle ? `— ${activeCycle.triggerSummary?.slice(0, 40) ?? ""}` : ""}
                     </div>
                   </>
@@ -1173,35 +1182,21 @@ function DetailPane({
           )}
 
           {/* Divider */}
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", margin: "8px 0" }} />
+          <div style={{ borderTop: "1px solid var(--card-border)", margin: "8px 0" }} />
 
           {/* ── CURRENT ACTION PLAN ── */}
           {reasoning && actionPlan && actionPlan.length > 0 ? (
-            <div className="overflow-hidden">
+            <div className="overflow-hidden min-w-0 w-[80%] mx-auto">
               {/* Section header */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }}>
-                  {t("currentActionPlan")}
-                </span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fg2)" }}>
-                  {executionPlan ? executionPlan.steps.filter(es => es.status === "completed").length : 0}/{actionPlan.length}
+              <div style={{ marginBottom: 16 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.02em", color: "var(--foreground)" }}>
+                  {t("actionPlan")}
                 </span>
               </div>
-              {(() => {
-                const activeCycle = detail.cycles?.find(c => c.status !== "completed");
-                return activeCycle ? (
-                  <p style={{ fontSize: 12, color: "var(--fg3)", marginBottom: 14 }}>
-                    {t("cycleN", { n: activeCycle.cycleNumber })} — {detail.triggerSummary ?? s.situationType.name}
-                    <span style={{ color: "var(--fg4)", marginLeft: 8 }}>{formatRelativeTime(activeCycle.createdAt, locale)}</span>
-                  </p>
-                ) : null;
-              })()}
-
               {/* Step list — D-style inline expand */}
               <div style={{ position: "relative", paddingLeft: 30 }}>
                 {/* Timeline rail */}
-                <div className="bg-white/10" style={{ position: "absolute", left: 10, top: 6, bottom: 6, width: 2 }} />
-                <div style={{ position: "absolute", left: 10, top: 6, width: 2, height: `${Math.max(0, (currentStepIndex / actionPlan.length) * 100)}%`, background: "var(--ok)", transition: "height 0.4s" }} />
+                <div className="bg-[var(--rail-color)]" style={{ position: "absolute", left: 10, top: 6, bottom: 6, width: 2 }} />
 
                 {actionPlan.map((step, i) => {
                   const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
@@ -1211,7 +1206,7 @@ function DetailPane({
                   const isOpen = openSteps.has(i);
 
                   return (
-                    <div key={i} style={{ position: "relative", paddingBottom: 14, opacity: isFutureStep ? 0.45 : 1, transition: "opacity 0.2s" }}>
+                    <div key={i} className="overflow-hidden min-w-0 cursor-pointer hover:bg-[var(--step-hover)] rounded transition-colors" onClick={() => toggleStep(i)} style={{ position: "relative", padding: "14px 0", opacity: isFutureStep ? 0.65 : 1, transition: "all 0.2s" }}>
                       {/* Status dot */}
                       <div style={{
                         position: "absolute", left: -30 + 5, top: 4, width: 12, height: 12, borderRadius: "50%", zIndex: 1,
@@ -1222,19 +1217,22 @@ function DetailPane({
                         {isCompleted && <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>}
                       </div>
 
-                      {/* Collapsed row — click to expand */}
-                      <div
-                        onClick={() => toggleStep(i)}
-                        style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginLeft: 2, minWidth: 0 }}
-                      >
+                      {/* Collapsed row */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 2, minWidth: 0 }}>
                         <span className="truncate" style={{
-                          fontSize: 13, fontWeight: isCurrentStep ? 600 : 500, flex: 1, minWidth: 0,
-                          color: isCompleted ? "var(--fg3)" : "var(--fg1, var(--foreground))",
+                          fontSize: isCurrentStep ? 14 : 13, fontWeight: isCurrentStep ? 600 : 500, flex: 1, minWidth: 0,
+                          color: isCompleted ? "var(--fg2)" : "var(--fg1, var(--foreground))",
                           textDecoration: isCompleted ? "line-through" : "none",
                         }}>
                           {step.title}
                         </span>
-                        <ExecutionModeBadge mode={step.executionMode} />
+                        {isCompleted ? (
+                          <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "var(--badge-bg)", color: "var(--fg3)", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 72 }}>complete</span>
+                        ) : isCurrentStep ? (
+                          <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "var(--badge-bg-strong)", color: "var(--btn-primary-text)", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 72 }}>current</span>
+                        ) : (
+                          <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "var(--badge-bg)", color: "var(--fg3)", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 72 }}>next step</span>
+                        )}
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--fg3)" strokeWidth="2"
                           style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s", flexShrink: 0 }}>
                           <polyline points="6 9 12 15 18 9" />
@@ -1243,7 +1241,7 @@ function DetailPane({
 
                       {/* Expanded content */}
                       {isOpen && (
-                        <div style={{ marginTop: 10, marginLeft: 2, paddingLeft: 14, borderLeft: `2px solid ${isCurrentStep ? "var(--accent)" : "var(--border)"}` }}>
+                        <div className="overflow-hidden" style={{ marginTop: 10, marginLeft: 2, paddingLeft: 14, borderLeft: `2px solid ${isCurrentStep ? "var(--fg3)" : "var(--border)"}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                             <span style={{ fontSize: 11, color: "var(--fg3)" }}>
                               {step.assignedUserId ? step.assignedUserId : (step.executionMode === "action" ? "AI" : "")}
@@ -1251,7 +1249,7 @@ function DetailPane({
                             {isCompleted && <span style={{ fontSize: 10, fontWeight: 600, color: "var(--ok)" }}>&#10003; Done</span>}
                           </div>
 
-                          <p className="break-words" style={{ fontSize: 12, color: "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{step.description}</p>
+                          <p className="break-words" style={{ fontSize: 12, color: isCurrentStep ? "var(--foreground)" : "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{step.description}</p>
 
                           {planStep?.parameters && (() => {
                             const enrichedStep = {
@@ -1277,13 +1275,28 @@ function DetailPane({
                           )}
 
                           {isCurrentStep && !isCompleted ? (
-                            step.executionMode === "action" ? (
-                              <button onClick={handleApprove} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>{t("executeAction")}</button>
+                            (step.executionMode === "action" || step.executionMode === "generate") ? (
+                              <div style={{ marginTop: 16 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                  <button className="hover:opacity-80 transition-opacity" onClick={handleApprove} style={{ ...STEP_BTN_PRIMARY }}>Approve Execution</button>
+                                  <button
+                                    onClick={() => {
+                                      const chatInput = document.getElementById("situation-chat-input") as HTMLTextAreaElement;
+                                      if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
+                                    }}
+                                    style={{ fontSize: 12, color: "var(--foreground)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                                    className="hover:opacity-70 transition-opacity"
+                                  >
+                                    Discuss action
+                                  </button>
+                                </div>
+                                <p style={{ fontSize: 11, fontWeight: 600, color: "var(--foreground)", marginTop: 6 }}>AI will execute this step when approved</p>
+                              </div>
                             ) : step.executionMode === "human_task" && planStep ? (
-                              <button onClick={() => handleCompleteStep(planStep.id)} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>{t("markComplete")}</button>
+                              <button className="hover:opacity-80 transition-opacity" onClick={() => handleCompleteStep(planStep.id)} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>{t("markComplete")}</button>
                             ) : null
                           ) : isCompleted && step.executionMode === "human_task" && planStep ? (
-                            <button onClick={() => handleUndoStep(planStep.id)} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>{tc("undo")}</button>
+                            <button className="hover:opacity-80 transition-opacity" onClick={() => handleUndoStep(planStep.id)} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>{tc("undo")}</button>
                           ) : isFutureStep ? (
                             <span style={{ fontSize: 10, color: "var(--fg4)", fontStyle: "italic", marginTop: 6, display: "inline-block" }}>
                               {t("completeStepFirst")?.replace("{n}", String(currentStepIndex + 1)) ?? `Complete step ${currentStepIndex + 1} first`}
@@ -1342,15 +1355,15 @@ function DetailPane({
           {/* ── Draft Preview (HERO) ── */}
           {primaryDraft && (
             <div style={{
-              border: "1px solid rgba(168,85,247,0.35)",
+              border: "1px solid var(--border-strong)",
               borderRadius: 6,
-              boxShadow: "0 0 20px rgba(168,85,247,0.08)",
+              boxShadow: "none",
               overflow: "hidden",
             }}>
               {/* Header bar */}
               <div className="flex items-center justify-between px-4 py-2" style={{
-                background: "rgba(168,85,247,0.06)",
-                borderBottom: "1px solid rgba(168,85,247,0.2)",
+                background: "rgba(255,255,255,0.06)",
+                borderBottom: "1px solid rgba(255,255,255,0.2)",
               }}>
                 <div className="flex items-center gap-2">
                   <span style={{ width: 8, height: 8, borderRadius: 4, background: providerDotColor(primaryDraft) }} />
@@ -1372,7 +1385,7 @@ function DetailPane({
                     <button
                       onClick={saveDraftEdit}
                       className="transition"
-                      style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.3)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "var(--accent)" }}
+                      style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "var(--accent)" }}
                     >
                       {t("saveInstruction")}
                     </button>
@@ -1422,7 +1435,7 @@ function DetailPane({
                       width: "100%",
                       minHeight: 120,
                       background: "var(--sidebar)",
-                      border: "1px solid rgba(168,85,247,0.25)",
+                      border: "1px solid rgba(255,255,255,0.25)",
                       borderRadius: 4,
                       padding: "10px 12px",
                       fontSize: 13,
@@ -1450,85 +1463,13 @@ function DetailPane({
             </div>
           )}
 
-          {/* ── Bottom Action Bar ── */}
-          {canAct && !currentMode && (
-            <div className="flex items-center justify-between pt-3" style={{ borderTop: "1px solid var(--border)" }}>
-              <div className="flex items-center gap-2">
-                {s.status === "proposed" && actionPlan && (
-                  <button onClick={handleApprove} className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                    style={{ background: "var(--ok)", color: "var(--accent-ink)" }}>
-                    {t("approvePlan")}
-                  </button>
-                )}
-                <button className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
-                  onClick={() => setActiveMode({ id: s.id, mode: "reject" })}>
-                  Reject
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <button className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
-                  onClick={() => setActiveMode({ id: s.id, mode: "teach" })}>
-                  Teach AI
-                </button>
-                <button className="text-[13px] font-medium px-3 py-1.5 transition"
-                  style={{ background: "transparent", color: "var(--danger)" }}
-                  onClick={() => patchSituation(s.id, { status: "rejected" })}>
-                  {t("dismiss")}
-                </button>
-              </div>
-            </div>
-          )}
-          {/* Billing gate message when actions are blocked */}
-          {!canAct && s.status === "proposed" && billingStatus !== "active" && !currentMode && (
-            <div className="pt-2 flex items-center gap-2" style={{ borderTop: "1px solid var(--border)" }}>
-              <span className="text-[12px] text-[var(--fg3)]">
-                {billingStatus === "depleted"
-                  ? t("gateDepletedActions")
-                  : billingStatus === "free"
-                  ? t("gateFreeActions")
-                  : t("gateOtherActions")}
-              </span>
-              <a href="/settings?tab=billing" className="text-[12px] text-accent hover:underline font-medium">{t("gateAddCredits")}</a>
-            </div>
-          )}
-
-          {/* Outcome button for resolved without outcome */}
-          {detail.status === "resolved" && !detail.outcome && !currentMode && (
-            <div className="pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-              <button
-                className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
-                onClick={() => setActiveMode({ id: s.id, mode: "outcome" })}
-              >
-                Mark Outcome
-              </button>
-            </div>
-          )}
-
-          {/* Existing outcome display */}
-          {detail.outcome && (
-            <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-              <Badge variant={detail.outcome === "positive" ? "green" : detail.outcome === "negative" ? "red" : "default"}>
-                {detail.outcome}
-              </Badge>
-              {detail.outcomeDetails && (() => {
-                try {
-                  const parsed = JSON.parse(detail.outcomeDetails);
-                  return parsed.note ? <span style={{ fontSize: 13, color: "var(--fg3)" }}>{parsed.note}</span> : null;
-                } catch { return null; }
-              })()}
-            </div>
-          )}
-
           {/* ── Evidence & reasoning toggle ── */}
           {reasoning && (
-            <div>
+            <div className="w-[80%] mx-auto">
               <button
                 onClick={() => setShowEvidence(!showEvidence)}
                 className="flex items-center gap-1.5 transition-colors hover:text-foreground"
-                style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}
+                style={{ fontSize: 13, color: "var(--fg3)" }}
               >
                 <svg className={`w-3 h-3 transition-transform ${showEvidence ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -1680,11 +1621,24 @@ function DetailPane({
             </div>
           )}
 
-          {/* ── Mode UIs ── */}
-
-          {/* Reject mode */}
-          {currentMode === "reject" && (
-            <div className="space-y-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+          {/* ── Bottom Action Bar ── */}
+          {canAct && !currentMode && (
+            <div className="flex items-center gap-2 pt-3 w-[80%] mx-auto">
+                <button className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
+                  style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
+                  onClick={() => { setShowRejectForm(!showRejectForm); setShowTeachForm(false); }}>
+                  Reject
+                </button>
+                <button className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
+                  style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
+                  onClick={() => { setShowTeachForm(!showTeachForm); setShowRejectForm(false); }}>
+                  Teach AI
+                </button>
+            </div>
+          )}
+          {/* Inline reject form */}
+          {showRejectForm && (
+            <div className="w-[80%] mx-auto mt-3 space-y-2">
               <textarea
                 value={feedbackText}
                 onChange={e => setFeedbackText(e.target.value)}
@@ -1696,20 +1650,19 @@ function DetailPane({
               <div className="flex gap-2">
                 <button
                   className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"
-                  onClick={() => patchSituation(s.id, { status: "rejected", feedback: feedbackText || undefined })}
+                  onClick={() => { patchSituation(s.id, { status: "rejected", feedback: feedbackText || undefined }); setShowRejectForm(false); }}
                 >Reject</button>
                 <button
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
                   style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
-                  onClick={resetInteraction}
+                  onClick={() => setShowRejectForm(false)}
                 >{tc("cancel")}</button>
               </div>
             </div>
           )}
-
-          {/* Teach AI mode */}
-          {currentMode === "teach" && (
-            <div className="space-y-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+          {/* Inline teach form */}
+          {showTeachForm && (
+            <div className="w-[80%] mx-auto mt-3 space-y-2">
               <select
                 value={feedbackCategory}
                 onChange={e => setFeedbackCategory(e.target.value)}
@@ -1731,25 +1684,50 @@ function DetailPane({
               <div className="flex gap-2">
                 <button
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
+                  style={{ background: "var(--foreground)", color: "var(--background)" }}
                   disabled={!feedbackText.trim()}
-                  onClick={() => patchSituation(s.id, {
-                    feedback: feedbackText,
-                    feedbackCategory: feedbackCategory || undefined,
-                  })}
+                  onClick={() => { patchSituation(s.id, { feedback: feedbackText, feedbackCategory: feedbackCategory || undefined }); setShowTeachForm(false); }}
                 >Save feedback</button>
                 <button
                   className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
                   style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
-                  onClick={resetInteraction}
+                  onClick={() => setShowTeachForm(false)}
                 >{tc("cancel")}</button>
               </div>
             </div>
           )}
+          {/* Outcome button for resolved without outcome */}
+          {detail.status === "resolved" && !detail.outcome && !currentMode && (
+            <div className="pt-2">
+              <button
+                className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
+                onClick={() => setActiveMode({ id: s.id, mode: "outcome" })}
+              >
+                Mark Outcome
+              </button>
+            </div>
+          )}
+          {/* Existing outcome display */}
+          {detail.outcome && (
+            <div className="flex items-center gap-2 pt-2">
+              <Badge variant={detail.outcome === "positive" ? "green" : detail.outcome === "negative" ? "red" : "default"}>
+                {detail.outcome}
+              </Badge>
+              {detail.outcomeDetails && (() => {
+                try {
+                  const parsed = JSON.parse(detail.outcomeDetails);
+                  return parsed.note ? <span style={{ fontSize: 13, color: "var(--fg3)" }}>{parsed.note}</span> : null;
+                } catch { return null; }
+              })()}
+            </div>
+          )}
+
+          {/* ── Mode UIs ── */}
 
           {/* Outcome mode */}
           {currentMode === "outcome" && (
-            <div className="space-y-3 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="space-y-3 pt-2">
               <div className="flex gap-2">
                 {(["positive", "negative", "neutral"] as const).map(v => (
                   <button
@@ -1798,7 +1776,7 @@ function DetailPane({
 
           {/* Existing feedback display */}
           {detail.feedback && !currentMode && (
-            <div className="flex items-start gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="flex items-start gap-2 pt-2">
               <span style={{ fontSize: 13, color: "var(--fg3)" }}>Feedback:</span>
               <span style={{ fontSize: 13, color: "var(--fg2)" }}>{detail.feedback}</span>
               {detail.feedbackCategory && (

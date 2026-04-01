@@ -2056,7 +2056,7 @@ function LimitsTab() {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <button onClick={handleSave} disabled={saving} className="rounded-lg text-[13px] font-medium px-5 py-2 disabled:opacity-50" style={{ background: "#8b5cf6", color: "#fff" }}>{saving ? "Saving..." : "Save"}</button>
+              <button onClick={handleSave} disabled={saving} className="rounded-lg text-[13px] font-medium px-5 py-2 disabled:opacity-50" style={{ background: "rgba(255,255,255,0.9)", color: "#000" }}>{saving ? "Saving..." : "Save"}</button>
               <button onClick={() => { setEditing(false); load(); }} className="rounded-lg text-[13px] font-medium px-5 py-2 text-[var(--fg2)] bg-hover border border-border">Cancel</button>
             </div>
           </div>
@@ -2093,7 +2093,7 @@ function LimitsTab() {
             <div className="text-[12px] text-[var(--fg3)]">
               {data.freeTier.detectionDaysUsed >= data.freeTier.detectionDayLimit ? "Detection period expired" : `${data.freeTier.detectionDayLimit - data.freeTier.detectionDaysUsed} days remaining`}
             </div>
-            <a href="/settings?tab=billing" className="inline-block rounded-lg text-[13px] font-medium px-5 py-2 mt-1" style={{ background: "#8b5cf6", color: "#fff" }}>Add Credits to Upgrade</a>
+            <a href="/settings?tab=billing" className="inline-block rounded-lg text-[13px] font-medium px-5 py-2 mt-1" style={{ background: "rgba(255,255,255,0.9)", color: "#000" }}>Add Credits to Upgrade</a>
           </div>
         </div>
       )}
@@ -2270,7 +2270,7 @@ function BillingTab() {
         <div className="wf-soft p-5" style={{ border: "1px solid rgba(239, 68, 68, 0.3)", background: "rgba(239, 68, 68, 0.05)" }}>
           <div className="text-[15px] font-semibold text-danger mb-1">Balance Empty</div>
           <div className="text-[13px] text-[var(--fg2)] mb-3">Your balance is empty. AI operations are paused.</div>
-          {isAdmin && <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#8b5cf6", color: "#fff" }}>Add Credits</button>}
+          {isAdmin && <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "rgba(255,255,255,0.9)", color: "#000" }}>Add Credits</button>}
         </div>
       )}
 
@@ -2287,7 +2287,7 @@ function BillingTab() {
         <div className="flex items-center justify-between mb-1">
           <div className="text-[13px] font-medium text-[var(--fg2)]">Credit Balance</div>
           {isAdmin && !isFree && (
-            <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[12px] font-medium px-4 py-1.5" style={{ background: "#8b5cf6", color: "#fff" }}>
+            <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[12px] font-medium px-4 py-1.5" style={{ background: "rgba(255,255,255,0.9)", color: "#000" }}>
               Add Credits
             </button>
           )}
@@ -2305,7 +2305,7 @@ function BillingTab() {
             <div className="text-[15px] font-semibold text-foreground mb-1">Qorpera Free Plan</div>
             <div className="text-[13px] text-[var(--fg2)]">Add credits to unlock full AI operations — approve situations, invite team members, unlimited detection.</div>
           </div>
-          {isAdmin && <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "#8b5cf6", color: "#fff" }}>Add Credits</button>}
+          {isAdmin && <button onClick={() => setShowAddCredits(true)} className="rounded-lg text-[13px] font-medium px-5 py-2" style={{ background: "rgba(255,255,255,0.9)", color: "#000" }}>Add Credits</button>}
 
           {op && (
             <div className="pt-3 space-y-3" style={{ borderTop: "1px solid rgba(139, 92, 246, 0.15)" }}>
@@ -2469,7 +2469,7 @@ function BillingTab() {
                   }}
                   disabled={adding || !customAmount || parseFloat(customAmount) < 5}
                   className="rounded-lg text-[13px] font-medium px-5 py-2 disabled:opacity-50"
-                  style={{ background: "#8b5cf6", color: "#fff" }}
+                  style={{ background: "rgba(255,255,255,0.9)", color: "#000" }}
                 >
                   {adding ? "..." : "Add"}
                 </button>
@@ -2963,8 +2963,8 @@ function ConnectionsTab({
                         {p.configured ? (
                           <button
                             onClick={() => handleConnect(p.id)}
-                            className="rounded-lg text-[12px] font-medium px-4 py-1.5"
-                            style={{ background: "#8b5cf6", color: "#fff" }}
+                            className="rounded-lg text-[12px] font-medium px-4 py-1.5 transition-all hover:opacity-80"
+                            style={{ background: "rgba(255,255,255,0.9)", color: "#000" }}
                           >
                             Connect
                           </button>
@@ -3024,7 +3024,7 @@ function ConnectionsTab({
                 onClick={handlePreAuthSubmit}
                 disabled={preAuthLoading || !preAuthInput.trim()}
                 className="rounded-lg text-[13px] font-medium px-5 py-2 disabled:opacity-50"
-                style={{ background: "#8b5cf6", color: "#fff" }}
+                style={{ background: "rgba(255,255,255,0.9)", color: "#000" }}
               >
                 {preAuthLoading ? "Connecting..." : "Connect"}
               </button>

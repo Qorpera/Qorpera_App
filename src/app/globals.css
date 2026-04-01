@@ -46,6 +46,18 @@
   --overlay: rgba(59, 47, 32, 0.3);
   --panel-border: rgba(59, 47, 32, 0.08);
 
+  /* Semantic UI tokens */
+  --badge-bg: rgba(0,0,0,0.06);
+  --badge-bg-strong: rgba(0,0,0,0.8);
+  --badge-text-inverse: #fff;
+  --dot-color: rgba(0,0,0,0.3);
+  --rail-color: rgba(0,0,0,0.12);
+  --card-bg: rgba(0,0,0,0.03);
+  --card-border: rgba(0,0,0,0.08);
+  --step-hover: rgba(0,0,0,0.03);
+  --btn-primary-bg: var(--foreground);
+  --btn-primary-text: var(--background);
+
   color-scheme: light;
 }
 
@@ -65,10 +77,10 @@
   --fg4: #484848;
   --muted: #b0b0b0;
 
-  --accent: #a855f7;
-  --accent-hover: #9333ea;
-  --accent-light: rgba(168, 85, 247, 0.15);
-  --accent-ink: #f3e8ff;
+  --accent: #ffffff;
+  --accent-hover: #d4d4d4;
+  --accent-light: rgba(255, 255, 255, 0.08);
+  --accent-ink: #000000;
 
   --border: #2a2a2a;
   --border-strong: #3a3a3a;
@@ -86,6 +98,18 @@
 
   --overlay: rgba(0, 0, 0, 0.6);
   --panel-border: rgba(255, 255, 255, 0.07);
+
+  /* Semantic UI tokens */
+  --badge-bg: rgba(255,255,255,0.08);
+  --badge-bg-strong: rgba(255,255,255,0.9);
+  --badge-text-inverse: #000;
+  --dot-color: rgba(255,255,255,0.4);
+  --rail-color: rgba(255,255,255,0.25);
+  --card-bg: rgba(255,255,255,0.04);
+  --card-border: rgba(255,255,255,0.08);
+  --step-hover: rgba(255,255,255,0.03);
+  --btn-primary-bg: var(--foreground);
+  --btn-primary-text: var(--background);
 
   color-scheme: dark;
 }
