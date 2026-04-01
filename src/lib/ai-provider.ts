@@ -169,8 +169,8 @@ export function getThinkingBudget(route: ModelRoute): number | null {
 }
 
 const MAX_OUTPUT_TOKENS: Record<string, number> = {
-  "claude-opus-4-6": 32_768,
-  "claude-sonnet-4-6": 16_384,
+  "claude-opus-4-6": 65_536,
+  "claude-sonnet-4-6": 65_536,
   "claude-haiku-4-5-20251001": 8_192,
   "claude-haiku-3-5-20241022": 8_192,
   "gpt-5.4": 16_384,

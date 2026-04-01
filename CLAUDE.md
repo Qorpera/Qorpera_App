@@ -172,6 +172,24 @@ Five categories (foundational > base > internal > digital > external). Category 
 - **Connector sync yields**: Communication connectors yield content + activity. Outcome connectors (HubSpot/Stripe) yield events. Never yield events from communication connectors.
 - **`mode: "content"` on SituationType**: Deliberately unrecognized by cron detector — content-detected types must not be re-evaluated by property-based detection
 
+## CRITICAL: Anthropic API — maxTokens must ALWAYS exceed thinkingBudget
+
+Every LLM call with `thinking: true` MUST have `maxTokens` strictly greater than
+`thinkingBudget`. Equal values cause a 400 error. This applies to:
+
+- `callLLM()` calls in any file
+- Direct `client.messages.create()` / `client.messages.stream()` calls
+- The `MAX_OUTPUT_TOKENS` map in `ai-provider.ts` (must exceed the largest
+  thinking budget that uses each model)
+
+Before writing or modifying ANY LLM call with thinking enabled:
+1. Check what `thinkingBudget` resolves to for that route/archetype
+2. Verify `maxTokens` is AT LEAST 2x the thinking budget
+3. If using `MAX_OUTPUT_TOKENS` default, verify the map entry exceeds the budget
+
+Rule of thumb: maxTokens = 32,768 for any call that uses thinking. Never set
+maxTokens equal to or below the thinking budget.
+
 ## Session Workflow
 1. Read all project files and fetch latest GitHub tag before any work
 2. Architecture discussion with Jonas before implementation
