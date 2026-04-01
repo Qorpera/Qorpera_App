@@ -523,14 +523,12 @@ export default function SituationsPage() {
                   showAllStatuses={showAllStatuses}
                 />
               </div>
-              <div className="max-w-2xl mx-auto px-4 py-3">
-                <ContextualChat
-                  contextType="situation"
-                  contextId={selectedSituation.id}
-                  placeholder={t("discuss")}
-                  hints={["What evidence supports this?", "Should I escalate?"]}
-                />
-              </div>
+              <ContextualChat
+                contextType="situation"
+                contextId={selectedSituation.id}
+                placeholder={t("discuss")}
+                hints={["What evidence supports this?", "Should I escalate?"]}
+              />
             </>
           ) : (
             <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
@@ -744,10 +742,19 @@ function DetailPane({
   const starDropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set([0]));
+  const [expandedTimelineCards, setExpandedTimelineCards] = useState<Set<string>>(new Set());
   const toggleStep = (i: number) => {
     setOpenSteps(prev => {
       const next = new Set(prev);
       if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  };
+
+  const toggleTimelineCard = (key: string) => {
+    setExpandedTimelineCards(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   };
@@ -1029,70 +1036,103 @@ function DetailPane({
           )}
 
           {/* ── SITUATION TIMELINE ── */}
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const, marginBottom: 16, textAlign: "center" as const }}>
+          <div className="flex flex-col items-center py-8">
+            <div className="text-center text-xs uppercase tracking-widest mb-6" style={{ color: "rgba(255,255,255,0.4)" }}>
               {t("situationTimeline")}
             </div>
-            <div className="relative" style={{ minHeight: 60 }}>
+            <div className="relative w-[80%]">
               {/* Center rail */}
-              <div className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2" style={{ background: "rgba(255,255,255,0.08)" }} />
-              {/* Mobile rail */}
-              <div className="lg:hidden absolute left-[11px] top-0 bottom-0 w-[2px]" style={{ background: "rgba(255,255,255,0.08)" }} />
+              <div className="absolute left-1/2 top-3 bottom-3 w-[2px] -translate-x-1/2 bg-white/20" />
 
-              {/* Start node */}
-              <div className="relative flex flex-col lg:flex-row items-start lg:items-start mb-6">
-                {/* Left card (desktop) or stacked card (mobile) */}
-                <div className="lg:w-[44%] lg:pr-6 lg:text-right pl-8 lg:pl-0 order-2 lg:order-1">
-                  <div style={{ padding: "12px 14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8 }}>
-                    <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
-                      {(() => {
-                        const src = detail.triggerSummary
-                          ?? detail.triggerEvidence?.content
-                          ?? detail.triggerEvidence?.summary
-                          ?? reasoning?.analysis
-                          ?? "";
-                        return src.slice(0, 120) + (src.length > 120 ? "…" : "");
-                      })()}
-                    </p>
-                    <p style={{ fontSize: 11, color: "var(--fg4)", marginTop: 6 }}>
-                      {formatRelativeTime(detail.createdAt, locale)}
-                    </p>
-                  </div>
-                </div>
-                {/* Center dot */}
-                <div className="absolute lg:left-1/2 left-0 lg:-translate-x-1/2 top-3 z-10 flex items-center justify-center w-[24px] h-[24px] rounded-full order-1 lg:order-2" style={{ background: "var(--accent)" }}>
-                  <div className="w-[10px] h-[10px] rounded-full bg-white" />
-                </div>
-                <div className="lg:w-[44%] order-3" />
-              </div>
-
-              {/* Completed cycles */}
-              {detail.cycles?.filter(c => c.status === "completed").map((cycle, i) => {
-                const isLeft = i % 2 !== 0; // alternates: first completed = right, second = left
-                const completedSteps = cycle.executionPlan?.steps.filter(s => s.status === "completed").length ?? 0;
-                const totalSteps = cycle.executionPlan?.steps.length ?? 0;
+              {/* Start node — card on LEFT */}
+              {(() => {
+                const startExpanded = expandedTimelineCards.has("start");
+                const fullSrc = detail.triggerEvidence?.content
+                  ?? detail.triggerSummary
+                  ?? detail.triggerEvidence?.summary
+                  ?? reasoning?.analysis
+                  ?? "";
                 return (
-                  <div key={cycle.id} className="relative flex flex-col lg:flex-row items-start lg:items-start mb-6">
-                    <div className={`lg:w-[44%] ${isLeft ? "lg:pr-6 lg:text-right" : "lg:pl-6 lg:ml-auto"} pl-8 lg:pl-0 order-2 ${isLeft ? "lg:order-1" : "lg:order-3"}`}>
-                      <div style={{ padding: "12px 14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8 }}>
-                        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.04em", color: "var(--fg4)", textTransform: "uppercase" as const }}>
-                          {t("cycleN", { n: cycle.cycleNumber })}
+                  <div className="relative flex items-start mb-8">
+                    <div className="w-[calc(50%-16px)] flex justify-end">
+                      <div className="bg-white/[0.04] border border-white/[0.08] rounded-lg p-4 text-right cursor-pointer select-none" onClick={() => toggleTimelineCard("start")}>
+                        <div className="flex items-center justify-end gap-2">
+                          <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
+                            {startExpanded ? fullSrc : fullSrc.slice(0, 120) + (fullSrc.length > 120 ? "…" : "")}
+                          </p>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" className="flex-shrink-0"
+                            style={{ transform: startExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}>
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
                         </div>
-                        <p style={{ fontSize: 13, color: "var(--fg2)", marginTop: 4 }}>{cycle.triggerSummary}</p>
-                        <div className="flex gap-3 mt-2" style={{ fontSize: 11, color: "var(--fg4)", justifyContent: isLeft ? "flex-end" : "flex-start" }}>
-                          <span>{formatRelativeTime(cycle.createdAt, locale)}</span>
-                          <span>{t("stepsCompleted", { n: completedSteps, total: totalSteps })}</span>
-                        </div>
+                        <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>
+                          {formatRelativeTime(detail.createdAt, locale)}
+                        </p>
                       </div>
                     </div>
-                    {/* Center dot — green check */}
-                    <div className="absolute lg:left-1/2 left-0 lg:-translate-x-1/2 top-3 z-10 flex items-center justify-center w-[24px] h-[24px] rounded-full order-1 lg:order-2" style={{ background: "var(--ok)" }}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
-                        <polyline points="20 6 9 17 4 12" />
+                    <div className="w-8 flex justify-center relative z-10 pt-1">
+                      <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center">
+                        <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                      </div>
+                    </div>
+                    <div className="w-[calc(50%-16px)]" />
+                  </div>
+                );
+              })()}
+
+              {/* Completed cycles — alternating */}
+              {detail.cycles?.filter(c => c.status === "completed").map((cycle, i) => {
+                const isLeft = i % 2 !== 0;
+                const completedSteps = cycle.executionPlan?.steps.filter(s => s.status === "completed").length ?? 0;
+                const totalSteps = cycle.executionPlan?.steps.length ?? 0;
+                const cycleExpanded = expandedTimelineCards.has(cycle.id);
+                const textAlign = isLeft ? "text-right" : "text-left";
+                const justifyMeta = isLeft ? "justify-end" : "";
+                const cardContent = (
+                  <div className={`bg-white/[0.04] border border-white/[0.08] rounded-lg p-4 ${textAlign} cursor-pointer select-none`} onClick={() => toggleTimelineCard(cycle.id)}>
+                    <div className={`flex items-center gap-2 ${isLeft ? "justify-end" : ""}`}>
+                      <div className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: "rgba(255,255,255,0.4)" }}>
+                        {t("cycleN", { n: cycle.cycleNumber })}
+                      </div>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" className="flex-shrink-0"
+                        style={{ transform: cycleExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}>
+                        <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </div>
-                    {!isLeft && <div className="lg:w-[44%] order-1 lg:order-1" />}
-                    {isLeft && <div className="lg:w-[44%] order-3 lg:order-3" />}
+                    <p style={{ fontSize: 13, color: "var(--fg2)", marginTop: 4 }}>{cycle.triggerSummary}</p>
+                    <div className={`flex gap-3 mt-2 ${justifyMeta}`} style={{ fontSize: 11, color: "rgba(255,255,255,0.4)" }}>
+                      <span>{formatRelativeTime(cycle.createdAt, locale)}</span>
+                      <span>{t("stepsCompleted", { n: completedSteps, total: totalSteps })}</span>
+                    </div>
+                    {cycleExpanded && cycle.executionPlan?.steps && (
+                      <div className={`mt-3 pt-3 space-y-1 ${textAlign}`} style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                        {cycle.executionPlan.steps.map(es => (
+                          <div key={es.id} className={`flex items-center gap-2 ${isLeft ? "justify-end" : ""}`} style={{ fontSize: 12 }}>
+                            <span style={{ color: es.status === "completed" ? "var(--ok)" : "var(--fg4)" }}>
+                              {es.status === "completed" ? "✓" : "○"}
+                            </span>
+                            <span style={{ color: es.status === "completed" ? "var(--fg3)" : "var(--fg4)" }}>{es.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+                return (
+                  <div key={cycle.id} className="relative flex items-start mb-8">
+                    <div className="w-[calc(50%-16px)] flex justify-end">
+                      {isLeft ? cardContent : null}
+                    </div>
+                    <div className="w-8 flex justify-center relative z-10 pt-1">
+                      <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                    </div>
+                    <div className="w-[calc(50%-16px)] flex justify-start">
+                      {!isLeft ? cardContent : null}
+                    </div>
                   </div>
                 );
               })}
@@ -1101,18 +1141,20 @@ function DetailPane({
               {(() => {
                 const activeCycle = detail.cycles?.find(c => c.status !== "completed");
                 return (
-                  <div className="relative flex flex-col lg:flex-row items-start lg:items-center">
-                    <div className="lg:w-[44%]" />
-                    {/* Center dot — blue */}
-                    <div className="absolute lg:left-1/2 left-0 lg:-translate-x-1/2 top-0 z-10 flex items-center justify-center w-[24px] h-[24px] rounded-full" style={{ background: "var(--accent)" }}>
-                      <div className="w-[10px] h-[10px] rounded-full bg-white" />
+                  <>
+                    <div className="relative flex items-center">
+                      <div className="w-[calc(50%-16px)]" />
+                      <div className="w-8 flex justify-center relative z-10">
+                        <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-white" />
+                        </div>
+                      </div>
+                      <div className="w-[calc(50%-16px)]" />
                     </div>
-                    <div className="lg:w-[44%] pl-8 lg:pl-6">
-                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)" }}>
-                        {t("activeCycle")} {activeCycle ? `— ${activeCycle.triggerSummary?.slice(0, 40) ?? ""}` : ""}
-                      </span>
+                    <div className="text-center text-sm mt-2" style={{ color: "rgb(96, 165, 250)" }}>
+                      {t("activeCycle")} {activeCycle ? `— ${activeCycle.triggerSummary?.slice(0, 40) ?? ""}` : ""}
                     </div>
-                  </div>
+                  </>
                 );
               })()}
             </div>
@@ -1135,7 +1177,7 @@ function DetailPane({
 
           {/* ── CURRENT ACTION PLAN ── */}
           {reasoning && actionPlan && actionPlan.length > 0 ? (
-            <div>
+            <div className="overflow-hidden">
               {/* Section header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                 <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }}>
@@ -1158,7 +1200,7 @@ function DetailPane({
               {/* Step list — D-style inline expand */}
               <div style={{ position: "relative", paddingLeft: 30 }}>
                 {/* Timeline rail */}
-                <div style={{ position: "absolute", left: 10, top: 6, bottom: 6, width: 2, background: "var(--fg4)", opacity: 0.12 }} />
+                <div className="bg-white/10" style={{ position: "absolute", left: 10, top: 6, bottom: 6, width: 2 }} />
                 <div style={{ position: "absolute", left: 10, top: 6, width: 2, height: `${Math.max(0, (currentStepIndex / actionPlan.length) * 100)}%`, background: "var(--ok)", transition: "height 0.4s" }} />
 
                 {actionPlan.map((step, i) => {
@@ -1183,10 +1225,10 @@ function DetailPane({
                       {/* Collapsed row — click to expand */}
                       <div
                         onClick={() => toggleStep(i)}
-                        style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginLeft: 2 }}
+                        style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginLeft: 2, minWidth: 0 }}
                       >
-                        <span style={{
-                          fontSize: 13, fontWeight: isCurrentStep ? 600 : 500, flex: 1,
+                        <span className="truncate" style={{
+                          fontSize: 13, fontWeight: isCurrentStep ? 600 : 500, flex: 1, minWidth: 0,
                           color: isCompleted ? "var(--fg3)" : "var(--fg1, var(--foreground))",
                           textDecoration: isCompleted ? "line-through" : "none",
                         }}>
@@ -1209,7 +1251,7 @@ function DetailPane({
                             {isCompleted && <span style={{ fontSize: 10, fontWeight: 600, color: "var(--ok)" }}>&#10003; Done</span>}
                           </div>
 
-                          <p style={{ fontSize: 12, color: "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px" }}>{step.description}</p>
+                          <p className="break-words" style={{ fontSize: 12, color: "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{step.description}</p>
 
                           {planStep?.parameters && (() => {
                             const enrichedStep = {
