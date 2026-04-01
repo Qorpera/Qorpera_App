@@ -49,6 +49,31 @@ export async function GET() {
     contentChunkCount: chunkCount,
   };
 
+  // Include real entity/situation counts from database
+  if (analysis.status === "confirming" || analysis.status === "complete") {
+    const [situationCount, entityCount, relationshipCount, pipelineJob] = await Promise.all([
+      prisma.situation.count({
+        where: { operatorId: session.operatorId, status: { in: ["detected", "reasoning", "proposed"] } },
+      }),
+      prisma.entity.count({
+        where: { operatorId: session.operatorId, status: "active", category: { in: ["digital", "external"] } },
+      }),
+      prisma.relationship.count({
+        where: { fromEntity: { operatorId: session.operatorId } },
+      }),
+      prisma.workerJob.findFirst({
+        where: { operatorId: session.operatorId, jobType: "post_synthesis_pipeline" },
+        orderBy: { createdAt: "desc" },
+        select: { status: true },
+      }),
+    ]);
+
+    response.situationCount = situationCount;
+    response.entityCount = entityCount;
+    response.relationshipCount = relationshipCount;
+    response.postSynthesisStatus = pipelineJob?.status ?? null;
+  }
+
   // Include synthesis output when available — transform CompanyModel to UI shape
   if (analysis.status === "confirming" || analysis.status === "complete") {
     const raw = analysis.synthesisOutput as Record<string, unknown> | null;

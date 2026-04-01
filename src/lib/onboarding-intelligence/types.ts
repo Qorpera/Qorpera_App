@@ -137,4 +137,8 @@ export interface AnalysisProgressResponse {
   contentChunkCount?: number;
   synthesisOutput?: SynthesisOutput;
   uncertaintyLog?: Record<string, unknown>;
+  situationCount?: number;
+  entityCount?: number;
+  relationshipCount?: number;
+  postSynthesisStatus?: string | null;
 }

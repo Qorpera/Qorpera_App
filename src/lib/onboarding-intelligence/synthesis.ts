@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/db";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
+import { upsertEntity, relateEntities } from "@/lib/entity-resolution";
 
 // ── Company Model Types ──────────────────────────────────────────────────────
 
@@ -79,6 +80,18 @@ export interface CompanyModel {
     priority: 1 | 2 | 3;       // 1 = critical, 2 = important, 3 = aspirational
     source: string;             // Which document or communication this was extracted from
     confidence: "high" | "medium" | "low";
+  }>;
+  entityTypes: Array<{
+    slug: string;
+    name: string;
+    description: string;
+    category: "digital" | "external";
+    properties: Array<{
+      slug: string;
+      name: string;
+      dataType: string;
+      identityRole?: string | null;
+    }>;
   }>;
   uncertaintyLog: Array<{
     question: string;
@@ -157,6 +170,23 @@ export function normalizeCompanyModel(
       }))
     : [];
 
+  const entityTypes = Array.isArray(model.entityTypes)
+    ? (model.entityTypes as Array<Record<string, unknown>>).map(et => ({
+        slug: (et.slug as string) ?? "",
+        name: (et.name as string) ?? "",
+        description: (et.description as string) ?? "",
+        category: (et.category === "external" ? "external" : "digital") as "digital" | "external",
+        properties: Array.isArray(et.properties)
+          ? (et.properties as Array<Record<string, unknown>>).map(p => ({
+              slug: (p.slug as string) ?? "",
+              name: (p.name as string) ?? "",
+              dataType: (p.dataType as string) ?? "string",
+              identityRole: (p.identityRole as string) || null,
+            }))
+          : [],
+      }))
+    : [];
+
   return {
     departments,
     people,
@@ -171,6 +201,7 @@ export function normalizeCompanyModel(
     },
     situationTypeRecommendations: Array.isArray(model.situationTypeRecommendations) ? model.situationTypeRecommendations : [],
     strategicGoals,
+    entityTypes,
     uncertaintyLog: Array.isArray(model.uncertaintyLog)
       ? model.uncertaintyLog.map((q: any) => ({
           ...q,
@@ -266,6 +297,18 @@ interface CompanyModel {
     source: string;                   // Document or communication where this goal was found
     confidence: "high" | "medium" | "low";
   }>;
+  entityTypes: Array<{
+    slug: string;           // lowercase-hyphenated identifier (e.g., "invoice", "project-site")
+    name: string;           // Display name
+    description: string;    // What this entity represents in this company
+    category: "digital" | "external";  // "digital" for business objects, "external" for outside parties
+    properties: Array<{
+      slug: string;         // lowercase-hyphenated (e.g., "invoice-number")
+      name: string;         // Display name
+      dataType: "STRING" | "NUMBER" | "DATE" | "BOOLEAN";
+      identityRole?: "email" | "domain" | "phone" | "reference_id" | null;
+    }>;
+  }>;
   uncertaintyLog: Array<{
     question: string;    // Direct question for the CEO
     context: string;
@@ -357,6 +400,25 @@ Extract STRATEGIC goals from the agent reports. These are deliberate organizatio
 5. Company mission/vision statements are context, not goals — unless they contain specific measurable targets.
 6. Department-scoped goals must reference a department from the departments array.
 
+## Entity Type Discovery
+
+Based on the business objects referenced across the ingested content, propose entity types that the system should track. These are the nouns of the business — invoices, projects, shipments, orders, permits, whatever this specific company works with.
+
+For each entity type, include:
+- slug: lowercase-hyphenated identifier
+- name: display name
+- description: what this entity represents in this company
+- category: "digital" for business objects, "external" for outside parties (companies, contacts)
+- properties: the fields that matter for this entity type, with slugs, names, data types (STRING, NUMBER, DATE, BOOLEAN), and identityRole if the property uniquely identifies an instance (e.g., "reference_id" for invoice numbers, "email" for contacts)
+
+Always include these universal types alongside any domain-specific ones:
+- company (external) — with properties: name, industry, relationship-type
+- contact (external) — with properties: name, email, phone, company, role
+
+Then add domain-specific types based on what you see in the data. An electrician company might have: project-site, material-order, inspection. A logistics company might have: shipment, carrier, customs-declaration. A SaaS company might have: subscription, feature-request, support-ticket.
+
+Propose 3-8 entity types total. Quality over quantity — only propose types you see evidence for in the actual content.
+
 ## Your Task
 
 Produce a SINGLE JSON object matching the interface above:
@@ -365,8 +427,9 @@ Produce a SINGLE JSON object matching the interface above:
 2. **Merges overlapping findings** into unified entries (don't duplicate)
 3. **Assigns every internal person to exactly one primary department** in the top-level \`people\` array (cross-functional people get a primary + listed in crossFunctionalPeople)
 4. **Produces actionable situation type recommendations** synthesized from all agents
-5. **Generates the uncertainty log** — specific questions for the CEO that the data couldn't answer
-6. **Extracts strategic goals** from formal documents and leadership communications — few, important, CEO-recognizable
+5. **Discovers entity types** — the business objects this company works with, with properties
+6. **Generates the uncertainty log** — specific questions for the CEO that the data couldn't answer
+7. **Extracts strategic goals** from formal documents and leadership communications — few, important, CEO-recognizable
 
 ## Structural Classification Rules (MANDATORY)
 
@@ -585,6 +648,152 @@ export async function createEntitiesFromModel(
       });
     }
   }
+}
+
+// ── Entity Type Materialization ─────────────────────────────────────────────
+
+/**
+ * Creates LLM-discovered entity types and their properties.
+ * Additive: if a type already exists (from hardcoded defs or prior run),
+ * only missing properties are added.
+ */
+export async function createEntityTypesFromModel(
+  operatorId: string,
+  model: CompanyModel,
+): Promise<void> {
+  if (!model.entityTypes || model.entityTypes.length === 0) return;
+
+  // Map LLM dataType strings to Prisma-compatible values
+  const normalizeDataType = (dt: string): string => {
+    const upper = dt.toUpperCase();
+    if (["STRING", "NUMBER", "DATE", "BOOLEAN", "ENUM", "CURRENCY"].includes(upper)) return upper;
+    // Handle lowercase LLM variants
+    const map: Record<string, string> = { string: "STRING", number: "NUMBER", date: "DATE", boolean: "BOOLEAN" };
+    return map[dt.toLowerCase()] ?? "STRING";
+  };
+
+  for (const et of model.entityTypes) {
+    if (!et.slug || !et.name) continue;
+
+    let entityType = await prisma.entityType.findFirst({
+      where: { operatorId, slug: et.slug },
+    });
+
+    if (!entityType) {
+      entityType = await prisma.entityType.create({
+        data: {
+          operatorId,
+          slug: et.slug,
+          name: et.name,
+          description: et.description || "",
+          defaultCategory: et.category || "digital",
+        },
+      });
+
+      for (let i = 0; i < (et.properties || []).length; i++) {
+        const p = et.properties[i];
+        await prisma.entityProperty.create({
+          data: {
+            entityTypeId: entityType.id,
+            slug: p.slug,
+            name: p.name,
+            dataType: normalizeDataType(p.dataType),
+            identityRole: p.identityRole || null,
+            displayOrder: i,
+          },
+        });
+      }
+
+      console.log(`[synthesis] Created entity type: ${et.name} (${et.slug}) with ${et.properties?.length || 0} properties`);
+    } else {
+      // Additive: ensure all properties exist
+      const existingSlugs = new Set(
+        (await prisma.entityProperty.findMany({
+          where: { entityTypeId: entityType.id },
+          select: { slug: true },
+        })).map(p => p.slug)
+      );
+
+      for (const prop of (et.properties || [])) {
+        if (!existingSlugs.has(prop.slug)) {
+          await prisma.entityProperty.create({
+            data: {
+              entityTypeId: entityType.id,
+              slug: prop.slug,
+              name: prop.name,
+              dataType: normalizeDataType(prop.dataType),
+              identityRole: prop.identityRole || null,
+            },
+          });
+        }
+      }
+    }
+  }
+}
+
+// ── Key Relationships → External Entities ───────────────────────────────────
+
+/**
+ * Materializes keyRelationships from synthesis as external entities (companies, contacts)
+ * and creates relationships between them and internal people.
+ */
+export async function createExternalEntitiesFromModel(
+  operatorId: string,
+  model: CompanyModel,
+): Promise<void> {
+  if (!model.keyRelationships || model.keyRelationships.length === 0) return;
+
+  // Ensure company and contact entity types exist
+  await ensureEntityType(operatorId, "company");
+  await ensureEntityType(operatorId, "contact");
+
+  for (const rel of model.keyRelationships) {
+    // Create/find the company entity
+    let companyEntityId: string | null = null;
+    if (rel.companyName) {
+      companyEntityId = await upsertEntity(operatorId, "company", {
+        displayName: rel.companyName,
+        properties: {
+          "name": rel.companyName,
+        },
+      });
+    }
+
+    // Create/find the contact entity
+    if (rel.contactName) {
+      const contactProps: Record<string, string> = { "name": rel.contactName };
+      if (rel.contactEmail) contactProps["email"] = rel.contactEmail;
+      if (rel.companyName) contactProps["company"] = rel.companyName;
+
+      const contactId = await upsertEntity(operatorId, "contact", {
+        displayName: rel.contactName,
+        properties: contactProps,
+      });
+
+      // Create relationship: contact works-at company
+      if (contactId && companyEntityId) {
+        await relateEntities(operatorId, contactId, companyEntityId, "works-at");
+      }
+
+      // Link internal person who manages this relationship
+      if (rel.primaryInternalContact && companyEntityId) {
+        const internalPerson = await findEntityByEmail(operatorId, rel.primaryInternalContact);
+        if (internalPerson) {
+          await relateEntities(operatorId, internalPerson.id, companyEntityId, "manages-relationship");
+        } else {
+          // Try display name match
+          const byName = await prisma.entity.findFirst({
+            where: { operatorId, displayName: { contains: rel.primaryInternalContact }, category: "base", status: "active" },
+          });
+          if (byName) {
+            await relateEntities(operatorId, byName.id, companyEntityId, "manages-relationship");
+          }
+        }
+      }
+    }
+  }
+
+  console.log(`[synthesis] Materialized ${model.keyRelationships.length} key relationships as external entities`);
 }
 
 // ── Situation Type Creation ──────────────────────────────────────────────────

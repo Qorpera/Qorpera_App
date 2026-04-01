@@ -22,7 +22,7 @@ export function OnboardingProgress({ step }: OnboardingProgressProps) {
                 <div
                   className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
                     isComplete
-                      ? "bg-green-500 text-white"
+                      ? "bg-green-500 text-black"
                       : isCurrent
                         ? "bg-accent text-white ring-2 ring-[color-mix(in_srgb,var(--accent)_40%,transparent)]"
                         : "bg-skeleton text-[var(--fg3)]"

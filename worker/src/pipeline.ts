@@ -11,6 +11,8 @@ import {
   SYNTHESIS_PROMPT,
   buildSynthesisInput,
   createEntitiesFromModel,
+  createEntityTypesFromModel,
+  createExternalEntitiesFromModel,
   createSituationTypesFromModel,
   createGoalsFromModel,
   normalizeCompanyModel,
@@ -470,7 +472,9 @@ ${archetypeTaxonomy}`;
   }
 
   // Create real entities from the company model
+  await createEntityTypesFromModel(operatorId, companyModel);
   await createEntitiesFromModel(operatorId, companyModel);
+  await createExternalEntitiesFromModel(operatorId, companyModel);
   await createSituationTypesFromModel(operatorId, companyModel);
   await createGoalsFromModel(operatorId, companyModel);
 
@@ -518,6 +522,21 @@ ${archetypeTaxonomy}`;
     console.log(`[pipeline] Enqueued classify_chunks for operator ${operatorId}`);
   } catch (err) {
     console.error("[pipeline] Failed to enqueue classify_chunks:", err);
+  }
+
+  // Enqueue post-synthesis pipeline — entity extraction, relationship inference, and
+  // full detection run BEFORE the intelligence preview is shown to the user
+  try {
+    await prisma.workerJob.create({
+      data: {
+        jobType: "post_synthesis_pipeline",
+        operatorId,
+        payload: { operatorId } as any,
+      },
+    });
+    console.log(`[pipeline] Enqueued post_synthesis_pipeline for operator ${operatorId}`);
+  } catch (err) {
+    console.error("[pipeline] Failed to enqueue post_synthesis_pipeline:", err);
   }
 
 }

@@ -136,6 +136,12 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     const { runStrategicScan } = await import("@/lib/strategic-scan");
     await runStrategicScan(operatorId);
   },
+
+  async post_synthesis_pipeline(payload) {
+    const { operatorId } = payload as { operatorId: string };
+    const { runPostSynthesisPipeline } = await import("@/lib/onboarding-intelligence/post-synthesis-pipeline");
+    await runPostSynthesisPipeline(operatorId);
+  },
 };
 
 export async function dispatchJob(jobType: string, payload: JobPayload): Promise<void> {

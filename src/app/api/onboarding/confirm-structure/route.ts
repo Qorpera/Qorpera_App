@@ -86,38 +86,45 @@ export async function POST(request: Request) {
     // Non-fatal — detection still runs, just with degraded context
   }
 
-  // Enqueue a single detection sweep (the worker runs all situation types)
+  // Only enqueue detection if post-synthesis pipeline hasn't already run it
+  const existingPipelineJob = await prisma.workerJob.findFirst({
+    where: { operatorId, jobType: "post_synthesis_pipeline", status: "completed" },
+  });
+
+  let detectionJobsQueued = 0;
+
+  if (!existingPipelineJob) {
+    // Post-synthesis pipeline didn't run — enqueue detection as before
+    await enqueueWorkerJob("detect_situations", operatorId, {
+      operatorId,
+      trigger: "onboarding_complete",
+    });
+    detectionJobsQueued++;
+
+    const existingContentJob = await prisma.workerJob.findFirst({
+      where: {
+        operatorId,
+        jobType: "evaluate_recent_content",
+        status: { in: ["pending", "running"] },
+      },
+    });
+    if (!existingContentJob) {
+      await enqueueWorkerJob("evaluate_recent_content", operatorId, {
+        operatorId,
+        trigger: "onboarding_complete",
+      });
+      detectionJobsQueued++;
+    }
+  }
+
   const situationTypes = await prisma.situationType.findMany({
     where: { operatorId, enabled: true },
     select: { name: true },
   });
 
-  await enqueueWorkerJob("detect_situations", operatorId, {
-    operatorId,
-    trigger: "onboarding_complete",
-  });
-
-  // Retroactive content scan — evaluate existing communication content against
-  // newly created content-mode situation types (emails/Slack messages ingested
-  // before situation types were created during synthesis)
-  // Guard: skip if evaluate_recent_content was already enqueued (e.g., by a prior run)
-  const existingContentJob = await prisma.workerJob.findFirst({
-    where: {
-      operatorId,
-      jobType: "evaluate_recent_content",
-      status: { in: ["pending", "running"] },
-    },
-  });
-  if (!existingContentJob) {
-    await enqueueWorkerJob("evaluate_recent_content", operatorId, {
-      operatorId,
-      trigger: "onboarding_complete",
-    });
-  }
-
   return NextResponse.json({
     success: true,
-    detectionJobsQueued: existingContentJob ? 1 : 2,
+    detectionJobsQueued,
     situationTypeNames: situationTypes.map(st => st.name),
   });
 }
