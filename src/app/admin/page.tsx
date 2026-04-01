@@ -147,7 +147,7 @@ export default function AdminPage() {
         body: JSON.stringify({ operatorId }),
       });
       if (res.ok) {
-        router.push("/map");
+        router.push("/");
       }
     } finally {
       setEntering(null);

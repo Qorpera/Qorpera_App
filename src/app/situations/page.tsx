@@ -11,7 +11,6 @@ import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { getPreviewComponent } from "@/components/execution/previews/get-preview-component";
 import { useToast } from "@/components/ui/toast";
-import { CycleTimeline } from "@/components/cycle-timeline";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -524,12 +523,14 @@ export default function SituationsPage() {
                   showAllStatuses={showAllStatuses}
                 />
               </div>
-              <ContextualChat
-                contextType="situation"
-                contextId={selectedSituation.id}
-                placeholder={t("discuss")}
-                hints={["What evidence supports this?", "Should I escalate?"]}
-              />
+              <div className="max-w-2xl mx-auto px-4 py-3">
+                <ContextualChat
+                  contextType="situation"
+                  contextId={selectedSituation.id}
+                  placeholder={t("discuss")}
+                  hints={["What evidence supports this?", "Should I escalate?"]}
+                />
+              </div>
             </>
           ) : (
             <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
@@ -1027,196 +1028,138 @@ function DetailPane({
             </div>
           )}
 
-          {/* ── TRIGGER EVIDENCE (primary) ── */}
-          {(detail.triggerSummary || reasoning) && (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
-                {t("whatHappened")}
-              </div>
-              <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
-                {detail.triggerSummary ? (
-                  <p style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg1)", fontWeight: 500 }}>
-                    {detail.triggerSummary}
-                  </p>
-                ) : reasoning ? (
-                  <p style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg1)", fontWeight: 500 }}>
-                    {reasoning.analysis.slice(0, 200)}{reasoning.analysis.length > 200 ? "..." : ""}
-                  </p>
-                ) : null}
+          {/* ── SITUATION TIMELINE ── */}
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const, marginBottom: 16, textAlign: "center" as const }}>
+              {t("situationTimeline")}
+            </div>
+            <div className="relative" style={{ minHeight: 60 }}>
+              {/* Center rail */}
+              <div className="hidden lg:block absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2" style={{ background: "rgba(255,255,255,0.08)" }} />
+              {/* Mobile rail */}
+              <div className="lg:hidden absolute left-[11px] top-0 bottom-0 w-[2px]" style={{ background: "rgba(255,255,255,0.08)" }} />
 
-                {/* Raw trigger content for content-detected situations */}
-                {detail.triggerEvidence?.type === "content" && detail.triggerEvidence.content && (
-                  <div className="mt-3" style={{ padding: "10px 12px", background: "var(--bg)", borderRadius: 4, border: "1px solid var(--border)" }}>
-                    <div className="flex items-center gap-2 mb-1">
-                      {detail.triggerEvidence.sender && (
-                        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fg2)" }}>{detail.triggerEvidence.sender}</span>
-                      )}
-                      {detail.triggerEvidence.subject && (
-                        <span style={{ fontSize: 12, color: "var(--fg3)" }}>— {detail.triggerEvidence.subject}</span>
-                      )}
-                    </div>
-                    <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--fg3)", whiteSpace: "pre-wrap" }}>
-                      {detail.triggerEvidence.content.slice(0, 500)}{detail.triggerEvidence.content.length > 500 ? "..." : ""}
+              {/* Start node */}
+              <div className="relative flex flex-col lg:flex-row items-start lg:items-start mb-6">
+                {/* Left card (desktop) or stacked card (mobile) */}
+                <div className="lg:w-[44%] lg:pr-6 lg:text-right pl-8 lg:pl-0 order-2 lg:order-1">
+                  <div style={{ padding: "12px 14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8 }}>
+                    <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
+                      {(() => {
+                        const src = detail.triggerSummary
+                          ?? detail.triggerEvidence?.content
+                          ?? detail.triggerEvidence?.summary
+                          ?? reasoning?.analysis
+                          ?? "";
+                        return src.slice(0, 120) + (src.length > 120 ? "…" : "");
+                      })()}
+                    </p>
+                    <p style={{ fontSize: 11, color: "var(--fg4)", marginTop: 6 }}>
+                      {formatRelativeTime(detail.createdAt, locale)}
                     </p>
                   </div>
-                )}
-
-                {/* Matched signals for structured detection */}
-                {detail.triggerEvidence?.type === "structured" && detail.triggerEvidence.matchedSignals && (
-                  <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1">
-                    {detail.triggerEvidence.matchedSignals.map((signal, i) => (
-                      <div key={i} className="flex justify-between text-[12px] py-1" style={{ borderBottom: "1px solid var(--border)" }}>
-                        <span style={{ color: "var(--fg3)" }}>{signal.field}</span>
-                        <span style={{ color: "var(--fg2)" }}>{signal.condition} {signal.value ?? signal.threshold}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* LLM reasoning for natural/hybrid detection */}
-                {(detail.triggerEvidence?.type === "natural" || detail.triggerEvidence?.type === "hybrid") && detail.triggerEvidence.reasoning && (
-                  <div className="mt-3" style={{ padding: "10px 12px", background: "var(--bg)", borderRadius: 4, border: "1px solid var(--border)" }}>
-                    <div style={{ fontSize: 11, fontWeight: 500, color: "var(--fg4)", marginBottom: 4 }}>
-                      {t("detectionReasoning")}
-                    </div>
-                    <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--fg3)" }}>
-                      {detail.triggerEvidence.reasoning}
-                    </p>
-                    {detail.triggerEvidence.entityName && (
-                      <div className="mt-2 flex items-center gap-2">
-                        <span style={{ fontSize: 11, color: "var(--fg4)" }}>{detail.triggerEvidence.entityType}:</span>
-                        <span style={{ fontSize: 12, color: "var(--fg2)" }}>{detail.triggerEvidence.entityName}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
+                </div>
+                {/* Center dot */}
+                <div className="absolute lg:left-1/2 left-0 lg:-translate-x-1/2 top-3 z-10 flex items-center justify-center w-[24px] h-[24px] rounded-full order-1 lg:order-2" style={{ background: "var(--accent)" }}>
+                  <div className="w-[10px] h-[10px] rounded-full bg-white" />
+                </div>
+                <div className="lg:w-[44%] order-3" />
               </div>
-            </div>
-          )}
 
-          {/* ── WHY IT MATTERS (collapsible AI assessment) ── */}
-          {reasoning && detail.triggerSummary && (
-            <details>
-              <summary style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const, cursor: "pointer", userSelect: "none" }} className="mb-2">
-                {t("whyItMatters")}
-              </summary>
-              <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
-                <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}>{reasoning.analysis}</p>
-              </div>
-            </details>
-          )}
-
-          {showAllStatuses && !reasoning && s.status === "detected" && (
-            <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>
-              Awaiting reasoning…
-            </div>
-          )}
-
-          {showAllStatuses && s.status === "reasoning" && (
-            <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>
-              Reasoning in progress…
-            </div>
-          )}
-
-          {/* ── CYCLE TIMELINE ── */}
-          {detail.cycles && detail.cycles.filter(c => c.status === "completed").length > 0 && (
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const, marginBottom: 16, textAlign: "center" as const }}>
-                Situation Timeline
-              </div>
-              <CycleTimeline cycles={detail.cycles.filter(c => c.status === "completed")} />
-            </div>
-          )}
-
-          {/* ── PROPOSED ACTION / PLAN section ── */}
-          {reasoning && actionPlan && actionPlan.length === 1 ? (
-            /* Single-step plan: timeline dot + left-border indent */
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const, marginBottom: 14 }}>
-                Proposed Action
-              </div>
-              {(() => {
-                const planStep = executionPlan?.steps.find(es => es.sequenceOrder === 1);
-                const isStepDone = planStep?.status === "completed";
+              {/* Completed cycles */}
+              {detail.cycles?.filter(c => c.status === "completed").map((cycle, i) => {
+                const isLeft = i % 2 !== 0; // alternates: first completed = right, second = left
+                const completedSteps = cycle.executionPlan?.steps.filter(s => s.status === "completed").length ?? 0;
+                const totalSteps = cycle.executionPlan?.steps.length ?? 0;
                 return (
-                  <div style={{ position: "relative", paddingLeft: 30 }}>
-                    <div style={{
-                      position: "absolute", left: 5, top: 4, width: 12, height: 12, borderRadius: "50%", zIndex: 1,
-                      background: isStepDone ? "var(--ok)" : "var(--accent)",
-                      border: `2px solid ${isStepDone ? "var(--ok)" : "var(--accent)"}`,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      {isStepDone && (
-                        <CheckSvg />
-                      )}
+                  <div key={cycle.id} className="relative flex flex-col lg:flex-row items-start lg:items-start mb-6">
+                    <div className={`lg:w-[44%] ${isLeft ? "lg:pr-6 lg:text-right" : "lg:pl-6 lg:ml-auto"} pl-8 lg:pl-0 order-2 ${isLeft ? "lg:order-1" : "lg:order-3"}`}>
+                      <div style={{ padding: "12px 14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.04em", color: "var(--fg4)", textTransform: "uppercase" as const }}>
+                          {t("cycleN", { n: cycle.cycleNumber })}
+                        </div>
+                        <p style={{ fontSize: 13, color: "var(--fg2)", marginTop: 4 }}>{cycle.triggerSummary}</p>
+                        <div className="flex gap-3 mt-2" style={{ fontSize: 11, color: "var(--fg4)", justifyContent: isLeft ? "flex-end" : "flex-start" }}>
+                          <span>{formatRelativeTime(cycle.createdAt, locale)}</span>
+                          <span>{t("stepsCompleted", { n: completedSteps, total: totalSteps })}</span>
+                        </div>
+                      </div>
                     </div>
+                    {/* Center dot — green check */}
+                    <div className="absolute lg:left-1/2 left-0 lg:-translate-x-1/2 top-3 z-10 flex items-center justify-center w-[24px] h-[24px] rounded-full order-1 lg:order-2" style={{ background: "var(--ok)" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </div>
+                    {!isLeft && <div className="lg:w-[44%] order-1 lg:order-1" />}
+                    {isLeft && <div className="lg:w-[44%] order-3 lg:order-3" />}
+                  </div>
+                );
+              })}
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 2 }}>
-                      <span style={{
-                        fontSize: 13, fontWeight: 600, flex: 1,
-                        color: isStepDone ? "var(--fg3)" : "var(--fg1, var(--foreground))",
-                        textDecoration: isStepDone ? "line-through" : "none",
-                      }}>
-                        {actionPlan[0].title}
+              {/* Active cycle node */}
+              {(() => {
+                const activeCycle = detail.cycles?.find(c => c.status !== "completed");
+                return (
+                  <div className="relative flex flex-col lg:flex-row items-start lg:items-center">
+                    <div className="lg:w-[44%]" />
+                    {/* Center dot — blue */}
+                    <div className="absolute lg:left-1/2 left-0 lg:-translate-x-1/2 top-0 z-10 flex items-center justify-center w-[24px] h-[24px] rounded-full" style={{ background: "var(--accent)" }}>
+                      <div className="w-[10px] h-[10px] rounded-full bg-white" />
+                    </div>
+                    <div className="lg:w-[44%] pl-8 lg:pl-6">
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)" }}>
+                        {t("activeCycle")} {activeCycle ? `— ${activeCycle.triggerSummary?.slice(0, 40) ?? ""}` : ""}
                       </span>
-                      <ExecutionModeBadge mode={actionPlan[0].executionMode} />
-                    </div>
-
-                    {/* Expanded content — always visible for single step */}
-                    <div style={{
-                      marginTop: 10, marginLeft: 2, paddingLeft: 14,
-                      borderLeft: "2px solid var(--accent)",
-                    }}>
-                      <p style={{ fontSize: 12, color: "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px" }}>{actionPlan[0].description}</p>
-
-                      {!isStepDone ? (
-                        actionPlan[0].executionMode === "action" ? (
-                          <button onClick={handleApprove} style={STEP_BTN_PRIMARY}>
-                            {t("executeAction") ?? "Execute Action"}
-                          </button>
-                        ) : actionPlan[0].executionMode === "human_task" && planStep ? (
-                          <button onClick={() => handleCompleteStep(planStep.id)} style={STEP_BTN_PRIMARY}>
-                            {t("markComplete") ?? "Mark complete"}
-                          </button>
-                        ) : null
-                      ) : actionPlan[0].executionMode === "human_task" && planStep ? (
-                        <button onClick={() => handleUndoStep(planStep.id)} style={STEP_BTN_SECONDARY}>
-                          {tc("undo") ?? "Undo"}
-                        </button>
-                      ) : null}
-
-                      {policyNote && (
-                        <p style={{ fontSize: 11, color: "var(--fg4)", marginTop: 6 }}>{policyNote}</p>
-                      )}
                     </div>
                   </div>
                 );
               })()}
             </div>
-          ) : reasoning && actionPlan && actionPlan.length > 1 ? (
-            /* Multi-step plan: D-style timeline with independent toggles */
+          </div>
+
+          {showAllStatuses && !reasoning && s.status === "detected" && (
+            <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>
+              {t("awaitingAnalysis")}
+            </div>
+          )}
+
+          {showAllStatuses && s.status === "reasoning" && (
+            <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>
+              {t("planExecuting")}…
+            </div>
+          )}
+
+          {/* Divider */}
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", margin: "8px 0" }} />
+
+          {/* ── CURRENT ACTION PLAN ── */}
+          {reasoning && actionPlan && actionPlan.length > 0 ? (
             <div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              {/* Section header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                 <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" }}>
-                  Proposed Plan
+                  {t("currentActionPlan")}
                 </span>
                 <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fg2)" }}>
                   {executionPlan ? executionPlan.steps.filter(es => es.status === "completed").length : 0}/{actionPlan.length}
                 </span>
               </div>
+              {(() => {
+                const activeCycle = detail.cycles?.find(c => c.status !== "completed");
+                return activeCycle ? (
+                  <p style={{ fontSize: 12, color: "var(--fg3)", marginBottom: 14 }}>
+                    {t("cycleN", { n: activeCycle.cycleNumber })} — {detail.triggerSummary ?? s.situationType.name}
+                    <span style={{ color: "var(--fg4)", marginLeft: 8 }}>{formatRelativeTime(activeCycle.createdAt, locale)}</span>
+                  </p>
+                ) : null;
+              })()}
 
+              {/* Step list — D-style inline expand */}
               <div style={{ position: "relative", paddingLeft: 30 }}>
                 {/* Timeline rail */}
-                <div style={{
-                  position: "absolute", left: 10, top: 6, bottom: 6, width: 2,
-                  background: "var(--fg4)", opacity: 0.12,
-                }} />
-                <div style={{
-                  position: "absolute", left: 10, top: 6, width: 2,
-                  height: `${Math.max(0, (currentStepIndex / actionPlan.length) * 100)}%`,
-                  background: "var(--ok)",
-                  transition: "height 0.4s",
-                }} />
+                <div style={{ position: "absolute", left: 10, top: 6, bottom: 6, width: 2, background: "var(--fg4)", opacity: 0.12 }} />
+                <div style={{ position: "absolute", left: 10, top: 6, width: 2, height: `${Math.max(0, (currentStepIndex / actionPlan.length) * 100)}%`, background: "var(--ok)", transition: "height 0.4s" }} />
 
                 {actionPlan.map((step, i) => {
                   const planStep = executionPlan?.steps.find(es => es.sequenceOrder === i + 1);
@@ -1227,20 +1170,17 @@ function DetailPane({
 
                   return (
                     <div key={i} style={{ position: "relative", paddingBottom: 14, opacity: isFutureStep ? 0.45 : 1, transition: "opacity 0.2s" }}>
+                      {/* Status dot */}
                       <div style={{
                         position: "absolute", left: -30 + 5, top: 4, width: 12, height: 12, borderRadius: "50%", zIndex: 1,
                         background: isCompleted ? "var(--ok)" : isCurrentStep ? "var(--accent)" : "var(--elevated)",
                         border: `2px solid ${isCompleted ? "var(--ok)" : isCurrentStep ? "var(--accent)" : "var(--fg4)"}`,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        transition: "all 0.2s",
+                        display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s",
                       }}>
-                        {isCompleted && (
-                          <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
+                        {isCompleted && <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>}
                       </div>
 
+                      {/* Collapsed row — click to expand */}
                       <div
                         onClick={() => toggleStep(i)}
                         style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginLeft: 2 }}
@@ -1253,20 +1193,15 @@ function DetailPane({
                           {step.title}
                         </span>
                         <ExecutionModeBadge mode={step.executionMode} />
-                        <svg
-                          width="14" height="14" viewBox="0 0 24 24" fill="none"
-                          stroke="var(--fg3)" strokeWidth="2"
-                          style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s", flexShrink: 0 }}
-                        >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--fg3)" strokeWidth="2"
+                          style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s", flexShrink: 0 }}>
                           <polyline points="6 9 12 15 18 9" />
                         </svg>
                       </div>
 
+                      {/* Expanded content */}
                       {isOpen && (
-                        <div style={{
-                          marginTop: 10, marginLeft: 2, paddingLeft: 14,
-                          borderLeft: `2px solid ${isCurrentStep ? "var(--accent)" : "var(--border)"}`,
-                        }}>
+                        <div style={{ marginTop: 10, marginLeft: 2, paddingLeft: 14, borderLeft: `2px solid ${isCurrentStep ? "var(--accent)" : "var(--border)"}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                             <span style={{ fontSize: 11, color: "var(--fg3)" }}>
                               {step.assignedUserId ? step.assignedUserId : (step.executionMode === "action" ? "AI" : "")}
@@ -1276,31 +1211,18 @@ function DetailPane({
 
                           <p style={{ fontSize: 12, color: "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px" }}>{step.description}</p>
 
-                          {/* Action preview (for AI action steps with parameters) */}
                           {planStep?.parameters && (() => {
                             const enrichedStep = {
                               ...planStep,
-                              plan: {
-                                sourceType: "situation" as const,
-                                situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } },
-                              },
+                              plan: { sourceType: "situation" as const, situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } } },
                             };
                             const PreviewComponent = getPreviewComponent(enrichedStep);
                             return (
                               <div className="mt-2 mb-2">
-                                <PreviewComponent
-                                  step={enrichedStep}
-                                  isEditable={planStep.status === "pending"}
+                                <PreviewComponent step={enrichedStep} isEditable={planStep.status === "pending"}
                                   onParametersUpdate={async (params) => {
-                                    await fetch(`/api/execution-steps/${planStep.id}/parameters`, {
-                                      method: "PATCH",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ parameters: params }),
-                                    });
-                                    if (detail?.executionPlanId) {
-                                      const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
-                                      if (res.ok) setExecutionPlan(await res.json());
-                                    }
+                                    await fetch(`/api/execution-steps/${planStep.id}/parameters`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parameters: params }) });
+                                    if (detail?.executionPlanId) { const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`); if (res.ok) setExecutionPlan(await res.json()); }
                                   }}
                                   locale={locale}
                                 />
@@ -1314,18 +1236,12 @@ function DetailPane({
 
                           {isCurrentStep && !isCompleted ? (
                             step.executionMode === "action" ? (
-                              <button onClick={handleApprove} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>
-                                {t("executeAction") ?? "Execute Action"}
-                              </button>
+                              <button onClick={handleApprove} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>{t("executeAction")}</button>
                             ) : step.executionMode === "human_task" && planStep ? (
-                              <button onClick={() => handleCompleteStep(planStep.id)} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>
-                                {t("markComplete") ?? "Mark complete"}
-                              </button>
+                              <button onClick={() => handleCompleteStep(planStep.id)} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>{t("markComplete")}</button>
                             ) : null
                           ) : isCompleted && step.executionMode === "human_task" && planStep ? (
-                            <button onClick={() => handleUndoStep(planStep.id)} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>
-                              {tc("undo") ?? "Undo"}
-                            </button>
+                            <button onClick={() => handleUndoStep(planStep.id)} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>{tc("undo")}</button>
                           ) : isFutureStep ? (
                             <span style={{ fontSize: 10, color: "var(--fg4)", fontStyle: "italic", marginTop: 6, display: "inline-block" }}>
                               {t("completeStepFirst")?.replace("{n}", String(currentStepIndex + 1)) ?? `Complete step ${currentStepIndex + 1} first`}
@@ -1338,26 +1254,20 @@ function DetailPane({
                 })}
               </div>
 
-              {policyNote && (
-                <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-2">{policyNote}</p>
-              )}
+              {policyNote && <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-2">{policyNote}</p>}
 
               {/* Plan status footer */}
               {executionPlan && (() => {
                 const ps = PLAN_STATUS_STYLES[executionPlan.status] ?? PLAN_STATUS_STYLES.executing;
                 return (
-                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                  <span style={{ padding: "2px 8px", borderRadius: 4, background: ps.bg, color: ps.color, fontWeight: 600, fontSize: 10 }}>
-                    {ps.label}
-                  </span>
-                  <span style={{ color: "var(--fg3)" }}>
-                    Step {currentStepIndex + 1} of {actionPlan.length}
-                  </span>
-                </div>
+                  <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                    <span style={{ padding: "2px 8px", borderRadius: 4, background: ps.bg, color: ps.color, fontWeight: 600, fontSize: 10 }}>{ps.label}</span>
+                    <span style={{ color: "var(--fg3)" }}>Step {currentStepIndex + 1} of {actionPlan.length}</span>
+                  </div>
                 );
               })()}
 
-              {/* Failed plan error detail */}
+              {/* Failed plan error */}
               {executionPlan?.status === "failed" && (() => {
                 const failedStep = executionPlan.steps.find(s => s.status === "failed");
                 const err = failedStep?.errorMessage?.toLowerCase() || "";
@@ -1367,8 +1277,7 @@ function DetailPane({
                   <p style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4, marginTop: 4 }}>
                     {isAuthFailure
                       ? <>{t("planFailAuthBefore")} <a href="/settings?tab=connections" className="underline">{t("planFailAuthLink")}</a>{t("planFailAuthAfter")}</>
-                      : isLoopBreaker
-                      ? t("planFailLoop")
+                      : isLoopBreaker ? t("planFailLoop")
                       : t("planFailStep", { step: String(failedStep?.sequenceOrder ?? "?"), error: failedStep?.errorMessage ? `: ${failedStep.errorMessage.slice(0, 100)}` : "" })}
                   </p>
                 );
@@ -1499,22 +1408,34 @@ function DetailPane({
             </div>
           )}
 
-          {/* ── Action buttons ── */}
+          {/* ── Bottom Action Bar ── */}
           {canAct && !currentMode && (
-            <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-              <button
-                className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"
-                onClick={() => setActiveMode({ id: s.id, mode: "reject" })}
-              >
-                Reject
-              </button>
-              <button
-                className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
-                style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
-                onClick={() => setActiveMode({ id: s.id, mode: "teach" })}
-              >
-                Teach AI
-              </button>
+            <div className="flex items-center justify-between pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2">
+                {s.status === "proposed" && actionPlan && (
+                  <button onClick={handleApprove} className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                    style={{ background: "var(--ok)", color: "var(--accent-ink)" }}>
+                    {t("approvePlan")}
+                  </button>
+                )}
+                <button className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
+                  onClick={() => setActiveMode({ id: s.id, mode: "reject" })}>
+                  Reject
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="rounded-full text-[13px] font-medium px-4 py-1.5 transition"
+                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
+                  onClick={() => setActiveMode({ id: s.id, mode: "teach" })}>
+                  Teach AI
+                </button>
+                <button className="text-[13px] font-medium px-3 py-1.5 transition"
+                  style={{ background: "transparent", color: "var(--danger)" }}
+                  onClick={() => patchSituation(s.id, { status: "rejected" })}>
+                  {t("dismiss")}
+                </button>
+              </div>
             </div>
           )}
           {/* Billing gate message when actions are blocked */}
@@ -1565,12 +1486,12 @@ function DetailPane({
               <button
                 onClick={() => setShowEvidence(!showEvidence)}
                 className="flex items-center gap-1.5 transition-colors hover:text-foreground"
-                style={{ fontSize: 12, color: "var(--fg4)" }}
+                style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}
               >
                 <svg className={`w-3 h-3 transition-transform ${showEvidence ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
-                Evidence &amp; reasoning
+                {t("evidenceAndReasoning")}
               </button>
 
               {showEvidence && (

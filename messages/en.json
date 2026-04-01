@@ -308,7 +308,13 @@
     "executeAction": "Execute Action",
     "completeStepFirst": "Complete step {n} first",
     "planPending": "Plan pending",
-    "planExecuting": "Executing"
+    "planExecuting": "Executing",
+    "situationTimeline": "Situation Timeline",
+    "cycleN": "Cycle {n}",
+    "stepsCompleted": "{n}/{total} steps",
+    "activeCycle": "Active",
+    "currentActionPlan": "Current Action Plan",
+    "evidenceAndReasoning": "Evidence & reasoning"
   },
   "copilot": {
     "title": "Chat",

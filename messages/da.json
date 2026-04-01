@@ -308,7 +308,13 @@
     "executeAction": "Udfør handling",
     "completeStepFirst": "Fuldfør trin {n} først",
     "planPending": "Plan afventer",
-    "planExecuting": "Udfører"
+    "planExecuting": "Udfører",
+    "situationTimeline": "Situationstidslinje",
+    "cycleN": "Cyklus {n}",
+    "stepsCompleted": "{n}/{total} trin",
+    "activeCycle": "Aktiv",
+    "currentActionPlan": "Nuværende handlingsplan",
+    "evidenceAndReasoning": "Evidens og begrundelse"
   },
   "copilot": {
     "title": "Chat",

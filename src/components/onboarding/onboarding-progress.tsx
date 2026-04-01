@@ -22,7 +22,7 @@ export function OnboardingProgress({ step }: OnboardingProgressProps) {
                 <div
                   className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all ${
                     isComplete
-                      ? "bg-accent text-white"
+                      ? "bg-green-500 text-white"
                       : isCurrent
                         ? "bg-accent text-white ring-2 ring-[color-mix(in_srgb,var(--accent)_40%,transparent)]"
                         : "bg-skeleton text-[var(--fg3)]"
@@ -49,7 +49,7 @@ export function OnboardingProgress({ step }: OnboardingProgressProps) {
                 </span>
               </div>
               {i < STEP_LABELS.length - 1 && (
-                <div className={`hidden sm:block w-8 lg:w-14 h-px mx-2 ${isComplete ? "bg-accent/40" : "bg-skeleton"}`} />
+                <div className={`hidden sm:block w-8 lg:w-14 h-px mx-2 ${isComplete ? "bg-green-500/40" : "bg-skeleton"}`} />
               )}
             </div>
           );
