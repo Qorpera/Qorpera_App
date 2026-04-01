@@ -668,6 +668,83 @@ async function executeActionStep(
     throw new Error(`Connector not found: ${connectorId}`);
   }
 
+  // Demo connector mock — skip real API, produce mock output
+  const connectorConfig = (() => {
+    try { return JSON.parse(connector.config || "{}"); } catch { return {}; }
+  })();
+
+  if (connectorConfig.demo === true) {
+    const inputContext = step.inputContext ? JSON.parse(step.inputContext) : {};
+    const params = inputContext.params || inputContext;
+    const mockId = `demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    let output: Record<string, unknown>;
+
+    switch (capability.name) {
+      case "send_email":
+      case "reply_to_email":
+      case "reply_to_thread":
+      case "forward_email":
+        output = {
+          type: "email",
+          threadId: mockId,
+          recipients: [params.to].filter(Boolean),
+          subject: params.subject || "(no subject)",
+          _demo: true,
+        };
+        break;
+      case "send_slack_message":
+      case "send_teams_message":
+        output = {
+          type: "message",
+          channelId: params.channel || "general",
+          messageId: mockId,
+          platform: connector.provider === "slack" ? "slack" : "teams",
+          _demo: true,
+        };
+        break;
+      case "create_calendar_event":
+        output = {
+          type: "calendar_event",
+          eventId: mockId,
+          platform: connector.provider,
+          attendees: params.attendees || [],
+          _demo: true,
+        };
+        break;
+      case "create_document":
+      case "create_spreadsheet":
+      case "create_presentation":
+        output = {
+          type: "document",
+          url: `https://demo.qorpera.com/doc/${mockId}`,
+          title: params.title || "Untitled",
+          mimeType: "text/html",
+          _demo: true,
+        };
+        break;
+      default:
+        output = {
+          type: "data",
+          payload: params,
+          description: `Demo execution of ${capability.name}`,
+          _demo: true,
+        };
+    }
+
+    console.log(`[execution-engine] Demo execution: ${capability.name} → mock ${output.type} (${mockId})`);
+
+    await prisma.executionStep.update({
+      where: { id: step.id },
+      data: {
+        status: "completed",
+        executedAt: new Date(),
+        outputResult: JSON.stringify(output),
+      },
+    });
+    return;
+  }
+
   const provider = getProvider(connector.provider);
   if (!provider?.executeAction) {
     throw new Error(`Provider "${connector.provider}" does not support action execution`);

@@ -203,9 +203,26 @@ async function main() {
           inputSchema: cap.inputSchema,
           sideEffects: cap.sideEffects,
           enabled: true,
+          writeBackStatus: "enabled",
         },
       });
       console.log(`  Created capability: ${cap.name}`);
+    }
+
+    // Backfill: enable writeBack on all demo capabilities that are still "pending"
+    const demoConnectorIds = [...connectorMap.values()];
+    if (demoConnectorIds.length > 0) {
+      const backfilled = await prisma.actionCapability.updateMany({
+        where: {
+          operatorId: op.id,
+          writeBackStatus: "pending",
+          connectorId: { in: demoConnectorIds },
+        },
+        data: { writeBackStatus: "enabled" },
+      });
+      if (backfilled.count > 0) {
+        console.log(`  WriteBackStatus: backfilled ${backfilled.count} demo capabilities to "enabled"`);
+      }
     }
   }
 
