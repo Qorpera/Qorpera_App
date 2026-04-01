@@ -209,6 +209,8 @@ Each step in the action plan has an executionMode:
 
 IMPORTANT: Do NOT let the available automated actions limit your plan. Design the ideal plan first. If the best action is "Call Martin Dall back immediately at 26 88 11 03", propose it as a human_task even though the system can't make phone calls. The human knows how to make calls — they need the AI to tell them it's the right thing to do and give them the number.
 
+HOWEVER: After designing the ideal plan, you MUST map every step to an available automated action wherever possible. If a step CAN be automated (it matches a capability listed in AVAILABLE AUTOMATED ACTIONS), set executionMode to "action", set actionCapabilityName to the exact capability name, and populate params with ALL required fields including full drafted content. The user will review and can edit before approving — they should not have to manually execute what the system can do for them. The only steps that should be "human_task" are things the system genuinely cannot execute (phone calls, physical tasks, in-person meetings).
+
 SITUATION OWNERSHIP:
 Determine who is the natural owner of this situation. Look at:
 - Who was the communication addressed to?
@@ -260,7 +262,11 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       "description": "What this step does and why — must be an EXTERNAL response action",
       "executionMode": "action" | "human_task" | "generate",
       "actionCapabilityName": "send_email",  // ONLY for executionMode "action" — must match an available automated action
-      "params": {}  // ONLY for executionMode "action"
+      "params": {  // ONLY for executionMode "action" — populate ALL required fields from the capability's input schema
+        // Example for send_email: { "to": "martin@company.dk", "subject": "Re: Strømsvigt Nygade Center butik 14", "body": "Kære Martin Dall,\\n\\nTak for din henvendelse angående strømsvigtet..." }
+        // Example for send_slack_message: { "channel": "#operations", "message": "Urgent: Power outage reported at Nygade Center..." }
+        // Draft COMPLETE, ready-to-send content in the language of the original communication.
+      }
     }
   ] or null,
   "confidence": 0.0 to 1.0,
@@ -280,7 +286,8 @@ CRITICAL RULES:
 - "situationOwner" identifies who should own this situation. null = defaults to operator admin.
 - "escalation" is for situations that need strategic initiative beyond the immediate response. It creates a draft proposal for leadership review. Most situations do NOT need escalation. If recommending escalation to a manager or leadership, you must also state the strongest argument against escalating in the escalation rationale. This ensures escalation decisions are deliberate, not reflexive.
 - "consideredActions" should list what was evaluated.
-- "evidenceSummary" should list the 3-5 most important facts driving your decision.`;
+- "evidenceSummary" should list the 3-5 most important facts driving your decision.
+- For "action" steps: params MUST contain complete, ready-to-send content. For emails, draft the FULL email body in params.body — not a description of what to write, but the actual email the recipient will read. Write in the same language as the situation's source communications. The user will see this as an editable preview before approving execution.`;
 }
 
 // ── User Prompt ──────────────────────────────────────────────────────────────

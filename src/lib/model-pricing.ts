@@ -63,7 +63,7 @@ export async function calculateCallCostCents(
   usage: { inputTokens: number; outputTokens: number },
 ): Promise<number> {
   const pricing = await getModelPricing();
-  const modelPricing = pricing[modelId];
+  const modelPricing = pricing[modelId] ?? MODEL_PRICING[modelId];
   if (!modelPricing) {
     console.warn(`[model-pricing] Unknown model "${modelId}" — cost tracked as 0`);
     return 0;

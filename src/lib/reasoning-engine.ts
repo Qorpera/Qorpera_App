@@ -13,7 +13,7 @@ import { extractJSON } from "@/lib/json-helpers";
 import { parseCitedSections } from "@/lib/reasoning/citation-parser";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
-export const REASONING_PROMPT_VERSION = 4; // v4: two-phase reasoning, external-only action plans, situationOwner
+export const REASONING_PROMPT_VERSION = 5; // v5: capability binding, email drafting, params population
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -479,7 +479,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           instructions: systemPrompt,
           messages: [{ role: "user", content: userContent }],
           temperature: 0.2,
-          maxTokens: 16384,
+          maxTokens: 32768,
           aiFunction: "reasoning",
           model: modelString,
           operatorId: situation.operatorId,

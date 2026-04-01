@@ -1060,7 +1060,7 @@ function DetailPane({
                   ?? "";
                 return (
                   <div className="relative flex items-start mb-8">
-                    <div className="w-[calc(50%-70px)] flex justify-end">
+                    <div className="w-[calc(50%-50px)] flex justify-end">
                       <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg p-4 text-right cursor-pointer select-none hover:bg-[var(--step-hover)] transition-colors" onClick={() => toggleTimelineCard("start")}>
                         <div className="text-[11px] font-semibold tracking-wide uppercase mb-1" style={{ color: "var(--fg3)" }}>
                           {t("situationOrigin")}
@@ -1084,7 +1084,7 @@ function DetailPane({
                         <div className="rounded-full bg-[var(--background)]" style={{ width: 10, height: 10 }} />
                       </div>
                     </div>
-                    <div className="w-[calc(50%-70px)]" />
+                    <div className="w-[calc(50%-50px)]" />
                   </div>
                 );
               })()}
@@ -1129,7 +1129,7 @@ function DetailPane({
                 );
                 return (
                   <div key={cycle.id} className="relative flex items-start mb-8">
-                    <div className="w-[calc(50%-70px)] flex justify-end">
+                    <div className="w-[calc(50%-50px)] flex justify-end">
                       {isLeft ? cardContent : null}
                     </div>
                     <div className="w-[100px] flex justify-center relative z-10 pt-1">
@@ -1139,7 +1139,7 @@ function DetailPane({
                         </svg>
                       </div>
                     </div>
-                    <div className="w-[calc(50%-70px)] flex justify-start">
+                    <div className="w-[calc(50%-50px)] flex justify-start">
                       {!isLeft ? cardContent : null}
                     </div>
                   </div>
@@ -1152,13 +1152,13 @@ function DetailPane({
                 return (
                   <>
                     <div className="relative flex items-center">
-                      <div className="w-[calc(50%-70px)]" />
+                      <div className="w-[calc(50%-50px)]" />
                       <div className="w-[100px] flex justify-center relative z-10">
                         <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center">
                           <div className="w-2.5 h-2.5 rounded-full bg-[var(--background)]" />
                         </div>
                       </div>
-                      <div className="w-[calc(50%-70px)]" />
+                      <div className="w-[calc(50%-50px)]" />
                     </div>
                     <div className="text-center text-sm mt-2" style={{ color: "var(--fg3)" }}>
                       {t("activeCycle")} {activeCycle ? `— ${activeCycle.triggerSummary?.slice(0, 40) ?? ""}` : ""}
