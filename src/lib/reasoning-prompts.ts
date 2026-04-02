@@ -209,7 +209,20 @@ Each step in the action plan has an executionMode:
 
 IMPORTANT: Do NOT let the available automated actions limit your plan. Design the ideal plan first. If the best action is "Call Martin Dall back immediately at 26 88 11 03", propose it as a human_task even though the system can't make phone calls. The human knows how to make calls — they need the AI to tell them it's the right thing to do and give them the number.
 
-HOWEVER: After designing the ideal plan, you MUST map every step to an available automated action wherever possible. If a step CAN be automated (it matches a capability listed in AVAILABLE AUTOMATED ACTIONS), set executionMode to "action", set actionCapabilityName to the exact capability name, and populate params with ALL required fields including full drafted content. The user will review and can edit before approving — they should not have to manually execute what the system can do for them. The only steps that should be "human_task" are things the system genuinely cannot execute (phone calls, physical tasks, in-person meetings).
+HOWEVER: After designing the ideal plan, you MUST map every step to an available automated action wherever possible:
+
+1. For EACH step in your plan, scan the AVAILABLE AUTOMATED ACTIONS list below.
+2. If ANY capability matches the step's intent — even partially — set executionMode to "action", set actionCapabilityName to the EXACT capability name string from the list, and populate params with ALL required fields.
+3. Common mappings you MUST recognize:
+   - "Send an email" / "Reply to" / "Confirm via email" / "Notify by email" → use the email send capability
+   - "Schedule a meeting" / "Set up a call" / "Book a review" / "Create calendar event" → use the calendar create capability
+   - "Send a Slack message" / "Post in channel" / "Notify the team" → use the Slack/Teams messaging capability
+   - "Update the CRM" / "Log the interaction" / "Move the deal" → use the CRM update capability
+   - "Create a task" / "Assign follow-up" → use the task creation capability
+4. The user will review and can edit the content before approving execution. They should NEVER have to manually do what the system can automate.
+5. The ONLY steps that should be "human_task" are things no connected tool can execute: phone calls, physical tasks, in-person meetings, signing physical documents.
+
+COMMON MISTAKE: Describing "Schedule a meeting with X" or "Create a calendar event" as human_task when a calendar capability is available. This is WRONG. Use the capability.
 
 SITUATION OWNERSHIP:
 Determine who is the natural owner of this situation. Look at:
@@ -263,9 +276,52 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       "executionMode": "action" | "human_task" | "generate",
       "actionCapabilityName": "send_email",  // ONLY for executionMode "action" — must match an available automated action
       "params": {  // ONLY for executionMode "action" — populate ALL required fields from the capability's input schema
-        // Example for send_email: { "to": "martin@company.dk", "subject": "Re: Strømsvigt Nygade Center butik 14", "body": "Kære Martin Dall,\\n\\nTak for din henvendelse angående strømsvigtet..." }
-        // Example for send_slack_message: { "channel": "#operations", "message": "Urgent: Power outage reported at Nygade Center..." }
-        // Draft COMPLETE, ready-to-send content in the language of the original communication.
+        // EXAMPLES of params for common action types — use EXACTLY these structures:
+        //
+        // EMAIL (simple):
+        //   { "to": "martin@company.dk", "subject": "Re: Strømsvigt", "body": "Kære Martin,\n\nTak for din henvendelse..." }
+        //
+        // EMAIL WITH ATTACHMENTS:
+        //   { "to": "lars@client.dk", "subject": "Q1 Rapport", "body": "Hej Lars,\n\nVedhæftet finder du...",
+        //     "attachments": [
+        //       { "type": "document", "title": "Q1 Statusrapport", "content": "# Q1 Status\n\n## Omsætning\nOmsætningen steg med 12%..." },
+        //       { "type": "spreadsheet", "title": "Q1 Tal", "sheetName": "Oversigt",
+        //         "rows": [["Måned", "Omsætning", "Vækst"], ["Januar", "270.000", "8%"], ["Februar", "285.000", "5.5%"]] }
+        //     ]
+        //   }
+        //   Use attachments when the situation warrants sending supporting documents, reports, or data tables alongside the email.
+        //   The user will see and can edit both the email and each attachment before approving.
+        //
+        // CALENDAR:
+        //   { "summary": "Opfølgningsmøde — Nygade", "startDateTime": "2026-04-07T10:00:00+02:00",
+        //     "endDateTime": "2026-04-07T10:30:00+02:00", "attendeeEmails": ["martin@company.dk"], "location": "Kontor" }
+        //
+        // CRM UPDATE (existing record):
+        //   { "entityId": "THE_ENTITY_ID_FROM_CONTEXT", "updates": { "stage": "negotiation", "nextFollowUp": "2026-04-10" } }
+        //   CRITICAL: For CRM updates, you MUST include "entityId" — the entity ID from the RELATED ENTITIES or TRIGGER ENTITY section.
+        //   The system fetches the current values automatically to show a before/after diff. You only specify the fields that should change.
+        //
+        // CRM CREATE (new record):
+        //   { "type": "deal", "name": "Nordisk Teknik — Q2 Aftale", "stage": "prospect", "amount": 150000, "contactEmail": "lars@nordisk.dk" }
+        //
+        // SPREADSHEET (new):
+        //   { "title": "Ugentlig Statusrapport", "sheetName": "Uge 14",
+        //     "rows": [["Projekt", "Status", "Ansvarlig"], ["Nygade renovering", "I gang", "Martin Dall"], ["Havnevej udvidelse", "Planlagt", "Kasper Holm"]] }
+        //
+        // SPREADSHEET (append to existing):
+        //   { "spreadsheetId": "SHEET_ID", "sheetName": "Revenue",
+        //     "contextRows": [["Mar 2026", "301.000", "5.6%"]],
+        //     "newRows": [["Apr 2026", "318.500", "5.8%"]] }
+        //   Use "contextRows" to show the last 1-2 existing rows for reference. "newRows" are the additions, shown with green highlighting.
+        //
+        // DOCUMENT (standalone):
+        //   { "title": "Serviceaftale — Nordisk Teknik", "content": "# Serviceaftale\n\nDenne aftale er indgået mellem...",
+        //     "folderId": "FOLDER_ID_IF_KNOWN" }
+        //
+        // SLACK/TEAMS:
+        //   { "channel": "#operations", "message": "Opdatering: Strømstigtet er løst..." }
+        //
+        // Draft COMPLETE, ready-to-execute content. The user sees an editable preview of exactly what will be created/sent/updated.
       }
     }
   ] or null,
@@ -287,7 +343,10 @@ CRITICAL RULES:
 - "escalation" is for situations that need strategic initiative beyond the immediate response. It creates a draft proposal for leadership review. Most situations do NOT need escalation. If recommending escalation to a manager or leadership, you must also state the strongest argument against escalating in the escalation rationale. This ensures escalation decisions are deliberate, not reflexive.
 - "consideredActions" should list what was evaluated.
 - "evidenceSummary" should list the 3-5 most important facts driving your decision.
-- For "action" steps: params MUST contain complete, ready-to-send content. For emails, draft the FULL email body in params.body — not a description of what to write, but the actual email the recipient will read. Write in the same language as the situation's source communications. The user will see this as an editable preview before approving execution.`;
+- For "action" steps: params MUST contain complete, ready-to-send content. For emails, draft the FULL email body in params.body — not a description of what to write, but the actual email the recipient will read. Write in the same language as the situation's source communications. The user will see this as an editable preview before approving execution.
+- AUDIT YOUR PLAN: Before finalizing, re-read each step. For every step with executionMode "human_task", ask: "Is there an available automated action that could do this?" If yes, change it to "action" with the correct actionCapabilityName and params. Missing an available automation is a critical error.
+- For CRM update steps: params MUST include "entityId" with the actual entity ID from the context (found in TRIGGER ENTITY or RELATED ENTITIES sections). The system uses this ID to fetch current values and show a before/after diff. Without entityId, the user sees raw values with no context.
+- For email steps with supporting documents: include an "attachments" array in params. Each attachment is { "type": "document"|"spreadsheet", "title": "...", "content"|"rows": ... }. The user reviews and can edit each attachment inline before the email is sent.`;
 }
 
 // ── User Prompt ──────────────────────────────────────────────────────────────
@@ -505,7 +564,7 @@ ${propsStr || "  (no properties)"}`);
       const schema = a.inputSchema ? `\n    Input: ${JSON.stringify(a.inputSchema)}` : "";
       return `  - ${a.name}: ${a.description}${a.connector ? ` (via ${a.connector})` : ""}${schema}`;
     }).join("\n");
-    sections.push(`AVAILABLE AUTOMATED ACTIONS (use executionMode "action" for steps matching these):\n${actionLines}\n\nFor steps that don't match any automated action, use executionMode "human_task" and describe clearly what the human should do.`);
+    sections.push(`AVAILABLE AUTOMATED ACTIONS (use executionMode "action" for steps matching these):\n${actionLines}\n\nIMPORTANT: actionCapabilityName must be the EXACT name string from this list (e.g., "${input.permittedActions[0]?.name ?? "Send Email"}"). For steps that don't match any automated action, use executionMode "human_task".`);
   } else {
     sections.push(`AVAILABLE AUTOMATED ACTIONS: None currently connected.\n\nAll steps should use executionMode "human_task" or "generate". Describe each step clearly — the employee will execute them manually. The value of the plan is in knowing WHAT to do and in WHAT ORDER, not in automation.`);
   }

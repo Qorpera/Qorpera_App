@@ -2,9 +2,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
-import type { PreviewProps } from "./get-preview-component";
+import type { PreviewProps, ExecutionStepForPreview } from "./get-preview-component";
 import { isActMode } from "./get-preview-component";
 import { escapeHtml } from "./html-helpers";
+import { DocumentPreview } from "./document-preview";
+import { SpreadsheetPreview } from "./spreadsheet-preview";
 
 function MailIcon({ size = 14, className = "" }: { size?: number; className?: string }) {
   return (
@@ -38,10 +40,17 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const [expandedAttachments, setExpandedAttachments] = useState<Set<number>>(new Set());
+
   const recipient = (params.to ?? params.recipient ?? "") as string;
   const subject = (params.subject ?? "") as string;
   const body = (params.body ?? "") as string;
   const from = (params.from ?? "") as string;
+  const attachments = (params.attachments ?? []) as Array<{
+    type: string;
+    title?: string;
+    [key: string]: unknown;
+  }>;
 
   useEffect(() => {
     if (editingField === "subject") inputRef.current?.focus();
@@ -65,6 +74,22 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
       e.preventDefault();
       saveEdit();
     }
+  }
+
+  function toggleAttachment(index: number) {
+    setExpandedAttachments(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  function handleAttachmentUpdate(index: number, attachmentParams: Record<string, unknown>) {
+    if (!onParametersUpdate) return;
+    const updatedAttachments = [...attachments];
+    updatedAttachments[index] = { ...updatedAttachments[index], ...attachmentParams };
+    onParametersUpdate({ ...params, attachments: updatedAttachments });
   }
 
   const showAiDisclosure = isActMode(step);
@@ -149,6 +174,99 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
             />
           )}
         </div>
+
+        {/* Attachments */}
+        {attachments.length > 0 && (
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 8 }}>
+            <div className="flex items-center gap-2 mb-3">
+              <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="var(--fg2)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fg2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {attachments.length === 1 ? "1 Attachment" : `${attachments.length} Attachments`}
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {attachments.map((attachment, idx) => {
+                const isExpanded = expandedAttachments.has(idx);
+                const attachTitle = attachment.title ?? `Attachment ${idx + 1}`;
+                const typeIcon = attachment.type === "spreadsheet" ? "grid" : "doc";
+
+                return (
+                  <div key={idx} className="rounded border" style={{ borderColor: "var(--border)", overflow: "hidden" }}>
+                    <div
+                      className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-[var(--step-hover)] transition-colors"
+                      style={{ background: "var(--elevated)" }}
+                      onClick={() => toggleAttachment(idx)}
+                    >
+                      {typeIcon === "grid" ? (
+                        <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="var(--fg3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                          <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" /><path d="M3 15h18" /><path d="M9 3v18" /><path d="M15 3v18" />
+                        </svg>
+                      ) : (
+                        <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="var(--fg3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" />
+                        </svg>
+                      )}
+                      <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)", flex: 1 }}>
+                        {attachTitle}
+                      </span>
+                      <span style={{ fontSize: 10, color: "var(--fg3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {attachment.type}
+                      </span>
+                      <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="var(--fg3)" strokeWidth={2}
+                        style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s", flexShrink: 0 }}>
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
+
+                    {isExpanded && (() => {
+                      const syntheticStep: ExecutionStepForPreview = {
+                        id: `${step.id}-attachment-${idx}`,
+                        sequenceOrder: step.sequenceOrder,
+                        title: attachTitle,
+                        description: "",
+                        executionMode: "action",
+                        status: step.status,
+                        assignedUserId: null,
+                        parameters: attachment as Record<string, unknown>,
+                      };
+
+                      const childOnUpdate = (childParams: Record<string, unknown>) => {
+                        handleAttachmentUpdate(idx, childParams);
+                      };
+
+                      if (attachment.type === "spreadsheet") {
+                        return (
+                          <div style={{ borderTop: "1px solid var(--border)" }}>
+                            <SpreadsheetPreview step={syntheticStep} isEditable={isEditable} onParametersUpdate={childOnUpdate} locale={_locale} />
+                          </div>
+                        );
+                      }
+
+                      if (attachment.type === "document") {
+                        return (
+                          <div style={{ borderTop: "1px solid var(--border)" }}>
+                            <DocumentPreview step={syntheticStep} isEditable={isEditable} onParametersUpdate={childOnUpdate} locale={_locale} />
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div style={{ borderTop: "1px solid var(--border)", padding: "8px 12px" }}>
+                          <pre style={{ fontSize: 11, color: "var(--fg3)", whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
+                            {JSON.stringify(attachment, null, 2)}
+                          </pre>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* AI Disclosure footer */}
         {showAiDisclosure && (

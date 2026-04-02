@@ -40,12 +40,23 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
   const rawData = (params.initialData ?? params.values ?? params.rows ?? []) as unknown[][];
   const data: unknown[][] = Array.isArray(rawData) ? rawData : [];
 
+  // Support contextRows + newRows structure for append operations
+  const contextRows = (params.contextRows ?? []) as unknown[][];
+  const newRows = (params.newRows ?? []) as unknown[][];
+  const hasAdditionMode = contextRows.length > 0 || newRows.length > 0;
+
+  // In addition mode, combine context + new rows for rendering
+  const combinedData = hasAdditionMode
+    ? [...contextRows, ...newRows]
+    : data;
+  const newRowStartIndex = hasAdditionMode ? contextRows.length : -1;
+
   const canEdit = isEditable && step.status === "pending";
 
   // Determine max columns across all rows
   const maxCols = Math.min(
     MAX_VISIBLE_COLS,
-    data.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0),
+    combinedData.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 0), 0),
   );
 
   useEffect(() => {
@@ -70,8 +81,10 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
 
   function startCellEdit(row: number, col: number) {
     if (!canEdit) return;
+    // Don't allow editing context rows in addition mode
+    if (hasAdditionMode && row < newRowStartIndex) return;
     setEditingCell({ row, col });
-    const rowData = data[row];
+    const rowData = combinedData[row];
     const val = Array.isArray(rowData) && col < rowData.length ? rowData[col] : "";
     setCellEditValue(String(val ?? ""));
   }
@@ -79,19 +92,31 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
   const saveCellEdit = useCallback(() => {
     if (!editingCell || !onParametersUpdate) return;
     const { row, col } = editingCell;
-    const newData = data.map((r, ri) => {
-      if (ri !== row) return Array.isArray(r) ? [...r] : r;
-      const newRow = Array.isArray(r) ? [...r] : [];
-      // Pad if needed
-      while (newRow.length <= col) newRow.push("");
-      newRow[col] = cellEditValue;
-      return newRow;
-    });
-    // Write back using whichever key the params originally used
-    const dataKey = params.initialData ? "initialData" : params.values ? "values" : "rows";
-    onParametersUpdate({ ...params, [dataKey]: newData });
+
+    if (hasAdditionMode) {
+      // In addition mode, only new rows are editable
+      if (row >= newRowStartIndex) {
+        const newRowIdx = row - newRowStartIndex;
+        const updatedNewRows = newRows.map(r => Array.isArray(r) ? [...r] : r);
+        const targetRow = Array.isArray(updatedNewRows[newRowIdx]) ? [...updatedNewRows[newRowIdx] as unknown[]] : [];
+        while (targetRow.length <= col) targetRow.push("");
+        targetRow[col] = cellEditValue;
+        updatedNewRows[newRowIdx] = targetRow;
+        onParametersUpdate({ ...params, newRows: updatedNewRows });
+      }
+    } else {
+      const newData = combinedData.map((r, ri) => {
+        if (ri !== row) return Array.isArray(r) ? [...r] : r;
+        const newRow = Array.isArray(r) ? [...r] : [];
+        while (newRow.length <= col) newRow.push("");
+        newRow[col] = cellEditValue;
+        return newRow;
+      });
+      const dataKey = params.initialData ? "initialData" : params.values ? "values" : "rows";
+      onParametersUpdate({ ...params, [dataKey]: newData });
+    }
     setEditingCell(null);
-  }, [editingCell, onParametersUpdate, data, cellEditValue, params]);
+  }, [editingCell, onParametersUpdate, combinedData, cellEditValue, params, hasAdditionMode, newRowStartIndex, newRows]);
 
   function handleCellKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
@@ -100,8 +125,8 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
     }
   }
 
-  const visibleData = data.slice(0, MAX_VISIBLE_ROWS + 1); // +1 for header row
-  const hasMore = data.length > MAX_VISIBLE_ROWS + 1;
+  const visibleData = combinedData.slice(0, MAX_VISIBLE_ROWS + 1); // +1 for header row
+  const hasMore = combinedData.length > MAX_VISIBLE_ROWS + 1;
   const showAiDisclosure = isActMode(step);
 
   return (
@@ -152,7 +177,7 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
         <div style={{ borderTop: "1px solid var(--border)", margin: "8px 0" }} />
 
         {/* Data table */}
-        {data.length === 0 ? (
+        {combinedData.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--fg2)", fontStyle: "italic" }}>{t("spreadsheetNoData")}</p>
         ) : (
           <div className="overflow-x-auto" style={{ maxWidth: "100%" }}>
@@ -202,8 +227,16 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
               <tbody>
                 {visibleData.slice(1).map((row, ri) => {
                   const actualRow = ri + 1; // offset for header
+                  const isNewRow = hasAdditionMode && actualRow >= newRowStartIndex;
+                  const isContextRow = hasAdditionMode && actualRow < newRowStartIndex;
                   return (
-                    <tr key={ri}>
+                    <tr
+                      key={ri}
+                      style={{
+                        background: isNewRow ? "color-mix(in srgb, var(--ok) 6%, transparent)" : "transparent",
+                        opacity: isContextRow ? 0.5 : 1,
+                      }}
+                    >
                       {Array.from({ length: maxCols }).map((_, ci) => {
                         const val = Array.isArray(row) && ci < row.length ? row[ci] : "";
                         return (
@@ -211,7 +244,8 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
                             key={ci}
                             style={{
                               padding: "3px 8px",
-                              color: "var(--muted)",
+                              color: isNewRow ? "var(--ok)" : "var(--muted)",
+                              fontWeight: isNewRow ? 500 : 400,
                               borderBottom: "1px solid color-mix(in srgb, var(--border) 50%, transparent)",
                               whiteSpace: "nowrap",
                             }}
@@ -227,9 +261,12 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
                               />
                             ) : (
                               <span
-                                className={canEdit ? "cursor-pointer" : ""}
+                                className={canEdit && !isContextRow ? "cursor-pointer" : ""}
                                 onClick={() => startCellEdit(actualRow, ci)}
                               >
+                                {isNewRow && ci === 0 && (
+                                  <span style={{ color: "var(--ok)", fontWeight: 700, marginRight: 4, fontSize: 11 }}>+</span>
+                                )}
                                 {String(val ?? "")}
                               </span>
                             )}
@@ -243,7 +280,7 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
             </table>
             {hasMore && (
               <p style={{ fontSize: 11, color: "var(--fg2)", marginTop: 4, fontStyle: "italic" }}>
-                … {data.length - MAX_VISIBLE_ROWS - 1} more rows
+                … {combinedData.length - MAX_VISIBLE_ROWS - 1} more rows
               </p>
             )}
           </div>

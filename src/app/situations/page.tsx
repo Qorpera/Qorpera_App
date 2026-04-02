@@ -128,6 +128,7 @@ interface SituationDetail {
     entityType?: string;
   } | null;
   triggerSummary: string | null;
+  resumeSummary: string | null;
   currentEntityState: { id: string; displayName: string; typeName: string; properties: Record<string, string> } | null;
   reasoning: ReasoningData | null;
   proposedAction: ActionStep[] | null;
@@ -145,6 +146,7 @@ interface SituationDetail {
     cycleNumber: number;
     triggerType: string;
     triggerSummary: string;
+    cycleSummary: string | null;
     status: string;
     completedAt: string | null;
     createdAt: string;
@@ -831,6 +833,11 @@ function DetailPane({
     setOpenSteps(new Set([currentStepIndex]));
   }, [currentStepIndex]);
 
+  // Auto-expand evidence when no action is recommended
+  useEffect(() => {
+    if (reasoning && !actionPlan) setShowEvidence(true);
+  }, [reasoning, actionPlan]);
+
   const sev = severityBadge(s);
 
   // Draft payloads from raw reasoning
@@ -1108,7 +1115,7 @@ function DetailPane({
                         <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </div>
-                    <p style={{ fontSize: 13, color: "var(--fg2)", marginTop: 4 }}>{cycle.triggerSummary}</p>
+                    <p style={{ fontSize: 13, color: "var(--fg2)", marginTop: 4 }}>{cycle.cycleSummary ?? cycle.triggerSummary}</p>
                     <div className={`flex gap-3 mt-2 ${justifyMeta}`} style={{ fontSize: 11, color: "var(--fg4)" }}>
                       <span>{formatRelativeTime(cycle.createdAt, locale)}</span>
                       <span>{t("stepsCompleted", { n: completedSteps, total: totalSteps })}</span>
@@ -1178,6 +1185,32 @@ function DetailPane({
           {showAllStatuses && s.status === "reasoning" && (
             <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>
               {t("planExecuting")}…
+            </div>
+          )}
+
+          {/* ── SITUATION RESUME (only for multi-cycle situations) ── */}
+          {detail.resumeSummary && detail.cycles && detail.cycles.length >= 2 && (
+            <div className="w-[80%] mx-auto my-6">
+              <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--fg3)" }}>
+                {t("situationSummary") ?? "Situation Summary"}
+              </div>
+              <div
+                className="rounded-lg border"
+                style={{
+                  background: "var(--card-bg)",
+                  borderColor: "var(--card-border)",
+                  padding: "16px 20px",
+                }}
+              >
+                <p style={{
+                  fontSize: 14,
+                  lineHeight: 1.65,
+                  color: "var(--foreground)",
+                  margin: 0,
+                }}>
+                  {detail.resumeSummary}
+                </p>
+              </div>
             </div>
           )}
 
@@ -1339,7 +1372,37 @@ function DetailPane({
               })()}
             </div>
           ) : reasoning && !actionPlan ? (
-            <p style={{ fontSize: 13, color: "var(--fg3)" }} className="italic">No action recommended — please review.</p>
+            <div className="w-[80%] mx-auto">
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--fg2)", marginBottom: 12 }}>
+                No action recommended
+              </div>
+              <p style={{ fontSize: 13, color: "var(--fg3)", lineHeight: 1.6, marginBottom: 8 }}>
+                {reasoning.analysis}
+              </p>
+              {reasoning.evidenceSummary && (
+                <p style={{ fontSize: 12, color: "var(--fg4)", lineHeight: 1.5, marginBottom: 16 }}>
+                  {reasoning.evidenceSummary}
+                </p>
+              )}
+              {!currentMode && s.status !== "resolved" && s.status !== "rejected" && (
+                <div className="flex gap-3 mt-4">
+                  <button
+                    className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
+                    style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
+                    onClick={() => patchSituation(s.id, { status: "resolved", outcome: "no_action_confirmed" })}
+                  >
+                    Conclude situation
+                  </button>
+                  <button
+                    className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
+                    style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
+                    onClick={() => { setShowTeachForm(!showTeachForm); setShowRejectForm(false); }}
+                  >
+                    Teach AI
+                  </button>
+                </div>
+              )}
+            </div>
           ) : s.status === "executing" || s.status === "auto_executing" ? (
             <div className="flex items-center gap-2">
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-ok" />

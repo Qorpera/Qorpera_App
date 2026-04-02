@@ -149,6 +149,11 @@ select:-webkit-autofill {
   animation: spin-slow 3s linear infinite;
 }
 
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

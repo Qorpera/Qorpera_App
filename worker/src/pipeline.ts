@@ -594,8 +594,27 @@ function formatAgentName(name: string): string {
 }
 
 function extractJson(text: string): string {
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  return match ? match[1].trim() : text.trim();
+  // 1. Try markdown fence extraction
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) return fenceMatch[1].trim();
+
+  // 2. Try finding the outermost JSON object/array
+  const firstBrace = text.indexOf("{");
+  const firstBracket = text.indexOf("[");
+  const start = firstBrace >= 0 && (firstBracket < 0 || firstBrace < firstBracket)
+    ? firstBrace
+    : firstBracket;
+
+  if (start >= 0) {
+    const closer = text[start] === "{" ? "}" : "]";
+    const lastClose = text.lastIndexOf(closer);
+    if (lastClose > start) {
+      return text.slice(start, lastClose + 1);
+    }
+  }
+
+  // 3. Fallback: return as-is
+  return text.trim();
 }
 
 function parseJsonReport<T>(reportText: string): T | undefined {

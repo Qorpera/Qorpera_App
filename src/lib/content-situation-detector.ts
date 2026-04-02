@@ -25,6 +25,7 @@ export type CommunicationItem = {
 type EvaluationResult = {
   messageIndex: number;
   classification: "action_required" | "awareness" | "irrelevant";
+  awarenessType: "informational" | "strategic" | null; // only for awareness
   summary: string;
   urgency: "low" | "medium" | "high" | null; // null for irrelevant
   confidence: number;
@@ -195,7 +196,11 @@ Classify each message into one of three categories:
 
 **action_required** — The recipient needs to perform a concrete action: respond to a question, complete a task, make a decision, attend a meeting, review a document, follow up on something, approve/reject something. The action must be relevant to legitimate business operations — not personal purchases, spam, or solicitations.
 
-**awareness** — The recipient should know about this but doesn't need to do anything specific. They are CC'd or BCC'd with no direct ask. It's a status update, FYI, or informational share relevant to their work. Includes meeting notes they weren't actioned on, announcements, or context they may need later.
+**awareness** — The recipient should know about this but no one is directly asking them to do anything. They are CC'd or BCC'd, it's a status update, FYI, or informational share.
+
+For each awareness message, you must ALSO sub-classify as:
+- **informational** — Routine updates requiring no thought: meeting acceptances, calendar reminders, read receipts, auto-generated status updates, system notifications, newsletter digests, booking confirmations, schedule changes with no impact. The person would glance at this and move on in seconds.
+- **strategic** — Information with business implications the person should consider: being CC'd on sensitive or escalating communications, competitor mentions, client behavior changes, organizational announcements affecting their work, financial signals, staffing changes, compliance deadlines, partner/vendor issues. Even though no one explicitly asked them to act, a thoughtful business leader would want to think about whether to respond or take preventive action.
 
 **irrelevant** — This has nothing to do with the recipient's work responsibilities. Spam, marketing solicitations, newsletters they didn't subscribe to for work purposes, automated system notifications with no actionable content, social/casual messages with no work relevance, promotional offers (gambling, personal shopping, etc).
 
@@ -204,7 +209,7 @@ For each message, also assess:
 - **confidence** (0.0-1.0) — how confident you are in the classification
 - **reasoning** — one sentence explaining why you chose this classification
 
-For each message classified as "action_required", you must ALSO classify it against the situation archetype taxonomy. Pick the single best-matching archetype slug. If no archetype fits well, use "unclassified".
+For each message classified as "action_required" OR as "awareness" with awarenessType "strategic", you must ALSO classify it against the situation archetype taxonomy. Pick the single best-matching archetype slug. If no archetype fits well, use "unclassified".
 
 SITUATION ARCHETYPE TAXONOMY:
 ${taxonomy}
@@ -251,6 +256,7 @@ For each message, respond with:
   {
     "messageIndex": 0,
     "classification": "action_required" | "awareness" | "irrelevant",
+    "awarenessType": "informational" | "strategic" | null,
     "summary": "Brief description (1-2 sentences). For awareness: what the person should know. For irrelevant: why it doesn't matter.",
     "urgency": "low" | "medium" | "high" | null,
     "confidence": 0.0-1.0,
@@ -258,8 +264,8 @@ For each message, respond with:
     "updatedSummary": "If related to existing situation, the updated summary, or null",
     "evidence": "The specific text that drove the classification",
     "reasoning": "One sentence: why this classification",
-    "archetypeSlug": "overdue_invoice | client_escalation | ... | unclassified (action_required only, null otherwise)",
-    "archetypeConfidence": "0.0-1.0 (action_required only, null otherwise)"
+    "archetypeSlug": "overdue_invoice | client_escalation | ... | unclassified (action_required and strategic awareness only, null otherwise)",
+    "archetypeConfidence": "0.0-1.0 (action_required and strategic awareness only, null otherwise)"
   }
 ]`;
 
@@ -285,6 +291,9 @@ For each message, respond with:
     classification: (["action_required", "awareness", "irrelevant"].includes(r.classification as string)
       ? r.classification
       : r.actionRequired === true ? "action_required" : "irrelevant") as "action_required" | "awareness" | "irrelevant",
+    awarenessType: r.classification === "awareness"
+      ? (["informational", "strategic"].includes(r.awarenessType as string) ? r.awarenessType as "informational" | "strategic" : "informational")
+      : null,
     summary: String(r.summary ?? ""),
     urgency: r.urgency === null ? null : (["low", "medium", "high"].includes(r.urgency as string)
       ? r.urgency
@@ -294,10 +303,12 @@ For each message, respond with:
     updatedSummary: r.updatedSummary ? String(r.updatedSummary) : null,
     evidence: String(r.evidence ?? ""),
     reasoning: String(r.reasoning ?? ""),
-    archetypeSlug: r.classification === "action_required" && typeof r.archetypeSlug === "string"
+    archetypeSlug: (r.classification === "action_required" || (r.classification === "awareness" && r.awarenessType === "strategic"))
+      && typeof r.archetypeSlug === "string"
       ? r.archetypeSlug
       : null,
-    archetypeConfidence: r.classification === "action_required" && typeof r.archetypeConfidence === "number"
+    archetypeConfidence: (r.classification === "action_required" || (r.classification === "awareness" && r.awarenessType === "strategic"))
+      && typeof r.archetypeConfidence === "number"
       ? r.archetypeConfidence
       : null,
   }));
@@ -429,7 +440,9 @@ async function handleActionRequired(
   }
 
   // Safety: don't create multiple situations for the same actor from one batch
-  const dedupeKey = `${batch.actorEntityId}:${result.summary.slice(0, 50)}`;
+  const dedupeKey = result.archetypeSlug && result.archetypeSlug !== "unclassified"
+    ? `${batch.actorEntityId}:archetype:${result.archetypeSlug}`
+    : `${batch.actorEntityId}:${result.summary.slice(0, 50)}`;
   if (createdInBatch.has(dedupeKey)) return;
 
   // Cross-mechanism dedup: check if entity-based detection already created
@@ -604,6 +617,7 @@ async function logEvaluation(
       sourceType: item?.sourceType ?? "unknown",
       sourceId: item?.sourceId ?? "unknown",
       classification: result.classification,
+      awarenessType: result.awarenessType ?? null,
       summary: result.summary || null,
       reasoning: result.reasoning || null,
       urgency: result.urgency,
@@ -673,78 +687,170 @@ async function handleAwareness(
     }
   }
 
-  // Dedup
-  const dedupeKey = `${batch.actorEntityId}:awareness:${result.summary.slice(0, 50)}`;
-  if (createdInBatch.has(dedupeKey)) return;
+  if (result.awarenessType === "strategic") {
+    // Strategic awareness → create real situation with reasoning, same as action_required
+    const dedupeKey = result.archetypeSlug && result.archetypeSlug !== "unclassified"
+      ? `${batch.actorEntityId}:strategic:archetype:${result.archetypeSlug}`
+      : `${batch.actorEntityId}:strategic:${result.summary.slice(0, 50)}`;
+    if (createdInBatch.has(dedupeKey)) return;
 
-  // Resolve department
-  const departmentId = batch.departmentId
-    ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0];
-  if (!departmentId) return;
-
-  const situationTypeId = await ensureAwarenessType(operatorId, departmentId);
-
-  const { raw: awarenessSenderRaw, name: awarenessSenderName } = extractSenderName(meta);
-  const awarenessTriggerSummary = `${awarenessSenderName}${meta.subject ? ` re: ${meta.subject}` : ""} — ${result.summary}`.slice(0, 300);
-
-  const awarenessTriggerEvidence = JSON.stringify({
-    type: "content",
-    sourceType: item.sourceType,
-    sourceId: item.sourceId,
-    sender: awarenessSenderRaw,
-    subject: meta.subject ?? null,
-    date: meta.date ?? new Date().toISOString(),
-    content: item.content.slice(0, 2000),
-    summary: result.summary,
-    classification: "awareness",
-  });
-
-  // Create situation at lowest possible severity and confidence
-  const situation = await prisma.situation.create({
-    data: {
-      operatorId,
-      situationTypeId,
-      triggerEntityId: batch.actorEntityId,
-      source: "content_detected",
-      status: "resolved", // Pre-resolved — no action needed
-      confidence: result.confidence ?? 0.3,
-      severity: 0.1, // Lowest priority
-      triggerEvidence: awarenessTriggerEvidence,
-      triggerSummary: awarenessTriggerSummary,
-      contextSnapshot: JSON.stringify({
-        contentEvidence: [{
+    // Cross-mechanism dedup (same as handleActionRequired)
+    if (result.archetypeSlug && result.archetypeSlug !== "unclassified") {
+      const existingSituation = await prisma.situation.findFirst({
+        where: {
+          operatorId,
+          triggerEntityId: batch.actorEntityId,
+          status: { notIn: ["resolved", "closed"] },
+          situationType: { archetypeSlug: result.archetypeSlug },
+        },
+      });
+      if (existingSituation) {
+        // Enrich existing situation context instead of creating duplicate
+        const existing = await prisma.situation.findUnique({
+          where: { id: existingSituation.id },
+          select: { contextSnapshot: true },
+        });
+        let snapshot: Record<string, unknown> = {};
+        if (existing?.contextSnapshot) {
+          try { snapshot = JSON.parse(existing.contextSnapshot as string); } catch {}
+        }
+        const evidenceArr = Array.isArray(snapshot.contentEvidence)
+          ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
+          : [];
+        evidenceArr.push({
           sourceId: item.sourceId,
           sourceType: item.sourceType,
           sender: meta.from ?? meta.authorEmail ?? "unknown",
           subject: meta.subject ?? null,
           date: meta.date ?? new Date().toISOString(),
           summary: result.summary,
-          classification: "awareness",
-        }],
-        currentSummary: result.summary,
-      }),
-      reasoning: JSON.stringify({
-        analysis: result.summary,
-        classification: "awareness",
-        reasoning: result.reasoning,
-        actionPlan: null, // No action needed
-      }),
-    },
+          evidence: result.evidence,
+          classification: "strategic_awareness",
+        });
+        snapshot.contentEvidence = evidenceArr;
+        await prisma.situation.update({
+          where: { id: existingSituation.id },
+          data: { contextSnapshot: JSON.stringify(snapshot) },
+        });
+        await prisma.evaluationLog.updateMany({
+          where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+          data: { situationId: existingSituation.id },
+        }).catch(() => {});
+        createdInBatch.add(dedupeKey);
+        console.log(`[content-detection] Strategic awareness: enriched existing situation ${existingSituation.id}`);
+        return;
+      }
+    }
+
+    // Resolve department
+    const departmentId = batch.departmentId
+      ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0];
+    if (!departmentId) {
+      console.warn("[content-detection] No department resolved for strategic awareness, skipping");
+      return;
+    }
+
+    // Route to archetype type or generic awareness type
+    const situationTypeId = result.archetypeSlug && result.archetypeSlug !== "unclassified" && result.archetypeConfidence && result.archetypeConfidence >= 0.6
+      ? await ensureArchetypeSituationType(operatorId, departmentId, result.archetypeSlug)
+      : await ensureAwarenessType(operatorId, departmentId);
+
+    const { raw: senderRaw, name: senderName } = extractSenderName(meta);
+    const subjectStr = meta.subject ? ` re: ${meta.subject}` : "";
+    const triggerSummary = `${senderName}${subjectStr} — ${result.summary}`.slice(0, 300);
+
+    const triggerEvidence = JSON.stringify({
+      type: "content",
+      sourceType: item.sourceType,
+      sourceId: item.sourceId,
+      sender: senderRaw,
+      subject: meta.subject ?? null,
+      date: meta.date ?? new Date().toISOString(),
+      content: item.content.slice(0, 2000),
+      summary: result.summary,
+      evidence: result.evidence,
+      reasoning: result.reasoning,
+      urgency: result.urgency,
+      classification: "strategic_awareness",
+    });
+
+    const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.5;
+
+    const situation = await prisma.situation.create({
+      data: {
+        operatorId,
+        situationTypeId,
+        triggerEntityId: batch.actorEntityId,
+        source: "content_detected",
+        status: "detected",  // Goes through reasoning — NOT pre-resolved
+        confidence,
+        severity: 0.3, // Lower than action_required (0.5) but not negligible
+        triggerEvidence,
+        triggerSummary,
+        contextSnapshot: JSON.stringify({
+          contentEvidence: [{
+            sourceId: item.sourceId,
+            sourceType: item.sourceType,
+            sender: meta.from ?? meta.authorEmail ?? "unknown",
+            subject: meta.subject ?? null,
+            date: meta.date ?? new Date().toISOString(),
+            summary: result.summary,
+            evidence: result.evidence,
+            classification: "strategic_awareness",
+          }],
+        }),
+      },
+    });
+
+    createdInBatch.add(dedupeKey);
+
+    await prisma.evaluationLog.updateMany({
+      where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+      data: { situationId: situation.id },
+    }).catch(() => {});
+
+    // Track free detection
+    import("@/lib/situation-detector")
+      .then((m) => m.trackFreeDetection(operatorId))
+      .catch(console.error);
+
+    await prisma.situationType.update({
+      where: { id: situationTypeId },
+      data: { detectedCount: { increment: 1 } },
+    }).catch(() => {});
+    checkConfirmationRate(situationTypeId).catch(console.error);
+
+    // Enqueue reasoning — the reasoning engine will decide if action is warranted
+    enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }).catch((err) =>
+      console.error("[content-detection] Failed to enqueue strategic awareness reasoning:", err),
+    );
+
+    console.log(`[content-detection] Created strategic awareness situation for ${batch.actorName}: ${result.summary}`);
+    return;
+  }
+
+  // Informational awareness → notification only, no situation created
+  const dedupeKey = `${batch.actorEntityId}:informational:${item.sourceId}`;
+  if (createdInBatch.has(dedupeKey)) return;
+
+  const { sendNotificationToAdmins } = await import("@/lib/notification-dispatch");
+
+  const { name: senderName } = extractSenderName(meta);
+  const notifTitle = `${senderName}${meta.subject ? ` — ${meta.subject}` : ""}`;
+  const notifBody = result.summary;
+
+  await sendNotificationToAdmins({
+    operatorId,
+    type: "awareness_informational",
+    title: notifTitle.slice(0, 200),
+    body: notifBody.slice(0, 500),
+    sourceType: "awareness",
+    sourceId: item.sourceId,
   });
 
   createdInBatch.add(dedupeKey);
 
-  // Link evaluation log
-  await prisma.evaluationLog.updateMany({
-    where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
-    data: { situationId: situation.id },
-  }).catch(() => {});
-
-  // No notification for awareness items — they surface passively in the feed
-  // No reasoning enqueue — already resolved
-  // No free tier tracking — awareness items don't count toward the 50-situation cap
-
-  console.log(`[content-detection] Created awareness situation for ${batch.actorName}: ${result.summary}`);
+  console.log(`[content-detection] Routed informational awareness to notification for ${batch.actorName}: ${result.summary}`);
 }
 
 // ── Main Entry Point ─────────────────────────────────────────────────────────

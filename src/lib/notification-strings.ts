@@ -46,6 +46,10 @@ export const notificationStrings: Record<string, NotificationTemplates> = {
       title: ctx.name || "System alert",
       body: ctx.summary || "A system alert requires your attention.",
     }),
+    awareness_informational: (ctx) => ({
+      title: ctx.title || "Awareness update",
+      body: ctx.body || "",
+    }),
   },
   da: {
     situation_proposed: (ctx) => ({
@@ -91,6 +95,10 @@ export const notificationStrings: Record<string, NotificationTemplates> = {
     system_alert: (ctx) => ({
       title: ctx.name || "Systemadvarsel",
       body: ctx.summary || "En systemadvarsel kræver din opmærksomhed.",
+    }),
+    awareness_informational: (ctx) => ({
+      title: ctx.title || "Opdatering",
+      body: ctx.body || "",
     }),
   },
 };

@@ -24,6 +24,10 @@ interface AnalysisProgress {
   synthesisOutput?: unknown;
   uncertaintyLog?: unknown;
   failureReason?: string;
+  postSynthesisStatus?: string | null;
+  situationCount?: number;
+  entityCount?: number;
+  relationshipCount?: number;
 }
 
 interface StepAnalysisProps {
@@ -35,7 +39,7 @@ interface StepAnalysisProps {
 /*  Phase label mapping                                                 */
 /* ------------------------------------------------------------------ */
 
-function getPhaseLabel(phase: string, t: ReturnType<typeof useTranslations>) {
+function getPhaseLabel(phase: string, t: ReturnType<typeof useTranslations>, messageCount?: number) {
   switch (phase) {
     case "idle":
     case "syncing":
@@ -43,14 +47,18 @@ function getPhaseLabel(phase: string, t: ReturnType<typeof useTranslations>) {
     case "round_0":
       return t("discovering");
     case "round_1":
-      return t("specialistAgents", { count: 5 });
+      return messageCount && messageCount > 3
+        ? `${messageCount} AI calls completed — researching your company...`
+        : t("specialistAgents", { count: 5 });
     case "organizer_1":
     case "round_2":
     case "organizer_2":
     case "round_3":
-      return t("crossReferencing");
+      return messageCount && messageCount > 5
+        ? `${messageCount} AI calls completed — cross-referencing findings...`
+        : t("crossReferencing");
     case "synthesis":
-      return t("almostDone");
+      return "Synthesizing findings into your operational map...";
     default:
       return t("syncing");
   }
@@ -120,11 +128,15 @@ export function StepAnalysis({ onComplete, demoMode }: StepAnalysisProps) {
       setProgress(data);
 
       if (data.status === "confirming" || data.status === "complete") {
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
+        // Don't advance until post-synthesis pipeline has finished building the situation feed
+        if (data.postSynthesisStatus === "completed" || data.postSynthesisStatus === "failed") {
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+          onComplete();
         }
-        onComplete();
+        // Otherwise keep polling — pipeline is still running
       } else if (data.status === "failed") {
         if (pollRef.current) {
           clearInterval(pollRef.current);
@@ -205,8 +217,13 @@ export function StepAnalysis({ onComplete, demoMode }: StepAnalysisProps) {
             // Analysis already in progress or done — skip sync/start, just poll
             setSyncPhase("done");
             setProgress(existing);
-            if (existing.status === "confirming" || existing.status === "complete") {
+            if ((existing.status === "confirming" || existing.status === "complete") &&
+                (existing.postSynthesisStatus === "completed" || existing.postSynthesisStatus === "failed")) {
               onComplete();
+              return;
+            } else if (existing.status === "analyzing" || existing.status === "confirming") {
+              // Still in progress — start polling
+              pollRef.current = setInterval(pollProgress, 3000);
               return;
             }
             pollRef.current = setInterval(pollProgress, 3000);
@@ -302,18 +319,34 @@ export function StepAnalysis({ onComplete, demoMode }: StepAnalysisProps) {
             </svg>
           </div>
           <p className="text-sm text-accent/80 font-medium">
-            {syncPhase === "syncing" ? t("syncing") : getPhaseLabel(phase, t)}
+            {syncPhase === "syncing"
+              ? t("syncing")
+              : (progress?.status === "confirming" && progress?.postSynthesisStatus !== "completed")
+                ? (t("buildingSituations") ?? "Building your situation feed…")
+                : getPhaseLabel(phase, t, messages.length)}
           </p>
           {/* Progress bar */}
           <div className="w-full max-w-xs">
             <div className="h-1.5 rounded-full bg-skeleton overflow-hidden">
               <div
-                className="h-full rounded-full bg-accent/60 transition-all duration-1000 ease-out"
-                style={{ width: `${getPhaseProgress(phase)}%` }}
+                className="h-full rounded-full transition-all duration-1000 ease-out"
+                style={{
+                  width: `${
+                    progress?.status === "confirming" && progress?.postSynthesisStatus !== "completed"
+                      ? 95
+                      : getPhaseProgress(phase)
+                  }%`,
+                  background: "#ffffff",
+                  boxShadow: "0 0 12px rgba(255, 255, 255, 0.4), 0 0 4px rgba(255, 255, 255, 0.6)",
+                }}
               />
             </div>
           </div>
-          <p className="text-xs text-[var(--fg3)]">{getEstimateLabel(phase, progress?.contentChunkCount, t)}</p>
+          <p className="text-xs text-[var(--fg2)]">
+            {progress?.status === "confirming" && progress?.postSynthesisStatus !== "completed"
+              ? (t("estimatePostSynthesis") ?? "Just a few more minutes…")
+              : getEstimateLabel(phase, progress?.contentChunkCount, t)}
+          </p>
         </div>
       )}
 

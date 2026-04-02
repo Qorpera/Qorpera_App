@@ -88,7 +88,7 @@ export async function POST(request: Request) {
 
   // Only enqueue detection if post-synthesis pipeline hasn't already run it
   const existingPipelineJob = await prisma.workerJob.findFirst({
-    where: { operatorId, jobType: "post_synthesis_pipeline", status: "completed" },
+    where: { operatorId, jobType: "post_synthesis_pipeline" },
   });
 
   let detectionJobsQueued = 0;

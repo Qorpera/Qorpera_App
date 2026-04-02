@@ -11,6 +11,7 @@ import { captureApiError } from "@/lib/api-error";
 import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 import { extractJSON } from "@/lib/json-helpers";
 import { parseCitedSections } from "@/lib/reasoning/citation-parser";
+import { generateSituationSummaries } from "@/lib/situation-summarizer";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
 export const REASONING_PROMPT_VERSION = 5; // v5: capability binding, email drafting, params population
@@ -347,6 +348,11 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
 
       await createSituationCycle(situationId, situation, reasoning, updates.executionPlanId as string | undefined);
 
+      // Generate Haiku summaries (fire-and-forget — non-blocking)
+      generateSituationSummaries(situationId).catch(err =>
+        console.error(`[reasoning-engine] Summary generation failed for ${situationId}:`, err)
+      );
+
       // Workstream absorption: link situation to related workstream
       if (reasoning.relatedWorkStreamId) {
         absorbSituationIntoWorkStream(situationId, reasoning.relatedWorkStreamId, situation.operatorId).catch(err =>
@@ -647,6 +653,11 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     });
 
     await createSituationCycle(situationId, situation, reasoning, updates.executionPlanId as string | undefined);
+
+    // Generate Haiku summaries (fire-and-forget — non-blocking)
+    generateSituationSummaries(situationId).catch(err =>
+      console.error(`[reasoning-engine] Summary generation failed for ${situationId}:`, err)
+    );
 
     // Workstream absorption: link situation to related workstream
     if (reasoning.relatedWorkStreamId) {

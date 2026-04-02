@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { formatDate } from "@/lib/format-helpers";
 import type { PreviewProps } from "./get-preview-component";
@@ -9,6 +9,14 @@ function CalendarIcon({ size = 14, className = "" }: { size?: number; className?
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M8 2v4M16 2v4" /><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M3 10h18" />
+    </svg>
+  );
+}
+
+function PencilIcon({ size = 11, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
     </svg>
   );
 }
@@ -22,15 +30,48 @@ function durationMinutes(start: string, end: string): number {
   return Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000);
 }
 
-export function CalendarEventPreview({ step, locale }: PreviewProps) {
+function toLocalDatetimeValue(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.getFullYear() + "-" +
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0") + "T" +
+      String(d.getHours()).padStart(2, "0") + ":" +
+      String(d.getMinutes()).padStart(2, "0");
+  } catch {
+    return iso;
+  }
+}
+
+const editInputStyle = {
+  fontSize: 13,
+  color: "var(--foreground)",
+  background: "color-mix(in srgb, var(--accent) 8%, transparent)",
+  border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)",
+  borderRadius: 3,
+  padding: "2px 6px",
+} as const;
+
+type EditableField = "title" | "startTime" | "endTime" | "location" | "attendees";
+
+export function CalendarEventPreview({ step, isEditable, onParametersUpdate, locale }: PreviewProps) {
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
   const [showAll, setShowAll] = useState(false);
+  const [editingField, setEditingField] = useState<EditableField | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const title = (params.title ?? "") as string;
-  const startTime = (params.startTime ?? "") as string;
-  const endTime = (params.endTime ?? "") as string;
-  const attendees = (params.attendees ?? []) as string[];
+  // Resolve flexible param keys
+  const titleKey = params.summary !== undefined ? "summary" : "title";
+  const title = (params.summary ?? params.title ?? "") as string;
+  const startKey = params.startDateTime !== undefined ? "startDateTime" : "startTime";
+  const startTime = (params.startDateTime ?? params.startTime ?? "") as string;
+  const endKey = params.endDateTime !== undefined ? "endDateTime" : "endTime";
+  const endTime = (params.endDateTime ?? params.endTime ?? "") as string;
+  const attendeesKey = params.attendeeEmails !== undefined ? "attendeeEmails" : "attendees";
+  const attendees = (params.attendeeEmails ?? params.attendees ?? []) as string[];
   const location = (params.location ?? "") as string;
 
   const hasTimes = startTime && endTime;
@@ -38,6 +79,97 @@ export function CalendarEventPreview({ step, locale }: PreviewProps) {
   const shouldCollapse = attendees.length > 5;
   const visibleAttendees = showAll || !shouldCollapse ? attendees : attendees.slice(0, 4);
   const hiddenCount = attendees.length - 4;
+
+  useEffect(() => {
+    if (editingField === "attendees") textareaRef.current?.focus();
+    else inputRef.current?.focus();
+  }, [editingField]);
+
+  function startEdit(field: EditableField) {
+    if (!isEditable) return;
+    setEditingField(field);
+    if (field === "attendees") {
+      setEditValue(attendees.join(", "));
+    } else if (field === "startTime") {
+      setEditValue(startTime ? toLocalDatetimeValue(startTime) : "");
+    } else if (field === "endTime") {
+      setEditValue(endTime ? toLocalDatetimeValue(endTime) : "");
+    } else if (field === "title") {
+      setEditValue(title);
+    } else {
+      setEditValue(location);
+    }
+  }
+
+  function saveEdit() {
+    if (!editingField || !onParametersUpdate) return;
+    if (editingField === "attendees") {
+      const emails = editValue.split(/[,;\n]/).map(e => e.trim()).filter(Boolean);
+      onParametersUpdate({ ...params, [attendeesKey]: emails });
+    } else if (editingField === "startTime") {
+      onParametersUpdate({ ...params, [startKey]: editValue ? new Date(editValue).toISOString() : "" });
+    } else if (editingField === "endTime") {
+      onParametersUpdate({ ...params, [endKey]: editValue ? new Date(editValue).toISOString() : "" });
+    } else if (editingField === "title") {
+      onParametersUpdate({ ...params, [titleKey]: editValue });
+    } else {
+      onParametersUpdate({ ...params, location: editValue });
+    }
+    setEditingField(null);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && editingField !== "attendees") {
+      e.preventDefault();
+      saveEdit();
+    } else if (e.key === "Escape") {
+      setEditingField(null);
+    }
+  }
+
+  function renderField(label: string, field: EditableField, displayContent: React.ReactNode, inputType: "text" | "datetime-local" | "textarea" = "text") {
+    const isEditing = editingField === field;
+
+    return (
+      <div className="flex items-baseline gap-2 group">
+        <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{label}</span>
+        {isEditing ? (
+          inputType === "textarea" ? (
+            <textarea
+              ref={textareaRef}
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              onKeyDown={handleKeyDown}
+              rows={3}
+              style={{ ...editInputStyle, width: "100%", resize: "vertical" }}
+            />
+          ) : (
+            <input
+              ref={inputRef}
+              type={inputType}
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              onKeyDown={handleKeyDown}
+              style={{ ...editInputStyle, width: inputType === "datetime-local" ? "auto" : "100%" }}
+            />
+          )
+        ) : (
+          <span
+            className={isEditable ? "cursor-pointer" : ""}
+            style={{ fontSize: 13, color: "var(--muted)" }}
+            onClick={() => startEdit(field)}
+          >
+            {displayContent}
+            {isEditable && (
+              <PencilIcon size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+            )}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-md overflow-hidden border border-border bg-surface">
@@ -49,23 +181,47 @@ export function CalendarEventPreview({ step, locale }: PreviewProps) {
 
       <div className="px-4 py-3 space-y-2.5">
         {/* Title */}
-        <p style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>{title}</p>
+        {editingField === "title" ? (
+          <input
+            ref={inputRef}
+            value={editValue}
+            onChange={e => setEditValue(e.target.value)}
+            onBlur={saveEdit}
+            onKeyDown={handleKeyDown}
+            style={{ ...editInputStyle, width: "100%", fontSize: 15, fontWeight: 600 }}
+          />
+        ) : (
+          <p
+            className={`group ${isEditable ? "cursor-pointer" : ""}`}
+            style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}
+            onClick={() => startEdit("title")}
+          >
+            {title}
+            {isEditable && (
+              <PencilIcon size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+            )}
+          </p>
+        )}
 
         {/* Date & Time */}
         {hasTimes && (
-          <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("dateTime")}</span>
-            <span style={{ fontSize: 13, color: "var(--muted)" }}>
-              {formatDate(startTime, locale)} &middot; {formatTime(startTime, locale)} – {formatTime(endTime, locale)}
-            </span>
-          </div>
+          <>
+            {renderField(t("dateTime"), "startTime",
+              <>{formatDate(startTime, locale)} &middot; {formatTime(startTime, locale)}</>,
+              "datetime-local",
+            )}
+            {renderField(t("duration") ?? "End", "endTime",
+              <>{formatTime(endTime, locale)}</>,
+              "datetime-local",
+            )}
+          </>
         )}
 
-        {/* Duration */}
-        {hasTimes && mins > 0 && (
+        {/* Duration display */}
+        {hasTimes && mins > 0 && !editingField && (
           <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("duration")}</span>
-            <span style={{ fontSize: 13, color: "var(--muted)" }}>
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>&nbsp;</span>
+            <span style={{ fontSize: 12, color: "var(--fg3)" }}>
               {mins >= 60
                 ? (mins % 60 > 0
                   ? `${t("hours", { count: Math.floor(mins / 60) })} ${t("minutes", { count: mins % 60 })}`
@@ -76,33 +232,49 @@ export function CalendarEventPreview({ step, locale }: PreviewProps) {
         )}
 
         {/* Attendees */}
-        {attendees.length > 0 && (
-          <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("attendees")}</span>
-            <div>
-              <span style={{ fontSize: 13, color: "var(--muted)" }}>
-                {visibleAttendees.join(", ")}
-              </span>
-              {!showAll && shouldCollapse && (
-                <button
-                  onClick={() => setShowAll(true)}
-                  className="ml-1.5 hover:text-accent transition-colors"
-                  style={{ fontSize: 12, color: "var(--accent)" }}
-                >
-                  {t("moreAttendees", { count: hiddenCount })}
-                </button>
-              )}
+        {(attendees.length > 0 || isEditable) && (
+          editingField === "attendees" ? (
+            <div className="flex items-baseline gap-2">
+              <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("attendees")}</span>
+              <textarea
+                ref={textareaRef}
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onBlur={saveEdit}
+                onKeyDown={handleKeyDown}
+                rows={3}
+                style={{ ...editInputStyle, width: "100%", resize: "vertical" }}
+              />
             </div>
-          </div>
+          ) : (
+            <div className="flex items-baseline gap-2 group">
+              <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("attendees")}</span>
+              <div
+                className={isEditable ? "cursor-pointer" : ""}
+                onClick={() => startEdit("attendees")}
+              >
+                <span style={{ fontSize: 13, color: "var(--muted)" }}>
+                  {visibleAttendees.join(", ")}
+                </span>
+                {!showAll && shouldCollapse && (
+                  <button
+                    onClick={e => { e.stopPropagation(); setShowAll(true); }}
+                    className="ml-1.5 hover:text-accent transition-colors"
+                    style={{ fontSize: 12, color: "var(--accent)" }}
+                  >
+                    {t("moreAttendees", { count: hiddenCount })}
+                  </button>
+                )}
+                {isEditable && (
+                  <PencilIcon size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+                )}
+              </div>
+            </div>
+          )
         )}
 
         {/* Location */}
-        {location && (
-          <div className="flex items-baseline gap-2">
-            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("location")}</span>
-            <span style={{ fontSize: 13, color: "var(--muted)" }}>{location}</span>
-          </div>
-        )}
+        {(location || isEditable) && renderField(t("location"), "location", location || "—")}
       </div>
     </div>
   );

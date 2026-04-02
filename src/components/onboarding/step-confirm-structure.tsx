@@ -724,11 +724,12 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
             )}
 
             {chatMessages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap ${
+              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                style={msg.role === "assistant" ? { animation: "fadeSlideIn 0.3s ease-out" } : undefined}>
+                <div className={`max-w-[85%] text-sm whitespace-pre-wrap ${
                   msg.role === "user"
-                    ? "bg-accent text-white rounded-br-md"
-                    : "bg-hover text-foreground rounded-bl-md"
+                    ? "rounded-2xl rounded-br-md bg-accent text-white px-4 py-3"
+                    : "text-foreground px-1 py-1"
                 }`}>
                   {msg.content || (chatStreaming && i === chatMessages.length - 1 ? (
                     <span className="inline-block w-2 h-4 bg-[var(--fg3)] animate-pulse rounded-sm" />
@@ -739,7 +740,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
 
             {chatStreaming && chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === "user" && (
               <div className="flex justify-start">
-                <div className="bg-hover rounded-2xl rounded-bl-md px-4 py-3">
+                <div className="px-1 py-1">
                   <span className="inline-block w-2 h-4 bg-[var(--fg3)] animate-pulse rounded-sm" />
                 </div>
               </div>

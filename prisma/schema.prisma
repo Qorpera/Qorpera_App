@@ -510,6 +510,7 @@ model Situation {
   contextSnapshot String?  // JSON - entities, events, priors
   triggerEvidence  String?  // JSON - the raw evidence that caused detection
   triggerSummary   String?  // Human-readable 1-2 sentence headline
+  resumeSummary    String?  // Haiku-generated cumulative situation briefing (only for 2+ cycle situations)
   triggerEntityId String?   // the primary entity this situation is about
   triggerEventId  String?
   assignedUserId  String?
@@ -1192,6 +1193,7 @@ model SituationCycle {
   cycleNumber     Int
   triggerType     String    // "detection", "response_received", "timeout", "manual", "signal"
   triggerSummary  String    // Human-readable: "No response after 3 days", "Reply received from accounting@nygade.dk"
+  cycleSummary    String?   // Haiku-generated plain-language summary of what happened in this cycle
   triggerData     Json?     // Raw trigger context (email content, signal data, etc.)
   reasoning       Json?     // The reasoning output JSON for this cycle
   executionPlanId String?   @unique
@@ -1214,6 +1216,7 @@ model EvaluationLog {
   sourceType      String   // "email" | "slack_message" | "teams_message"
   sourceId        String   // External message ID
   classification  String   // "action_required" | "awareness" | "irrelevant"
+  awarenessType   String?  // "informational" | "strategic" (only for awareness classification)
   summary         String?  // LLM-generated summary of the item
   reasoning       String?  // Why the LLM classified it this way
   urgency         String?  // "low" | "medium" | "high" (null for irrelevant)

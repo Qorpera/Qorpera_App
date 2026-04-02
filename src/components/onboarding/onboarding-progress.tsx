@@ -24,7 +24,7 @@ export function OnboardingProgress({ step }: OnboardingProgressProps) {
                     isComplete
                       ? "bg-green-500 text-black"
                       : isCurrent
-                        ? "bg-accent text-white ring-2 ring-[color-mix(in_srgb,var(--accent)_40%,transparent)]"
+                        ? "bg-accent text-accent-ink ring-2 ring-[color-mix(in_srgb,var(--accent)_40%,transparent)]"
                         : "bg-skeleton text-[var(--fg3)]"
                   }`}
                 >

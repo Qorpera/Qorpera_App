@@ -16,6 +16,7 @@ export const NOTIFICATION_TYPES = [
   "system_alert",
   "graduation_proposal",
   "policy_applied",
+  "awareness_informational",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -36,6 +37,7 @@ const DEFAULT_CHANNELS: Record<NotificationType, NotificationChannel> = {
   system_alert: "both",
   graduation_proposal: "both",
   policy_applied: "in_app",
+  awareness_informational: "in_app",
 };
 
 export function getDefaultChannel(type: NotificationType): NotificationChannel {
