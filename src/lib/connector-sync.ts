@@ -84,7 +84,15 @@ export async function runConnectorSync(
   const communicationBatch: CommunicationItem[] = [];
 
   try {
-    const since = connector.lastSyncAt ?? undefined;
+    // Document providers (Google Drive, OneDrive) should crawl full history on
+    // first sync; operational providers get a 30-day initial window to avoid
+    // pulling years of stale transactional data.
+    const FULL_HISTORY_PROVIDERS = new Set(["google", "google-sheets", "microsoft"]);
+    const since = connector.lastSyncAt
+      ? new Date(connector.lastSyncAt)
+      : FULL_HISTORY_PROVIDERS.has(connector.provider)
+        ? undefined
+        : new Date(Date.now() - 30 * 86_400_000); // 30-day window for initial sync
 
     // Sync with retry for transient errors
     const p = provider; // non-null assertion for generator scope

@@ -24,9 +24,9 @@ model CreditTransaction {
   id                    String   @id @default(cuid())
   operatorId            String
   operator              Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  type                  String   // 'purchase' | 'auto_reload' | 'situation_deduction' | 'copilot_deduction' | 'adjustment'
-  amountCents           Int      // positive for credits added, negative for deductions
-  balanceAfter          Int      // balance snapshot after this transaction
+  type                  String // 'purchase' | 'auto_reload' | 'situation_deduction' | 'copilot_deduction' | 'adjustment'
+  amountCents           Int // positive for credits added, negative for deductions
+  balanceAfter          Int // balance snapshot after this transaction
   description           String?
   stripePaymentIntentId String?
   situationId           String?
@@ -39,100 +39,101 @@ model CreditTransaction {
 // ─── Core ────────────────────────────────────────────────
 
 model Operator {
-  id             String   @id @default(cuid())
-  displayName    String
-  email          String?
-  passwordHash   String?
-  companyName    String?
-  industry       String?
-  isTestOperator   Boolean  @default(false)
-  aiResponseStore  Boolean  @default(false)
-  createdAt        DateTime @default(now())
+  id              String   @id @default(cuid())
+  displayName     String
+  email           String?
+  passwordHash    String?
+  companyName     String?
+  industry        String?
+  isTestOperator  Boolean  @default(false)
+  aiResponseStore Boolean  @default(false)
+  createdAt       DateTime @default(now())
 
   // Stripe
-  stripeCustomerId           String?       @unique
-  billingStatus              BillingStatus @default(free)
-  billingStartedAt           DateTime?
+  stripeCustomerId String?       @unique
+  billingStatus    BillingStatus @default(free)
+  billingStartedAt DateTime?
 
   // Prepaid credit balance
-  balanceCents               Int       @default(0)
-  autoReloadEnabled          Boolean   @default(false)
-  autoReloadThresholdCents   Int       @default(500)
-  autoReloadAmountCents      Int       @default(2500)
-  stripePaymentMethodId      String?
+  balanceCents             Int     @default(0)
+  autoReloadEnabled        Boolean @default(false)
+  autoReloadThresholdCents Int     @default(500)
+  autoReloadAmountCents    Int     @default(2500)
+  stripePaymentMethodId    String?
 
   // Pricing (computed on the fly, kept for compatibility)
-  orchestrationFeeMultiplier Float     @default(0.50)
+  orchestrationFeeMultiplier Float @default(0.50)
 
   // Free tier caps
-  freeCopilotBudgetCents     Int       @default(500)
-  freeCopilotUsedCents       Int       @default(0)
-  freeDetectionStartedAt     DateTime?
-  freeDetectionSituationCount Int      @default(0)
+  freeCopilotBudgetCents      Int       @default(500)
+  freeCopilotUsedCents        Int       @default(0)
+  freeDetectionStartedAt      DateTime?
+  freeDetectionSituationCount Int       @default(0)
 
   // Emergency stop
-  aiPaused        Boolean   @default(false)
-  aiPausedAt      DateTime?
-  aiPausedById    String?
-  aiPausedReason  String?
+  aiPaused       Boolean   @default(false)
+  aiPausedAt     DateTime?
+  aiPausedById   String?
+  aiPausedReason String?
 
   // Usage budget (Limits page)
-  monthlyBudgetCents          Int?
-  budgetAlertThresholds       Json?
-  budgetHardStop              Boolean   @default(false)
-  budgetAlertsSentThisPeriod  Json?
-  budgetPeriodStart           DateTime?
+  monthlyBudgetCents         Int?
+  budgetAlertThresholds      Json?
+  budgetHardStop             Boolean   @default(false)
+  budgetAlertsSentThisPeriod Json?
+  budgetPeriodStart          DateTime?
 
-  invites           Invite[]
-  entityTypes       EntityType[]
-  entities          Entity[]
-  relationshipTypes RelationshipType[]
-  connectors             SourceConnector[]
-  slackChannelMappings   SlackChannelMapping[]
-  policyRules            PolicyRule[]
+  invites              Invite[]
+  entityTypes          EntityType[]
+  entities             Entity[]
+  relationshipTypes    RelationshipType[]
+  connectors           SourceConnector[]
+  slackChannelMappings SlackChannelMapping[]
+  policyRules          PolicyRule[]
   // v2: Situation-driven architecture
-  events              Event[]
-  situationTypes      SituationType[]
-  situations          Situation[]
-  orientationSessions OrientationSession[]
-  copilotMessages     CopilotMessage[]
-  actionCapabilities  ActionCapability[]
-  notifications       Notification[]
-  users               User[]
-  internalDocuments   InternalDocument[]
-  contentChunks       ContentChunk[]
-  activitySignals     ActivitySignal[]
-  entityMergeLogs     EntityMergeLog[]
-  personalAutonomies  PersonalAutonomy[]
+  events               Event[]
+  situationTypes       SituationType[]
+  situations           Situation[]
+  orientationSessions  OrientationSession[]
+  copilotMessages      CopilotMessage[]
+  actionCapabilities   ActionCapability[]
+  notifications        Notification[]
+  users                User[]
+  internalDocuments    InternalDocument[]
+  contentChunks        ContentChunk[]
+  activitySignals      ActivitySignal[]
+  entityMergeLogs      EntityMergeLog[]
+  personalAutonomies   PersonalAutonomy[]
   // v3: Goal-driven execution
-  goals               Goal[]
-  initiatives         Initiative[]
-  executionPlans      ExecutionPlan[]
+  goals                Goal[]
+  initiatives          Initiative[]
+  executionPlans       ExecutionPlan[]
   workStreams          WorkStream[]
-  delegations         Delegation[]
-  followUps           FollowUp[]
-  recurringTasks      RecurringTask[]
-  planAutonomies      PlanAutonomy[]
-  operationalInsights OperationalInsight[]
-  priorityOverrides   PriorityOverride[]
+  delegations          Delegation[]
+  followUps            FollowUp[]
+  recurringTasks       RecurringTask[]
+  planAutonomies       PlanAutonomy[]
+  operationalInsights  OperationalInsight[]
+  priorityOverrides    PriorityOverride[]
   appSettings          AppSetting[]
   onboardingAnalysis   OnboardingAnalysis?
   creditTransactions   CreditTransaction[]
   departmentHealth     DepartmentHealth[]
 
   // Deletion lifecycle (GDPR)
-  deletionRequestedAt  DateTime?
-  deletionScheduledFor DateTime?
+  deletionRequestedAt     DateTime?
+  deletionScheduledFor    DateTime?
+  foundationalDocStatuses FoundationalDocStatus[]
 }
 
 model User {
-  id           String   @id @default(cuid())
-  operatorId   String
-  operator     Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         String   @default("member") // "superadmin" | "admin" | "member"
+  id               String    @id @default(cuid())
+  operatorId       String
+  operator         Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  email            String    @unique
+  name             String
+  passwordHash     String
+  role             String    @default("member") // "superadmin" | "admin" | "member"
   entityId         String?   @unique // FK to Entity — the base entity this user represents in the org chart
   entity           Entity?   @relation(fields: [entityId], references: [id], onDelete: SetNull)
   locale           String    @default("en")
@@ -143,20 +144,20 @@ model User {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  sessions       Session[]
-  scopes         UserScope[]
-  invitesCreated Invite[]  @relation("InviteCreator")
-  connectors     SourceConnector[]
-  aiEntity       Entity?  @relation("AiEntity")
+  sessions                Session[]
+  scopes                  UserScope[]
+  invitesCreated          Invite[]                 @relation("InviteCreator")
+  connectors              SourceConnector[]
+  aiEntity                Entity?                  @relation("AiEntity")
   notificationPreferences NotificationPreference[]
-  priorityOverrides PriorityOverride[]
-  passwordResetTokens PasswordResetToken[]
-  contentChunks       ContentChunk[]
+  priorityOverrides       PriorityOverride[]
+  passwordResetTokens     PasswordResetToken[]
+  contentChunks           ContentChunk[]
 
   // Deletion / suspension (for content privacy lifecycle)
   deletionRequestedAt  DateTime?
   deletionScheduledFor DateTime?
-  accountSuspended     Boolean  @default(false)
+  accountSuspended     Boolean   @default(false)
 
   @@index([operatorId])
   @@index([entityId])
@@ -199,13 +200,13 @@ model EntityType {
   icon        String @default("box")
   color       String @default("#a855f7")
 
-  operator    Operator            @relation(fields: [operatorId], references: [id])
-  properties  EntityProperty[]
-  entities    Entity[]
-  fromLinks   RelationshipType[] @relation("FromType")
-  toLinks     RelationshipType[] @relation("ToType")
+  operator   Operator           @relation(fields: [operatorId], references: [id])
+  properties EntityProperty[]
+  entities   Entity[]
+  fromLinks  RelationshipType[] @relation("FromType")
+  toLinks    RelationshipType[] @relation("ToType")
 
-  defaultCategory     String    @default("digital")
+  defaultCategory String @default("digital")
 
   @@unique([operatorId, slug])
 }
@@ -222,48 +223,48 @@ model EntityProperty {
   enumValues   String? // JSON array for ENUM type
   identityRole String? // email, domain, phone
 
-  entityType EntityType          @relation(fields: [entityTypeId], references: [id], onDelete: Cascade)
+  entityType EntityType      @relation(fields: [entityTypeId], references: [id], onDelete: Cascade)
   values     PropertyValue[]
 
   @@unique([entityTypeId, slug])
 }
 
 model Entity {
-  id           String   @id @default(cuid())
-  entityTypeId String
-  operatorId   String
-  displayName  String
-  status       String   @default("active") // active, archived, merged
-  category     String   @default("digital")
+  id                 String   @id @default(cuid())
+  entityTypeId       String
+  operatorId         String
+  displayName        String
+  status             String   @default("active") // active, archived, merged
+  category           String   @default("digital")
   // Values: "foundational" | "base" | "internal" | "digital" | "external"
-  sourceSystem String?
-  externalId   String?
-  mergedIntoId String?
-  metadata     String?  // JSON
-  description  String?  // Department purpose one-liner
-  mapX         Float?   // For foundational entities: position on 2D map
-  mapY         Float?
+  sourceSystem       String?
+  externalId         String?
+  mergedIntoId       String?
+  metadata           String? // JSON
+  description        String? // Department purpose one-liner
+  mapX               Float? // For foundational entities: position on 2D map
+  mapY               Float?
   parentDepartmentId String?
-  ownerUserId      String?  @unique  // Only set on ai-agent entities — links to the owning User
-  ownerDepartmentId String? @unique  // Only set on department-ai entities
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  ownerUserId        String?  @unique // Only set on ai-agent entities — links to the owning User
+  ownerDepartmentId  String?  @unique // Only set on department-ai entities
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
-  entityType        EntityType          @relation(fields: [entityTypeId], references: [id])
-  operator          Operator            @relation(fields: [operatorId], references: [id])
-  mergedInto        Entity?             @relation("MergedEntities", fields: [mergedIntoId], references: [id])
-  mergedFrom        Entity[]            @relation("MergedEntities")
-  parentDepartment  Entity?             @relation("DepartmentMembers", fields: [parentDepartmentId], references: [id])
-  departmentMembers Entity[]            @relation("DepartmentMembers")
-  propertyValues    PropertyValue[]
-  mentions               EntityMention[]
-  slackChannelMappings   SlackChannelMapping[]
-  fromRelations          Relationship[] @relation("FromEntity")
-  toRelations       Relationship[] @relation("ToEntity")
-  internalDocument  InternalDocument? @relation("DocumentEntity")
-  user              User?   // A base entity can have at most one user account
-  ownerUser         User?   @relation("AiEntity", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  personalAutonomies PersonalAutonomy[]
+  entityType           EntityType            @relation(fields: [entityTypeId], references: [id])
+  operator             Operator              @relation(fields: [operatorId], references: [id])
+  mergedInto           Entity?               @relation("MergedEntities", fields: [mergedIntoId], references: [id])
+  mergedFrom           Entity[]              @relation("MergedEntities")
+  parentDepartment     Entity?               @relation("DepartmentMembers", fields: [parentDepartmentId], references: [id])
+  departmentMembers    Entity[]              @relation("DepartmentMembers")
+  propertyValues       PropertyValue[]
+  mentions             EntityMention[]
+  slackChannelMappings SlackChannelMapping[]
+  fromRelations        Relationship[]        @relation("FromEntity")
+  toRelations          Relationship[]        @relation("ToEntity")
+  internalDocument     InternalDocument?     @relation("DocumentEntity")
+  user                 User? // A base entity can have at most one user account
+  ownerUser            User?                 @relation("AiEntity", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  personalAutonomies   PersonalAutonomy[]
 
   @@index([operatorId, category])
   @@index([operatorId, parentDepartmentId])
@@ -297,17 +298,17 @@ model EntityMention {
 // ─── Relationships ───────────────────────────────────────
 
 model RelationshipType {
-  id              String @id @default(cuid())
-  operatorId      String
-  name            String
-  slug            String
+  id               String @id @default(cuid())
+  operatorId       String
+  name             String
+  slug             String
   fromEntityTypeId String
   toEntityTypeId   String
-  description     String @default("")
+  description      String @default("")
 
-  operator Operator    @relation(fields: [operatorId], references: [id])
-  fromType EntityType @relation("FromType", fields: [fromEntityTypeId], references: [id])
-  toType   EntityType @relation("ToType", fields: [toEntityTypeId], references: [id])
+  operator      Operator       @relation(fields: [operatorId], references: [id])
+  fromType      EntityType     @relation("FromType", fields: [fromEntityTypeId], references: [id])
+  toType        EntityType     @relation("ToType", fields: [toEntityTypeId], references: [id])
   relationships Relationship[]
 
   @@unique([operatorId, slug])
@@ -318,7 +319,7 @@ model Relationship {
   relationshipTypeId String
   fromEntityId       String
   toEntityId         String
-  metadata           String?  // JSON
+  metadata           String? // JSON
   createdAt          DateTime @default(now())
 
   relationshipType RelationshipType @relation(fields: [relationshipTypeId], references: [id])
@@ -333,50 +334,50 @@ model Relationship {
 // ─── Source Connectors & Sync ────────────────────────────
 
 model SourceConnector {
-  id         String   @id @default(cuid())
-  operatorId String
-  userId     String?
-  provider   String   // "google", "hubspot", "stripe"
-  name       String   @default("")  // user-facing label
-  status     String   @default("active")  // active, paused, error, disconnected, pending
-  config     String?  // JSON - provider-specific config
+  id                  String    @id @default(cuid())
+  operatorId          String
+  userId              String?
+  provider            String // "google", "hubspot", "stripe"
+  name                String    @default("") // user-facing label
+  status              String    @default("active") // active, paused, error, disconnected, pending
+  config              String? // JSON - provider-specific config
   lastSyncAt          DateTime?
-  consecutiveFailures Int      @default(0)
-  createdAt           DateTime @default(now())
+  consecutiveFailures Int       @default(0)
+  createdAt           DateTime  @default(now())
 
   // Soft delete
-  deletedAt     DateTime?
-  deletedById   String?
+  deletedAt   DateTime?
+  deletedById String?
 
   // Health tracking
-  healthStatus        String    @default("healthy")  // healthy | degraded | error | disconnected
-  lastHealthCheck     DateTime?
-  lastError           String?
+  healthStatus    String    @default("healthy") // healthy | degraded | error | disconnected
+  lastHealthCheck DateTime?
+  lastError       String?
 
-  materializerConfig String?  // JSON: dynamic materializer rules from ontology inference
+  materializerConfig String? // JSON: dynamic materializer rules from ontology inference
 
-  operator Operator  @relation(fields: [operatorId], references: [id])
-  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  events     Event[]
-  syncLogs SyncLog[]
-  actionCapabilities ActionCapability[]
-  contentChunks ContentChunk[]
+  operator             Operator              @relation(fields: [operatorId], references: [id])
+  user                 User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events               Event[]
+  syncLogs             SyncLog[]
+  actionCapabilities   ActionCapability[]
+  contentChunks        ContentChunk[]
   slackChannelMappings SlackChannelMapping[]
 }
 
 model SlackChannelMapping {
-  id            String   @id @default(cuid())
-  operatorId    String
-  connectorId   String
-  channelId     String   // Slack channel ID (e.g., "C012345")
-  channelName   String   // Display name (e.g., "#general")
-  departmentId  String   // Entity ID of the department (category = "foundational")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(cuid())
+  operatorId   String
+  connectorId  String
+  channelId    String // Slack channel ID (e.g., "C012345")
+  channelName  String // Display name (e.g., "#general")
+  departmentId String // Entity ID of the department (category = "foundational")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  operator      Operator         @relation(fields: [operatorId], references: [id])
-  connector     SourceConnector  @relation(fields: [connectorId], references: [id])
-  department    Entity           @relation(fields: [departmentId], references: [id])
+  operator   Operator        @relation(fields: [operatorId], references: [id])
+  connector  SourceConnector @relation(fields: [connectorId], references: [id])
+  department Entity          @relation(fields: [departmentId], references: [id])
 
   @@unique([connectorId, channelId])
   @@index([operatorId])
@@ -384,15 +385,15 @@ model SlackChannelMapping {
 }
 
 model SyncLog {
-  id             String   @id @default(cuid())
-  connectorId    String
-  status         String   // success, partial, failed
-  eventsCreated  Int      @default(0)
-  eventsSkipped  Int      @default(0)
-  errors         String?  // JSON
-  durationMs     Int?     // how long the sync took
-  diagnostics    String?  // JSON: post-sync quality metrics
-  createdAt      DateTime @default(now())
+  id            String   @id @default(cuid())
+  connectorId   String
+  status        String // success, partial, failed
+  eventsCreated Int      @default(0)
+  eventsSkipped Int      @default(0)
+  errors        String? // JSON
+  durationMs    Int? // how long the sync took
+  diagnostics   String? // JSON: post-sync quality metrics
+  createdAt     DateTime @default(now())
 
   connector SourceConnector @relation(fields: [connectorId], references: [id])
 }
@@ -400,36 +401,36 @@ model SyncLog {
 // ─── Layer 4: Policy & Action ────────────────────────────
 
 model PolicyRule {
-  id               String  @id @default(cuid())
+  id               String    @id @default(cuid())
   operatorId       String
   name             String
-  scope            String  // global, entity_type, entity
+  scope            String // global, entity_type, entity
   scopeTargetId    String?
-  actionType       String  // create, update, delete, approve, execute
-  effect           String  // ALLOW, DENY, REQUIRE_APPROVAL
+  actionType       String // create, update, delete, approve, execute
+  effect           String // ALLOW, DENY, REQUIRE_APPROVAL
   conditions       String? // JSON
-  priority         Int     @default(0)
-  enabled          Boolean @default(true)
+  priority         Int       @default(0)
+  enabled          Boolean   @default(true)
   lastModifiedById String?
   lastModifiedAt   DateTime?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
-  operator Operator     @relation(fields: [operatorId], references: [id])
+  operator Operator @relation(fields: [operatorId], references: [id])
 }
 
 // ─── Layer 1: Event Stream ───────────────────────────
 
 model Event {
-  id          String   @id @default(cuid())
-  operatorId  String
-  connectorId String?  // links event to its source connector (null for manual/system events)
-  source      String   // "hubspot", "stripe", "gmail", "sheets", "manual"
-  eventType   String   // "contact.synced", "invoice.created", "row.synced"
-  payload     String   // JSON - raw event data from the source
-  entityRefs  String?  // JSON - resolved entity IDs (populated by materializer)
-  processedAt DateTime?
+  id                   String    @id @default(cuid())
+  operatorId           String
+  connectorId          String? // links event to its source connector (null for manual/system events)
+  source               String // "hubspot", "stripe", "gmail", "sheets", "manual"
+  eventType            String // "contact.synced", "invoice.created", "row.synced"
+  payload              String // JSON - raw event data from the source
+  entityRefs           String? // JSON - resolved entity IDs (populated by materializer)
+  processedAt          DateTime?
   materializationError String? // Error message if materialization failed (enables retry)
-  createdAt   DateTime @default(now())
+  createdAt            DateTime  @default(now())
 
   operator   Operator         @relation(fields: [operatorId], references: [id])
   connector  SourceConnector? @relation(fields: [connectorId], references: [id])
@@ -444,111 +445,111 @@ model Event {
 // ─── Situation Archetypes ────────────────────────────
 
 model SituationArchetype {
-  slug             String   @id // "overdue_invoice", "client_escalation", etc.
-  name             String          // Human-readable: "Overdue Invoice"
-  description      String          // Used in LLM classification prompt
-  category         String          // "payment_financial", "sales_pipeline", "client_communication", "people_hr", "operations_delivery", "knowledge_governance"
-  detectionTemplate String?        // JSON — default detectionLogic for auto-created types
-  defaultSeverity  String  @default("medium") // "low" | "medium" | "high"
-  examplePhrases   String?        // JSON array of 3-5 example trigger descriptions for classification
-  createdAt        DateTime @default(now())
+  slug              String   @id // "overdue_invoice", "client_escalation", etc.
+  name              String // Human-readable: "Overdue Invoice"
+  description       String // Used in LLM classification prompt
+  category          String // "payment_financial", "sales_pipeline", "client_communication", "people_hr", "operations_delivery", "knowledge_governance"
+  detectionTemplate String? // JSON — default detectionLogic for auto-created types
+  defaultSeverity   String   @default("medium") // "low" | "medium" | "high"
+  examplePhrases    String? // JSON array of 3-5 example trigger descriptions for classification
+  createdAt         DateTime @default(now())
 }
 
 // ─── Layer 3: Situations ─────────────────────────────
 
 model SituationType {
-  id           String  @id @default(cuid())
-  operatorId   String
-  slug         String
-  name         String
-  description  String  // natural language description from orientation
-  detectionLogic String // JSON - signals, thresholds, patterns
-  responseStrategy String? // JSON - default response template
-  autonomyLevel String @default("supervised") // supervised, notify, autonomous
-  approvalRate  Float  @default(0) // rolling approval rate
-  totalProposed Int    @default(0)
-  totalApproved Int    @default(0)
-  consecutiveApprovals Int @default(0)
-  scopeEntityId  String?   // anchor entity for scoped detection
-  scopeDepth     Int?      // max hops from anchor (default: unlimited within subtree)
-  enabled        Boolean @default(true)
-  archetypeSlug  String?   // Maps to SituationArchetype.slug — null for custom/unclassified types
-  visibleToRoles String? // JSON array of role strings
-  preFilterPassCount  Int       @default(0)
-  llmConfirmCount     Int       @default(0)
-  auditMissCount      Int       @default(0)
-  lastAuditAt         DateTime?
-  detectedCount   Int @default(0)
-  confirmedCount  Int @default(0)
-  dismissedCount  Int @default(0)
-  promptVersion    Int @default(1) // Reserved for post-launch reasoning prompt optimization canary system
-  lastModifiedById String?
-  lastModifiedAt   DateTime?
-  createdAt        DateTime @default(now())
+  id                   String    @id @default(cuid())
+  operatorId           String
+  slug                 String
+  name                 String
+  description          String // natural language description from orientation
+  detectionLogic       String // JSON - signals, thresholds, patterns
+  responseStrategy     String? // JSON - default response template
+  autonomyLevel        String    @default("supervised") // supervised, notify, autonomous
+  approvalRate         Float     @default(0) // rolling approval rate
+  totalProposed        Int       @default(0)
+  totalApproved        Int       @default(0)
+  consecutiveApprovals Int       @default(0)
+  scopeEntityId        String? // anchor entity for scoped detection
+  scopeDepth           Int? // max hops from anchor (default: unlimited within subtree)
+  enabled              Boolean   @default(true)
+  archetypeSlug        String? // Maps to SituationArchetype.slug — null for custom/unclassified types
+  visibleToRoles       String? // JSON array of role strings
+  preFilterPassCount   Int       @default(0)
+  llmConfirmCount      Int       @default(0)
+  auditMissCount       Int       @default(0)
+  lastAuditAt          DateTime?
+  detectedCount        Int       @default(0)
+  confirmedCount       Int       @default(0)
+  dismissedCount       Int       @default(0)
+  promptVersion        Int       @default(1) // Reserved for post-launch reasoning prompt optimization canary system
+  lastModifiedById     String?
+  lastModifiedAt       DateTime?
+  createdAt            DateTime  @default(now())
 
-  operator   Operator    @relation(fields: [operatorId], references: [id])
-  situations Situation[]
+  operator           Operator           @relation(fields: [operatorId], references: [id])
+  situations         Situation[]
   personalAutonomies PersonalAutonomy[]
 
   @@unique([operatorId, slug])
 }
 
 model Situation {
-  id              String   @id @default(cuid())
+  id              String @id @default(cuid())
   operatorId      String
   situationTypeId String
-  severity        Float    @default(0.5) // 0-1
-  confidence      Float    @default(0.5) // 0-1
-  source          String   @default("detected") // detected, retrospective, manual
-  status          String   @default("detected")
+  severity        Float  @default(0.5) // 0-1
+  confidence      Float  @default(0.5) // 0-1
+  source          String @default("detected") // detected, retrospective, manual
+  status          String @default("detected")
   // detected → reasoning → proposed → approved → executing → monitoring → resolved
   // monitoring: all current cycle steps complete, waiting for external signal to trigger next cycle
   // detected → reasoning → proposed → rejected → closed
   // detected → auto_executing → resolved (autonomous mode)
 
   // Context snapshot at detection time
-  contextSnapshot String?  // JSON - entities, events, priors
-  triggerEvidence  String?  // JSON - the raw evidence that caused detection
-  triggerSummary   String?  // Human-readable 1-2 sentence headline
-  resumeSummary    String?  // Haiku-generated cumulative situation briefing (only for 2+ cycle situations)
-  triggerEntityId String?   // the primary entity this situation is about
+  contextSnapshot String? // JSON - entities, events, priors
+  triggerEvidence String? // JSON - the raw evidence that caused detection
+  triggerSummary  String? // Human-readable 1-2 sentence headline
+  resumeSummary   String? // Haiku-generated cumulative situation briefing (only for 2+ cycle situations)
+  triggerEntityId String? // the primary entity this situation is about
   triggerEventId  String?
   assignedUserId  String?
 
   // AI reasoning
-  reasoning       String?  // JSON - analysis, considered actions, justification
-  proposedAction  String?  // JSON - what the AI wants to do
+  reasoning      String? // JSON - analysis, considered actions, justification
+  proposedAction String? // JSON - what the AI wants to do
 
   // Outcome tracking
-  actionTaken     String?  // JSON - what actually happened
-  outcome         String?  // positive, negative, neutral, unknown
-  outcomeDetails  String?  // JSON
-  feedback        String?  // human feedback text
-  feedbackRating  Int?     // 1-5
-  feedbackCategory String?  // "detection_wrong", "action_wrong", "timing_wrong", "missing_context"
-  editInstruction  String?  // freeform text from Edit & Approve flow
+  actionTaken      String? // JSON - what actually happened
+  outcome          String? // positive, negative, neutral, unknown
+  outcomeDetails   String? // JSON
+  feedback         String? // human feedback text
+  feedbackRating   Int? // 1-5
+  feedbackCategory String? // "detection_wrong", "action_wrong", "timing_wrong", "missing_context"
+  editInstruction  String? // freeform text from Edit & Approve flow
 
   // LLM tracking
-  modelId            String?   // LLM model string used for reasoning (e.g., "gpt-4o", "claude-sonnet-4-20250514")
-  promptVersion      Int?      // reasoning prompt version number at time of reasoning
-  reasoningDurationMs Int?     // wall-clock time of the reasoning LLM call in milliseconds
+  modelId             String? // LLM model string used for reasoning (e.g., "gpt-4o", "claude-sonnet-4-20250514")
+  promptVersion       Int? // reasoning prompt version number at time of reasoning
+  reasoningDurationMs Int? // wall-clock time of the reasoning LLM call in milliseconds
 
   // Billing
-  apiCostCents    Int?        // Actual API cost in cents for reasoning
-  billedCents     Int?        // Amount billed to customer
-  billedAt        DateTime?
+  apiCostCents Int? // Actual API cost in cents for reasoning
+  billedCents  Int? // Amount billed to customer
+  billedAt     DateTime?
 
   resolvedAt      DateTime?
-  executionPlanId String?  @unique
-  delegationId    String?  @unique
-  spawningStepId  String?  // ExecutionStep.id that spawned this situation (not FK — avoids circular deps)
-  createdAt       DateTime @default(now())
+  executionPlanId String?   @unique
+  delegationId    String?   @unique
+  spawningStepId  String? // ExecutionStep.id that spawned this situation (not FK — avoids circular deps)
+  createdAt       DateTime  @default(now())
 
-  operator      Operator       @relation(fields: [operatorId], references: [id])
-  situationType SituationType  @relation(fields: [situationTypeId], references: [id])
+  operator      Operator         @relation(fields: [operatorId], references: [id])
+  situationType SituationType    @relation(fields: [situationTypeId], references: [id])
   events        SituationEvent[]
-  executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
-  delegation    Delegation?    @relation(fields: [delegationId], references: [id], onDelete: SetNull)
+  executionPlan ExecutionPlan?   @relation(fields: [executionPlanId], references: [id])
+  delegation    Delegation?      @relation(fields: [delegationId], references: [id], onDelete: SetNull)
   cycles        SituationCycle[]
 
   @@index([operatorId, status])
@@ -569,13 +570,13 @@ model SituationEvent {
 // ─── Orientation / Onboarding ────────────────────────
 
 model OrientationSession {
-  id         String   @id @default(cuid())
-  operatorId String
-  phase      String   @default("mapping") // mapping, populating, connecting, syncing, orienting, active
-  context    String?  // JSON - accumulated business understanding
-  messages   String?  // JSON - conversation history
+  id          String    @id @default(cuid())
+  operatorId  String
+  phase       String    @default("mapping") // mapping, populating, connecting, syncing, orienting, active
+  context     String? // JSON - accumulated business understanding
+  messages    String? // JSON - conversation history
   completedAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id])
 }
@@ -587,9 +588,9 @@ model CopilotMessage {
   operatorId   String
   userId       String?
   sessionId    String
-  role         String   // user, assistant, tool, system
+  role         String // user, assistant, tool, system
   content      String
-  apiCostCents Int?     // Actual API cost for this message's LLM call
+  apiCostCents Int? // Actual API cost for this message's LLM call
   createdAt    DateTime @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id])
@@ -600,18 +601,18 @@ model CopilotMessage {
 // ─── Action Capabilities ─────────────────────────────
 
 model ActionCapability {
-  id           String  @id @default(cuid())
-  operatorId   String
-  connectorId  String?
-  slug         String?  // write capability identifier (from provider.writeCapabilities)
-  name         String   // "send_email", "create_invoice", "update_crm_field"
-  description  String
-  inputSchema  String?  // JSON schema
-  sideEffects  String?  // JSON - what happens when this runs
-  reversible   Boolean  @default(false)
-  enabled      Boolean  @default(true)
-  writeBackStatus   String    @default("pending") // "pending" | "enabled" | "disabled"
-  nudgeDismissedAt  DateTime?
+  id               String    @id @default(cuid())
+  operatorId       String
+  connectorId      String?
+  slug             String? // write capability identifier (from provider.writeCapabilities)
+  name             String // "send_email", "create_invoice", "update_crm_field"
+  description      String
+  inputSchema      String? // JSON schema
+  sideEffects      String? // JSON - what happens when this runs
+  reversible       Boolean   @default(false)
+  enabled          Boolean   @default(true)
+  writeBackStatus  String    @default("pending") // "pending" | "enabled" | "disabled"
+  nudgeDismissedAt DateTime?
 
   operator  Operator         @relation(fields: [operatorId], references: [id])
   connector SourceConnector? @relation(fields: [connectorId], references: [id])
@@ -620,16 +621,16 @@ model ActionCapability {
 // ─── Notifications ───────────────────────────────────
 
 model Notification {
-  id         String   @id @default(cuid())
-  operatorId String
-  userId     String?
-  title      String
-  body       String
-  read       Boolean  @default(false)
-  sourceType      String?  // situation, system, orientation
-  sourceId        String?
+  id               String   @id @default(cuid())
+  operatorId       String
+  userId           String?
+  title            String
+  body             String
+  read             Boolean  @default(false)
+  sourceType       String? // situation, system, orientation
+  sourceId         String?
   sourceAiEntityId String?
-  createdAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id])
 
@@ -647,7 +648,7 @@ model InternalDocument {
   filePath          String
   rawText           String?
   status            String   @default("uploaded") // uploaded, processing, extracted, confirmed
-  extractedEntities String?  // JSON: { entities: [...], relationships: [...], businessContext: string }
+  extractedEntities String? // JSON: { entities: [...], relationships: [...], businessContext: string }
   businessContext   String?
   entityId          String?  @unique
   entity            Entity?  @relation("DocumentEntity", fields: [entityId], references: [id])
@@ -667,15 +668,15 @@ model Invite {
   id              String    @id @default(cuid())
   operatorId      String
   operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  entityId        String    // The base entity this invite is for
-  email           String    // Pre-filled from entity or entered by admin
+  entityId        String // The base entity this invite is for
+  email           String // Pre-filled from entity or entered by admin
   role            String    @default("member")
-  passwordHash    String    // Admin sets the password
+  passwordHash    String // Admin sets the password
   token           String    @unique
   expiresAt       DateTime
   claimedAt       DateTime?
   claimedByUserId String?
-  createdById     String?   // The admin who created this invite (nullable if admin deleted)
+  createdById     String? // The admin who created this invite (nullable if admin deleted)
   createdBy       User?     @relation("InviteCreator", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt       DateTime  @default(now())
 
@@ -688,8 +689,8 @@ model UserScope {
   id                 String   @id @default(cuid())
   userId             String
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  departmentEntityId String   // FK to Entity (a foundational/department entity)
-  grantedById        String?  // userId of who granted this — null for system-generated
+  departmentEntityId String // FK to Entity (a foundational/department entity)
+  grantedById        String? // userId of who granted this — null for system-generated
   createdAt          DateTime @default(now())
 
   @@unique([userId, departmentEntityId])
@@ -700,27 +701,29 @@ model UserScope {
 // ─── Content Chunks (universal RAG store) ───────────────
 
 model ContentChunk {
-  id              String    @id @default(cuid())
-  operatorId      String
-  connectorId     String?
-  userId          String?
-  sourceType      String    // "email" | "slack_message" | "drive_doc" | "uploaded_doc" | "calendar_note"
-  sourceId        String    // reference to origin (Event.id, InternalDocument.id, etc.)
-  entityId        String?   // entity this content is about (if resolvable)
-  departmentIds   String?   // JSON array of department IDs (derived from participant routing)
-  chunkIndex      Int
-  content         String
-  embedding       String?   // actually vector(1536) — see raw SQL migration
-  tokenCount      Int?
-  metadata        String?   // JSON: { subject, sender, timestamp, channel, fileName, etc. }
-  classifiedAt          DateTime?
-  classificationMethod  String?    // "algorithmic" | "llm" | "operator_wide"
-  reevaluatedAt         DateTime?
-  createdAt       DateTime  @default(now())
+  id                   String    @id @default(cuid())
+  operatorId           String
+  connectorId          String?
+  userId               String?
+  sourceType           String // "email" | "slack_message" | "drive_doc" | "uploaded_doc" | "calendar_note"
+  sourceId             String // reference to origin (Event.id, InternalDocument.id, etc.)
+  entityId             String? // entity this content is about (if resolvable)
+  departmentIds        String? // JSON array of department IDs (derived from participant routing)
+  chunkIndex           Int
+  content              String
+  embedding            String? // actually vector(1536) — see raw SQL migration
+  tokenCount           Int?
+  metadata             String? // JSON: { subject, sender, timestamp, channel, fileName, etc. }
+  classifiedAt         DateTime?
+  classificationMethod String? // "algorithmic" | "llm" | "operator_wide"
+  reevaluatedAt        DateTime?
+  documentCategory     String? // "foundational" | "operational" | null
+  foundationalDocSlug  String? // Links to ExpectedDocument.slug
+  createdAt            DateTime  @default(now())
 
-  operator        Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  connector       SourceConnector? @relation(fields: [connectorId], references: [id])
-  user            User?            @relation(fields: [userId], references: [id])
+  operator  Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  connector SourceConnector? @relation(fields: [connectorId], references: [id])
+  user      User?            @relation(fields: [userId], references: [id])
 
   @@index([operatorId, sourceType])
   @@index([entityId])
@@ -733,18 +736,18 @@ model ContentChunk {
 // ─── Activity Signals ───────────────────────────────────
 
 model ActivitySignal {
-  id              String    @id @default(cuid())
+  id              String   @id @default(cuid())
   operatorId      String
   connectorId     String?
-  signalType      String    // "email_sent" | "email_received" | "slack_message" | "doc_edit" | "meeting_held" | "doc_created" | "doc_shared"
-  actorEntityId   String?   // who did it (resolved to entity if possible)
-  targetEntityIds String?   // JSON array — who/what was it about
-  departmentIds   String?   // JSON array — derived from participant routing
-  metadata        String?   // JSON: { response_time_ms, thread_id, channel, file_name, attendees, etc. }
-  occurredAt      DateTime  // when the activity happened (not when we ingested it)
-  createdAt       DateTime  @default(now())
+  signalType      String // "email_sent" | "email_received" | "slack_message" | "doc_edit" | "meeting_held" | "doc_created" | "doc_shared"
+  actorEntityId   String? // who did it (resolved to entity if possible)
+  targetEntityIds String? // JSON array — who/what was it about
+  departmentIds   String? // JSON array — derived from participant routing
+  metadata        String? // JSON: { response_time_ms, thread_id, channel, file_name, attendees, etc. }
+  occurredAt      DateTime // when the activity happened (not when we ingested it)
+  createdAt       DateTime @default(now())
 
-  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
   @@index([operatorId, signalType, occurredAt(sort: Desc)])
   @@index([operatorId, actorEntityId, occurredAt(sort: Desc)])
@@ -754,19 +757,19 @@ model ActivitySignal {
 // ─── Entity Merge Log ───────────────────────────────────
 
 model EntityMergeLog {
-  id              String    @id @default(cuid())
-  operatorId      String
-  survivorId      String    // entity that absorbed the other
-  absorbedId      String    // entity that was merged into survivor
-  mergeType       String    // "auto_identity" | "ml_high_confidence" | "admin_manual"
-  confidence      Float?    // ML confidence score (null for deterministic merges)
-  signals         String?   // JSON: what triggered the merge
-  snapshot        String?   // JSON: full state of absorbed entity before merge, for reversal
-  reversible      Boolean   @default(true)
-  reversedAt      DateTime?
-  createdAt       DateTime  @default(now())
+  id         String    @id @default(cuid())
+  operatorId String
+  survivorId String // entity that absorbed the other
+  absorbedId String // entity that was merged into survivor
+  mergeType  String // "auto_identity" | "ml_high_confidence" | "admin_manual"
+  confidence Float? // ML confidence score (null for deterministic merges)
+  signals    String? // JSON: what triggered the merge
+  snapshot   String? // JSON: full state of absorbed entity before merge, for reversal
+  reversible Boolean   @default(true)
+  reversedAt DateTime?
+  createdAt  DateTime  @default(now())
 
-  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
   @@index([operatorId, createdAt(sort: Desc)])
   @@index([operatorId, mergeType])
@@ -775,19 +778,19 @@ model EntityMergeLog {
 // ─── Personal AI Autonomy ───────────────────────────────
 
 model PersonalAutonomy {
-  id                    String   @id @default(cuid())
-  operatorId            String
-  situationTypeId       String
-  aiEntityId            String
-  autonomyLevel         String   @default("supervised") // supervised, notify, autonomous
-  consecutiveApprovals  Int      @default(0)
-  totalProposed         Int      @default(0)
-  totalApproved         Int      @default(0)
-  approvalRate          Float    @default(0)
-  promotedAt            DateTime?
-  promotedById          String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                   String    @id @default(cuid())
+  operatorId           String
+  situationTypeId      String
+  aiEntityId           String
+  autonomyLevel        String    @default("supervised") // supervised, notify, autonomous
+  consecutiveApprovals Int       @default(0)
+  totalProposed        Int       @default(0)
+  totalApproved        Int       @default(0)
+  approvalRate         Float     @default(0)
+  promotedAt           DateTime?
+  promotedById         String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   operator      Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   situationType SituationType @relation(fields: [situationTypeId], references: [id])
@@ -801,22 +804,22 @@ model PersonalAutonomy {
 // ─── Phase 3: Goals & Execution ─────────────────────────
 
 model Goal {
-  id                String    @id @default(cuid())
-  operatorId        String
-  departmentId      String?   // null = HQ-level goal
-  title             String
-  description       String
-  measurableTarget  String?
-  priority          Int       @default(3) // 1-5, 1 = highest
-  status            String    @default("active") // active, achieved, paused, inferred
-  deadline          DateTime?
-  source            String?   // "synthesis", "document", "communication", "manual"
-  sourceReference   String?   // Document name or chunk ID that contained this goal
+  id                   String    @id @default(cuid())
+  operatorId           String
+  departmentId         String? // null = HQ-level goal
+  title                String
+  description          String
+  measurableTarget     String?
+  priority             Int       @default(3) // 1-5, 1 = highest
+  status               String    @default("active") // active, achieved, paused, inferred
+  deadline             DateTime?
+  source               String? // "synthesis", "document", "communication", "manual"
+  sourceReference      String? // Document name or chunk ID that contained this goal
   extractionConfidence Float? // 0-1, how confident the system is this is a real strategic goal
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  operator    Operator    @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operator    Operator     @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   initiatives Initiative[]
 
   @@index([operatorId, status])
@@ -824,16 +827,16 @@ model Goal {
 }
 
 model Initiative {
-  id                String    @id @default(cuid())
-  operatorId        String
-  goalId            String
-  aiEntityId        String    // the department-ai or hq-ai that proposed this
-  executionPlanId   String?   @unique
-  status            String    @default("proposed") // proposed, approved, executing, completed, rejected, failed, paused
-  rationale         String
-  impactAssessment  String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id               String   @id @default(cuid())
+  operatorId       String
+  goalId           String
+  aiEntityId       String // the department-ai or hq-ai that proposed this
+  executionPlanId  String?  @unique
+  status           String   @default("proposed") // proposed, approved, executing, completed, rejected, failed, paused
+  rationale        String
+  impactAssessment String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   operator      Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   goal          Goal           @relation(fields: [goalId], references: [id])
@@ -844,29 +847,29 @@ model Initiative {
 }
 
 model ExecutionPlan {
-  id              String    @id @default(cuid())
-  operatorId      String
-  sourceType      String    // "situation" | "initiative" | "recurring" | "delegation"
-  sourceId        String    // ID of the source record
-  status          String    @default("pending") // pending, approved, executing, completed, failed, paused, amended
-  currentStepOrder Int      @default(1)
-  approvedAt      DateTime?
-  approvedById    String?
-  completedAt        DateTime?
-  priorityScore      Float?
-  modelId            String?   // LLM model string used for plan reasoning
-  promptVersion      Int?      // reasoning prompt version at time of plan creation
-  totalStepExecutions Int      @default(0) // counter incremented on every step execution attempt
-  maxStepExecutions   Int      @default(15) // hard ceiling; plan fails if exceeded
-  modifiedBeforeApproval  Boolean @default(false)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                     String    @id @default(cuid())
+  operatorId             String
+  sourceType             String // "situation" | "initiative" | "recurring" | "delegation"
+  sourceId               String // ID of the source record
+  status                 String    @default("pending") // pending, approved, executing, completed, failed, paused, amended
+  currentStepOrder       Int       @default(1)
+  approvedAt             DateTime?
+  approvedById           String?
+  completedAt            DateTime?
+  priorityScore          Float?
+  modelId                String? // LLM model string used for plan reasoning
+  promptVersion          Int? // reasoning prompt version at time of plan creation
+  totalStepExecutions    Int       @default(0) // counter incremented on every step execution attempt
+  maxStepExecutions      Int       @default(15) // hard ceiling; plan fails if exceeded
+  modifiedBeforeApproval Boolean   @default(false)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  operator   Operator        @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  steps      ExecutionStep[]
-  initiative Initiative?
-  situation  Situation?
-  cycle      SituationCycle?
+  operator         Operator          @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  steps            ExecutionStep[]
+  initiative       Initiative?
+  situation        Situation?
+  cycle            SituationCycle?
   priorityOverride PriorityOverride?
 
   @@index([operatorId, status])
@@ -874,27 +877,27 @@ model ExecutionPlan {
 }
 
 model ExecutionStep {
-  id                    String    @id @default(cuid())
-  planId                String
-  sequenceOrder         Int
-  title                 String
-  description           String
-  executionMode         String    // "action" | "generate" | "human_task"
-  actionCapabilityId    String?
-  assignedUserId        String?
-  parameters            String?   // JSON — structured action parameters for preview UI
-  inputContext          String?   // JSON
-  outputResult          String?   // JSON — typed StepOutput
-  status                String    @default("pending") // pending, awaiting_approval, approved, executing, completed, failed, skipped, amended, awaiting_situation
-  approvedAt            DateTime?
-  approvedById          String?
-  executedAt            DateTime?
-  errorMessage          String?
-  originalDescription   String?   // preserved when amended
-  apiCostCents          Int?      // Actual API cost for this step's LLM call
-  retryCount            Int       @default(0)
-  lastError             String?
-  createdAt             DateTime  @default(now())
+  id                  String    @id @default(cuid())
+  planId              String
+  sequenceOrder       Int
+  title               String
+  description         String
+  executionMode       String // "action" | "generate" | "human_task"
+  actionCapabilityId  String?
+  assignedUserId      String?
+  parameters          String? // JSON — structured action parameters for preview UI
+  inputContext        String? // JSON
+  outputResult        String? // JSON — typed StepOutput
+  status              String    @default("pending") // pending, awaiting_approval, approved, executing, completed, failed, skipped, amended, awaiting_situation
+  approvedAt          DateTime?
+  approvedById        String?
+  executedAt          DateTime?
+  errorMessage        String?
+  originalDescription String? // preserved when amended
+  apiCostCents        Int? // Actual API cost for this step's LLM call
+  retryCount          Int       @default(0)
+  lastError           String?
+  createdAt           DateTime  @default(now())
 
   plan     ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   followUp FollowUp?
@@ -904,24 +907,24 @@ model ExecutionStep {
 }
 
 model WorkStream {
-  id                String    @id @default(cuid())
-  operatorId        String
-  title             String
-  description       String?
-  goalId            String?
-  ownerAiEntityId   String?
-  status            String    @default("active") // active, completed, paused, abandoned
-  parentWorkStreamId String?
+  id                     String    @id @default(cuid())
+  operatorId             String
+  title                  String
+  description            String?
+  goalId                 String?
+  ownerAiEntityId        String?
+  status                 String    @default("active") // active, completed, paused, abandoned
+  parentWorkStreamId     String?
   lastReassessmentAt     DateTime?
-  lastReassessmentResult String?  // JSON
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  completedAt       DateTime?
+  lastReassessmentResult String? // JSON
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  completedAt            DateTime?
 
-  operator        Operator          @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operator         Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   parentWorkStream WorkStream?      @relation("WorkStreamChildren", fields: [parentWorkStreamId], references: [id])
-  children        WorkStream[]      @relation("WorkStreamChildren")
-  items           WorkStreamItem[]
+  children         WorkStream[]     @relation("WorkStreamChildren")
+  items            WorkStreamItem[]
 
   @@index([operatorId, status])
 }
@@ -929,7 +932,7 @@ model WorkStream {
 model WorkStreamItem {
   id           String   @id @default(cuid())
   workStreamId String
-  itemType     String   // "situation" | "initiative"
+  itemType     String // "situation" | "initiative"
   itemId       String
   addedAt      DateTime @default(now())
 
@@ -939,21 +942,21 @@ model WorkStreamItem {
 }
 
 model Delegation {
-  id              String    @id @default(cuid())
-  operatorId      String
-  fromAiEntityId  String
-  toAiEntityId    String?
-  toUserId        String?
-  workStreamId    String?
-  situationId     String?
-  initiativeId    String?
-  instruction     String
-  context         String?   // JSON
-  status          String    @default("pending") // pending, accepted, completed, returned
-  returnReason    String?
-  completedNotes  String?
-  createdAt       DateTime  @default(now())
-  completedAt     DateTime?
+  id             String    @id @default(cuid())
+  operatorId     String
+  fromAiEntityId String
+  toAiEntityId   String?
+  toUserId       String?
+  workStreamId   String?
+  situationId    String?
+  initiativeId   String?
+  instruction    String
+  context        String? // JSON
+  status         String    @default("pending") // pending, accepted, completed, returned
+  returnReason   String?
+  completedNotes String?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
 
   operator  Operator   @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   situation Situation?
@@ -964,17 +967,17 @@ model Delegation {
 }
 
 model FollowUp {
-  id                String    @id @default(cuid())
-  operatorId        String
-  executionStepId   String    @unique
-  situationId       String?
-  triggerCondition  String    // JSON: { type: "timeout" | "response_received" | "property_change", ... }
-  fallbackAction    String    // JSON: { type: "escalate" | "new_plan" | "notify" | "skip", ... }
-  status            String    @default("watching") // watching, triggered, expired, cancelled
-  triggerAt         DateTime?
-  reminderSent      Boolean   @default(false)
-  createdAt         DateTime  @default(now())
-  triggeredAt       DateTime?
+  id               String    @id @default(cuid())
+  operatorId       String
+  executionStepId  String    @unique
+  situationId      String?
+  triggerCondition String // JSON: { type: "timeout" | "response_received" | "property_change", ... }
+  fallbackAction   String // JSON: { type: "escalate" | "new_plan" | "notify" | "skip", ... }
+  status           String    @default("watching") // watching, triggered, expired, cancelled
+  triggerAt        DateTime?
+  reminderSent     Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  triggeredAt      DateTime?
 
   operator      Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   executionStep ExecutionStep @relation(fields: [executionStepId], references: [id], onDelete: Cascade)
@@ -984,18 +987,18 @@ model FollowUp {
 }
 
 model RecurringTask {
-  id                      String    @id @default(cuid())
-  operatorId              String
-  aiEntityId              String
-  title                   String
-  description             String?
-  cronExpression          String
-  executionPlanTemplate   String    // JSON — template for plan creation
-  lastTriggeredAt         DateTime?
-  nextTriggerAt           DateTime?
-  autoApproveSteps        Boolean   @default(false)
-  status                  String    @default("active") // active, paused
-  createdAt               DateTime  @default(now())
+  id                    String    @id @default(cuid())
+  operatorId            String
+  aiEntityId            String
+  title                 String
+  description           String?
+  cronExpression        String
+  executionPlanTemplate String // JSON — template for plan creation
+  lastTriggeredAt       DateTime?
+  nextTriggerAt         DateTime?
+  autoApproveSteps      Boolean   @default(false)
+  status                String    @default("active") // active, paused
+  createdAt             DateTime  @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
@@ -1004,14 +1007,14 @@ model RecurringTask {
 }
 
 model PlanAutonomy {
-  id                    String    @id @default(cuid())
-  operatorId            String
-  aiEntityId            String
-  planPatternHash       String    // SHA256 of step titles+modes
-  consecutiveApprovals  Int       @default(0)
-  autoApproved          Boolean   @default(false)
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                   String   @id @default(cuid())
+  operatorId           String
+  aiEntityId           String
+  planPatternHash      String // SHA256 of step titles+modes
+  consecutiveApprovals Int      @default(0)
+  autoApproved         Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
@@ -1020,19 +1023,19 @@ model PlanAutonomy {
 }
 
 model OperationalInsight {
-  id              String    @id @default(cuid())
-  operatorId      String
-  aiEntityId      String
-  departmentId    String?
-  insightType     String    // approach_effectiveness, timing_pattern, entity_preference, escalation_pattern, resolution_pattern
-  description     String
-  evidence        String    // JSON: { sampleSize, successRate, situations[], ... }
-  confidence      Float
+  id                 String   @id @default(cuid())
+  operatorId         String
+  aiEntityId         String
+  departmentId       String?
+  insightType        String // approach_effectiveness, timing_pattern, entity_preference, escalation_pattern, resolution_pattern
+  description        String
+  evidence           String // JSON: { sampleSize, successRate, situations[], ... }
+  confidence         Float
   promptModification String?
-  shareScope      String    @default("personal") // personal, department, operator
-  status          String    @default("active") // active, superseded, invalidated
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  shareScope         String   @default("personal") // personal, department, operator
+  status             String   @default("active") // active, superseded, invalidated
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
@@ -1044,8 +1047,8 @@ model OperationalInsight {
 model NotificationPreference {
   id               String @id @default(cuid())
   userId           String
-  notificationType String  // situation_proposed, situation_resolved, initiative_proposed, step_ready, delegation_received, follow_up_triggered, plan_auto_executed, peer_signal, insight_discovered, system_alert
-  channel          String  @default("both") // in_app, email, both, none
+  notificationType String // situation_proposed, situation_resolved, initiative_proposed, step_ready, delegation_received, follow_up_triggered, plan_auto_executed, peer_signal, insight_discovered, system_alert
+  channel          String @default("both") // in_app, email, both, none
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1054,16 +1057,16 @@ model NotificationPreference {
 }
 
 model PriorityOverride {
-  id              String    @id @default(dbgenerated("gen_random_uuid()"))
+  id              String        @id @default(dbgenerated("gen_random_uuid()"))
   operatorId      String
-  executionPlanId String    @unique
-  overrideType    String    // "pin" | "snooze"
+  executionPlanId String        @unique
+  overrideType    String // "pin" | "snooze"
   snoozeUntil     DateTime?
   createdById     String
-  createdAt       DateTime  @default(now())
-  operator        Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  operator        Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   executionPlan   ExecutionPlan @relation(fields: [executionPlanId], references: [id], onDelete: Cascade)
-  createdBy       User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdBy       User          @relation(fields: [createdById], references: [id], onDelete: Cascade)
 }
 
 model PasswordResetToken {
@@ -1082,62 +1085,62 @@ model PasswordResetToken {
 // ─── Onboarding Intelligence ────────────────────────────
 
 model OnboardingAnalysis {
-  id              String    @id @default(cuid())
-  operatorId      String
-  operator        Operator  @relation(fields: [operatorId], references: [id])
-  status          String    @default("pending") // pending, syncing, analyzing, confirming, complete, failed
-  currentPhase    String    @default("idle")     // idle, round_0, round_1, organizer_1, round_2, organizer_2, round_3, synthesis
+  id           String   @id @default(cuid())
+  operatorId   String
+  operator     Operator @relation(fields: [operatorId], references: [id])
+  status       String   @default("pending") // pending, syncing, analyzing, confirming, complete, failed
+  currentPhase String   @default("idle") // idle, round_0, round_1, organizer_1, round_2, organizer_2, round_3, synthesis
 
   // Progress reporting (polled by UI)
-  progressMessages Json    @default("[]")       // Array of { timestamp, message, agentName? }
+  progressMessages Json @default("[]") // Array of { timestamp, message, agentName? }
 
   // Synthesis output
-  synthesisOutput  Json?                         // Complete company model JSON
-  uncertaintyLog   Json?                         // Questions the system couldn't resolve
+  synthesisOutput Json? // Complete company model JSON
+  uncertaintyLog  Json? // Questions the system couldn't resolve
 
   // Tracking
-  totalTokensUsed  Int     @default(0)
-  totalCostCents   Int     @default(0)
-  modelOverride    String?                         // If set, pipeline uses this model instead of MODEL_ROUTES.onboardingAgent
-  startedAt        DateTime?
-  completedAt      DateTime?
-  workerClaimedAt  DateTime?                     // When worker picked up the job
-  notifiedAt       DateTime?                     // When "analysis complete" email was sent
-  failureReason    String?
+  totalTokensUsed Int       @default(0)
+  totalCostCents  Int       @default(0)
+  modelOverride   String? // If set, pipeline uses this model instead of MODEL_ROUTES.onboardingAgent
+  startedAt       DateTime?
+  completedAt     DateTime?
+  workerClaimedAt DateTime? // When worker picked up the job
+  notifiedAt      DateTime? // When "analysis complete" email was sent
+  failureReason   String?
 
   // Relations
-  agentRuns        OnboardingAgentRun[]
+  agentRuns OnboardingAgentRun[]
 
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@unique([operatorId])                         // One analysis per operator (restart = delete + recreate)
+  @@unique([operatorId]) // One analysis per operator (restart = delete + recreate)
   @@index([status])
 }
 
 model OnboardingAgentRun {
-  id              String    @id @default(cuid())
-  analysisId      String
-  analysis        OnboardingAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  id         String             @id @default(cuid())
+  analysisId String
+  analysis   OnboardingAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
-  agentName       String                         // temporal_analyst, org_analyst, process_analyst, relationship_analyst, knowledge_analyst, financial_analyst, organizer
-  round           Int       @default(1)          // 0, 1, 2, 3
+  agentName String // temporal_analyst, org_analyst, process_analyst, relationship_analyst, knowledge_analyst, financial_analyst, organizer
+  round     Int    @default(1) // 0, 1, 2, 3
 
-  status          String    @default("pending")  // pending, running, paused, complete, failed
-  iterationCount  Int       @default(0)
-  maxIterations   Int       @default(30)         // Safety cap per agent
+  status         String @default("pending") // pending, running, paused, complete, failed
+  iterationCount Int    @default(0)
+  maxIterations  Int    @default(30) // Safety cap per agent
 
   // Working memory — compact summary of findings so far (kept small for context window)
-  workingMemory   Json      @default("{}")       // { findings: string, hypotheses: string[], openQuestions: string[], investigationPlan: string }
+  workingMemory Json @default("{}") // { findings: string, hypotheses: string[], openQuestions: string[], investigationPlan: string }
 
   // Organizer input
-  followUpBrief   Json?                          // Cross-pollination brief from Organizer
+  followUpBrief Json? // Cross-pollination brief from Organizer
 
   // Final output
-  report          Json?                          // Agent's completed report
+  report Json? // Agent's completed report
 
   // Tool call audit log
-  toolCallLog     Json      @default("[]")       // Array of { tool, args, resultSummary, durationMs, timestamp }
+  toolCallLog Json @default("[]") // Array of { tool, args, resultSummary, durationMs, timestamp }
 
   // Timing
   tokensUsed      Int       @default(0)
@@ -1146,8 +1149,8 @@ model OnboardingAgentRun {
   completedAt     DateTime?
   lastIterationAt DateTime?
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([analysisId, agentName, round])
   @@index([analysisId, status])
@@ -1156,13 +1159,13 @@ model OnboardingAgentRun {
 // ─── System Health ───────────────────────────────────────
 
 model DepartmentHealth {
-  id                  String   @id @default(cuid())
-  operatorId          String
-  departmentEntityId  String?  // null = operator-level aggregate
-  snapshot            Json
-  computedAt          DateTime @default(now())
+  id                 String   @id @default(cuid())
+  operatorId         String
+  departmentEntityId String? // null = operator-level aggregate
+  snapshot           Json
+  computedAt         DateTime @default(now())
 
-  operator            Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
   @@unique([operatorId, departmentEntityId])
   @@index([operatorId])
@@ -1172,7 +1175,7 @@ model DepartmentHealth {
 
 model WorkerJob {
   id          String    @id @default(cuid())
-  jobType     String    // reason_situation, evaluate_content, reassess_workstream, score_plan, ...
+  jobType     String // reason_situation, evaluate_content, reassess_workstream, score_plan, ...
   operatorId  String
   payload     Json
   status      String    @default("pending") // pending, running, completed, failed
@@ -1191,13 +1194,13 @@ model SituationCycle {
   id              String    @id @default(cuid())
   situationId     String
   cycleNumber     Int
-  triggerType     String    // "detection", "response_received", "timeout", "manual", "signal"
-  triggerSummary  String    // Human-readable: "No response after 3 days", "Reply received from accounting@nygade.dk"
-  cycleSummary    String?   // Haiku-generated plain-language summary of what happened in this cycle
-  triggerData     Json?     // Raw trigger context (email content, signal data, etc.)
-  reasoning       Json?     // The reasoning output JSON for this cycle
+  triggerType     String // "detection", "response_received", "timeout", "manual", "signal"
+  triggerSummary  String // Human-readable: "No response after 3 days", "Reply received from accounting@nygade.dk"
+  cycleSummary    String? // Haiku-generated plain-language summary of what happened in this cycle
+  triggerData     Json? // Raw trigger context (email content, signal data, etc.)
+  reasoning       Json? // The reasoning output JSON for this cycle
   executionPlanId String?   @unique
-  status          String    @default("active")  // "active", "completed", "superseded"
+  status          String    @default("active") // "active", "completed", "superseded"
   completedAt     DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -1210,25 +1213,42 @@ model SituationCycle {
 }
 
 model EvaluationLog {
-  id              String   @id @default(cuid())
-  operatorId      String
-  actorEntityId   String?  // The person evaluated as needing to act (null if no actor resolved)
-  sourceType      String   // "email" | "slack_message" | "teams_message"
-  sourceId        String   // External message ID
-  classification  String   // "action_required" | "awareness" | "irrelevant"
-  awarenessType   String?  // "informational" | "strategic" (only for awareness classification)
-  summary         String?  // LLM-generated summary of the item
-  reasoning       String?  // Why the LLM classified it this way
-  urgency         String?  // "low" | "medium" | "high" (null for irrelevant)
-  confidence      Float?   // 0.0-1.0
-  archetypeSlug       String?   // Archetype classification from content detection
-  archetypeConfidence Float?    // 0.0-1.0 confidence of the classification
-  situationId     String?  // If promoted to a situation, link it here
-  metadata        Json?    // Original message metadata (from, to, subject, date)
-  evaluatedAt     DateTime @default(now())
+  id                  String   @id @default(cuid())
+  operatorId          String
+  actorEntityId       String? // The person evaluated as needing to act (null if no actor resolved)
+  sourceType          String // "email" | "slack_message" | "teams_message"
+  sourceId            String // External message ID
+  classification      String // "action_required" | "awareness" | "irrelevant"
+  awarenessType       String? // "informational" | "strategic" (only for awareness classification)
+  summary             String? // LLM-generated summary of the item
+  reasoning           String? // Why the LLM classified it this way
+  urgency             String? // "low" | "medium" | "high" (null for irrelevant)
+  confidence          Float? // 0.0-1.0
+  archetypeSlug       String? // Archetype classification from content detection
+  archetypeConfidence Float? // 0.0-1.0 confidence of the classification
+  situationId         String? // If promoted to a situation, link it here
+  metadata            Json? // Original message metadata (from, to, subject, date)
+  evaluatedAt         DateTime @default(now())
 
   @@index([operatorId, evaluatedAt])
   @@index([operatorId, classification])
   @@index([operatorId, actorEntityId])
   @@index([operatorId, sourceId])
+}
+
+model FoundationalDocStatus {
+  id             String   @id @default(cuid())
+  operatorId     String
+  docSlug        String
+  status         String // "found" | "missing_relevant" | "missing_irrelevant" | "dismissed"
+  contentChunkId String? // If found, links to the chunk
+  reason         String? // LLM-generated reason for missing_relevant
+  dismissedById  String? // If admin dismissed
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@unique([operatorId, docSlug])
+  @@index([operatorId, status])
 }

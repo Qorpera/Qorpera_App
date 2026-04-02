@@ -209,6 +209,20 @@ For each message, also assess:
 - **confidence** (0.0-1.0) — how confident you are in the classification
 - **reasoning** — one sentence explaining why you chose this classification
 
+TEMPORAL RELEVANCE RULE:
+Each message has a Date field. Consider the content's age when classifying:
+
+- If the content describes a TIME-SENSITIVE action (respond to someone, approve something, deliver by a date, attend a meeting, fix an urgent issue) AND it is more than 7 days old: mark as "awareness" NOT "action_required". The window for action has almost certainly passed.
+- If the content describes a STRUCTURAL condition (compliance gap, missing documentation, process failure, contractual issue, pattern of behavior, budget variance, personnel problem): mark as "action_required" regardless of age. These persist until resolved.
+- If the content references an entity that can be verified (invoice, order, delivery): the entity's CURRENT state determines relevance, not the email's age. But the email alone, without entity confirmation, is not sufficient for action_required if older than 7 days.
+
+Examples:
+- "Kan du godkende dette inden fredag?" — 15 days old → awareness (deadline passed)
+- "HACCP-planen er ikke opdateret" — 25 days old → action_required (still true)
+- "Faktura INV-2026-080 er forfalden" — 20 days old → check if invoice is STILL overdue in entity data. If yes → action_required. If paid → awareness.
+- "Vi mister kunden hvis vi ikke reagerer" — 12 days old → awareness (moment passed)
+- "Forsikringspolicen dækker kun 35 medarbejdere" — 60 days old → action_required (structural)
+
 For each message classified as "action_required" OR as "awareness" with awarenessType "strategic", you must ALSO classify it against the situation archetype taxonomy. Pick the single best-matching archetype slug. If no archetype fits well, use "unclassified".
 
 SITUATION ARCHETYPE TAXONOMY:
@@ -232,12 +246,14 @@ async function evaluateActorBatch(batch: ActorBatch): Promise<EvaluationResult[]
         item.content.length > 2000
           ? item.content.slice(0, 2000) + "..."
           : item.content;
+      const msgDate = meta.date ? new Date(meta.date as string) : null;
+      const daysAgo = msgDate ? Math.round((Date.now() - msgDate.getTime()) / 86_400_000) : null;
       return `MESSAGE ${idx}:
   Source: ${item.sourceType}
   From: ${meta.from ?? meta.authorEmail ?? "unknown"}
   To: ${meta.to ?? "unknown"}
   Subject: ${meta.subject ?? "(none)"}
-  Date: ${meta.date ?? "unknown"}
+  Date: ${meta.date ?? "unknown"}${daysAgo !== null ? ` (${daysAgo} days ago)` : ""}
   Content: ${contentTruncated}`;
     })
     .join("\n\n");
