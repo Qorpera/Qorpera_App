@@ -101,14 +101,14 @@ export default function AdminPage() {
     return () => clearInterval(interval);
   }, [syntheticCompanies]);
 
-  const seedCompany = async (slug: string) => {
+  const seedCompany = async (slug: string, mode: "onboarding" | "ground-truth" = "onboarding") => {
     setSeedError(null);
     setSeedingCompany(slug);
     try {
       const res = await fetch("/api/admin/seed-synthetic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: slug }),
+        body: JSON.stringify({ company: slug, mode }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -221,9 +221,16 @@ export default function AdminPage() {
                   {!data.seeded && (
                     <div className="wf-soft p-4 flex items-center justify-between">
                       <span className="text-xs text-[var(--fg3)]">Not seeded</span>
-                      <Button variant="primary" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug)}>
-                        {seedingCompany === slug ? "Seeding..." : "Seed"}
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="primary" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug)}>
+                          {seedingCompany === slug ? "Seeding..." : "Seed (Onboarding)"}
+                        </Button>
+                        {slug === "hansens-is" && (
+                          <Button variant="ghost" size="sm" disabled={!!seedingCompany} onClick={() => seedCompany(slug, "ground-truth")}>
+                            {seedingCompany === slug ? "Seeding..." : "Seed (Ground Truth)"}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   )}
                   {data.seeded && data.variants?.map((v) => {

@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { company: companySlug, action, operatorId: targetOperatorId } = await req.json().catch(() => ({ company: null, action: null, operatorId: null }));
+  const { company: companySlug, action, operatorId: targetOperatorId, mode = "onboarding" } = await req.json().catch(() => ({ company: null, action: null, operatorId: null, mode: "onboarding" }));
 
   // ── seed-all action — seeds all companies sequentially ──────────
   if (action === "seed-all") {
@@ -89,9 +89,25 @@ export async function POST(req: NextRequest) {
     }
     const result = await runSyntheticSeed(companyData);
 
+    // Ground truth mode: bypass onboarding, create pre-built state
+    if (mode === "ground-truth" && companySlug === "hansens-is") {
+      const { runHansensGroundTruthSeed } = await import("@/lib/demo/companies/hansens-is/ground-truth");
+      await runHansensGroundTruthSeed(result.operatorId);
+      return NextResponse.json({
+        success: true,
+        company: companySlug,
+        mode: "ground-truth",
+        operatorId: result.operatorId,
+        credentials: result.userCredentials,
+        stats: result.stats,
+        message: `${companyData.name} seeded with ground truth — 48 situations, 5 departments, 7 goals.`,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       company: companySlug,
+      mode: "onboarding",
       operatorId: result.operatorId,
       analysisId: result.analysisId,
       credentials: result.userCredentials,
