@@ -27,7 +27,10 @@ export async function POST(req: NextRequest) {
         const existing = await prisma.operator.findFirst({
           where: { isTestOperator: true, companyName: { contains: slug, mode: "insensitive" } },
         });
-        if (existing) await cleanupSyntheticCompany(existing.id);
+        if (existing) {
+          const { default: data } = await loader();
+          await cleanupSyntheticCompany(existing.id, data.domain);
+        }
 
         const { default: companyData } = await loader();
         const result = await runSyntheticSeed(companyData);
@@ -46,21 +49,22 @@ export async function POST(req: NextRequest) {
 
   // Delete action
   if (action === "delete") {
+    const deleteLoader = COMPANY_LOADERS[companySlug];
+    const deleteDomain = deleteLoader ? (await deleteLoader().catch(() => null))?.default?.domain : undefined;
+
     if (targetOperatorId) {
-      // Direct delete by operatorId — verify it's a test operator
       const target = await prisma.operator.findUnique({ where: { id: targetOperatorId }, select: { isTestOperator: true } });
       if (!target?.isTestOperator) return NextResponse.json({ error: "Not a test operator" }, { status: 403 });
-      await cleanupSyntheticCompany(targetOperatorId);
+      await cleanupSyntheticCompany(targetOperatorId, deleteDomain);
       return NextResponse.json({ success: true, deleted: companySlug });
     }
-    // Fallback to name search
     const existing = await prisma.operator.findFirst({
       where: { isTestOperator: true, companyName: { contains: companySlug, mode: "insensitive" } },
     });
     if (!existing) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
-    await cleanupSyntheticCompany(existing.id);
+    await cleanupSyntheticCompany(existing.id, deleteDomain);
     return NextResponse.json({ success: true, deleted: companySlug });
   }
 
@@ -77,12 +81,12 @@ export async function POST(req: NextRequest) {
     const existing = await prisma.operator.findFirst({
       where: { isTestOperator: true, companyName: { contains: companySlug, mode: "insensitive" } },
     });
+    const { default: companyData } = await loader();
+
     if (existing) {
       console.log(`[synthetic-seed] Removing existing ${companySlug} operator...`);
-      await cleanupSyntheticCompany(existing.id);
+      await cleanupSyntheticCompany(existing.id, companyData.domain);
     }
-
-    const { default: companyData } = await loader();
     const result = await runSyntheticSeed(companyData);
 
     return NextResponse.json({

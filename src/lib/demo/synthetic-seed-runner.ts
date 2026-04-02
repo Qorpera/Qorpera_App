@@ -488,88 +488,48 @@ export async function runSyntheticSeed(
 
 // ── Cleanup ─────────────────────────────────────────────────────────
 
-export async function cleanupSyntheticCompany(operatorId: string): Promise<void> {
-  console.log(`[synthetic-seed] Starting cleanup for operator ${operatorId}...`);
+export async function cleanupSyntheticCompany(operatorId: string, domain?: string): Promise<void> {
+  console.log(`[synthetic-seed] Starting cleanup for operator ${operatorId}${domain ? ` (${domain})` : ""}...`);
   console.time(`[synthetic-seed] Cleanup — ${operatorId}`);
 
-  // Reuse the cleanup pattern from seed-runner — same cascade order
-  await prisma.entity.updateMany({
-    where: { operatorId },
-    data: { parentDepartmentId: null, mergedIntoId: null, ownerDepartmentId: null },
-  });
+  // Use raw SQL to find ALL tables with an operatorId column and delete in one transaction.
+  // This avoids the fragile manual cascade ordering that breaks whenever new tables are added.
+  await prisma.$executeRaw`
+    DO $$
+    DECLARE
+      tbl text;
+    BEGIN
+      -- First: null out self-referencing FKs on Entity to break circular deps
+      UPDATE "Entity" SET "parentDepartmentId" = NULL, "mergedIntoId" = NULL, "ownerDepartmentId" = NULL
+        WHERE "operatorId" = ${operatorId};
 
-  // Phase 3+ models
-  await prisma.followUp.deleteMany({ where: { operatorId } });
-  await prisma.recurringTask.deleteMany({ where: { operatorId } });
-  await prisma.delegation.deleteMany({ where: { operatorId } });
-  await prisma.workStreamItem.deleteMany({ where: { workStream: { operatorId } } });
-  await prisma.workStream.deleteMany({ where: { operatorId } });
-  await prisma.executionStep.deleteMany({ where: { plan: { operatorId } } });
-  await prisma.executionPlan.deleteMany({ where: { operatorId } });
-  await prisma.initiative.deleteMany({ where: { operatorId } });
-  await prisma.goal.deleteMany({ where: { operatorId } });
-  await prisma.planAutonomy.deleteMany({ where: { operatorId } });
-  await prisma.operationalInsight.deleteMany({ where: { operatorId } });
-  await prisma.departmentHealth.deleteMany({ where: { operatorId } });
-  await prisma.priorityOverride.deleteMany({ where: { operatorId } });
-  await prisma.onboardingAgentRun.deleteMany({ where: { analysis: { operatorId } } });
-  await prisma.onboardingAnalysis.deleteMany({ where: { operatorId } });
+      -- Delete from all tables that have an operatorId column (except Operator itself)
+      FOR tbl IN
+        SELECT c.table_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+        WHERE c.column_name = 'operatorId'
+          AND c.table_schema = 'public'
+          AND c.table_name != 'Operator'
+          AND t.table_type = 'BASE TABLE'
+      LOOP
+        EXECUTE format('DELETE FROM %I WHERE "operatorId" = $1', tbl) USING ${operatorId};
+      END LOOP;
 
-  // Situations & detection
-  await prisma.evaluationLog.deleteMany({ where: { operatorId } });
-  await prisma.situationEvent.deleteMany({ where: { situation: { operatorId } } });
-  await prisma.situation.deleteMany({ where: { operatorId } });
-  await prisma.personalAutonomy.deleteMany({ where: { operatorId } });
-  await prisma.situationType.deleteMany({ where: { operatorId } });
+      -- Delete the Operator record itself
+      DELETE FROM "Operator" WHERE id = ${operatorId};
+    END $$;
+  `;
 
-  // Notifications & copilot
-  await prisma.notification.deleteMany({ where: { operatorId } });
-  await prisma.copilotMessage.deleteMany({ where: { operatorId } });
-  await prisma.orientationSession.deleteMany({ where: { operatorId } });
-
-  // Policies & actions
-  await prisma.policyRule.deleteMany({ where: { operatorId } });
-  await prisma.actionCapability.deleteMany({ where: { operatorId } });
-
-  // Events & activity
-  await prisma.activitySignal.deleteMany({ where: { operatorId } });
-  await prisma.event.deleteMany({ where: { operatorId } });
-
-  // Worker jobs
-  await prisma.workerJob.deleteMany({ where: { operatorId } });
-
-  // Connectors
-  await prisma.slackChannelMapping.deleteMany({ where: { operatorId } });
-  await prisma.syncLog.deleteMany({ where: { connector: { operatorId } } });
-  await prisma.sourceConnector.deleteMany({ where: { operatorId } });
-
-  // Content
-  await prisma.contentChunk.deleteMany({ where: { operatorId } });
-  await prisma.internalDocument.deleteMany({ where: { operatorId } });
-
-  // Entities & graph
-  await prisma.entityMention.deleteMany({ where: { entity: { operatorId } } });
-  await prisma.entityMergeLog.deleteMany({ where: { operatorId } });
-  await prisma.propertyValue.deleteMany({ where: { entity: { operatorId } } });
-  await prisma.relationship.deleteMany({ where: { relationshipType: { operatorId } } });
-  await prisma.relationshipType.deleteMany({ where: { operatorId } });
-
-  // Users & auth
-  await prisma.invite.deleteMany({ where: { operatorId } });
-  await prisma.notificationPreference.deleteMany({ where: { user: { operatorId } } });
-  await prisma.passwordResetToken.deleteMany({ where: { user: { operatorId } } });
-  await prisma.userScope.deleteMany({ where: { user: { operatorId } } });
-  await prisma.session.deleteMany({ where: { user: { operatorId } } });
-  await prisma.creditTransaction.deleteMany({ where: { operatorId } });
-  await prisma.user.deleteMany({ where: { operatorId } });
-
-  // Entities (after users)
-  await prisma.entity.deleteMany({ where: { operatorId } });
-  await prisma.entityProperty.deleteMany({ where: { entityType: { operatorId } } });
-  await prisma.entityType.deleteMany({ where: { operatorId } });
-
-  // Operator
-  await prisma.operator.delete({ where: { id: operatorId } });
+  // Delete users whose email matches the company domain (users linked by operatorId
+  // are already deleted above, but domain-matched users from failed partial seeds may remain)
+  if (domain) {
+    const domainPattern = `%@${domain}`;
+    await prisma.$executeRaw`DELETE FROM "Session" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE ${domainPattern})`;
+    await prisma.$executeRaw`DELETE FROM "UserScope" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE ${domainPattern})`;
+    await prisma.$executeRaw`DELETE FROM "NotificationPreference" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE ${domainPattern})`;
+    await prisma.$executeRaw`DELETE FROM "User" WHERE email LIKE ${domainPattern}`;
+  }
 
   console.timeEnd(`[synthetic-seed] Cleanup — ${operatorId}`);
   console.log(`[synthetic-seed] Cleaned up operator ${operatorId}`);
