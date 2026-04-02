@@ -7,6 +7,11 @@ const ActionStepSchema = z.object({
   actionCapabilityName: z.string().optional(),  // matches ActionCapability.name
   assignedUserId: z.string().optional(),
   params: z.record(z.any()).optional(),
+  uncertainties: z.array(z.object({
+    field: z.string(),
+    assumption: z.string(),
+    impact: z.enum(["high", "medium", "low"]),
+  })).optional(),
 });
 
 export const ReasoningOutputSchema = z.object({

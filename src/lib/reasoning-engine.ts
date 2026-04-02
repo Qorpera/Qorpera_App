@@ -12,6 +12,7 @@ import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 import { extractJSON } from "@/lib/json-helpers";
 import { parseCitedSections } from "@/lib/reasoning/citation-parser";
 import { generateSituationSummaries } from "@/lib/situation-summarizer";
+import { refineUncertainties } from "@/lib/reasoning/uncertainty-refiner";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
 export const REASONING_PROMPT_VERSION = 5; // v5: capability binding, email drafting, params population
@@ -293,6 +294,58 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
             assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
             inputContext: step.params ? { params: step.params } : undefined,
           });
+        }
+      }
+
+      // Refine uncertainties — Opus 4.6 focused pass to resolve or confirm
+      if (resolvedSteps && reasoning.actionPlan) {
+        const hasUncertainties = reasoning.actionPlan.some(s => s.uncertainties && s.uncertainties.length > 0);
+        if (hasUncertainties) {
+          try {
+            let triggerEvidenceStr: string | undefined;
+            if (situation.triggerEvidence) {
+              try {
+                const te = JSON.parse(situation.triggerEvidence);
+                triggerEvidenceStr = te.content ?? te.summary ?? undefined;
+              } catch {}
+            }
+
+            const refinement = await refineUncertainties(
+              reasoning.actionPlan,
+              reasoning.evidenceSummary ?? "",
+              context.communicationContext?.excerpts?.[0]?.content,
+              triggerEvidenceStr,
+            );
+
+            for (const refined of refinement.refinedSteps) {
+              if (refined.stepIndex >= resolvedSteps.length) continue;
+              const step = resolvedSteps[refined.stepIndex];
+
+              if (refined.paramUpdates && step.inputContext) {
+                const existingParams = (step.inputContext as Record<string, unknown>).params as Record<string, unknown> ?? {};
+                (step.inputContext as Record<string, unknown>).params = { ...existingParams, ...refined.paramUpdates };
+              }
+
+              if (refined.descriptionUpdate) {
+                step.description = refined.descriptionUpdate;
+              }
+
+              if (refined.remainingUncertainties.length > 0) {
+                step.inputContext = {
+                  ...(step.inputContext ?? {}),
+                  uncertainties: refined.remainingUncertainties,
+                };
+              }
+            }
+
+            const totalFlagged = reasoning.actionPlan.reduce((n, s) => n + (s.uncertainties?.length ?? 0), 0);
+            const totalRemaining = refinement.refinedSteps.reduce((n, s) => n + s.remainingUncertainties.length, 0);
+            if (totalFlagged > 0) {
+              console.log(`[reasoning-engine] Uncertainty refinement: ${totalFlagged} flagged → ${totalRemaining} kept for situation ${situationId}`);
+            }
+          } catch (err) {
+            console.error(`[reasoning-engine] Uncertainty refinement failed for ${situationId}:`, err);
+          }
         }
       }
 
@@ -592,6 +645,58 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
           inputContext: step.params ? { params: step.params } : undefined,
         });
+      }
+    }
+
+    // Refine uncertainties — Opus 4.6 focused pass to resolve or confirm
+    if (resolvedSteps && reasoning.actionPlan) {
+      const hasUncertainties = reasoning.actionPlan.some(s => s.uncertainties && s.uncertainties.length > 0);
+      if (hasUncertainties) {
+        try {
+          let triggerEvidenceStr: string | undefined;
+          if (situation.triggerEvidence) {
+            try {
+              const te = JSON.parse(situation.triggerEvidence);
+              triggerEvidenceStr = te.content ?? te.summary ?? undefined;
+            } catch {}
+          }
+
+          const refinement = await refineUncertainties(
+            reasoning.actionPlan,
+            reasoning.evidenceSummary ?? "",
+            context.communicationContext?.excerpts?.[0]?.content,
+            triggerEvidenceStr,
+          );
+
+          for (const refined of refinement.refinedSteps) {
+            if (refined.stepIndex >= resolvedSteps.length) continue;
+            const step = resolvedSteps[refined.stepIndex];
+
+            if (refined.paramUpdates && step.inputContext) {
+              const existingParams = (step.inputContext as Record<string, unknown>).params as Record<string, unknown> ?? {};
+              (step.inputContext as Record<string, unknown>).params = { ...existingParams, ...refined.paramUpdates };
+            }
+
+            if (refined.descriptionUpdate) {
+              step.description = refined.descriptionUpdate;
+            }
+
+            if (refined.remainingUncertainties.length > 0) {
+              step.inputContext = {
+                ...(step.inputContext ?? {}),
+                uncertainties: refined.remainingUncertainties,
+              };
+            }
+          }
+
+          const totalFlagged = reasoning.actionPlan.reduce((n, s) => n + (s.uncertainties?.length ?? 0), 0);
+          const totalRemaining = refinement.refinedSteps.reduce((n, s) => n + s.remainingUncertainties.length, 0);
+          if (totalFlagged > 0) {
+            console.log(`[reasoning-engine] Uncertainty refinement: ${totalFlagged} flagged → ${totalRemaining} kept for situation ${situationId}`);
+          }
+        } catch (err) {
+          console.error(`[reasoning-engine] Uncertainty refinement failed for ${situationId}:`, err);
+        }
       }
     }
 

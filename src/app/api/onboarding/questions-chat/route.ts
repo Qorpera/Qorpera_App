@@ -10,6 +10,13 @@ export async function POST(req: NextRequest) {
   if (!su) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
 
   const { operatorId } = su;
+
+  // Load session user's name for personalized conversation
+  const sessionUser = await prisma.user.findUnique({
+    where: { id: su.user.id },
+    select: { name: true, role: true },
+  });
+
   const body = await req.json();
   const { message, history = [] } = body;
 
@@ -28,7 +35,13 @@ export async function POST(req: NextRequest) {
   const departmentQuestions = allQuestions.filter((q: any) => q.scope === "department");
 
   // Build the system prompt
-  const systemPrompt = buildQuestionsSystemPrompt(adminQuestions, departmentQuestions, analysis.synthesisOutput);
+  const systemPrompt = buildQuestionsSystemPrompt(
+    adminQuestions,
+    departmentQuestions,
+    analysis.synthesisOutput,
+    sessionUser?.name ?? null,
+    sessionUser?.role ?? null,
+  );
 
   // Build messages
   const messages = [
@@ -87,12 +100,21 @@ function buildQuestionsSystemPrompt(
   adminQuestions: any[],
   departmentQuestions: any[],
   synthesisOutput: any,
+  userName: string | null,
+  userRole: string | null,
 ): string {
   let prompt = `You are Qorpera's AI assistant, helping the company admin complete their onboarding by discussing a few strategic questions about their organization.
 
 ## Your Role
 
 You've just finished analyzing the company's connected data (emails, documents, calendar, etc.) and have built a comprehensive understanding of the organization. Now you need to clarify a few things that the data alone couldn't answer.
+
+## Who You're Talking To
+
+${userName ? `You are speaking with **${userName}**${userRole === "admin" ? ", the company admin" : ""}.` : "You are speaking with the company admin."}
+Address them by name. Frame questions from THEIR perspective — ask about THEIR decisions, THEIR plans, THEIR view. Do NOT refer to them in third person. Do NOT say "the admin" or "the CEO" — you are talking TO them.
+
+If their name matches someone prominent in the analysis (e.g., the owner, director, or a key person), acknowledge that directly and use it to frame your questions personally: "I can see you're involved in almost every major process — from client approvals to material ordering. That tells me a lot about the company, but I want to understand..."
 
 ## Conversation Style
 
@@ -136,7 +158,7 @@ You also have ${departmentQuestions.length} operational question(s) that are bet
   prompt += `
 ## First Message
 
-Start by briefly summarizing what you discovered about their organization (2-3 sentences showing you understand their business), then naturally transition into your first question. If you have no admin questions, tell them the analysis was thorough and ask if there's anything they'd like to add or correct about the organizational map.
+Start by greeting ${userName ?? "the admin"} by name, briefly summarize what you discovered about their organization (2-3 sentences showing you understand their business), then naturally transition into your first question. If you have no admin questions, tell them the analysis was thorough and ask if there's anything they'd like to add or correct about the organizational map.
 
 ## Important
 

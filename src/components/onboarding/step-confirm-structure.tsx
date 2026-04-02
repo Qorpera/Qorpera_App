@@ -728,7 +728,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
                 style={msg.role === "assistant" ? { animation: "fadeSlideIn 0.3s ease-out" } : undefined}>
                 <div className={`max-w-[85%] text-sm whitespace-pre-wrap ${
                   msg.role === "user"
-                    ? "rounded-2xl rounded-br-md bg-accent text-white px-4 py-3"
+                    ? "rounded-2xl rounded-br-md px-4 py-3 text-foreground"
                     : "text-foreground px-1 py-1"
                 }`}>
                   {msg.content || (chatStreaming && i === chatMessages.length - 1 ? (
@@ -768,7 +768,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
             <button
               onClick={sendChatMessage}
               disabled={chatStreaming || !chatInput.trim()}
-              className="shrink-0 w-10 h-10 rounded-xl bg-accent text-white flex items-center justify-center disabled:opacity-50 transition"
+              className="shrink-0 w-10 h-10 rounded-xl bg-white text-black flex items-center justify-center disabled:opacity-50 transition"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M22 2L11 13" /><path d="M22 2L15 22L11 13L2 9L22 2Z" />

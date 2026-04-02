@@ -78,6 +78,15 @@ export async function GET(
         }
         return null;
       })(),
+      uncertainties: (() => {
+        if (s.inputContext) {
+          try {
+            const ic = JSON.parse(s.inputContext);
+            return ic.uncertainties ?? null;
+          } catch { return null; }
+        }
+        return null;
+      })(),
       actionCapability: s.actionCapabilityId ? capMap.get(s.actionCapabilityId) ?? null : null,
     };
   });

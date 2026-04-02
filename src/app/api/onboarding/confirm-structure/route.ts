@@ -86,6 +86,27 @@ export async function POST(request: Request) {
     // Non-fatal — detection still runs, just with degraded context
   }
 
+  // Apply uncertainty log answers to entity graph
+  try {
+    const analysisForAnswers = await prisma.onboardingAnalysis.findUnique({
+      where: { operatorId },
+      select: { uncertaintyLog: true },
+    });
+
+    if (analysisForAnswers?.uncertaintyLog && Array.isArray(analysisForAnswers.uncertaintyLog)) {
+      const answeredQuestions = (analysisForAnswers.uncertaintyLog as Array<Record<string, unknown>>)
+        .filter((q) => q.userAnswer && q.userAnswer !== "unknown");
+
+      if (answeredQuestions.length > 0) {
+        const { applyAnswersToGraph } = await import("@/lib/onboarding-intelligence/answer-applicator");
+        const result = await applyAnswersToGraph(operatorId, answeredQuestions);
+        console.log(`[confirm-structure] Applied answers: ${result.propertiesUpdated} properties, ${result.relationshipsCreated} relationships, ${result.contextStored} business rules`);
+      }
+    }
+  } catch (err) {
+    console.error("[confirm-structure] Answer application failed:", err);
+  }
+
   // Only enqueue detection if post-synthesis pipeline hasn't already run it
   const existingPipelineJob = await prisma.workerJob.findFirst({
     where: { operatorId, jobType: "post_synthesis_pipeline" },

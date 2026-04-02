@@ -322,7 +322,14 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
         //   { "channel": "#operations", "message": "Opdatering: Strømstigtet er løst..." }
         //
         // Draft COMPLETE, ready-to-execute content. The user sees an editable preview of exactly what will be created/sent/updated.
-      }
+      },
+      "uncertainties": [  // OPTIONAL — only include when a specific aspect of this step relies on thin evidence
+        {
+          "field": "body",  // which param or aspect is uncertain
+          "assumption": "Assumed deadline is 30. maj — based on single email from Trine, no contract confirmation found",
+          "impact": "high"  // high = could change the action entirely, medium = might need adjustment, low = minor detail
+        }
+      ]
     }
   ] or null,
   "confidence": 0.0 to 1.0,
@@ -344,6 +351,7 @@ CRITICAL RULES:
 - "consideredActions" should list what was evaluated.
 - "evidenceSummary" should list the 3-5 most important facts driving your decision.
 - For "action" steps: params MUST contain complete, ready-to-send content. For emails, draft the FULL email body in params.body — not a description of what to write, but the actual email the recipient will read. Write in the same language as the situation's source communications. The user will see this as an editable preview before approving execution.
+- UNCERTAINTY ANNOTATIONS: For each step, if ANY aspect depends on evidence from only a single source with no corroboration, or if you made an inference that could be wrong, add an "uncertainties" array. Flag the specific field/aspect, state your assumption, and rate the impact. Do NOT flag things that are clearly supported by multiple sources. Do NOT flag email addresses, names, or dates that appear consistently across the context. Only flag genuine gaps where you made a judgment call.
 - AUDIT YOUR PLAN: Before finalizing, re-read each step. For every step with executionMode "human_task", ask: "Is there an available automated action that could do this?" If yes, change it to "action" with the correct actionCapabilityName and params. Missing an available automation is a critical error.
 - For CRM update steps: params MUST include "entityId" with the actual entity ID from the context (found in TRIGGER ENTITY or RELATED ENTITIES sections). The system uses this ID to fetch current values and show a before/after diff. Without entityId, the user sees raw values with no context.
 - For email steps with supporting documents: include an "attachments" array in params. Each attachment is { "type": "document"|"spreadsheet", "title": "...", "content"|"rows": ... }. The user reviews and can edit each attachment inline before the email is sent.`;

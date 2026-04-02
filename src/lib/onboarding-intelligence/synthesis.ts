@@ -97,6 +97,7 @@ export interface CompanyModel {
     question: string;
     context: string;
     possibleAnswers?: string[];
+    evidenceChecked?: string;
     department?: string;
     scope: "admin" | "department";
     targetEmail?: string;
@@ -474,7 +475,13 @@ Do NOT reduce the number of situation type recommendations to avoid duplication 
   - scope: "admin" — strategic questions only the company owner/admin can answer (hiring plans, partnership decisions, pricing strategy, company-wide policies)
   - scope: "department" — operational questions a specific team member or department lead can answer (process details, tool configurations, individual workload, technical procedures)
   - When scope is "department", include targetEmail pointing to the person best equipped to answer, based on the agent findings about who handles that area
-  - When in doubt, use "admin" — it's better to ask the admin an operational question than to miss a strategic one`;
+  - When in doubt, use "admin" — it's better to ask the admin an operational question than to miss a strategic one
+- SELF-CHECK BEFORE GENERATING A QUESTION: For EACH potential uncertainty question, verify it cannot be answered from the agent reports you are synthesizing RIGHT NOW. If the Process Analyst identified who handles invoicing, do NOT ask "Who handles invoicing?" If the Organizational Analyst mapped reporting lines with high confidence, do NOT ask about reporting lines. Only generate questions when:
+  (a) Two agents genuinely CONTRADICT each other on a specific fact, OR
+  (b) The data is completely SILENT on the topic — no agent found anything, OR
+  (c) The question requires a STRATEGIC DECISION no amount of data analysis can answer (pricing policy, hiring plans, growth priorities, risk tolerance, succession planning)
+- For EACH question in the uncertainty log, include an "evidenceChecked" field: a brief note of what the agents DID find on this topic and WHY it remains a question despite their findings. Example: "evidenceChecked": "Process Analyst found Thomas sends quotes at 525 DKK/hr but Trine's template shows 495 DKK/hr — cannot determine which is the authorized rate without admin input"
+- If the agents found an answer with reasonable confidence but you aren't sure, DO NOT ask. State the answer in the company model and move on. The system will detect if it's wrong through operational monitoring.`;
 
 
 // ── Build Synthesis Input ────────────────────────────────────────────────────

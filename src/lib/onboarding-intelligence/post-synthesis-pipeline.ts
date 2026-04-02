@@ -22,6 +22,18 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
   console.log(`[post-synthesis] Starting relationship inference for ${operatorId}`);
   const inference = await inferRelationships(operatorId);
 
+  // Backfill content/activity linkage BEFORE detection — chunks need department IDs
+  // for department-scoped situation types and System Health knowledge metrics
+  console.log(`[post-synthesis] Running content linkage for ${operatorId}`);
+  try {
+    const { backfillContentLinkage } = await import("./content-linkage");
+    const linkResult = await backfillContentLinkage(operatorId);
+    console.log(`[post-synthesis] Content linkage: ${linkResult.chunksUpdated} chunks, ${linkResult.signalsUpdated} signals`);
+  } catch (err) {
+    console.error("[post-synthesis] Content linkage failed:", err);
+    // Non-fatal — detection proceeds with degraded department context
+  }
+
   console.log(`[post-synthesis] Running full situation detection for ${operatorId}`);
 
   // Run entity-based detection

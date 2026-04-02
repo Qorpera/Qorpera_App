@@ -77,6 +77,7 @@ interface ExecutionPlanData {
     approvedAt: string | null;
     executedAt: string | null;
     errorMessage: string | null;
+    uncertainties?: Array<{ field: string; assumption: string; impact: string }> | null;
   }>;
 }
 
@@ -1302,6 +1303,27 @@ function DetailPane({
                               </div>
                             );
                           })()}
+
+                          {/* Uncertainty annotations */}
+                          {planStep?.uncertainties && Array.isArray(planStep.uncertainties) && planStep.uncertainties.length > 0 && (
+                            <div className="mt-2 space-y-1.5">
+                              {(planStep.uncertainties as Array<{ field: string; assumption: string; impact: string }>).map((u, ui) => (
+                                <div key={ui} className="flex items-start gap-2 rounded px-3 py-2" style={{
+                                  background: u.impact === "high"
+                                    ? "color-mix(in srgb, var(--warn) 8%, transparent)"
+                                    : "color-mix(in srgb, var(--fg3) 6%, transparent)",
+                                  border: `1px solid ${u.impact === "high" ? "color-mix(in srgb, var(--warn) 15%, transparent)" : "color-mix(in srgb, var(--fg3) 10%, transparent)"}`,
+                                }}>
+                                  <span style={{ fontSize: 12, flexShrink: 0, marginTop: 1 }}>
+                                    {u.impact === "high" ? "⚠" : "ℹ"}
+                                  </span>
+                                  <span style={{ fontSize: 12, color: "var(--fg2)", lineHeight: 1.5 }}>
+                                    {u.assumption}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
                           {planStep?.errorMessage && (
                             <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 2 }}>{planStep.errorMessage}</p>
