@@ -4,6 +4,11 @@ import { prisma } from "@/lib/db";
 import { runSyntheticSeed, cleanupSyntheticCompany } from "@/lib/demo/synthetic-seed-runner";
 
 // Dynamic imports for company data packages (added in future prompts)
+/** Extract a search-friendly word from a slug: "hansens-is" → "hansens", "boltly" → "boltly" */
+function slugToSearchTerm(slug: string): string {
+  return slug.split("-")[0];
+}
+
 const COMPANY_LOADERS: Record<string, () => Promise<{ default: import("@/lib/demo/synthetic-types").SyntheticCompany }>> = {
   boltly: () => import("@/lib/demo/companies/boltly"),
   tallyo: () => import("@/lib/demo/companies/tallyo"),
@@ -25,7 +30,7 @@ export async function POST(req: NextRequest) {
     for (const [slug, loader] of Object.entries(COMPANY_LOADERS)) {
       try {
         const existing = await prisma.operator.findFirst({
-          where: { isTestOperator: true, companyName: { contains: slug, mode: "insensitive" } },
+          where: { isTestOperator: true, companyName: { contains: slugToSearchTerm(slug), mode: "insensitive" } },
         });
         if (existing) {
           const { default: data } = await loader();
@@ -59,7 +64,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, deleted: companySlug });
     }
     const existing = await prisma.operator.findFirst({
-      where: { isTestOperator: true, companyName: { contains: companySlug, mode: "insensitive" } },
+      where: { isTestOperator: true, companyName: { contains: slugToSearchTerm(companySlug), mode: "insensitive" } },
     });
     if (!existing) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
@@ -79,7 +84,7 @@ export async function POST(req: NextRequest) {
   try {
     // Clean up existing seeded operator for this company
     const existing = await prisma.operator.findFirst({
-      where: { isTestOperator: true, companyName: { contains: companySlug, mode: "insensitive" } },
+      where: { isTestOperator: true, companyName: { contains: slugToSearchTerm(companySlug), mode: "insensitive" } },
     });
     const { default: companyData } = await loader();
 
@@ -135,7 +140,7 @@ export async function GET() {
 
   for (const slug of available) {
     const matchingOps = await prisma.operator.findMany({
-      where: { isTestOperator: true, companyName: { contains: slug, mode: "insensitive" } },
+      where: { isTestOperator: true, companyName: { contains: slugToSearchTerm(slug), mode: "insensitive" } },
       select: { id: true, companyName: true },
     });
 
