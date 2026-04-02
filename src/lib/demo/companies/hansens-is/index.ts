@@ -5,7 +5,7 @@ import { HANSENS_STORIES } from "./stories";
 import { HANSENS_CONTRADICTIONS } from "./contradictions";
 
 const clutter = generateClutter(HANSENS_PROFILE, HANSENS_CLUTTER_CONFIG);
-const operational = generateOperationalContent(HANSENS_PROFILE, HANSENS_OPERATIONAL_CONFIG as any);
+const operational = generateOperationalContent(HANSENS_PROFILE, HANSENS_OPERATIONAL_CONFIG);
 const activitySignals = generateActivitySignals(HANSENS_PROFILE, { daysBack: 30, weekendActivity: false });
 
 const HANSENS_IS: SyntheticCompany = {

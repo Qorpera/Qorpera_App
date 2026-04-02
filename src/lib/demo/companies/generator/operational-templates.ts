@@ -8,7 +8,6 @@ import type { SyntheticContent } from "../../synthetic-types";
 import type { CompanyProfile } from "./types";
 
 // ── Seeded PRNG (LCG) ──────────────────────────────────────────────────
-// Same implementation as clutter-templates — deterministic given seed.
 
 class SeededRandom {
   private state: number;
@@ -27,11 +26,11 @@ class SeededRandom {
     return min + Math.floor(this.next() * (max - min + 1));
   }
 
-  pick<T>(arr: T[]): T {
+  pick<T>(arr: readonly T[]): T {
     return arr[Math.floor(this.next() * arr.length)];
   }
 
-  pickWeighted<T>(items: T[], weights: number[]): T {
+  pickWeighted<T>(items: readonly T[], weights: readonly number[]): T {
     const total = weights.reduce((a, b) => a + b, 0);
     let r = this.next() * total;
     for (let i = 0; i < items.length; i++) {
@@ -41,18 +40,13 @@ class SeededRandom {
     return items[items.length - 1];
   }
 
-  shuffle<T>(arr: T[]): T[] {
+  pickN<T>(arr: readonly T[], n: number): T[] {
     const out = [...arr];
     for (let i = out.length - 1; i > 0; i--) {
       const j = Math.floor(this.next() * (i + 1));
       [out[i], out[j]] = [out[j], out[i]];
     }
-    return out;
-  }
-
-  /** Pick N unique items from array (or fewer if array is smaller). */
-  pickN<T>(arr: T[], n: number): T[] {
-    return this.shuffle(arr).slice(0, Math.min(n, arr.length));
+    return out.slice(0, Math.min(n, arr.length));
   }
 }
 
@@ -66,14 +60,12 @@ function seedFromString(s: string): number {
   return Math.abs(h) || 1;
 }
 
-/** Returns ISO date string for N days ago. */
 function daysAgoDate(d: number): string {
   const date = new Date();
   date.setDate(date.getDate() - d);
   return date.toISOString().slice(0, 10);
 }
 
-/** Returns true if the given daysAgo falls on a weekend. */
 function isWeekend(daysAgo: number): boolean {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
@@ -81,21 +73,14 @@ function isWeekend(daysAgo: number): boolean {
   return day === 0 || day === 6;
 }
 
-/**
- * Distribute `count` items evenly across 0..maxDays, skipping weekends.
- * Returns an array of daysAgo values.
- */
 function distributeWeekdays(rng: SeededRandom, count: number, maxDays: number): number[] {
-  // Collect all weekdays in the window
   const weekdays: number[] = [];
   for (let d = 0; d < maxDays; d++) {
     if (!isWeekend(d)) weekdays.push(d);
   }
   if (weekdays.length === 0) return Array(count).fill(0);
-
   const days: number[] = [];
   for (let i = 0; i < count; i++) {
-    // Even distribution with slight jitter
     const baseIdx = Math.floor((i / count) * weekdays.length);
     const jitter = rng.int(-2, 2);
     const idx = Math.max(0, Math.min(weekdays.length - 1, baseIdx + jitter));
@@ -108,59 +93,53 @@ function firstName(fullName: string): string {
   return fullName.split(" ")[0];
 }
 
-// ── Config interfaces ──────────────────────────────────────────────────
+function frequencyToCount(freq: string, daysBack: number): number {
+  const weeks = Math.ceil(daysBack / 7);
+  if (freq === "daily") return Math.ceil(daysBack * 5 / 7); // weekdays
+  if (freq === "weekly") return weeks;
+  if (freq === "biweekly") return Math.ceil(weeks / 2);
+  if (freq === "monthly") return Math.ceil(daysBack / 30);
+  return 1;
+}
+
+// ── Config interfaces (match profile.ts shape) ────────────────────────
 
 export interface TracezillaOrderConfig {
-  count: number;
-  customers: string[];
-  products: Array<{ name: string; unit: string; priceRange: [number, number] }>;
+  customers: ReadonlyArray<{ name: string; products: readonly string[]; frequency: string; avgOrderSize: number }>;
+  products: ReadonlyArray<{ name: string; sku: string; unit: string; organic: boolean }>;
   daysBack: number;
 }
 
 export interface TracezillaBatchConfig {
-  count: number;
-  products: Array<{ name: string; batchPrefix: string }>;
-  suppliers: Array<{ name: string; lotPrefix: string }>;
+  products: ReadonlyArray<{ name: string; batchPrefix: string; dailyVolume: number; unit: string }>;
+  milkSupplier: { name: string; lotPrefix: string };
   daysBack: number;
 }
 
 export interface ShipmondoConfig {
-  count: number;
-  origin: string;
-  destinations: string[];
-  carriers: string[];
+  routes: ReadonlyArray<{ destination: string; carrier: string; frequency: string; palletRange: readonly [number, number] }>;
+  ownTruckRoutes: ReadonlyArray<{ name: string; stops: readonly string[]; frequency: string }>;
   daysBack: number;
 }
 
 export interface SlackOpsConfig {
-  count: number;
-  channels: Array<{
-    name: string;
-    templates: string[];
-  }>;
+  channels: ReadonlyArray<{ name: string; posters: readonly string[]; templateType: string }>;
   daysBack: number;
 }
 
 export interface RoutineEmailConfig {
-  count: number;
+  supplierEmails: ReadonlyArray<{ name: string; email: string; contactName: string; topic: string }>;
+  internalRoutines: ReadonlyArray<{ from: string; to: string; topic: string; frequency: string }>;
   daysBack: number;
 }
 
 export interface PleoExpenseConfig {
-  count: number;
-  categories: Array<{ name: string; amountRange: [number, number] }>;
+  categories: ReadonlyArray<{ name: string; avgAmount: number; frequency: number; employees: readonly string[] }>;
   daysBack: number;
 }
 
 export interface CalendarOpsConfig {
-  count: number;
-  recurringMeetings: Array<{
-    title: string;
-    dayOfWeek: number; // 0=Sun, 1=Mon, ... 6=Sat
-    hour: number;
-    durationMin: number;
-    attendeeRoles: string[];
-  }>;
+  recurring: ReadonlyArray<{ title: string; attendees: readonly string[]; frequency: string }>;
   daysBack: number;
 }
 
@@ -178,51 +157,46 @@ export interface OperationalConfig {
 
 function generateTracezillaOrders(
   rng: SeededRandom,
-  profile: CompanyProfile,
+  _profile: CompanyProfile,
   config: TracezillaOrderConfig,
 ): SyntheticContent[] {
   const results: SyntheticContent[] = [];
-  const days = distributeWeekdays(rng, config.count, config.daysBack);
-  const statuses = ["Leveret", "Bekræftet", "Under behandling", "Kladde"];
+  const statuses = ["Leveret", "Bekræftet", "Under behandling", "Kladde"] as const;
   const statusWeights = [60, 25, 10, 5];
 
-  for (let i = 0; i < config.count; i++) {
-    const soNum = 4800 + i;
-    const customer = rng.pick(config.customers);
-    const status = rng.pickWeighted(statuses, statusWeights);
-    const lineCount = rng.int(2, 4);
-    const daysAgo = days[i];
-    const deliveryDaysAgo = Math.max(0, daysAgo - rng.int(1, 5));
+  // Generate orders per customer based on their frequency
+  for (const customer of config.customers) {
+    const orderCount = frequencyToCount(customer.frequency, config.daysBack);
+    const days = distributeWeekdays(rng, orderCount, config.daysBack);
 
-    // Build line items
-    const lines: string[] = [];
-    const selectedProducts = rng.pickN(config.products, lineCount);
-    for (const prod of selectedProducts) {
-      const qty = rng.int(10, 500);
-      const price = rng.int(prod.priceRange[0], prod.priceRange[1]);
-      lines.push(`${qty} ${prod.unit} ${prod.name} @ ${price} DKK`);
+    for (let i = 0; i < orderCount; i++) {
+      const soNum = 4800 + results.length;
+      const daysAgo = days[i];
+      const status = daysAgo > 15
+        ? rng.pickWeighted(["Leveret", "Leveret", "Bekræftet"], [80, 10, 10])
+        : rng.pickWeighted([...statuses], [...statusWeights]);
+      const deliveryDaysAgo = Math.max(0, daysAgo - rng.int(1, 7));
+
+      // Pick 2-4 products from the customer's product list
+      const lineCount = Math.min(rng.int(2, 4), customer.products.length);
+      const selectedProducts = rng.pickN(customer.products, lineCount);
+      const lines = selectedProducts.map(p => {
+        const qty = Math.round(customer.avgOrderSize * (0.5 + rng.next()));
+        const product = config.products.find(pr => p.includes(pr.name.split(" ")[1] ?? pr.name));
+        const unit = product?.unit ?? "stk";
+        return `${qty} ${unit} ${p}`;
+      });
+
+      const content = `Salgsordre SO-${soNum} — ${customer.name}. ${lines.join(". ")}. Levering ${daysAgoDate(deliveryDaysAgo)}. Status: ${status}.`;
+
+      results.push({
+        sourceType: "erp_order",
+        connectorProvider: "tracezilla",
+        content,
+        daysAgo,
+        metadata: { orderNumber: `SO-${soNum}`, customer: customer.name, status, deliveryDate: daysAgoDate(deliveryDaysAgo) },
+      });
     }
-
-    const content = [
-      `Salgsordre SO-${soNum} — ${customer}.`,
-      lines.join(". ") + ".",
-      `Levering ${daysAgoDate(deliveryDaysAgo)}.`,
-      `Status: ${status}.`,
-    ].join(" ");
-
-    results.push({
-      sourceType: "erp_order",
-      connectorProvider: "tracezilla",
-      content,
-      daysAgo,
-      metadata: {
-        orderNumber: `SO-${soNum}`,
-        customer,
-        status,
-        lineItems: selectedProducts.length,
-        deliveryDate: daysAgoDate(deliveryDaysAgo),
-      },
-    });
   }
 
   return results;
@@ -234,34 +208,27 @@ function generateTracezillaBatches(
   config: TracezillaBatchConfig,
 ): SyntheticContent[] {
   const results: SyntheticContent[] = [];
-  const days = distributeWeekdays(rng, config.count, config.daysBack);
-  const qaStatuses = ["Godkendt", "Under inspektion", "Afvist"];
-  const qaWeights = [95, 4, 1];
 
-  for (let i = 0; i < config.count; i++) {
-    const product = rng.pick(config.products);
-    const supplier = rng.pick(config.suppliers);
+  // ~1-2 batches per working day, rotating through products
+  const totalBatches = Math.ceil(config.daysBack * 5 / 7 * 1.5);
+  const days = distributeWeekdays(rng, totalBatches, config.daysBack);
+
+  for (let i = 0; i < totalBatches; i++) {
+    const product = config.products[i % config.products.length];
     const batchNum = `2026-${product.batchPrefix}${String(i + 1).padStart(3, "0")}`;
-    const qty = rng.int(50, 2000);
-    const lotNum = `${supplier.lotPrefix}-2026-${String(rng.int(1, 99)).padStart(2, "0")}`;
-    const qa = rng.pickWeighted(qaStatuses, qaWeights);
+    const qty = Math.round(product.dailyVolume * (0.7 + rng.next() * 0.6));
+    const lotNum = `${config.milkSupplier.lotPrefix}-${String(rng.int(300, 399)).padStart(4, "0")}`;
+    const qa = rng.next() < 0.95 ? "Godkendt" : "Afventer";
     const daysAgo = days[i];
 
-    const content = `Batch ${batchNum} — ${product.name}. ${qty} stk. Ramelk: ${supplier.name} lot ${lotNum}. QA: ${qa}.`;
+    const content = `Batch ${batchNum} — ${product.name}. ${qty} ${product.unit} produceret. Råmælk: ${config.milkSupplier.name} lot ${lotNum}. Holdbarhed: 24 mdr. Økologisk: Ja. QA: ${qa}.`;
 
     results.push({
       sourceType: "erp_order",
       connectorProvider: "tracezilla",
       content,
       daysAgo,
-      metadata: {
-        batchNumber: batchNum,
-        product: product.name,
-        quantity: qty,
-        supplier: supplier.name,
-        lotNumber: lotNum,
-        qaStatus: qa,
-      },
+      metadata: { batchNumber: batchNum, product: product.name, quantity: qty, supplier: config.milkSupplier.name, lotNumber: lotNum, qaStatus: qa },
     });
   }
 
@@ -274,188 +241,148 @@ function generateShipmondoShipments(
   config: ShipmondoConfig,
 ): SyntheticContent[] {
   const results: SyntheticContent[] = [];
-  const days = distributeWeekdays(rng, config.count, config.daysBack);
-  const statuses = ["Leveret", "Planlagt", "Under transport", "Klargjort"];
+  const statuses = ["Leveret", "Planlagt", "Under transport", "Klargjort"] as const;
   const statusWeights = [70, 15, 10, 5];
 
-  for (let i = 0; i < config.count; i++) {
-    const shpNum = 8800 + i;
-    const dest = rng.pick(config.destinations);
-    const carrier = rng.pick(config.carriers);
-    const pallets = rng.int(1, 8);
-    const status = rng.pickWeighted(statuses, statusWeights);
-    const daysAgo = days[i];
+  // Route-based shipments
+  for (const route of config.routes) {
+    const count = frequencyToCount(route.frequency, config.daysBack);
+    const days = distributeWeekdays(rng, count, config.daysBack);
 
-    const content = `Forsendelse SHP-${shpNum} — ${config.origin} \u2192 ${dest}. ${carrier}. ${pallets} paller. -18\u00B0C. Status: ${status}.`;
+    for (let i = 0; i < count; i++) {
+      const shpNum = 8800 + results.length;
+      const pallets = rng.int(route.palletRange[0], route.palletRange[1]);
+      const daysAgo = days[i];
+      const status = daysAgo > 5
+        ? rng.pickWeighted(["Leveret", "Leveret", "Leveret"], [90, 5, 5])
+        : rng.pickWeighted([...statuses], [...statusWeights]);
 
-    results.push({
-      sourceType: "shipment",
-      connectorProvider: "shipmondo",
-      content,
-      daysAgo,
-      metadata: {
-        shipmentNumber: `SHP-${shpNum}`,
-        origin: config.origin,
-        destination: dest,
-        carrier,
-        pallets,
-        temperature: "-18\u00B0C",
-        status,
-      },
-    });
+      const content = `Forsendelse SHP-${shpNum} — Hansens Jægerspris → ${route.destination}. ${route.carrier}. ${pallets} paller. Kølekontrolleret -18°C. Status: ${status}.`;
+
+      results.push({
+        sourceType: "shipment",
+        connectorProvider: "shipmondo",
+        content,
+        daysAgo,
+        metadata: { shipmentNumber: `SHP-${shpNum}`, destination: route.destination, carrier: route.carrier, pallets, status },
+      });
+    }
+  }
+
+  // Own truck routes
+  for (const route of config.ownTruckRoutes) {
+    const count = frequencyToCount(route.frequency, config.daysBack);
+    const days = distributeWeekdays(rng, count, config.daysBack);
+
+    for (let i = 0; i < count; i++) {
+      const shpNum = 8800 + results.length;
+      const daysAgo = days[i];
+      const status = daysAgo > 3 ? "Leveret" : rng.pick(["Leveret", "Planlagt"]);
+
+      const content = `Forsendelse SHP-${shpNum} — Egen kølbil rute: ${route.name}. ${route.stops.length} stop: ${route.stops.join(", ")}. Status: ${status}.`;
+
+      results.push({
+        sourceType: "shipment",
+        connectorProvider: "shipmondo",
+        content,
+        daysAgo,
+        metadata: { shipmentNumber: `SHP-${shpNum}`, route: route.name, stops: route.stops.length, status },
+      });
+    }
   }
 
   return results;
 }
 
+// Slack message template pools per channel type
+const SLACK_TEMPLATES: Record<string, string[]> = {
+  production: [
+    "Produktion i dag: Vanille ({qty1}), Chokolade ({qty2}). Svanholm-leverance modtaget kl {time}. Alt OK.",
+    "Batch {batchNum} afsluttet. QA-godkendelse opdateret i Tracezilla.",
+    "Produktion afsluttet. Total i dag: {qty1} stk. I morgen: {product}.",
+    "Svanholm-leverance: {qty1}L modtaget kl {time}. Kvalitet OK. Fedtprocent: 3,8%.",
+    "Maskinvedligehold: pasteuriseringsanlæg rengjort. Klar til i morgen.",
+  ],
+  logistics: [
+    "Leveringsplan i dag: {route1}. Kølbil 1: {dest1}. Kølbil 2: {dest2}.",
+    "Fryselager: {pct}% kapacitet. {qty1} paller ledigt.",
+    "{deliveries} leveringer gennemført i dag. Alt on-time.",
+    "SHP-{shpNum} afhentet kl {time}. {pallets} paller til {dest1}.",
+    "Fryselager temperaturcheck: -{temp}°C. Inden for grænseværdier.",
+  ],
+  quality: [
+    "Temperaturlog OK. Fryselager: -{temp}°C. Pasteurisering: 85°C/15s.",
+    "Batch {batchNum} — QA godkendt. Alle parametre inden for specifikation.",
+    "Overfladeprobtagning uge {weekNum}: alle resultater under grænseværdi.",
+    "Leverandørcertifikat Svanholm Gods: Ø-cert bekræftet gyldig.",
+    "Allergenoversigt opdateret med ny SKU: Nørgaard Pop (aronia, ingen mælk).",
+  ],
+  sales: [
+    "Coop har bestilt {qty1} ks til levering {date}. Bekræftet i Tracezilla.",
+    "Robert: feltbesøg i dag — 2 nye leads i København. Følger op i morgen.",
+    "Salling Group sæsonaftale: ordrer stiger som forventet. +15% vs. sidste år.",
+    "Nemlig.com ugentlig ordre: {qty1} stk assorteret. Levering onsdag.",
+    "OOH pipeline: {count} aktive leads. Estimeret værdi {amount} DKK/mnd.",
+  ],
+  general: [
+    "God morgen alle. Ugen i overblik: {count} ordrer, {deliveries} leveringer planlagt.",
+    "Fælles frokost fredag kl 12 i kantinen. Alle er velkomne.",
+    "Påmindelse: sikkerhedssko og hårnæt er påbudt i produktionsområdet.",
+    "Kontoret lukker kl 15 fredag pga. personalearrangement.",
+    "Velkommen til ny sæsonmedarbejder! Vis dem rundt og hjælp dem i gang.",
+  ],
+};
+
 function generateSlackOps(
   rng: SeededRandom,
-  profile: CompanyProfile,
+  _profile: CompanyProfile,
   config: SlackOpsConfig,
 ): SyntheticContent[] {
   const results: SyntheticContent[] = [];
-  const days = distributeWeekdays(rng, config.count, config.daysBack);
 
-  // Build per-channel template pools with placeholder substitution
-  const channelPool = config.channels.flatMap((ch) =>
-    ch.templates.map((t) => ({ channel: ch.name, template: t })),
-  );
+  // ~5-6 messages per working day across all channels
+  const totalMessages = Math.ceil(config.daysBack * 5 / 7 * 5.5);
+  const days = distributeWeekdays(rng, totalMessages, config.daysBack);
 
-  for (let i = 0; i < config.count; i++) {
-    const entry = rng.pick(channelPool);
-    const emp = rng.pick(profile.employees);
+  for (let i = 0; i < totalMessages; i++) {
+    const channel = rng.pick(config.channels);
+    const templates = SLACK_TEMPLATES[channel.templateType] ?? SLACK_TEMPLATES.general;
+    const template = rng.pick(templates);
+    const poster = rng.pick(channel.posters);
     const daysAgo = days[i];
-    const hour = rng.int(6, 18);
-    const minute = rng.pick(["00", "15", "30", "45"]);
 
-    // Substitute placeholders in template
-    const content = entry.template
-      .replace(/\{employee\}/g, firstName(emp.name))
-      .replace(/\{time\}/g, `${hour}:${minute}`)
-      .replace(/\{num\}/g, String(rng.int(1, 999)))
-      .replace(/\{pct\}/g, String(rng.int(80, 100)))
-      .replace(/\{temp\}/g, String(rng.int(-22, -16)))
-      .replace(/\{date\}/g, daysAgoDate(daysAgo));
+    const content = template
+      .replace(/\{qty1\}/g, String(rng.int(400, 2000)))
+      .replace(/\{qty2\}/g, String(rng.int(300, 1500)))
+      .replace(/\{time\}/g, `${rng.int(6, 16)}:${rng.pick(["00", "15", "30", "45"])}`)
+      .replace(/\{batchNum\}/g, `2026-V${String(rng.int(1, 50)).padStart(3, "0")}`)
+      .replace(/\{product\}/g, rng.pick(["Vanille", "Chokolade", "Jordbær", "O'Payo", "Salt Karamel"]))
+      .replace(/\{route1\}/g, rng.pick(["Coop Albertslund", "Salling Hasselager", "OOH København"]))
+      .replace(/\{dest1\}/g, rng.pick(["Coop Centrallager", "Nemlig Brøndby", "Salling DC"]))
+      .replace(/\{dest2\}/g, rng.pick(["OOH København", "OOH Nordsjælland", "Dagrofa"]))
+      .replace(/\{pct\}/g, String(rng.int(55, 92)))
+      .replace(/\{deliveries\}/g, String(rng.int(2, 6)))
+      .replace(/\{shpNum\}/g, String(rng.int(8800, 8999)))
+      .replace(/\{pallets\}/g, String(rng.int(2, 16)))
+      .replace(/\{temp\}/g, String(rng.int(17, 22)))
+      .replace(/\{weekNum\}/g, String(rng.int(14, 18)))
+      .replace(/\{date\}/g, daysAgoDate(Math.max(0, daysAgo - rng.int(0, 5))))
+      .replace(/\{count\}/g, String(rng.int(3, 12)))
+      .replace(/\{amount\}/g, String(rng.int(15, 80) * 1000));
+
+    const posterName = _profile?.employees?.find(e => e.email === poster)?.name ?? poster.split("@")[0];
 
     results.push({
       sourceType: "slack_message",
       connectorProvider: "slack",
       content,
       daysAgo,
-      metadata: {
-        channel: entry.channel,
-        authorEmail: emp.email,
-        authorName: firstName(emp.name),
-      },
+      metadata: { channel: channel.name, authorEmail: poster, authorName: firstName(posterName) },
     });
   }
 
   return results;
 }
-
-// ── Routine email templates ─────────────────────────────────────────────
-
-const ROUTINE_EMAIL_TEMPLATES = {
-  supplierConfirmation: (rng: SeededRandom, profile: CompanyProfile) => {
-    const ext = rng.pick(profile.externalContacts);
-    const emp = rng.pick(profile.employees);
-    const qty = rng.int(100, 5000);
-    const product = rng.pick(["ramelk", "floede", "sukker", "vaniljeekstrakt", "chokoladecouverture", "emballage"]);
-    const weekNum = rng.int(14, 26);
-    return {
-      content: `Hej ${firstName(emp.name)}, hermed bekraeftelse pa bestilling af ${qty} kg ${product}. Forventet levering uge ${weekNum}. Faktura folger ved afsendelse. Venlig hilsen, ${ext.name}, ${ext.company}`,
-      from: ext.email,
-      to: emp.email,
-      subject: `Ordrebekraeftelse — ${qty} kg ${product}`,
-    };
-  },
-  deliveryAck: (rng: SeededRandom, profile: CompanyProfile) => {
-    const ext = rng.pick(profile.externalContacts);
-    const emp = rng.pick(profile.employees);
-    const orderNum = rng.int(4800, 5200);
-    return {
-      content: `Kare ${firstName(emp.name)}, vi bekraefter modtagelse af leverance SO-${orderNum}. Alt modtaget i god stand. Tak for hurtig levering. Med venlig hilsen, ${ext.name}`,
-      from: ext.email,
-      to: emp.email,
-      subject: `Leverance modtaget — SO-${orderNum}`,
-    };
-  },
-  weeklyStatus: (rng: SeededRandom, profile: CompanyProfile) => {
-    const emp = rng.pick(profile.employees);
-    const other = rng.pick(profile.employees.filter((e) => e.email !== emp.email));
-    const ordersShipped = rng.int(15, 45);
-    const batchesProduced = rng.int(8, 25);
-    const complaints = rng.int(0, 3);
-    return {
-      content: `Ugentlig status: ${ordersShipped} ordrer afsendt, ${batchesProduced} batches produceret, ${complaints} reklamationer. Lagerbeholdning er stabil. Ingen kritiske forsinkelser. /${firstName(emp.name)}`,
-      from: emp.email,
-      to: other?.email ?? emp.email,
-      subject: `Ugens status — uge ${rng.int(14, 26)}`,
-    };
-  },
-  meetingFollowUp: (rng: SeededRandom, profile: CompanyProfile) => {
-    const emp = rng.pick(profile.employees);
-    const other = rng.pick(profile.employees.filter((e) => e.email !== emp.email));
-    const topic = rng.pick([
-      "produktionsplanlaegning", "kvalitetsgennemgang", "salgsmoede",
-      "budgetopfoelgning", "leverandoermoede", "logistikmoede",
-    ]);
-    const actionCount = rng.int(2, 5);
-    return {
-      content: `Hej alle, referat fra ${topic}. ${actionCount} handlingspunkter aftalt. Se vedhaeftede referat for detaljer. Naeste moede er fastsat. Vh ${firstName(emp.name)}`,
-      from: emp.email,
-      to: other?.email ?? emp.email,
-      subject: `Referat: ${topic}`,
-    };
-  },
-  paymentProcessing: (rng: SeededRandom, profile: CompanyProfile) => {
-    const ext = rng.pick(profile.externalContacts);
-    const emp = rng.pick(profile.employees);
-    const invNum = rng.int(10000, 99999);
-    const amount = rng.int(5000, 250000);
-    return {
-      content: `Kare ${firstName(emp.name)}, betaling af faktura ${invNum} pa ${amount.toLocaleString("da-DK")} DKK er modtaget. Tak. Venlig hilsen, ${ext.name}, ${ext.company}`,
-      from: ext.email,
-      to: emp.email,
-      subject: `Betaling modtaget — faktura ${invNum}`,
-    };
-  },
-  deliverySchedule: (rng: SeededRandom, profile: CompanyProfile) => {
-    const emp = rng.pick(profile.employees);
-    const ext = rng.pick(profile.externalContacts);
-    const pallets = rng.int(2, 12);
-    const deliveryDay = rng.pick(["mandag", "tirsdag", "onsdag", "torsdag", "fredag"]);
-    return {
-      content: `Hej ${ext.name}, leverance pa ${pallets} paller er planlagt til ${deliveryDay}. Ankomsttid ca. kl. ${rng.int(6, 14)}:${rng.pick(["00", "30"])}. Ring hvis der er aendringer. Vh ${firstName(emp.name)}, ${profile.name}`,
-      from: emp.email,
-      to: ext.email,
-      subject: `Leveranceplan — ${pallets} paller ${deliveryDay}`,
-    };
-  },
-  priceListUpdate: (rng: SeededRandom, profile: CompanyProfile) => {
-    const emp = rng.pick(profile.employees);
-    const ext = rng.pick(profile.externalContacts);
-    const season = rng.pick(["sommer 2026", "efterar 2026", "Q3 2026"]);
-    return {
-      content: `Kare ${ext.name}, vedlagt opdateret prisliste for ${season}. Prisaendringer traeder i kraft 1. ${rng.pick(["maj", "juni", "juli", "august"])}. Kontakt mig ved sporgsmal. Venlig hilsen, ${firstName(emp.name)}`,
-      from: emp.email,
-      to: ext.email,
-      subject: `Opdateret prisliste — ${season}`,
-    };
-  },
-  qualityReport: (rng: SeededRandom, profile: CompanyProfile) => {
-    const emp = rng.pick(profile.employees);
-    const other = rng.pick(profile.employees.filter((e) => e.email !== emp.email));
-    const batchCount = rng.int(5, 20);
-    const passRate = rng.int(95, 100);
-    return {
-      content: `Kvalitetsrapport uge ${rng.int(14, 26)}: ${batchCount} batches testet, ${passRate}% godkendt. Alle temperaturlogs inden for graensevaerdier. Naeste audit planlagt til ${daysAgoDate(rng.int(0, 7))}. /${firstName(emp.name)}`,
-      from: emp.email,
-      to: other?.email ?? emp.email,
-      subject: `Kvalitetsrapport — uge ${rng.int(14, 26)}`,
-    };
-  },
-};
 
 function generateRoutineEmails(
   rng: SeededRandom,
@@ -463,26 +390,46 @@ function generateRoutineEmails(
   config: RoutineEmailConfig,
 ): SyntheticContent[] {
   const results: SyntheticContent[] = [];
-  const days = distributeWeekdays(rng, config.count, config.daysBack);
-  const templateFns = Object.values(ROUTINE_EMAIL_TEMPLATES);
 
-  for (let i = 0; i < config.count; i++) {
-    const templateFn = rng.pick(templateFns);
-    const { content, from, to, subject } = templateFn(rng, profile);
-    const daysAgo = days[i];
+  // Supplier correspondence
+  for (const supplier of config.supplierEmails) {
+    const count = Math.ceil(config.daysBack / 7 * 2); // ~2/week per supplier
+    const days = distributeWeekdays(rng, count, config.daysBack);
+    const emp = profile.employees.find(e => e.role === "admin") ?? profile.employees[0];
 
-    results.push({
-      sourceType: "email",
-      connectorProvider: "gmail",
-      content,
-      daysAgo,
-      metadata: {
-        from,
-        to,
-        subject,
-        date: daysAgoDate(daysAgo),
-      },
-    });
+    for (let i = 0; i < count; i++) {
+      const daysAgo = days[i];
+      const templates = [
+        { subject: `Ordrebekræftelse — ${supplier.topic}`, content: `Hej ${firstName(emp.name)}, vi bekræfter modtagelse af din ordre. Levering i uge ${rng.int(14, 22)}. Vh ${supplier.contactName}, ${supplier.name}`, from: supplier.email, to: emp.email },
+        { subject: `Leveringsnotifikation — ${supplier.topic}`, content: `Hej ${firstName(emp.name)}, din leverance af ${supplier.topic} er afsendt i dag. Forventet ankomst i morgen kl ${rng.int(6, 10)}:00. Vh ${supplier.contactName}`, from: supplier.email, to: emp.email },
+        { subject: `RE: ${supplier.topic} — uge ${rng.int(14, 22)}`, content: `Hej ${supplier.contactName}, bekræfter modtagelse af leverance. Alt modtaget i god stand. Tak. Vh ${firstName(emp.name)}, ${profile.name}`, from: emp.email, to: supplier.email },
+      ];
+      const t = rng.pick(templates);
+      results.push({
+        sourceType: "email", connectorProvider: "gmail", content: t.content, daysAgo,
+        metadata: { from: t.from, to: t.to, subject: t.subject, date: daysAgoDate(daysAgo) },
+      });
+    }
+  }
+
+  // Internal routines
+  for (const routine of config.internalRoutines) {
+    const count = frequencyToCount(routine.frequency, config.daysBack);
+    const days = distributeWeekdays(rng, count, config.daysBack);
+    const fromName = profile.employees.find(e => e.email === routine.from)?.name ?? routine.from;
+    const toName = profile.employees.find(e => e.email === routine.to)?.name ?? routine.to;
+
+    for (let i = 0; i < count; i++) {
+      const daysAgo = days[i];
+      const content = routine.frequency === "daily"
+        ? `Hej ${firstName(toName)}, ${routine.topic} for i dag: alt kører planmæssigt. Ingen kritiske afvigelser. Vh ${firstName(fromName)}`
+        : `Hej ${firstName(toName)}, ugentlig ${routine.topic}: ${rng.int(15, 40)} ordrer behandlet, ${rng.int(5, 15)} batches produceret. Ingen åbne problemer. Vh ${firstName(fromName)}`;
+
+      results.push({
+        sourceType: "email", connectorProvider: "gmail", content, daysAgo,
+        metadata: { from: routine.from, to: routine.to, subject: `${routine.topic} — ${daysAgoDate(daysAgo)}`, date: daysAgoDate(daysAgo) },
+      });
+    }
   }
 
   return results;
@@ -494,30 +441,23 @@ function generatePleoExpenses(
   config: PleoExpenseConfig,
 ): SyntheticContent[] {
   const results: SyntheticContent[] = [];
-  const days = distributeWeekdays(rng, config.count, config.daysBack);
 
-  for (let i = 0; i < config.count; i++) {
-    const category = rng.pick(config.categories);
-    const emp = rng.pick(profile.employees);
-    const amount = rng.int(category.amountRange[0], category.amountRange[1]);
-    const daysAgo = days[i];
+  for (const category of config.categories) {
+    const days = distributeWeekdays(rng, category.frequency, config.daysBack);
 
-    const content = `Udlaeg: ${category.name}. ${emp.name}. ${amount.toLocaleString("da-DK")} DKK.`;
+    for (let i = 0; i < category.frequency; i++) {
+      const employee = rng.pick(category.employees);
+      const empName = profile.employees.find(e => e.email === employee)?.name ?? employee;
+      const amount = Math.round(category.avgAmount * (0.7 + rng.next() * 0.6));
+      const daysAgo = days[i] ?? rng.int(0, config.daysBack - 1);
 
-    results.push({
-      sourceType: "expense",
-      connectorProvider: "pleo",
-      content,
-      daysAgo,
-      metadata: {
-        employee: emp.name,
-        employeeEmail: emp.email,
-        category: category.name,
-        amount,
-        currency: "DKK",
-        date: daysAgoDate(daysAgo),
-      },
-    });
+      results.push({
+        sourceType: "expense", connectorProvider: "pleo",
+        content: `Udlæg: ${category.name}. ${empName}. ${amount} DKK. Dato: ${daysAgoDate(daysAgo)}.`,
+        daysAgo,
+        metadata: { employee: empName, employeeEmail: employee, category: category.name, amount, currency: "DKK", date: daysAgoDate(daysAgo) },
+      });
+    }
   }
 
   return results;
@@ -525,93 +465,28 @@ function generatePleoExpenses(
 
 function generateCalendarOps(
   rng: SeededRandom,
-  profile: CompanyProfile,
+  _profile: CompanyProfile,
   config: CalendarOpsConfig,
 ): SyntheticContent[] {
   const results: SyntheticContent[] = [];
 
-  // Expand recurring meetings over the daysBack window
-  for (const meeting of config.recurringMeetings) {
-    for (let d = 0; d < config.daysBack; d++) {
-      const date = new Date();
-      date.setDate(date.getDate() - d);
-      if (date.getDay() !== meeting.dayOfWeek) continue;
+  for (const meeting of config.recurring) {
+    const count = frequencyToCount(meeting.frequency, config.daysBack);
+    const days = distributeWeekdays(rng, count, config.daysBack);
 
-      // Resolve attendees from employee roles
-      const attendees = profile.employees
-        .filter((e) => meeting.attendeeRoles.includes(e.role))
-        .map((e) => e.email);
+    for (let i = 0; i < count; i++) {
+      const daysAgo = days[i];
+      const hour = rng.int(8, 14);
+      const duration = meeting.frequency === "daily" ? 15 : rng.pick([30, 45, 60]);
 
-      // If no employees match the roles, pick a few random ones
-      const finalAttendees =
-        attendees.length > 0
-          ? attendees
-          : rng.pickN(profile.employees, rng.int(2, 5)).map((e) => e.email);
-
-      const endHour = meeting.hour + Math.floor(meeting.durationMin / 60);
-      const endMin = meeting.durationMin % 60;
-      const timeStr = `${String(meeting.hour).padStart(2, "0")}:00-${String(endHour).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`;
-
-      const content = `${meeting.title} — ${daysAgoDate(d)} kl. ${timeStr}. Deltagere: ${finalAttendees.length}. Varighed: ${meeting.durationMin} min.`;
+      const content = `${meeting.title} — ${daysAgoDate(daysAgo)} kl. ${String(hour).padStart(2, "0")}:00. Deltagere: ${meeting.attendees.length}. Varighed: ${duration} min.`;
 
       results.push({
-        sourceType: "calendar_note",
-        connectorProvider: "google-calendar",
-        content,
-        daysAgo: d,
-        metadata: {
-          title: meeting.title,
-          date: daysAgoDate(d),
-          time: timeStr,
-          durationMin: meeting.durationMin,
-          attendees: finalAttendees,
-        },
+        sourceType: "calendar_note", connectorProvider: "google-calendar",
+        content, daysAgo,
+        metadata: { title: meeting.title, date: daysAgoDate(daysAgo), attendees: [...meeting.attendees], durationMin: duration },
       });
     }
-  }
-
-  // If we need more items to reach the target count, add ad-hoc meetings
-  const adHocTitles = [
-    "Akut driftsmoede",
-    "Leverandoeropfoelgning",
-    "Kampagneplanlaegning",
-    "Kvalitetsaudit forberedelse",
-    "Ny kunde-introduktion",
-    "Saeson-planlaegning",
-    "Maskinvedligehold gennemgang",
-    "Lager-optimering",
-  ];
-
-  const remaining = Math.max(0, config.count - results.length);
-  const adHocDays = distributeWeekdays(rng, remaining, config.daysBack);
-
-  for (let i = 0; i < remaining; i++) {
-    const title = rng.pick(adHocTitles);
-    const hour = rng.int(8, 16);
-    const duration = rng.pick([30, 45, 60, 90]);
-    const attendeeCount = rng.int(2, Math.min(6, profile.employees.length));
-    const attendees = rng.pickN(profile.employees, attendeeCount).map((e) => e.email);
-    const daysAgo = adHocDays[i];
-
-    const endHour = hour + Math.floor(duration / 60);
-    const endMin = duration % 60;
-    const timeStr = `${String(hour).padStart(2, "0")}:00-${String(endHour).padStart(2, "0")}:${String(endMin).padStart(2, "0")}`;
-
-    const content = `${title} — ${daysAgoDate(daysAgo)} kl. ${timeStr}. Deltagere: ${attendees.length}. Varighed: ${duration} min.`;
-
-    results.push({
-      sourceType: "calendar_note",
-      connectorProvider: "google-calendar",
-      content,
-      daysAgo,
-      metadata: {
-        title,
-        date: daysAgoDate(daysAgo),
-        time: timeStr,
-        durationMin: duration,
-        attendees,
-      },
-    });
   }
 
   return results;
@@ -623,13 +498,10 @@ export function generateOperationalContent(
   profile: CompanyProfile,
   config: OperationalConfig,
 ): SyntheticContent[] {
-  // Use a different seed offset than clutter to avoid correlation
   const rng = new SeededRandom(seedFromString(profile.domain + ":ops"));
   const seen = new Set<string>();
-
   const allResults: SyntheticContent[] = [];
 
-  // Run all 7 sub-generators
   const batches = [
     generateTracezillaOrders(rng, profile, config.tracezillaOrders),
     generateTracezillaBatches(rng, profile, config.tracezillaBatches),
@@ -642,7 +514,6 @@ export function generateOperationalContent(
 
   for (const batch of batches) {
     for (const item of batch) {
-      // Deduplicate by content string
       if (seen.has(item.content)) {
         const deduped = { ...item, content: `${item.content} [${rng.int(1000, 9999)}]` };
         seen.add(deduped.content);
