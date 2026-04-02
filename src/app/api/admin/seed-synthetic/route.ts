@@ -8,6 +8,7 @@ const COMPANY_LOADERS: Record<string, () => Promise<{ default: import("@/lib/dem
   boltly: () => import("@/lib/demo/companies/boltly"),
   tallyo: () => import("@/lib/demo/companies/tallyo"),
   "meridian-teknik": () => import("@/lib/demo/companies/meridian-teknik"),
+  "hansens-is": () => import("@/lib/demo/companies/hansens-is"),
 };
 
 export async function POST(req: NextRequest) {
