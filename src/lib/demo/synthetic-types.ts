@@ -104,7 +104,7 @@ export interface SyntheticTicket {
 }
 
 export interface SyntheticContent {
-  sourceType: "email" | "slack_message" | "drive_doc" | "calendar_note";
+  sourceType: "email" | "slack_message" | "drive_doc" | "calendar_note" | "erp_order" | "shipment" | "expense";
   content: string;           // The actual text content — this is what gets embedded
   connectorProvider: string; // Must match a SyntheticConnector.provider
   metadata: Record<string, unknown>; // Source-specific: from, to, subject, channel, etc.
