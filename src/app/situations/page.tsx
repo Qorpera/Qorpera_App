@@ -479,7 +479,13 @@ export default function SituationsPage() {
                 }`}
                 style={{
                   borderBottom: "1px solid var(--border)",
-                  borderLeft: selectedId === s.id ? "2px solid var(--dot-color)" : "2px solid transparent",
+                  borderLeft: selectedId === s.id
+                    ? "2px solid var(--dot-color)"
+                    : s.severity >= 0.7
+                      ? "2px solid var(--danger)"
+                      : s.severity >= 0.4
+                        ? "2px solid color-mix(in srgb, var(--warn) 60%, transparent)"
+                        : "2px solid transparent",
                 }}
               >
                 <div className="flex items-center gap-2 mb-0.5">
@@ -493,6 +499,11 @@ export default function SituationsPage() {
                   <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
                     {formatRelativeTime(s.createdAt, locale)}
                   </span>
+                  {s.severity >= 0.7 && (
+                    <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}>
+                      Critical
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
                   {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
@@ -1295,6 +1306,26 @@ function DetailPane({
                               {step.assignedUserId ? step.assignedUserId : (step.executionMode === "action" ? "AI" : "")}
                             </span>
                             {isCompleted && <span style={{ fontSize: 10, fontWeight: 600, color: "var(--ok)" }}>&#10003; Done</span>}
+                            {isCompleted && planStep?.outputResult && (() => {
+                              try {
+                                const out = JSON.parse(planStep.outputResult);
+                                const receiptText = out.type === "email"
+                                  ? `Sent to ${(out.recipients ?? []).join(", ")}${out._demo ? " (demo)" : ""}`
+                                  : out.type === "calendar_event"
+                                  ? `Event created${out.attendees?.length ? ` · ${out.attendees.length} attendees` : ""}${out._demo ? " (demo)" : ""}`
+                                  : out.type === "message"
+                                  ? `Sent to ${out.channelId ?? "channel"}${out._demo ? " (demo)" : ""}`
+                                  : out.type === "document"
+                                  ? `Created${out.url ? ` · ${out.url}` : ""}${out._demo ? " (demo)" : ""}`
+                                  : null;
+                                if (!receiptText) return null;
+                                return (
+                                  <span style={{ fontSize: 10, color: "var(--fg3)", marginLeft: 8 }}>
+                                    {receiptText}
+                                  </span>
+                                );
+                              } catch { return null; }
+                            })()}
                           </div>
 
                           <p className="break-words" style={{ fontSize: 12, color: isCurrentStep ? "var(--foreground)" : "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{step.description}</p>
@@ -1444,12 +1475,45 @@ function DetailPane({
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-border border-t-ok" />
               <p style={{ fontSize: 13, color: "var(--fg3)" }}>Executing action...</p>
             </div>
-          ) : s.status === "monitoring" ? (
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full" style={{ background: "var(--accent)" }} />
-              <p style={{ fontSize: 13, color: "var(--fg3)" }}>Monitoring — waiting for external response</p>
-            </div>
-          ) : null}
+          ) : s.status === "monitoring" ? (() => {
+            let criteria: { waitingFor?: string; expectedWithinDays?: number; followUpAction?: string } | null = null;
+            if (detail?.contextSnapshot) {
+              try {
+                const snap = typeof detail.contextSnapshot === "string" ? JSON.parse(detail.contextSnapshot) : detail.contextSnapshot;
+                criteria = snap.monitoringCriteria ?? null;
+              } catch {}
+            }
+            if (!criteria && reasoning) {
+              criteria = (reasoning as unknown as Record<string, unknown>).monitoringCriteria as typeof criteria ?? null;
+            }
+            return (
+              <div className="rounded-lg p-4" style={{ background: "color-mix(in srgb, var(--accent) 5%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 12%, transparent)" }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-3 w-3 rounded-full animate-pulse" style={{ background: "var(--accent)" }} />
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>Monitoring</span>
+                </div>
+                {criteria ? (
+                  <div className="space-y-1.5 pl-5">
+                    <p style={{ fontSize: 12, color: "var(--fg2)" }}>
+                      <span style={{ color: "var(--fg3)", fontWeight: 500 }}>Waiting for:</span> {criteria.waitingFor}
+                    </p>
+                    {criteria.expectedWithinDays && (
+                      <p style={{ fontSize: 12, color: "var(--fg2)" }}>
+                        <span style={{ color: "var(--fg3)", fontWeight: 500 }}>Expected within:</span> {criteria.expectedWithinDays} business days
+                      </p>
+                    )}
+                    {criteria.followUpAction && (
+                      <p style={{ fontSize: 12, color: "var(--fg2)" }}>
+                        <span style={{ color: "var(--fg3)", fontWeight: 500 }}>If no response:</span> {criteria.followUpAction}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="pl-5" style={{ fontSize: 12, color: "var(--fg3)" }}>Waiting for external response</p>
+                )}
+              </div>
+            );
+          })() : null}
 
           {/* ── Draft Preview (HERO) ── */}
           {primaryDraft && (

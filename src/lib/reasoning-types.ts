@@ -37,6 +37,12 @@ export const ReasoningOutputSchema = z.object({
     rationale: z.string(),
     suggestedSteps: z.array(ActionStepSchema),
   }).nullable().optional(),  // null/absent = no escalation
+  resolutionType: z.enum(["self_resolving", "response_dependent", "informational"]).optional(),
+  monitoringCriteria: z.object({
+    waitingFor: z.string(),
+    expectedWithinDays: z.number(),
+    followUpAction: z.string(),
+  }).nullable().optional(),
   relatedWorkStreamId: z.string().nullable().optional(),  // link situation to existing workstream
 });
 

@@ -337,6 +337,12 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
   "escalation": {
     "rationale": "why this needs strategic attention beyond the immediate response",
     "suggestedSteps": [same step format as actionPlan]
+  } or null,
+  "resolutionType": "self_resolving" | "response_dependent" | "informational",
+  "monitoringCriteria": {  // ONLY for response_dependent, null otherwise
+    "waitingFor": "Payment confirmation from Karen Holm for INV-2026-035",
+    "expectedWithinDays": 5,
+    "followUpAction": "Send formal escalation with payment deadline and consequence warning"
   } or null
 }
 
@@ -354,7 +360,13 @@ CRITICAL RULES:
 - UNCERTAINTY ANNOTATIONS: For each step, if ANY aspect depends on evidence from only a single source with no corroboration, or if you made an inference that could be wrong, add an "uncertainties" array. Flag the specific field/aspect, state your assumption, and rate the impact. Do NOT flag things that are clearly supported by multiple sources. Do NOT flag email addresses, names, or dates that appear consistently across the context. Only flag genuine gaps where you made a judgment call.
 - AUDIT YOUR PLAN: Before finalizing, re-read each step. For every step with executionMode "human_task", ask: "Is there an available automated action that could do this?" If yes, change it to "action" with the correct actionCapabilityName and params. Missing an available automation is a critical error.
 - For CRM update steps: params MUST include "entityId" with the actual entity ID from the context (found in TRIGGER ENTITY or RELATED ENTITIES sections). The system uses this ID to fetch current values and show a before/after diff. Without entityId, the user sees raw values with no context.
-- For email steps with supporting documents: include an "attachments" array in params. Each attachment is { "type": "document"|"spreadsheet", "title": "...", "content"|"rows": ... }. The user reviews and can edit each attachment inline before the email is sent.`;
+- For email steps with supporting documents: include an "attachments" array in params. Each attachment is { "type": "document"|"spreadsheet", "title": "...", "content"|"rows": ... }. The user reviews and can edit each attachment inline before the email is sent.
+- RESOLUTION TYPE is required for every plan. Classify honestly:
+  - "self_resolving" — Sending a confirmation, updating a record, creating a document, sharing information that doesn't need a response. The action completing IS the resolution.
+  - "response_dependent" — Sending a payment reminder, requesting information, asking for approval, submitting an application. Something external needs to happen for the situation to be truly resolved.
+  - "informational" — Notifying someone of something, CC'ing a stakeholder, sharing an update. One-way communication with no expected feedback.
+  When in doubt between self_resolving and response_dependent: if a reasonable person would check back in a few days to see if something happened, it's response_dependent. If they'd fire-and-forget, it's self_resolving.
+- For response_dependent: monitoringCriteria MUST specify what you're waiting for, how many business days before follow-up, and what the follow-up action should be. Be specific: "Payment of 87.000 DKK from Vestegnens Boligforening" not "response from client".`;
 }
 
 // ── User Prompt ──────────────────────────────────────────────────────────────

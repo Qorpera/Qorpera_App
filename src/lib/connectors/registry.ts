@@ -35,8 +35,10 @@ import { mondayProvider } from "./monday-provider";
 import { asanaProvider } from "./asana-provider";
 import { jiraProvider } from "./jira-provider";
 import { woocommerceProvider } from "./woocommerce-provider";
+import { shipmondoProvider } from "./shipmondo-provider";
+import { tracezillaProvider } from "./tracezilla-provider";
 
-const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider, maerskProvider, cargowiseProvider, dineroProvider, pleoProvider, xeroProvider, vismanetProvider, fortnoxProvider, sageProvider, exactOnlineProvider, netsuiteProvider, sapB1Provider, hapagLloydProvider, project44Provider, xenetaProvider, mondayProvider, asanaProvider, jiraProvider, woocommerceProvider];
+const PROVIDERS: ConnectorProvider[] = [hubspotProvider, stripeProvider, googleProvider, googleSheetsProvider, slackProvider, microsoftProvider, economicProvider, googleAdsProvider, shopifyProvider, linkedinProvider, metaAdsProvider, pipedriveProvider, salesforceProvider, intercomProvider, zendeskProvider, dynamicsBcProvider, sapProvider, oracleErpProvider, maerskProvider, cargowiseProvider, dineroProvider, pleoProvider, xeroProvider, vismanetProvider, fortnoxProvider, sageProvider, exactOnlineProvider, netsuiteProvider, sapB1Provider, hapagLloydProvider, project44Provider, xenetaProvider, mondayProvider, asanaProvider, jiraProvider, woocommerceProvider, shipmondoProvider, tracezillaProvider];
 
 export type ProviderCategory = "productivity" | "communication" | "crm" | "finance" | "marketing" | "ecommerce" | "support" | "erp" | "logistics" | "project-management" | "expense-management";
 
@@ -226,6 +228,16 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     description: "WooCommerce — orders, products, customers",
     category: "ecommerce",
     scopes: ["Orders", "Products", "Customers"],
+  },
+  shipmondo: {
+    description: "Shipmondo — shipments, sales orders, label generation",
+    category: "logistics",
+    scopes: ["Shipments", "Sales Orders", "Labels"],
+  },
+  tracezilla: {
+    description: "Tracezilla — food ERP with lot traceability, orders, inventory",
+    category: "erp",
+    scopes: ["Sales Orders", "Purchase Orders", "Lots", "Inventory", "Deliveries", "SKUs"],
   },
 };
 

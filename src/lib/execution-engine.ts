@@ -865,29 +865,115 @@ export async function advancePlanAfterStep(
       data: { status: "completed", completedAt: new Date() },
     });
 
-    // Move source situation to monitoring (waiting for external signal)
+    // Determine resolution behavior from reasoning output
     if (completedPlan.sourceType === "situation") {
       const situation = await prisma.situation.findUnique({
         where: { id: completedPlan.sourceId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, reasoning: true, triggerSummary: true, assignedUserId: true, contextSnapshot: true },
       });
+
       if (situation && !["resolved", "closed", "rejected", "dismissed"].includes(situation.status)) {
-        await prisma.situation.update({
-          where: { id: situation.id },
-          data: { status: "monitoring" },
-        });
-        console.log(`[execution-engine] Situation ${situation.id} → monitoring (plan ${planId} completed)`);
+        let resolutionType = "response_dependent";
+        let monitoringCriteria: { waitingFor?: string; expectedWithinDays?: number; followUpAction?: string } | null = null;
+
+        if (situation.reasoning) {
+          try {
+            const r = JSON.parse(situation.reasoning);
+            if (r.resolutionType) resolutionType = r.resolutionType;
+            if (r.monitoringCriteria) monitoringCriteria = r.monitoringCriteria;
+          } catch {}
+        }
+
+        if (resolutionType === "self_resolving" || resolutionType === "informational") {
+          await prisma.situation.update({
+            where: { id: situation.id },
+            data: {
+              status: "resolved",
+              resolvedAt: new Date(),
+              outcome: resolutionType === "informational" ? "information_delivered" : "action_completed",
+            },
+          });
+
+          const completedSteps = await prisma.executionStep.findMany({
+            where: { planId, status: "completed" },
+            orderBy: { sequenceOrder: "asc" },
+            select: { title: true, outputResult: true, executedAt: true },
+          });
+          const receiptLines = completedSteps.map(s => {
+            let detail = s.title;
+            if (s.outputResult) {
+              try {
+                const out = JSON.parse(s.outputResult);
+                if (out.type === "email") detail += ` → ${(out.recipients ?? []).join(", ")}`;
+                else if (out.type === "calendar_event") detail += ` → event created`;
+                else if (out.type === "document") detail += ` → ${out.url ?? "created"}`;
+              } catch {}
+            }
+            return detail;
+          }).join(" · ");
+
+          const notifyUserId = situation.assignedUserId;
+          if (notifyUserId) {
+            await sendNotification({
+              operatorId,
+              userId: notifyUserId,
+              type: "situation_resolved",
+              title: `${situation.triggerSummary?.slice(0, 80) ?? "Situation resolved"}`,
+              body: receiptLines || "All actions completed successfully.",
+              sourceType: "situation",
+              sourceId: situation.id,
+            }).catch(() => {});
+          } else {
+            await sendNotificationToAdmins({
+              operatorId,
+              type: "situation_resolved",
+              title: `${situation.triggerSummary?.slice(0, 80) ?? "Situation resolved"}`,
+              body: receiptLines || "All actions completed successfully.",
+              sourceType: "situation",
+              sourceId: situation.id,
+            }).catch(() => {});
+          }
+
+          console.log(`[execution-engine] Situation ${situation.id} → auto-resolved (${resolutionType})`);
+        } else {
+          const monitoringData: Record<string, unknown> = { status: "monitoring" };
+          if (monitoringCriteria) {
+            let existingSnapshot: Record<string, unknown> = {};
+            if (situation.contextSnapshot) {
+              try { existingSnapshot = JSON.parse(situation.contextSnapshot); } catch {}
+            }
+            monitoringData.contextSnapshot = JSON.stringify({
+              ...existingSnapshot,
+              monitoringCriteria,
+            });
+          }
+
+          await prisma.situation.update({
+            where: { id: situation.id },
+            data: monitoringData,
+          });
+
+          const monitorMsg = monitoringCriteria
+            ? `Waiting for: ${monitoringCriteria.waitingFor}. Follow-up in ${monitoringCriteria.expectedWithinDays ?? 3} business days if no response.`
+            : "Monitoring — waiting for external response.";
+
+          const notifyUserId = situation.assignedUserId;
+          if (notifyUserId) {
+            await sendNotification({
+              operatorId,
+              userId: notifyUserId,
+              type: "situation_resolved",
+              title: `${situation.triggerSummary?.slice(0, 80) ?? "Actions completed, monitoring"}`,
+              body: monitorMsg,
+              sourceType: "situation",
+              sourceId: situation.id,
+            }).catch(() => {});
+          }
+
+          console.log(`[execution-engine] Situation ${situation.id} → monitoring (${monitoringCriteria?.waitingFor ?? "no criteria"})`);
+        }
       }
     }
-
-    await sendNotificationToAdmins({
-      operatorId,
-      type: "system_alert",
-      title: "Plan completed",
-      body: `Execution plan ${planId} has completed all steps.`,
-      sourceType: "execution",
-      sourceId: planId,
-    });
 
     // Track plan autonomy
     const { recordPlanCompletion } = await import("@/lib/plan-autonomy");
