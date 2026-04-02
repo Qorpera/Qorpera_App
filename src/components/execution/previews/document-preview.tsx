@@ -28,12 +28,41 @@ function PencilIcon({ size = 11, className = "" }: { size?: number; className?: 
 
 function formatDocContent(text: string): string {
   let html = escapeHtml(text);
-  // Basic markdown-style headers
-  html = html.replace(/^### (.+)$/gm, '<strong style="font-size:14px">$1</strong>');
-  html = html.replace(/^## (.+)$/gm, '<strong style="font-size:15px">$1</strong>');
-  html = html.replace(/^# (.+)$/gm, '<strong style="font-size:16px">$1</strong>');
-  // Newlines
+
+  // Headers (process before line breaks)
+  html = html.replace(/^### (.+)$/gm, '<div style="font-size:14px;font-weight:600;margin:12px 0 4px;color:var(--foreground)">$1</div>');
+  html = html.replace(/^## (.+)$/gm, '<div style="font-size:15px;font-weight:600;margin:14px 0 6px;color:var(--foreground)">$1</div>');
+  html = html.replace(/^# (.+)$/gm, '<div style="font-size:16px;font-weight:600;margin:16px 0 8px;color:var(--foreground)">$1</div>');
+
+  // Bold and italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+  html = html.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, '<em>$1</em>');
+
+  // Checklists: - [ ] and - [x]
+  html = html.replace(/^- \[x\] (.+)$/gm,
+    '<div style="display:flex;align-items:flex-start;gap:6px;margin:3px 0"><span style="color:var(--ok);font-size:14px;line-height:1.4">\u2611</span><span style="text-decoration:line-through;color:var(--fg3)">$1</span></div>');
+  html = html.replace(/^- \[ \] (.+)$/gm,
+    '<div style="display:flex;align-items:flex-start;gap:6px;margin:3px 0"><span style="color:var(--fg3);font-size:14px;line-height:1.4">\u2610</span><span>$1</span></div>');
+
+  // Bullet lists: - item
+  html = html.replace(/^- (.+)$/gm,
+    '<div style="display:flex;align-items:flex-start;gap:6px;margin:2px 0;padding-left:4px"><span style="color:var(--fg3)">\u2022</span><span>$1</span></div>');
+
+  // Numbered lists: 1. item
+  html = html.replace(/^(\d+)\. (.+)$/gm,
+    '<div style="display:flex;align-items:flex-start;gap:6px;margin:2px 0;padding-left:4px"><span style="color:var(--fg3);min-width:16px">$1.</span><span>$2</span></div>');
+
+  // Horizontal rules
+  html = html.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0">');
+
+  // Line breaks (convert remaining newlines)
   html = html.replace(/\n/g, "<br>");
+
+  // Clean up: remove <br> after block elements
+  html = html.replace(/<\/div><br>/g, '</div>');
+  html = html.replace(/<hr[^>]*><br>/g, '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0">');
+
   return html;
 }
 

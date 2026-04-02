@@ -21,10 +21,16 @@ export async function GET(req: NextRequest) {
   // Build where clause
   const where: Record<string, unknown> = { operatorId, ...situationScopeFilter(visibleDepts) };
 
-  // Members only see their own assigned situations
+  // Visibility filtering based on role and toggle
+  const showAll = params.get("showAll");
   if (su.effectiveRole === "member") {
+    // Members always see only their assigned situations
+    where.assignedUserId = su.effectiveUserId;
+  } else if (showAll === "false") {
+    // Admin/operator with toggle OFF — show only their assigned situations
     where.assignedUserId = su.effectiveUserId;
   }
+  // Admin/operator with showAll=true (default) — no assignedUserId filter, sees everything
 
   if (statusParam) {
     const statuses = statusParam.split(",").map((s) => s.trim()).filter(s => s !== "detected" && s !== "reasoning");

@@ -182,27 +182,24 @@ async function computeDataPipeline(
   });
   const boundConnectorIds = new Set(slackBindings.map((b) => b.connectorId));
 
-  // Entity counts grouped by sourceSystem for rough connector attribution
-  const entityCountsBySource = await prisma.entity.groupBy({
-    by: ["sourceSystem"],
+  // Count content chunks per source connector (more meaningful than entity counts)
+  const chunkCountsByConnector = await prisma.contentChunk.groupBy({
+    by: ["connectorId"],
     where: {
       operatorId,
-      parentDepartmentId: departmentEntityId,
-      status: "active",
-      category: { in: ["digital", "external"] },
-      sourceSystem: { not: null },
+      connectorId: { not: null },
     },
     _count: true,
   });
-  const sourceCountMap = new Map(
-    entityCountsBySource.map((g) => [g.sourceSystem, g._count]),
+  const connectorChunkMap = new Map(
+    chunkCountsByConnector.map((g) => [g.connectorId, g._count]),
   );
 
   const allConnectors: ConnectorHealth[] = connectors.map((c) => {
     const effectiveStatus =
       c.consecutiveFailures >= 3 && c.status === "active" ? "error" : c.status;
     const lastSync = syncMap.get(c.id);
-    const entityCount = sourceCountMap.get(c.provider) ?? 0;
+    const entityCount = connectorChunkMap.get(c.id) ?? 0;
 
     let issue: string | null = null;
     let action: { label: string; href: string } | null = null;

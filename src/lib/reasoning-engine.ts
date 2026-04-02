@@ -399,6 +399,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         data: updates,
       });
 
+      await assignSituationOwner(situationId, situation.operatorId, reasoning, situation.assignedUserId);
+
       await createSituationCycle(situationId, situation, reasoning, updates.executionPlanId as string | undefined);
 
       // Generate Haiku summaries (fire-and-forget — non-blocking)
@@ -757,6 +759,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       data: updates,
     });
 
+    await assignSituationOwner(situationId, situation.operatorId, reasoning, situation.assignedUserId);
+
     await createSituationCycle(situationId, situation, reasoning, updates.executionPlanId as string | undefined);
 
     // Generate Haiku summaries (fire-and-forget — non-blocking)
@@ -860,6 +864,62 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve situationOwner from reasoning output to a userId and assign it.
+ */
+async function assignSituationOwner(
+  situationId: string,
+  operatorId: string,
+  reasoning: { situationOwner?: { entityName: string; entityRole?: string } | null },
+  fallbackAssignedUserId: string | null,
+): Promise<void> {
+  try {
+    if (!reasoning.situationOwner?.entityName) return;
+
+    const ownerName = reasoning.situationOwner.entityName;
+
+    const ownerEntity = await prisma.entity.findFirst({
+      where: {
+        operatorId,
+        displayName: ownerName,
+        status: "active",
+        entityType: { slug: "team-member" },
+      },
+      select: { id: true, ownerUserId: true },
+    });
+
+    if (!ownerEntity) return;
+
+    let userId: string | null = ownerEntity.ownerUserId ?? null;
+
+    if (!userId) {
+      const emailPv = await prisma.propertyValue.findFirst({
+        where: {
+          entityId: ownerEntity.id,
+          property: { identityRole: "email" },
+        },
+        select: { value: true },
+      });
+      if (emailPv?.value) {
+        const user = await prisma.user.findFirst({
+          where: { operatorId, email: emailPv.value.toLowerCase() },
+          select: { id: true },
+        });
+        if (user) userId = user.id;
+      }
+    }
+
+    if (userId) {
+      await prisma.situation.update({
+        where: { id: situationId },
+        data: { assignedUserId: userId },
+      });
+    }
+  } catch (err) {
+    console.error(`[reasoning-engine] Failed to assign situation owner for ${situationId}:`, err);
+  }
+}
 
 async function enrichPriorSituations(
   priors: Array<{ id: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>,

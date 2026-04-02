@@ -73,7 +73,13 @@ export async function GET(
         if (s.inputContext) {
           try {
             const ic = JSON.parse(s.inputContext);
-            return ic.params ?? ic;
+            if (ic.params) {
+              // Return only the params, not other inputContext fields like uncertainties
+              return ic.params;
+            }
+            // Fallback: return inputContext minus internal fields
+            const { uncertainties: _u, ...rest } = ic;
+            return Object.keys(rest).length > 0 ? rest : null;
           } catch { return null; }
         }
         return null;

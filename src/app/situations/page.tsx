@@ -248,9 +248,10 @@ export default function SituationsPage() {
   const tc = useTranslations("common");
   const locale = useLocale();
   const isMobile = useIsMobile();
-  const { isSuperadmin } = useUser();
+  const { isSuperadmin, isAdmin } = useUser();
   const [situations, setSituations] = useState<SituationItem[]>([]);
   const [showAllStatuses, setShowAllStatuses] = useState(false);
+  const [showAllSituations, setShowAllSituations] = useState(true);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<SituationDetail | null>(null);
@@ -273,14 +274,14 @@ export default function SituationsPage() {
       const statusParam = showAllStatuses
         ? "detected,proposed,reasoning,auto_executing,executing,monitoring,resolved"
         : "proposed,auto_executing,executing,monitoring,resolved";
-      const res = await fetch(`/api/situations?status=${statusParam}`);
+      const res = await fetch(`/api/situations?status=${statusParam}${showAllSituations ? "" : "&showAll=false"}`);
       if (res.ok) {
         const data = await res.json();
         setSituations(data.items);
       }
     } catch {}
     setLoading(false);
-  }, [showAllStatuses]);
+  }, [showAllStatuses, showAllSituations]);
 
   useEffect(() => { fetchSituations(); }, [fetchSituations]);
 
@@ -429,6 +430,19 @@ export default function SituationsPage() {
                 {f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
+            {isAdmin && (
+              <button
+                onClick={() => setShowAllSituations(prev => !prev)}
+                className="text-xs px-3 py-1 rounded transition-colors"
+                style={{
+                  background: showAllSituations ? "var(--badge-bg-strong)" : "var(--badge-bg)",
+                  color: showAllSituations ? "var(--btn-primary-text)" : "var(--fg3)",
+                  marginLeft: 8,
+                }}
+              >
+                {showAllSituations ? "All situations" : "My situations"}
+              </button>
+            )}
             {isSuperadmin && (
               <button
                 onClick={() => setShowAllStatuses(prev => !prev)}

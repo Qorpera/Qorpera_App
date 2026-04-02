@@ -199,8 +199,8 @@ Classify each message into one of three categories:
 **awareness** — The recipient should know about this but no one is directly asking them to do anything. They are CC'd or BCC'd, it's a status update, FYI, or informational share.
 
 For each awareness message, you must ALSO sub-classify as:
-- **informational** — Routine updates requiring no thought: meeting acceptances, calendar reminders, read receipts, auto-generated status updates, system notifications, newsletter digests, booking confirmations, schedule changes with no impact. The person would glance at this and move on in seconds.
-- **strategic** — Information with business implications the person should consider: being CC'd on sensitive or escalating communications, competitor mentions, client behavior changes, organizational announcements affecting their work, financial signals, staffing changes, compliance deadlines, partner/vendor issues. Even though no one explicitly asked them to act, a thoughtful business leader would want to think about whether to respond or take preventive action.
+- **informational** — Routine updates requiring zero thought or decision-making: meeting acceptances/declines, calendar reminders for existing meetings, read receipts, auto-generated status notifications, newsletter digests, booking confirmations, schedule change confirmations, system notifications ("synced successfully"), out-of-office auto-replies, meeting notes shared as FYI with no questions asked. The KEY TEST: would the recipient delete this email without reading it twice? If yes → informational.
+- **strategic** — Information the recipient didn't ask for but that carries BUSINESS RISK or OPPORTUNITY if ignored: being CC'd on an escalating dispute, competitor pricing shared in a thread, a client's payment pattern changing, an employee mentioning they're considering leaving, a regulatory deadline appearing in a forwarded document, a partner signaling dissatisfaction. The KEY TEST: could ignoring this cost the company money, a relationship, or a legal obligation within 30 days? If yes → strategic. Calendar reminders, meeting confirmations, and scheduling logistics are NEVER strategic — even if the meeting topic is important, the reminder itself carries no strategic information.
 
 **irrelevant** — This has nothing to do with the recipient's work responsibilities. Spam, marketing solicitations, newsletters they didn't subscribe to for work purposes, automated system notifications with no actionable content, social/casual messages with no work relevance, promotional offers (gambling, personal shopping, etc).
 
@@ -376,6 +376,7 @@ async function handleActionRequired(
   batch: ActorBatch,
   result: EvaluationResult,
   createdInBatch: Set<string>,
+  companyWideArchetypes: Set<string>,
   correlationId?: string,
 ): Promise<void> {
   const item = batch.items[result.messageIndex];
@@ -444,6 +445,59 @@ async function handleActionRequired(
     ? `${batch.actorEntityId}:archetype:${result.archetypeSlug}`
     : `${batch.actorEntityId}:${result.summary.slice(0, 50)}`;
   if (createdInBatch.has(dedupeKey)) return;
+
+  // Cross-actor dedup for company-wide events: if the SAME source email
+  // has already created a situation for a DIFFERENT actor with the SAME archetype,
+  // merge into the first situation instead of creating a new one
+  if (result.archetypeSlug && result.archetypeSlug !== "unclassified") {
+    const sourceKey = `${item.sourceId}:${result.archetypeSlug}`;
+    if (companyWideArchetypes.has(sourceKey)) {
+      const existingCWSituation = await prisma.situation.findFirst({
+        where: {
+          operatorId,
+          source: "content_detected",
+          status: { notIn: ["resolved", "closed"] },
+          situationType: { archetypeSlug: result.archetypeSlug },
+          triggerEvidence: { contains: item.sourceId },
+        },
+        select: { id: true, contextSnapshot: true },
+        orderBy: { createdAt: "desc" },
+      });
+      if (existingCWSituation) {
+        let snapshot: Record<string, unknown> = {};
+        if (existingCWSituation.contextSnapshot) {
+          try { snapshot = JSON.parse(existingCWSituation.contextSnapshot as string); } catch {}
+        }
+        const evidenceArr = Array.isArray(snapshot.contentEvidence)
+          ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
+          : [];
+        evidenceArr.push({
+          sourceId: item.sourceId,
+          sourceType: item.sourceType,
+          sender: meta.from ?? meta.authorEmail ?? "unknown",
+          subject: meta.subject ?? null,
+          date: meta.date ?? new Date().toISOString(),
+          summary: result.summary,
+          additionalActor: batch.actorName,
+          classification: "merged_company_wide",
+        });
+        snapshot.contentEvidence = evidenceArr;
+        await prisma.situation.update({
+          where: { id: existingCWSituation.id },
+          data: { contextSnapshot: JSON.stringify(snapshot) },
+        });
+
+        await prisma.evaluationLog.updateMany({
+          where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+          data: { situationId: existingCWSituation.id },
+        }).catch(() => {});
+
+        console.log(`[content-detection] Company-wide dedup: merged ${batch.actorName}'s instance into existing situation ${existingCWSituation.id} (${result.archetypeSlug})`);
+        createdInBatch.add(dedupeKey);
+        return;
+      }
+    }
+  }
 
   // Cross-mechanism dedup: check if entity-based detection already created
   // a situation for this entity with the same archetype
@@ -568,6 +622,11 @@ async function handleActionRequired(
 
   createdInBatch.add(dedupeKey);
 
+  // Register for cross-actor dedup
+  if (result.archetypeSlug && result.archetypeSlug !== "unclassified") {
+    companyWideArchetypes.add(`${item.sourceId}:${result.archetypeSlug}`);
+  }
+
   // Link situation back to evaluation log
   await prisma.evaluationLog.updateMany({
     where: {
@@ -637,6 +696,7 @@ async function handleAwareness(
   batch: ActorBatch,
   result: EvaluationResult,
   createdInBatch: Set<string>,
+  companyWideArchetypes: Set<string>,
 ): Promise<void> {
   const item = batch.items[result.messageIndex];
   if (!item) return;
@@ -906,6 +966,8 @@ export async function evaluateContentForSituations(
 
   // Step 2–4: Process each actor batch
   const createdInBatch = new Set<string>();
+  // Cross-actor dedup: prevent the same company-wide event from creating situations for every actor
+  const companyWideArchetypes = new Set<string>();
   const correlationId = `${operatorId}:reason_situation:${Date.now()}`;
 
   for (const [entityId, actor] of actorMap) {
@@ -982,9 +1044,9 @@ export async function evaluateContentForSituations(
         );
 
         if (result.classification === "action_required") {
-          await handleActionRequired(operatorId, batch, result, createdInBatch, correlationId);
+          await handleActionRequired(operatorId, batch, result, createdInBatch, companyWideArchetypes, correlationId);
         } else if (result.classification === "awareness") {
-          await handleAwareness(operatorId, batch, result, createdInBatch);
+          await handleAwareness(operatorId, batch, result, createdInBatch, companyWideArchetypes);
         }
         // irrelevant items: logged but no situation created
       }

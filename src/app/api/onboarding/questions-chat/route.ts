@@ -12,10 +12,22 @@ export async function POST(req: NextRequest) {
   const { operatorId } = su;
 
   // Load session user's name for personalized conversation
-  const sessionUser = await prisma.user.findUnique({
+  let sessionUser = await prisma.user.findUnique({
     where: { id: su.user.id },
     select: { name: true, role: true },
   });
+
+  // If superadmin is impersonating an operator, use the operator's primary admin identity
+  if (sessionUser?.role === "superadmin") {
+    const operatorAdmin = await prisma.user.findFirst({
+      where: { operatorId, role: "admin" },
+      orderBy: { createdAt: "asc" },
+      select: { name: true, role: true },
+    });
+    if (operatorAdmin) {
+      sessionUser = operatorAdmin;
+    }
+  }
 
   const body = await req.json();
   const { message, history = [] } = body;

@@ -114,6 +114,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
   const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatStreaming, setChatStreaming] = useState(false);
+  const animationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chatInitialized, setChatInitialized] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
@@ -207,6 +208,13 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
 
   // ── Confirm ──
 
+  // Clean up typing animation on unmount
+  useEffect(() => {
+    return () => {
+      if (animationRef.current) clearTimeout(animationRef.current);
+    };
+  }, []);
+
   // Chat auto-scroll
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -257,6 +265,57 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
     }
   };
 
+  function renderMarkdown(text: string): string {
+    let html = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
+    html = html.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, "<em>$1</em>");
+    html = html.replace(/(?<!\w)_([^_]+?)_(?!\w)/g, "<em>$1</em>");
+    html = html.replace(/\n/g, "<br>");
+    html = html.replace(/<br>---<br>/g, '<hr style="border: none; border-top: 1px solid var(--border); margin: 12px 0;">');
+    return html;
+  }
+
+  function animateTyping(content: string) {
+    let charIndex = 0;
+    const CHARS_PER_FRAME = 3;
+    const TICK_MS = 12;
+    const PARAGRAPH_PAUSE_MS = 1500;
+
+    function tick() {
+      if (charIndex >= content.length) {
+        setChatMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: "assistant", content };
+          return updated;
+        });
+        return;
+      }
+
+      const paragraphBreak = content.indexOf("\n\n", charIndex);
+      const hitParagraph = paragraphBreak >= charIndex && paragraphBreak < charIndex + CHARS_PER_FRAME;
+
+      if (hitParagraph) {
+        charIndex = paragraphBreak + 2;
+      } else {
+        charIndex += CHARS_PER_FRAME;
+      }
+
+      const revealed = content.slice(0, charIndex);
+      setChatMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: "assistant", content: revealed };
+        return updated;
+      });
+      animationRef.current = setTimeout(tick, hitParagraph ? PARAGRAPH_PAUSE_MS : TICK_MS);
+    }
+
+    tick();
+  }
+
   const sendChatMessage = async () => {
     const text = chatInput.trim();
     if (!text || chatStreaming) return;
@@ -289,12 +348,10 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
         const { done, value } = await reader.read();
         if (done) break;
         assistantContent += decoder.decode(value, { stream: true });
-        setChatMessages(prev => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { role: "assistant", content: assistantContent };
-          return updated;
-        });
       }
+
+      // Stream is complete — animate the reveal
+      animateTyping(assistantContent);
     } catch (err) {
       console.error("Chat send failed:", err);
     } finally {
@@ -726,14 +783,25 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
             {chatMessages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 style={msg.role === "assistant" ? { animation: "fadeSlideIn 0.3s ease-out" } : undefined}>
-                <div className={`max-w-[85%] text-sm whitespace-pre-wrap ${
+                <div className={`max-w-[85%] text-sm ${
                   msg.role === "user"
-                    ? "rounded-2xl rounded-br-md px-4 py-3 text-foreground"
+                    ? "text-[var(--fg2)] px-1 py-1"
                     : "text-foreground px-1 py-1"
                 }`}>
-                  {msg.content || (chatStreaming && i === chatMessages.length - 1 ? (
-                    <span className="inline-block w-2 h-4 bg-[var(--fg3)] animate-pulse rounded-sm" />
-                  ) : null)}
+                  {msg.role === "assistant" && msg.content ? (
+                    <div className="whitespace-normal [&_strong]:font-semibold [&_em]:italic [&_hr]:my-3">
+                      <span dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                      {chatStreaming && i === chatMessages.length - 1 && (
+                        <span className="inline-block w-[2px] h-[1em] bg-foreground animate-pulse ml-[1px] align-text-bottom" />
+                      )}
+                    </div>
+                  ) : (
+                    <span className="whitespace-pre-wrap">
+                      {msg.content || (chatStreaming && i === chatMessages.length - 1 ? (
+                        <span className="inline-block w-2 h-4 bg-[var(--fg3)] animate-pulse rounded-sm" />
+                      ) : null)}
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
