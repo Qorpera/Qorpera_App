@@ -1,22 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  /* Backgrounds */
-  --background: #131313;
-  --surface: #1b1b1b;
-  --elevated: #222222;
-  --sidebar: #0f0f0f;
-  --sidebar-active: #1d1d1d;
-  --hover: #262626;
-  --card: #222222;
+  /* Backgrounds — Claude-matched lightness, neutral gray */
+  --background: #151515;
+  --surface: #303030;
+  --elevated: #363636;
+  --sidebar: #262626;
+  --sidebar-active: #303030;
+  --hover: #3b3b3b;
+  --card: #363636;
 
-  /* Text */
-  --foreground: #e6e6e6;
-  --fg: #e6e6e6;
-  --fg2: #a4a4a4;
-  --fg3: #747474;
-  --fg4: #535353;
-  --muted: #a4a4a4;
+  /* Text — neutral (Claude uses warm cream) */
+  --foreground: #fafafa;
+  --fg: #fafafa;
+  --fg2: #c0c0c0;
+  --fg3: #9a9a9a;
+  --fg4: #6a6a6a;
+  --muted: #c0c0c0;
 
   /* Accent */
   --accent: #ffffff;

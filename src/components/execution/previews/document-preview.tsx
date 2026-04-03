@@ -26,24 +26,56 @@ function PencilIcon({ size = 11, className = "" }: { size?: number; className?: 
   );
 }
 
-function formatDocContent(text: string): string {
+function formatDocContent(text: string, panel = false): string {
   let html = escapeHtml(text);
 
-  // Headers (process before line breaks)
-  html = html.replace(/^### (.+)$/gm, '<div style="font-size:14px;font-weight:600;margin:12px 0 4px;color:var(--foreground)">$1</div>');
-  html = html.replace(/^## (.+)$/gm, '<div style="font-size:15px;font-weight:600;margin:14px 0 6px;color:var(--foreground)">$1</div>');
-  html = html.replace(/^# (.+)$/gm, '<div style="font-size:16px;font-weight:600;margin:16px 0 8px;color:var(--foreground)">$1</div>');
+  // Pipe tables — process before line breaks
+  html = html.replace(/^(\|.+\|)\n(\|[-| :]+\|)\n((?:\|.+\|\n?)+)/gm, (_match, headerRow: string, _sep: string, bodyRows: string) => {
+    const headers = headerRow.split("|").filter(Boolean).map((h: string) => h.trim());
+    const rows = bodyRows.trim().split("\n").map((r: string) => r.split("|").filter(Boolean).map((c: string) => c.trim()));
+    const thStyle = panel
+      ? 'padding:8px 10px;text-align:left;font-weight:500;border:0.5px solid var(--border);background:rgba(255,255,255,0.04);color:var(--fg2)'
+      : 'padding:6px 8px;text-align:left;font-weight:500;border:1px solid var(--border);background:var(--elevated);font-size:12px';
+    const tdStyle = panel
+      ? 'padding:8px 10px;border:0.5px solid var(--border)'
+      : 'padding:6px 8px;border:1px solid var(--border);font-size:12px';
+    const tableStyle = panel ? 'width:100%;border-collapse:collapse;font-size:13px;margin:12px 0' : 'width:100%;border-collapse:collapse;margin:8px 0';
+    let table = `<table style="${tableStyle}"><thead><tr>`;
+    for (const h of headers) table += `<th style="${thStyle}">${h}</th>`;
+    table += '</tr></thead><tbody>';
+    for (const row of rows) {
+      table += '<tr>';
+      for (const cell of row) table += `<td style="${tdStyle}">${cell}</td>`;
+      table += '</tr>';
+    }
+    table += '</tbody></table>';
+    return table;
+  });
+
+  // Headers
+  if (panel) {
+    html = html.replace(/^### (.+)$/gm, '<div style="font-size:15px;font-weight:600;margin:12px 0 4px;color:var(--foreground)">$1</div>');
+    html = html.replace(/^## (.+)$/gm, '<div style="font-size:17px;font-weight:600;margin:16px 0 6px;color:var(--foreground)">$1</div>');
+    html = html.replace(/^# (.+)$/gm, '<div style="font-size:20px;font-weight:600;margin:20px 0 8px;color:var(--foreground)">$1</div>');
+  } else {
+    html = html.replace(/^### (.+)$/gm, '<div style="font-size:14px;font-weight:600;margin:12px 0 4px;color:var(--foreground)">$1</div>');
+    html = html.replace(/^## (.+)$/gm, '<div style="font-size:15px;font-weight:600;margin:14px 0 6px;color:var(--foreground)">$1</div>');
+    html = html.replace(/^# (.+)$/gm, '<div style="font-size:16px;font-weight:600;margin:16px 0 8px;color:var(--foreground)">$1</div>');
+  }
 
   // Bold and italic
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
   html = html.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, '<em>$1</em>');
 
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="font-size:13px;background:rgba(255,255,255,0.06);border-radius:4px;padding:2px 6px;font-family:monospace">$1</code>');
+
   // Checklists: - [ ] and - [x]
   html = html.replace(/^- \[x\] (.+)$/gm,
     '<div style="display:flex;align-items:flex-start;gap:6px;margin:3px 0"><span style="color:var(--ok);font-size:14px;line-height:1.4">\u2611</span><span style="text-decoration:line-through;color:var(--fg3)">$1</span></div>');
   html = html.replace(/^- \[ \] (.+)$/gm,
-    '<div style="display:flex;align-items:flex-start;gap:6px;margin:3px 0"><span style="color:var(--fg3);font-size:14px;line-height:1.4">\u2610</span><span>$1</span></div>');
+    '<div style="display:flex;align-items:flex-start;gap:6px;margin:3px 0"><span style="color:var(--fg3);font-size:14px;line-height:1.4">\u2610</span><span style="color:var(--fg2)">$1</span></div>');
 
   // Bullet lists: - item
   html = html.replace(/^- (.+)$/gm,
@@ -54,14 +86,15 @@ function formatDocContent(text: string): string {
     '<div style="display:flex;align-items:flex-start;gap:6px;margin:2px 0;padding-left:4px"><span style="color:var(--fg3);min-width:16px">$1.</span><span>$2</span></div>');
 
   // Horizontal rules
-  html = html.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0">');
+  html = html.replace(/^---$/gm, `<hr style="border:none;border-top:0.5px solid var(--border);margin:${panel ? '16px' : '12px'} 0">`);
 
   // Line breaks (convert remaining newlines)
   html = html.replace(/\n/g, "<br>");
 
   // Clean up: remove <br> after block elements
   html = html.replace(/<\/div><br>/g, '</div>');
-  html = html.replace(/<hr[^>]*><br>/g, '<hr style="border:none;border-top:1px solid var(--border);margin:12px 0">');
+  html = html.replace(/<\/table><br>/g, '</table>');
+  html = html.replace(/<hr[^>]*><br>/g, `<hr style="border:none;border-top:0.5px solid var(--border);margin:${panel ? '16px' : '12px'} 0">`);
 
   return html;
 }
@@ -107,19 +140,12 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
 
   const showAiDisclosure = isActMode(step);
 
-  return (
-    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
-      {!inPanel && (
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-          <DocIcon size={14} className="text-accent flex-shrink-0" />
-          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("document")}</span>
-        </div>
-      )}
-
-      <div className={inPanel ? "px-6 py-4 space-y-3" : "px-4 py-3 space-y-2.5"}>
-        {inPanel ? (
-          <>
-            {/* Document-style: title as heading, content directly below */}
+  if (inPanel) {
+    return (
+      <div style={{ padding: 16 }}>
+        <div style={{ border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "var(--surface)" }}>
+          {/* Title */}
+          <div style={{ padding: "16px 20px", borderBottom: "0.5px solid var(--border)" }}>
             {editingField === "title" ? (
               <input
                 ref={inputRef}
@@ -128,18 +154,22 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
                 onBlur={saveEdit}
                 onKeyDown={handleKeyDown}
                 className="w-full outline-none"
-                style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "2px 6px" }}
+                style={{ fontSize: 17, fontWeight: 600, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 5%, transparent)", border: "0.5px solid var(--border-strong)", borderRadius: 4, padding: "4px 8px" }}
               />
             ) : (
               <div
                 className={canEdit ? "cursor-pointer group" : ""}
-                style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.3 }}
+                style={{ fontSize: 17, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.3 }}
                 onClick={() => startEdit("title")}
               >
                 {title}
                 {canEdit && <PencilIcon size={11} className="inline ml-2 opacity-0 group-hover:opacity-50 transition-opacity" />}
               </div>
             )}
+          </div>
+
+          {/* Content */}
+          <div style={{ padding: "16px 20px" }}>
             {editingField === "content" ? (
               <textarea
                 ref={textareaRef}
@@ -148,20 +178,41 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
                 onBlur={saveEdit}
                 rows={16}
                 className="w-full outline-none resize-y"
-                style={{ fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "8px 10px", fontFamily: "inherit" }}
+                style={{ fontSize: 14, lineHeight: 1.65, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 4%, transparent)", border: "0.5px solid var(--border-strong)", borderRadius: 4, padding: "10px 12px", fontFamily: "inherit", minHeight: 200 }}
               />
             ) : (
               <div
                 className={canEdit ? "cursor-pointer" : ""}
-                style={{ fontSize: 14, lineHeight: 1.7, color: "var(--muted)" }}
+                style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg2)" }}
                 onClick={() => startEdit("content")}
-                dangerouslySetInnerHTML={{ __html: formatDocContent(content) }}
+                dangerouslySetInnerHTML={{ __html: formatDocContent(content, true) }}
               />
             )}
-          </>
-        ) : (
-          <>
-            {/* Standard: labeled fields */}
+          </div>
+
+          {/* AI Disclosure footer */}
+          {showAiDisclosure && (
+            <div style={{ padding: "10px 20px", borderTop: "0.5px solid var(--border)" }}>
+              <p style={{ fontSize: 11, color: "var(--fg3)", fontStyle: "italic" }}>
+                {t("aiDisclosure")}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <DocIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("document")}</span>
+      </div>
+
+      <div className="px-4 py-3 space-y-2.5">
+        <>
+          {/* Standard: labeled fields */}
             <div className="flex items-baseline gap-2 group">
               <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("documentTitle")}</span>
               {editingField === "title" ? (
@@ -216,11 +267,10 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
                 />
               )}
             </div>
-          </>
-        )}
+        </>
 
         {/* Folder label */}
-        {folder && !inPanel && (
+        {folder && (
           <div className="flex items-baseline gap-2">
             <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("documentFolder")}</span>
             <span style={{ fontSize: 12, color: "var(--fg2)" }}>{folder}</span>
@@ -228,7 +278,7 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
         )}
 
         {/* AI Disclosure footer */}
-        {showAiDisclosure && !inPanel && (
+        {showAiDisclosure && (
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
             <p style={{ fontSize: 11, color: "var(--fg2)", fontStyle: "italic" }}>
               {t("aiDisclosure")}
