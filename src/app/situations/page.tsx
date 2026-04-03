@@ -537,7 +537,6 @@ export default function SituationsPage() {
                 >
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="flex-shrink-0" style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", visibility: isUnread ? "visible" : "hidden" }} />
-                    <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusDotColor(s) }} />
                     <span style={{ fontSize: 13, fontWeight: isUnread ? 600 : 500, color: "var(--foreground)" }} className="truncate flex-1">
                       {s.triggerSummary
                         ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
@@ -943,21 +942,12 @@ function DetailPane({
   const starDropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set([0]));
-  const [expandedTimelineCards, setExpandedTimelineCards] = useState<Set<string>>(new Set());
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [showTeachForm, setShowTeachForm] = useState(false);
   const toggleStep = (i: number) => {
     setOpenSteps(prev => {
       const next = new Set(prev);
       if (next.has(i)) next.delete(i); else next.add(i);
-      return next;
-    });
-  };
-
-  const toggleTimelineCard = (key: string) => {
-    setExpandedTimelineCards(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   };
@@ -1247,133 +1237,32 @@ function DetailPane({
             </div>
           )}
 
-          {/* ── SITUATION TIMELINE (hidden when panel narrows detail column) ── */}
-          {sidePanelStepIndex === null && <div className="flex flex-col items-center py-8">
-            <div className="text-center text-xs uppercase tracking-widest mb-6" style={{ color: "var(--fg3)" }}>
-              {t("situationTimeline")}
-            </div>
-            <div className="relative w-[80%]">
-              {/* Center rail */}
-              <div className="absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2" style={{ background: "var(--rail-color)" }} />
-
-              {/* Start node — card on LEFT */}
-              {(() => {
-                const startExpanded = expandedTimelineCards.has("start");
-                const fullSrc = detail.triggerEvidence?.content
-                  ?? detail.triggerSummary
-                  ?? detail.triggerEvidence?.summary
-                  ?? reasoning?.analysis
-                  ?? "";
-                return (
-                  <div className="relative flex items-start mb-8">
-                    <div className="w-[calc(50%-50px)] flex justify-end">
-                      <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg p-4 text-right cursor-pointer select-none hover:bg-[var(--step-hover)] transition-colors" onClick={() => toggleTimelineCard("start")}>
-                        <div className="text-[11px] font-semibold tracking-wide uppercase mb-1" style={{ color: "var(--fg3)" }}>
-                          {t("situationOrigin")}
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <p style={{ fontSize: 13, color: "var(--fg3)", lineHeight: 1.5 }}>
-                            {startExpanded ? fullSrc : fullSrc.slice(0, 120) + (fullSrc.length > 120 ? "…" : "")}
-                          </p>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--fg4)" strokeWidth="2" className="flex-shrink-0"
-                            style={{ transform: startExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}>
-                            <polyline points="6 9 12 15 18 9" />
-                          </svg>
-                        </div>
-                        <p className="text-sm mt-1" style={{ color: "var(--fg3)" }}>
-                          {formatRelativeTime(detail.createdAt, locale)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="w-[100px] flex justify-center relative z-10 pt-1">
-                      <div className="rounded-full flex items-center justify-center" style={{ width: 22, height: 22, background: "var(--dot-color)" }}>
-                        <div className="rounded-full bg-[var(--background)]" style={{ width: 10, height: 10 }} />
-                      </div>
-                    </div>
-                    <div className="w-[calc(50%-50px)]" />
-                  </div>
-                );
-              })()}
-
-              {/* Completed cycles — alternating */}
-              {detail.cycles?.filter(c => c.status === "completed").map((cycle, i) => {
-                const isLeft = i % 2 !== 0;
-                const completedSteps = cycle.executionPlan?.steps.filter(s => s.status === "completed").length ?? 0;
-                const totalSteps = cycle.executionPlan?.steps.length ?? 0;
-                const cycleExpanded = expandedTimelineCards.has(cycle.id);
-                const textAlign = isLeft ? "text-right" : "text-left";
-                const justifyMeta = isLeft ? "justify-end" : "";
-                const cardContent = (
-                  <div className={`bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg p-4 ${textAlign} cursor-pointer select-none hover:bg-[var(--step-hover)] transition-colors`} onClick={() => toggleTimelineCard(cycle.id)}>
-                    <div className={`flex items-center gap-2 ${isLeft ? "justify-end" : ""}`}>
-                      <div className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: "var(--fg4)" }}>
-                        {t("cycleN", { n: cycle.cycleNumber })}
-                      </div>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--fg4)" strokeWidth="2" className="flex-shrink-0"
-                        style={{ transform: cycleExpanded ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.15s" }}>
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </div>
-                    <p style={{ fontSize: 13, color: "var(--fg2)", marginTop: 4 }}>{cycle.cycleSummary ?? cycle.triggerSummary}</p>
-                    <div className={`flex gap-3 mt-2 ${justifyMeta}`} style={{ fontSize: 11, color: "var(--fg4)" }}>
-                      <span>{formatRelativeTime(cycle.createdAt, locale)}</span>
-                      <span>{t("stepsCompleted", { n: completedSteps, total: totalSteps })}</span>
-                    </div>
-                    {cycleExpanded && cycle.executionPlan?.steps && (
-                      <div className={`mt-3 pt-3 space-y-1 ${textAlign}`} style={{ borderTop: "1px solid var(--card-border)" }}>
-                        {cycle.executionPlan.steps.map(es => (
-                          <div key={es.id} className={`flex items-center gap-2 ${isLeft ? "justify-end" : ""}`} style={{ fontSize: 12 }}>
-                            <span style={{ color: es.status === "completed" ? "var(--ok)" : "var(--fg4)" }}>
-                              {es.status === "completed" ? "✓" : "○"}
-                            </span>
-                            <span style={{ color: es.status === "completed" ? "var(--fg3)" : "var(--fg4)" }}>{es.title}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-                return (
-                  <div key={cycle.id} className="relative flex items-start mb-8">
-                    <div className="w-[calc(50%-50px)] flex justify-end">
-                      {isLeft ? cardContent : null}
-                    </div>
-                    <div className="w-[100px] flex justify-center relative z-10 pt-1">
-                      <div className="rounded-full flex items-center justify-center" style={{ width: 22, height: 22, background: "var(--dot-color)" }}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </div>
-                    </div>
-                    <div className="w-[calc(50%-50px)] flex justify-start">
-                      {!isLeft ? cardContent : null}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Active cycle node */}
-              {(() => {
-                const activeCycle = detail.cycles?.find(c => c.status !== "completed");
-                return (
-                  <>
-                    <div className="relative flex items-center">
-                      <div className="w-[calc(50%-50px)]" />
-                      <div className="w-[100px] flex justify-center relative z-10">
-                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center">
-                          <div className="w-2.5 h-2.5 rounded-full bg-[var(--background)]" />
-                        </div>
-                      </div>
-                      <div className="w-[calc(50%-50px)]" />
-                    </div>
-                    <div className="text-center text-sm mt-2" style={{ color: "var(--fg3)" }}>
-                      {t("activeCycle")} {activeCycle ? `— ${activeCycle.triggerSummary?.slice(0, 40) ?? ""}` : ""}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>}
+          {/* ── Situation resume ── */}
+          {(() => {
+            const resumeText = detail.resumeSummary
+              ?? reasoning?.analysis
+              ?? detail.triggerEvidence?.content
+              ?? detail.triggerEvidence?.summary
+              ?? "";
+            const triggerText = detail.triggerSummary ?? detail.triggerEvidence?.evidence ?? "";
+            return resumeText || triggerText ? (
+              <div style={{ marginBottom: 16 }}>
+                {resumeText && (
+                  <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.6, marginBottom: triggerText ? 10 : 0 }}>
+                    {resumeText.slice(0, 500)}{resumeText.length > 500 ? "..." : ""}
+                  </p>
+                )}
+                {triggerText && (
+                  <p style={{ fontSize: 12, color: "var(--fg3)", display: "flex", alignItems: "center", gap: 5 }}>
+                    <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                    </svg>
+                    {triggerText.slice(0, 200)}{triggerText.length > 200 ? "..." : ""}
+                  </p>
+                )}
+              </div>
+            ) : null;
+          })()}
 
           {showAllStatuses && !reasoning && s.status === "detected" && (
             <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>
@@ -1519,7 +1408,7 @@ function DetailPane({
                                       index: i,
                                       planStepId: planStep.id,
                                       executionPlanId: detail?.executionPlanId ?? "",
-                                      isEditable: planStep.status === "pending",
+                                      isEditable: ["pending", "proposed", "planned", "awaiting_approval"].includes(planStep.status),
                                     });
                                   }}
                                 />

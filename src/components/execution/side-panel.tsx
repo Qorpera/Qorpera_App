@@ -203,12 +203,16 @@ export function SidePanel({
           <button
             onClick={onDiscuss}
             style={{
-              fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
-              background: "transparent", color: "var(--fg2)",
-              border: "1px solid var(--border)", cursor: "pointer", flexShrink: 0,
+              fontSize: 13, fontWeight: 500, padding: "6px 14px", borderRadius: 6,
+              background: "transparent", color: "var(--foreground)",
+              border: "1px solid var(--border-strong)", cursor: "pointer", flexShrink: 0,
+              display: "inline-flex", alignItems: "center", gap: 6,
             }}
-            className="hover:opacity-80 transition-opacity"
+            className="hover:bg-[var(--hover)] transition-colors"
           >
+            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
             Discuss
           </button>
         )}
@@ -218,13 +222,13 @@ export function SidePanel({
           <button
             onClick={onToggleEdit}
             style={{
-              fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 4,
-              border: isEditing ? "1px solid var(--accent)" : "1px solid var(--border)",
+              fontSize: 13, fontWeight: 500, padding: "6px 14px", borderRadius: 6,
+              border: isEditing ? "1px solid var(--accent)" : "1px solid var(--border-strong)",
               background: isEditing ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "transparent",
-              color: isEditing ? "var(--accent)" : "var(--fg3)",
+              color: isEditing ? "var(--accent)" : "var(--foreground)",
               cursor: "pointer", flexShrink: 0,
             }}
-            className="hover:opacity-80 transition-opacity"
+            className="hover:bg-[var(--hover)] transition-colors"
           >
             {isEditing ? "Done" : "Edit"}
           </button>

@@ -63,12 +63,12 @@
 
 /* ── Dark Mode ── */
 .dark {
-  --background: #101010;
-  --surface: #181818;
-  --elevated: #1f1f1f;
-  --sidebar: #0c0c0c;
-  --sidebar-active: #1c1c1c;
-  --hover: #222222;
+  --background: #121212;
+  --surface: #1a1a1a;
+  --elevated: #212121;
+  --sidebar: #0e0e0e;
+  --sidebar-active: #1e1e1e;
+  --hover: #242424;
 
   --foreground: #e8e8e8;
   --fg: #e8e8e8;
@@ -91,7 +91,7 @@
   --danger: #ef4444;
   --info: #3b82f6;
 
-  --card: #1f1f1f;
+  --card: #212121;
 
   --skeleton: rgba(255, 255, 255, 0.06);
   --skeleton-shine: rgba(255, 255, 255, 0.1);

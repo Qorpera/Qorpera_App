@@ -128,14 +128,14 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {/* From */}
           {from && (
-            <div className="flex items-baseline gap-3">
+            <div className="flex items-center gap-3">
               <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("from")}</span>
-              <span style={{ fontSize: 13, color: "var(--fg2)" }}>{from}</span>
+              <span style={{ fontSize: 13, color: "var(--fg2)", background: "var(--elevated)", borderRadius: 4, padding: "5px 10px", flex: 1 }}>{from}</span>
             </div>
           )}
 
           {/* To — editable */}
-          <div className="flex items-baseline gap-3 group">
+          <div className="flex items-center gap-3 group">
             <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("to")}</span>
             {editingField === "to" ? (
               <input
@@ -149,20 +149,20 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
                 placeholder="email@example.com"
               />
             ) : (
-              <span
+              <div
                 className={isEditable ? "cursor-pointer" : ""}
-                style={{ fontSize: 13, color: "var(--muted)" }}
+                style={{ fontSize: 13, color: "var(--muted)", background: "var(--elevated)", borderRadius: 4, padding: "5px 10px", flex: 1 }}
                 onClick={() => startEdit("to")}
               >
                 {recipient || <span style={{ color: "var(--fg4)" }}>Add recipient...</span>}
                 {isEditable && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
-              </span>
+              </div>
             )}
           </div>
 
           {/* Cc — shown when editing or has value */}
           {(isEditable || cc) && (
-            <div className="flex items-baseline gap-3 group">
+            <div className="flex items-center gap-3 group">
               <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>Cc</span>
               {editingField === "cc" ? (
                 <input
@@ -176,20 +176,20 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
                   placeholder="cc@example.com"
                 />
               ) : (
-                <span
+                <div
                   className={isEditable ? "cursor-pointer" : ""}
-                  style={{ fontSize: 13, color: cc ? "var(--muted)" : "var(--fg4)" }}
+                  style={{ fontSize: 13, color: cc ? "var(--muted)" : "var(--fg4)", background: "var(--elevated)", borderRadius: 4, padding: "5px 10px", flex: 1 }}
                   onClick={() => startEdit("cc")}
                 >
                   {cc || (isEditable ? "Add Cc..." : "")}
                   {isEditable && cc && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
-                </span>
+                </div>
               )}
             </div>
           )}
 
           {/* Subject */}
-          <div className="flex items-baseline gap-3 group">
+          <div className="flex items-center gap-3 group">
             <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("subject")}</span>
             {editingField === "subject" ? (
               <input
@@ -202,14 +202,14 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
                 style={{ ...editInputStyle, fontWeight: 500 }}
               />
             ) : (
-              <span
+              <div
                 className={isEditable ? "cursor-pointer" : ""}
-                style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}
+                style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", background: "var(--elevated)", borderRadius: 4, padding: "5px 10px", flex: 1 }}
                 onClick={() => startEdit("subject")}
               >
                 {subject}
                 {isEditable && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
-              </span>
+              </div>
             )}
           </div>
         </div>
@@ -233,7 +233,7 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
             <div
               className={isEditable ? "cursor-pointer" : ""}
               style={{ fontSize: 13, lineHeight: 1.7, color: "var(--muted)", minHeight: 100 }}
-              onClick={() => startEdit("body")}
+              onClick={e => { if ((e.target as HTMLElement).tagName !== "A") startEdit("body"); }}
               dangerouslySetInnerHTML={{ __html: linkify(body).replace(/\n/g, "<br>") }}
             />
           )}
@@ -380,7 +380,7 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
             <div
               className={isEditable ? "cursor-pointer" : ""}
               style={{ fontSize: 13, lineHeight: 1.65, color: "var(--muted)" }}
-              onClick={() => startEdit("body")}
+              onClick={e => { if ((e.target as HTMLElement).tagName !== "A") startEdit("body"); }}
               dangerouslySetInnerHTML={{ __html: linkify(body).replace(/\n/g, "<br>") }}
             />
           )}
