@@ -43,6 +43,8 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
   const ccInputRef = useRef<HTMLInputElement>(null);
 
   const [expandedAttachments, setExpandedAttachments] = useState<Set<number>>(new Set());
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const recipient = (params.to ?? params.recipient ?? "") as string;
   const cc = (params.cc ?? "") as string;
@@ -106,6 +108,27 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
     onParametersUpdate({ ...params, attachments: updatedAttachments });
   }
 
+  function addFiles(files: FileList | File[]) {
+    if (!onParametersUpdate) return;
+    const newAttachments = [...attachments];
+    for (const file of Array.from(files)) {
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      const type = ["xlsx", "xls", "csv"].includes(ext) ? "spreadsheet"
+        : ["doc", "docx", "txt", "md"].includes(ext) ? "document"
+        : "document";
+      newAttachments.push({ type, title: file.name, size: `${(file.size / 1024).toFixed(0)} KB` });
+    }
+    onParametersUpdate({ ...params, attachments: newAttachments });
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    if (isEditable && e.dataTransfer.files.length > 0) {
+      addFiles(e.dataTransfer.files);
+    }
+  }
+
   const showAiDisclosure = isActMode(step);
 
   // ── inPanel layout (matches HTML reference) ────────────────────────────────
@@ -139,7 +162,13 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
 
     return (
       <div style={{ padding: 16 }}>
-        <div style={{ border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "var(--surface)" }}>
+        <input ref={fileInputRef} type="file" multiple hidden onChange={e => { if (e.target.files) { addFiles(e.target.files); e.target.value = ""; } }} />
+        <div
+          style={{ border: dragOver ? "1.5px solid var(--info)" : "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", background: dragOver ? "color-mix(in srgb, var(--info) 4%, var(--elevated))" : "var(--elevated)", transition: "border-color 0.15s, background 0.15s" }}
+          onDragOver={e => { e.preventDefault(); if (isEditable) setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+        >
 
           {/* Email fields */}
           <div style={{ padding: "16px 20px", borderBottom: "0.5px solid var(--border)" }}>
@@ -240,7 +269,7 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
                 {isEditable && (
                   <div
                     style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", border: "0.5px dashed var(--border-strong)", borderRadius: 6, cursor: "pointer" }}
-                    onClick={() => {/* placeholder */}}
+                    onClick={() => fileInputRef.current?.click()}
                   >
                     <span style={{ fontSize: 14, color: "var(--fg2)" }}>+</span>
                     <span style={{ fontSize: 12, color: "var(--fg2)" }}>Tilføj fil</span>

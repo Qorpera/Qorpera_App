@@ -275,11 +275,11 @@ export function InlineStepCard({ step, onClick, isActive }: InlineStepCardProps)
         padding: "8px 12px",
         borderRadius: 6,
         background: "var(--elevated)",
-        border: isActive ? "2px solid var(--accent)" : "1px solid var(--border)",
+        border: isActive ? "2px solid var(--accent)" : "1.5px solid var(--border-strong)",
         cursor: "pointer",
-        transition: "border-color 0.15s, background 0.15s",
+        transition: "border-color 0.15s, background 0.15s, brightness 0.15s",
       }}
-      className="hover:brightness-105"
+      className="hover:brightness-110 hover:border-[var(--fg4)]"
     >
       {/* Icon */}
       <span style={{ color: isActive ? "var(--accent)" : "var(--fg3)", flexShrink: 0, display: "flex" }}>

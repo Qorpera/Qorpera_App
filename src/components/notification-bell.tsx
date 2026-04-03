@@ -65,6 +65,18 @@ export function NotificationBell() {
     } catch {}
   };
 
+  const handleMarkOneRead = async (id: string) => {
+    try {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] }),
+      });
+      setItems((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch {}
+  };
+
   return (
     <div className="relative" ref={ref}>
       <button
@@ -127,10 +139,20 @@ export function NotificationBell() {
                     {!n.read && (
                       <div className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 flex-shrink-0" />
                     )}
-                    <div className={!n.read ? "" : "pl-3.5"}>
+                    <div className={`flex-1 ${!n.read ? "" : "pl-3.5"}`}>
                       <p className="text-xs font-medium text-foreground">{n.title}</p>
                       <p className="text-xs text-[var(--fg2)] mt-0.5">{n.body}</p>
-                      <p className="text-[10px] text-[var(--fg3)] mt-1">{formatRelativeTime(n.createdAt, locale)}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-[10px] text-[var(--fg3)]">{formatRelativeTime(n.createdAt, locale)}</p>
+                        {!n.read && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleMarkOneRead(n.id); }}
+                            className="text-[10px] text-[var(--fg3)] hover:text-foreground transition-colors"
+                          >
+                            Mark read
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

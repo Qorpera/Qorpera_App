@@ -32,6 +32,8 @@ export function ContextualChat({
   const [expanded, setExpanded] = useState(true);
   const [chatFocused, setChatFocused] = useState(false);
   const [bouncing, setBouncing] = useState(false);
+  const [chatDragOver, setChatDragOver] = useState(false);
+  const [chatFiles, setChatFiles] = useState<Array<{ name: string; size: string }>>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -190,7 +192,31 @@ export function ContextualChat({
 
       {/* Input bar */}
       <div className="px-4 py-4 pb-[25px] w-[80%] mx-auto">
-        <div className="relative">
+        {/* Attached files */}
+        {chatFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {chatFiles.map((f, i) => (
+              <span key={i} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded" style={{ background: "var(--elevated)", border: "0.5px solid var(--border)", color: "var(--fg2)" }}>
+                {f.name}
+                <button onClick={() => setChatFiles(prev => prev.filter((_, j) => j !== i))} className="hover:text-[var(--danger)]" style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--fg4)", display: "flex" }}>
+                  <svg width={9} height={9} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div
+          className="relative"
+          onDragOver={e => { e.preventDefault(); setChatDragOver(true); }}
+          onDragLeave={() => setChatDragOver(false)}
+          onDrop={e => {
+            e.preventDefault();
+            setChatDragOver(false);
+            if (e.dataTransfer.files.length > 0) {
+              setChatFiles(prev => [...prev, ...Array.from(e.dataTransfer.files).map(f => ({ name: f.name, size: `${(f.size / 1024).toFixed(0)} KB` }))]);
+            }
+          }}
+        >
           <textarea
             ref={inputRef}
             value={input}
@@ -250,6 +276,11 @@ export function ContextualChat({
               </svg>
             )}
           </button>
+          {chatDragOver && (
+            <div className="absolute inset-0 rounded-lg flex items-center justify-center pointer-events-none" style={{ background: "color-mix(in srgb, var(--info) 8%, transparent)", border: "2px dashed var(--info)" }}>
+              <span style={{ fontSize: 12, color: "var(--info)", fontWeight: 500 }}>Drop files here</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

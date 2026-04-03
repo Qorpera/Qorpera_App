@@ -196,7 +196,7 @@ export function SidePanel({
             }}
             className="hover:opacity-80 transition-opacity"
           >
-            Approve
+            Send
           </button>
         )}
         {onDiscuss && (
