@@ -14,6 +14,7 @@ interface ContextualChatProps {
   contextId: string;
   placeholder?: string;
   hints?: string[];
+  uncertaintyLevel?: "high" | "medium" | "none";
 }
 
 export function ContextualChat({
@@ -21,6 +22,7 @@ export function ContextualChat({
   contextId,
   placeholder,
   hints,
+  uncertaintyLevel = "none",
 }: ContextualChatProps) {
   const t = useTranslations("contextualChat");
   const isMobile = useIsMobile();
@@ -28,6 +30,8 @@ export function ContextualChat({
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  const [chatFocused, setChatFocused] = useState(false);
+  const [bouncing, setBouncing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -42,6 +46,17 @@ export function ContextualChat({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Uncertainty nudge bounce
+  useEffect(() => {
+    if (uncertaintyLevel === "none" || chatFocused) return;
+    const interval = uncertaintyLevel === "high" ? 45000 : 75000;
+    const timer = setInterval(() => {
+      setBouncing(true);
+      setTimeout(() => setBouncing(false), 400);
+    }, interval);
+    return () => clearInterval(timer);
+  }, [uncertaintyLevel, chatFocused, contextId]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || streaming) return;
@@ -186,22 +201,36 @@ export function ContextualChat({
               e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
             }}
             onKeyDown={handleKeyDown}
+            onFocus={() => setChatFocused(true)}
+            onBlur={() => setChatFocused(false)}
             placeholder={placeholder || t("defaultPlaceholder")}
             id="situation-chat-input"
             rows={1}
             className="w-full outline-none resize-none"
             style={{
-              background: "var(--elevated)",
-              border: "1px solid var(--border)",
+              background: chatFocused
+                ? "color-mix(in srgb, var(--accent) 5%, var(--elevated))"
+                : "var(--elevated)",
+              border: chatFocused
+                ? "2px solid var(--accent)"
+                : "1px solid var(--border)",
               borderRadius: 8,
-              padding: "12px 14px",
-              paddingRight: 44,
+              padding: chatFocused ? "11px 13px" : "12px 14px",
+              paddingRight: chatFocused ? 43 : 44,
               fontSize: 14,
               minHeight: 80,
               lineHeight: 1.5,
               color: "var(--foreground)",
               fontFamily: "inherit",
               maxHeight: 120,
+              transform: chatFocused
+                ? "translateY(-2px)"
+                : bouncing
+                  ? undefined
+                  : "translateY(0)",
+              boxShadow: chatFocused ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
+              transition: "all 200ms ease",
+              animation: bouncing ? "chatNudge 400ms ease-out" : undefined,
             }}
           />
           <button

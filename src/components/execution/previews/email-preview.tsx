@@ -95,145 +95,85 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
   const showAiDisclosure = isActMode(step);
 
   return (
-    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
       {/* Header */}
-      {!inPanel && (
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-          <MailIcon size={14} className="text-accent flex-shrink-0" />
-          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>Email</span>
-        </div>
-      )}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <MailIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>Email</span>
+      </div>
 
       <div className="px-4 py-3 space-y-2.5">
-        {inPanel ? (
-          <>
-            {/* Email-style: recipients as pills, subject as heading, body as content */}
-            <div className="flex flex-wrap gap-1.5">
-              {recipient.split(/[,;]\s*/).filter(Boolean).map((r, i) => (
-                <span key={i} style={{
-                  fontSize: 12, padding: "2px 10px", borderRadius: 12,
-                  background: "color-mix(in srgb, var(--accent) 10%, transparent)",
-                  color: "var(--fg2)", fontWeight: 500,
-                }}>{r.trim()}</span>
-              ))}
-            </div>
-
-            {/* Subject as heading */}
-            {editingField === "subject" ? (
-              <input
-                ref={inputRef}
-                value={editValue}
-                onChange={e => setEditValue(e.target.value)}
-                onBlur={saveEdit}
-                onKeyDown={handleKeyDown}
-                className="w-full outline-none"
-                style={{ fontSize: 17, fontWeight: 600, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "2px 6px" }}
-              />
-            ) : (
-              <div
-                className={isEditable ? "cursor-pointer group" : ""}
-                style={{ fontSize: 17, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.3 }}
-                onClick={() => startEdit("subject")}
-              >
-                {subject}
-                {isEditable && <PencilIcon size={11} className="inline ml-2 opacity-0 group-hover:opacity-50 transition-opacity" />}
-              </div>
-            )}
-
-            {/* From as byline */}
-            {from && (
-              <div style={{ fontSize: 12, color: "var(--fg3)" }}>
-                {from}
-              </div>
-            )}
-
-            {/* Body */}
-            {editingField === "body" ? (
-              <textarea
-                ref={textareaRef}
-                value={editValue}
-                onChange={e => setEditValue(e.target.value)}
-                onBlur={saveEdit}
-                rows={10}
-                className="w-full outline-none resize-y"
-                style={{ fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "8px 10px", fontFamily: "inherit", marginTop: 8 }}
-              />
-            ) : (
-              <div
-                className={isEditable ? "cursor-pointer" : ""}
-                style={{ fontSize: 14, lineHeight: 1.7, color: "var(--muted)", marginTop: 8 }}
-                onClick={() => startEdit("body")}
-                dangerouslySetInnerHTML={{ __html: linkify(body).replace(/\n/g, "<br>") }}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {/* Standard: labeled fields */}
-            {from && (
-              <div className="flex items-baseline gap-2">
-                <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("from")}</span>
-                <span style={{ fontSize: 13, color: "var(--muted)" }}>{from}</span>
-              </div>
-            )}
-            <div className="flex items-baseline gap-2">
-              <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("to")}</span>
-              <span style={{ fontSize: 13, color: "var(--muted)" }}>{recipient}</span>
-            </div>
-            <div className="flex items-baseline gap-2 group">
-              <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("subject")}</span>
-              {editingField === "subject" ? (
-                <input
-                  ref={inputRef}
-                  value={editValue}
-                  onChange={e => setEditValue(e.target.value)}
-                  onBlur={saveEdit}
-                  onKeyDown={handleKeyDown}
-                  className="flex-1 outline-none"
-                  style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "2px 6px" }}
-                />
-              ) : (
-                <span
-                  className={isEditable ? "cursor-pointer hover:text-[#d0d0d0]" : ""}
-                  style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)" }}
-                  onClick={() => startEdit("subject")}
-                >
-                  {subject}
-                  {isEditable && (
-                    <PencilIcon size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
-                  )}
-                </span>
-              )}
-            </div>
-            <div style={{ borderTop: "1px solid var(--border)", margin: "8px 0" }} />
-            <div className="group">
-              <div className="flex items-center gap-1 mb-1">
-                <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500 }}>{t("body")}</span>
-                {isEditable && editingField !== "body" && (
-                  <PencilIcon size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
-                )}
-              </div>
-              {editingField === "body" ? (
-                <textarea
-                  ref={textareaRef}
-                  value={editValue}
-                  onChange={e => setEditValue(e.target.value)}
-                  onBlur={saveEdit}
-                  rows={6}
-                  className="w-full outline-none resize-y"
-                  style={{ fontSize: 13, lineHeight: 1.65, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "6px 8px", fontFamily: "inherit" }}
-                />
-              ) : (
-                <div
-                  className={isEditable ? "cursor-pointer" : ""}
-                  style={{ fontSize: 13, lineHeight: 1.65, color: "var(--muted)" }}
-                  onClick={() => startEdit("body")}
-                  dangerouslySetInnerHTML={{ __html: linkify(body).replace(/\n/g, "<br>") }}
-                />
-              )}
-            </div>
-          </>
+        {/* From */}
+        {from && (
+          <div className="flex items-baseline gap-2">
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("from")}</span>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>{from}</span>
+          </div>
         )}
+
+        {/* To */}
+        <div className="flex items-baseline gap-2">
+          <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("to")}</span>
+          <span style={{ fontSize: 13, color: "var(--muted)" }}>{recipient}</span>
+        </div>
+
+        {/* Subject */}
+        <div className="flex items-baseline gap-2 group">
+          <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("subject")}</span>
+          {editingField === "subject" ? (
+            <input
+              ref={inputRef}
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              onKeyDown={handleKeyDown}
+              className="flex-1 outline-none"
+              style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "2px 6px" }}
+            />
+          ) : (
+            <span
+              className={isEditable ? "cursor-pointer hover:text-[#d0d0d0]" : ""}
+              style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)" }}
+              onClick={() => startEdit("subject")}
+            >
+              {subject}
+              {isEditable && (
+                <PencilIcon size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+              )}
+            </span>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div style={{ borderTop: "1px solid var(--border)", margin: "8px 0" }} />
+
+        {/* Body */}
+        <div className="group">
+          <div className="flex items-center gap-1 mb-1">
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500 }}>{t("body")}</span>
+            {isEditable && editingField !== "body" && (
+              <PencilIcon size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+            )}
+          </div>
+          {editingField === "body" ? (
+            <textarea
+              ref={textareaRef}
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              rows={6}
+              className="w-full outline-none resize-y"
+              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "6px 8px", fontFamily: "inherit" }}
+            />
+          ) : (
+            <div
+              className={isEditable ? "cursor-pointer" : ""}
+              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--muted)" }}
+              onClick={() => startEdit("body")}
+              dangerouslySetInnerHTML={{ __html: linkify(body).replace(/\n/g, "<br>") }}
+            />
+          )}
+        </div>
 
         {/* Attachments */}
         {attachments.length > 0 && (

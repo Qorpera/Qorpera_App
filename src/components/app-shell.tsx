@@ -222,6 +222,16 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
     localStorage.setItem("sidebar-collapsed", String(collapsed));
   }, [collapsed]);
 
+  // Listen for programmatic sidebar collapse requests from child pages
+  useEffect(() => {
+    function handleSidebarRequest(e: Event) {
+      const detail = (e as CustomEvent<{ collapsed: boolean }>).detail;
+      setCollapsed(detail.collapsed);
+    }
+    window.addEventListener("sidebar-collapse-request", handleSidebarRequest);
+    return () => window.removeEventListener("sidebar-collapse-request", handleSidebarRequest);
+  }, []);
+
   // Mobile drawer
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 

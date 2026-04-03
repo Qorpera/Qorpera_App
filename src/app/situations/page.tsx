@@ -282,6 +282,21 @@ export default function SituationsPage() {
   const [planRefetchTrigger, setPlanRefetchTrigger] = useState(0);
   const [panelEditing, setPanelEditing] = useState(false);
   const [panelWidth, setPanelWidth] = useState(55);
+  const sidebarWasCollapsed = useRef(false);
+
+  // Auto-collapse main nav sidebar when panel opens, restore on close
+  useEffect(() => {
+    if (sidePanelData) {
+      sidebarWasCollapsed.current = localStorage.getItem("sidebar-collapsed") === "true";
+      if (!sidebarWasCollapsed.current) {
+        window.dispatchEvent(new CustomEvent("sidebar-collapse-request", { detail: { collapsed: true } }));
+      }
+    } else {
+      if (!sidebarWasCollapsed.current) {
+        window.dispatchEvent(new CustomEvent("sidebar-collapse-request", { detail: { collapsed: false } }));
+      }
+    }
+  }, [!!sidePanelData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fetch situations ────────────────────────────────────────────────────
 
@@ -427,13 +442,11 @@ export default function SituationsPage() {
         <div
           className="flex-shrink-0 flex flex-col overflow-hidden"
           style={{
-            width: isMobile ? "100%" : sidePanelData ? 48 : 280,
-            transition: "width 200ms ease",
+            width: isMobile ? "100%" : 280,
             borderRight: isMobile ? "none" : "1px solid var(--border)",
           }}
         >
           {/* Header */}
-          {!sidePanelData && (
           <>
           <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -491,7 +504,6 @@ export default function SituationsPage() {
             )}
           </div>
           </>
-          )}
 
           {/* List */}
           <div className="flex-1 overflow-y-auto">
@@ -503,8 +515,6 @@ export default function SituationsPage() {
             )}
             {filteredSituations.map(s => {
               const isUnread = !s.viewedAt;
-              const isCollapsed = !!sidePanelData;
-              const label = (s.triggerSummary ?? s.triggerEntityName ?? "?").slice(0, 2).toUpperCase();
               return (
                 <button
                   key={s.id}
@@ -515,11 +525,10 @@ export default function SituationsPage() {
                       fetch(`/api/situations/${s.id}/view`, { method: "POST" }).catch(() => {});
                     }
                   }}
-                  className={`w-full text-left transition-colors ${
+                  className={`w-full text-left px-4 py-2.5 transition-colors ${
                     selectedId === s.id ? "bg-[var(--surface)]" : "hover:bg-[var(--step-hover)]"
                   }`}
                   style={{
-                    padding: isCollapsed ? "6px 0" : "10px 16px",
                     borderBottom: "1px solid var(--border)",
                     borderLeft: selectedId === s.id
                       ? "2px solid var(--dot-color)"
@@ -529,38 +538,28 @@ export default function SituationsPage() {
                           ? "2px solid color-mix(in srgb, var(--warn) 60%, transparent)"
                           : "2px solid transparent",
                   }}
-                  title={isCollapsed ? (s.triggerSummary ?? s.triggerEntityName ?? "") : undefined}
                 >
-                  {isCollapsed ? (
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", visibility: isUnread ? "visible" : "hidden" }} />
-                      <span style={{ fontSize: 10, fontWeight: 600, color: selectedId === s.id ? "var(--foreground)" : "var(--fg3)", lineHeight: 1 }}>{label}</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="flex-shrink-0" style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", visibility: isUnread ? "visible" : "hidden" }} />
-                        <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusDotColor(s) }} />
-                        <span style={{ fontSize: 13, fontWeight: isUnread ? 600 : 500, color: "var(--foreground)" }} className="truncate flex-1">
-                          {s.triggerSummary
-                            ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
-                            : s.triggerEntityName ?? "Unknown"
-                          }
-                        </span>
-                        <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
-                          {formatRelativeTime(s.createdAt, locale)}
-                        </span>
-                        {s.severity >= 0.7 && (
-                          <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}>
-                            Critical
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
-                        {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
-                      </div>
-                    </>
-                  )}
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="flex-shrink-0" style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", visibility: isUnread ? "visible" : "hidden" }} />
+                    <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusDotColor(s) }} />
+                    <span style={{ fontSize: 13, fontWeight: isUnread ? 600 : 500, color: "var(--foreground)" }} className="truncate flex-1">
+                      {s.triggerSummary
+                        ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
+                        : s.triggerEntityName ?? "Unknown"
+                      }
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
+                      {formatRelativeTime(s.createdAt, locale)}
+                    </span>
+                    {s.severity >= 0.7 && (
+                      <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}>
+                        Critical
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
+                    {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
+                  </div>
                 </button>
               );
             })}
@@ -619,6 +618,15 @@ export default function SituationsPage() {
                   contextId={selectedSituation.id}
                   placeholder={t("discuss")}
                   hints={["What evidence supports this?", "Should I escalate?"]}
+                  uncertaintyLevel={(() => {
+                    if (!detail?.reasoning) return "none" as const;
+                    const r = safeParseReasoning(detail.reasoning);
+                    if (!r?.actionPlan) return "none" as const;
+                    const allU = r.actionPlan.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
+                    if (allU.some(u => u.impact === "high")) return "high" as const;
+                    if (allU.length > 0) return "medium" as const;
+                    return "none" as const;
+                  })()}
                 />
               </>
             ) : (
@@ -651,10 +659,15 @@ export default function SituationsPage() {
                 isEditing={panelEditing}
                 onToggleEdit={() => setPanelEditing(prev => !prev)}
                 onWidthChange={setPanelWidth}
+                onApprove={sidePanelData.isEditable ? () => patchSituation(selectedSituation!.id, { status: "approved" }) : undefined}
+                onDiscuss={() => {
+                  const chatInput = document.getElementById("situation-chat-input") as HTMLTextAreaElement;
+                  if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
+                }}
               >
                 <PanelPreview
                   step={sidePanelData.step}
-                  isEditable={panelEditing && sidePanelData.isEditable}
+                  isEditable={panelEditing}
                   inPanel
                   onParametersUpdate={async (params) => {
                     let finalParams = params;
@@ -1217,8 +1230,8 @@ function DetailPane({
             </div>
           )}
 
-          {/* ── SITUATION TIMELINE ── */}
-          <div className="flex flex-col items-center py-8">
+          {/* ── SITUATION TIMELINE (hidden when panel narrows detail column) ── */}
+          {sidePanelStepIndex === null && <div className="flex flex-col items-center py-8">
             <div className="text-center text-xs uppercase tracking-widest mb-6" style={{ color: "var(--fg3)" }}>
               {t("situationTimeline")}
             </div>
@@ -1343,7 +1356,7 @@ function DetailPane({
                 );
               })()}
             </div>
-          </div>
+          </div>}
 
           {showAllStatuses && !reasoning && s.status === "detected" && (
             <div style={{ padding: 16, color: "var(--fg3)", fontSize: 13 }}>

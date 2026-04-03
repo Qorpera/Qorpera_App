@@ -79,7 +79,7 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
   const content = (params.content ?? params.body ?? params.text ?? "") as string;
   const folder = (params.folderId ?? params.parentFolderId ?? "") as string;
 
-  const canEdit = isEditable && step.status === "pending";
+  const canEdit = isEditable && (inPanel || step.status === "pending");
 
   useEffect(() => {
     if (editingField === "title") inputRef.current?.focus();

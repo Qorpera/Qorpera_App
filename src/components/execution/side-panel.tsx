@@ -40,6 +40,8 @@ interface SidePanelProps {
   isEditing?: boolean;
   onToggleEdit?: () => void;
   onWidthChange?: (percent: number) => void;
+  onApprove?: () => void;
+  onDiscuss?: () => void;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -56,6 +58,8 @@ export function SidePanel({
   isEditing,
   onToggleEdit,
   onWidthChange,
+  onApprove,
+  onDiscuss,
 }: SidePanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
@@ -146,8 +150,8 @@ export function SidePanel({
           flexShrink: 0,
         }}
       >
-        {/* Breadcrumbs or icon + title */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, overflow: "hidden" }}>
+        {/* Type icon + label as title */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           {breadcrumbs && breadcrumbs.length > 0 ? (
             <>
               {breadcrumbs.map((crumb, idx) => (
@@ -155,16 +159,9 @@ export function SidePanel({
                   <button
                     onClick={crumb.onClick}
                     style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 0,
-                      color: "var(--accent)",
-                      fontSize: 13,
-                      fontWeight: 500,
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      background: "none", border: "none", cursor: "pointer", padding: 0,
+                      color: "var(--accent)", fontSize: 13, fontWeight: 500,
                     }}
                     className="hover:opacity-70 transition-opacity"
                   >
@@ -174,63 +171,63 @@ export function SidePanel({
                   <ChevronRightIcon size={10} />
                 </span>
               ))}
-              {/* Current level */}
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--foreground)" }}>
-                <span style={{ display: "flex", alignItems: "center", color: "var(--accent)" }}>{typeIcon}</span>
-                <span style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-              </span>
+              <span style={{ display: "flex", alignItems: "center", color: "var(--accent)" }}>{typeIcon}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{typeBadge}</span>
             </>
           ) : (
             <>
               <span style={{ display: "flex", alignItems: "center", color: "var(--accent)", flexShrink: 0 }}>{typeIcon}</span>
-              <span style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--foreground)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                flex: 1,
-              }}>
-                {title}
-              </span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)", whiteSpace: "nowrap" }}>{typeBadge}</span>
             </>
           )}
         </div>
 
-        {/* Edit toggle (replaces type badge) */}
-        {onToggleEdit ? (
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Action buttons */}
+        {onApprove && (
+          <button
+            onClick={onApprove}
+            style={{
+              fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 4,
+              background: "var(--btn-primary-bg)", color: "var(--btn-primary-text)",
+              border: "none", cursor: "pointer", flexShrink: 0,
+            }}
+            className="hover:opacity-80 transition-opacity"
+          >
+            Approve
+          </button>
+        )}
+        {onDiscuss && (
+          <button
+            onClick={onDiscuss}
+            style={{
+              fontSize: 11, fontWeight: 500, padding: "4px 10px", borderRadius: 4,
+              background: "transparent", color: "var(--fg2)",
+              border: "1px solid var(--border)", cursor: "pointer", flexShrink: 0,
+            }}
+            className="hover:opacity-80 transition-opacity"
+          >
+            Discuss
+          </button>
+        )}
+
+        {/* Edit toggle */}
+        {onToggleEdit && (
           <button
             onClick={onToggleEdit}
             style={{
-              fontSize: 11,
-              fontWeight: 600,
-              padding: "3px 10px",
-              borderRadius: 4,
+              fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 4,
               border: isEditing ? "1px solid var(--accent)" : "1px solid var(--border)",
               background: isEditing ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "transparent",
               color: isEditing ? "var(--accent)" : "var(--fg3)",
-              cursor: "pointer",
-              flexShrink: 0,
+              cursor: "pointer", flexShrink: 0,
             }}
             className="hover:opacity-80 transition-opacity"
           >
             {isEditing ? "Done" : "Edit"}
           </button>
-        ) : (
-          <span style={{
-            fontSize: 10,
-            fontWeight: 600,
-            padding: "2px 8px",
-            borderRadius: 4,
-            background: "var(--badge-bg, color-mix(in srgb, var(--accent) 10%, transparent))",
-            color: "var(--fg3)",
-            textTransform: "uppercase",
-            letterSpacing: "0.04em",
-            flexShrink: 0,
-          }}>
-            {typeBadge}
-          </span>
         )}
 
         {/* Close button */}
