@@ -37,6 +37,8 @@ interface SidePanelProps {
   breadcrumbs?: BreadcrumbEntry[];
   children: ReactNode;
   footer?: ReactNode;
+  isEditing?: boolean;
+  onToggleEdit?: () => void;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -50,6 +52,8 @@ export function SidePanel({
   breadcrumbs,
   children,
   footer,
+  isEditing,
+  onToggleEdit,
 }: SidePanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -73,7 +77,7 @@ export function SidePanel({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        borderLeft: "1px solid var(--border)",
+        borderLeft: isEditing ? "2px solid var(--accent)" : "1px solid var(--border)",
         background: "var(--surface)",
         position: "relative",
         overflow: "hidden",
@@ -144,20 +148,40 @@ export function SidePanel({
           )}
         </div>
 
-        {/* Type badge */}
-        <span style={{
-          fontSize: 10,
-          fontWeight: 600,
-          padding: "2px 8px",
-          borderRadius: 4,
-          background: "var(--badge-bg, color-mix(in srgb, var(--accent) 10%, transparent))",
-          color: "var(--fg3)",
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-          flexShrink: 0,
-        }}>
-          {typeBadge}
-        </span>
+        {/* Edit toggle (replaces type badge) */}
+        {onToggleEdit ? (
+          <button
+            onClick={onToggleEdit}
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "3px 10px",
+              borderRadius: 4,
+              border: isEditing ? "1px solid var(--accent)" : "1px solid var(--border)",
+              background: isEditing ? "color-mix(in srgb, var(--accent) 12%, transparent)" : "transparent",
+              color: isEditing ? "var(--accent)" : "var(--fg3)",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+            className="hover:opacity-80 transition-opacity"
+          >
+            {isEditing ? "Done" : "Edit"}
+          </button>
+        ) : (
+          <span style={{
+            fontSize: 10,
+            fontWeight: 600,
+            padding: "2px 8px",
+            borderRadius: 4,
+            background: "var(--badge-bg, color-mix(in srgb, var(--accent) 10%, transparent))",
+            color: "var(--fg3)",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            flexShrink: 0,
+          }}>
+            {typeBadge}
+          </span>
+        )}
 
         {/* Close button */}
         <button

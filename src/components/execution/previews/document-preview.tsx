@@ -117,66 +117,110 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
       )}
 
       <div className="px-4 py-3 space-y-2.5">
-        {/* Title */}
-        <div className="flex items-baseline gap-2 group">
-          <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("documentTitle")}</span>
-          {editingField === "title" ? (
-            <input
-              ref={inputRef}
-              value={editValue}
-              onChange={e => setEditValue(e.target.value)}
-              onBlur={saveEdit}
-              onKeyDown={handleKeyDown}
-              className="flex-1 outline-none"
-              style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "2px 6px" }}
-            />
-          ) : (
-            <span
-              className={canEdit ? "cursor-pointer hover:text-[#d0d0d0]" : ""}
-              style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)" }}
-              onClick={() => startEdit("title")}
-            >
-              {title}
-              {canEdit && (
-                <PencilIcon size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
-              )}
-            </span>
-          )}
-        </div>
-
-        {/* Divider */}
-        <div style={{ borderTop: "1px solid var(--border)", margin: "8px 0" }} />
-
-        {/* Content */}
-        <div className="group">
-          <div className="flex items-center gap-1 mb-1">
-            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500 }}>{t("documentContent")}</span>
-            {canEdit && editingField !== "content" && (
-              <PencilIcon size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+        {inPanel ? (
+          <>
+            {/* Document-style: title as heading, content directly below */}
+            {editingField === "title" ? (
+              <input
+                ref={inputRef}
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onBlur={saveEdit}
+                onKeyDown={handleKeyDown}
+                className="w-full outline-none"
+                style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "2px 6px" }}
+              />
+            ) : (
+              <div
+                className={canEdit ? "cursor-pointer group" : ""}
+                style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.3 }}
+                onClick={() => startEdit("title")}
+              >
+                {title}
+                {canEdit && <PencilIcon size={11} className="inline ml-2 opacity-0 group-hover:opacity-50 transition-opacity" />}
+              </div>
             )}
-          </div>
-          {editingField === "content" ? (
-            <textarea
-              ref={textareaRef}
-              value={editValue}
-              onChange={e => setEditValue(e.target.value)}
-              onBlur={saveEdit}
-              rows={12}
-              className="w-full outline-none resize-y"
-              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "6px 8px", fontFamily: "inherit" }}
-            />
-          ) : (
-            <div
-              className={canEdit ? "cursor-pointer" : ""}
-              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--muted)" }}
-              onClick={() => startEdit("content")}
-              dangerouslySetInnerHTML={{ __html: formatDocContent(content) }}
-            />
-          )}
-        </div>
+            {editingField === "content" ? (
+              <textarea
+                ref={textareaRef}
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onBlur={saveEdit}
+                rows={16}
+                className="w-full outline-none resize-y"
+                style={{ fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "8px 10px", fontFamily: "inherit" }}
+              />
+            ) : (
+              <div
+                className={canEdit ? "cursor-pointer" : ""}
+                style={{ fontSize: 14, lineHeight: 1.7, color: "var(--muted)" }}
+                onClick={() => startEdit("content")}
+                dangerouslySetInnerHTML={{ __html: formatDocContent(content) }}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {/* Standard: labeled fields */}
+            <div className="flex items-baseline gap-2 group">
+              <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("documentTitle")}</span>
+              {editingField === "title" ? (
+                <input
+                  ref={inputRef}
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onBlur={saveEdit}
+                  onKeyDown={handleKeyDown}
+                  className="flex-1 outline-none"
+                  style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "2px 6px" }}
+                />
+              ) : (
+                <span
+                  className={canEdit ? "cursor-pointer hover:text-[#d0d0d0]" : ""}
+                  style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)" }}
+                  onClick={() => startEdit("title")}
+                >
+                  {title}
+                  {canEdit && (
+                    <PencilIcon size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+                  )}
+                </span>
+              )}
+            </div>
+
+            <div style={{ borderTop: "1px solid var(--border)", margin: "8px 0" }} />
+
+            <div className="group">
+              <div className="flex items-center gap-1 mb-1">
+                <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500 }}>{t("documentContent")}</span>
+                {canEdit && editingField !== "content" && (
+                  <PencilIcon size={11} className="opacity-0 group-hover:opacity-50 transition-opacity" />
+                )}
+              </div>
+              {editingField === "content" ? (
+                <textarea
+                  ref={textareaRef}
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onBlur={saveEdit}
+                  rows={12}
+                  className="w-full outline-none resize-y"
+                  style={{ fontSize: 13, lineHeight: 1.65, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 8%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)", borderRadius: 3, padding: "6px 8px", fontFamily: "inherit" }}
+                />
+              ) : (
+                <div
+                  className={canEdit ? "cursor-pointer" : ""}
+                  style={{ fontSize: 13, lineHeight: 1.65, color: "var(--muted)" }}
+                  onClick={() => startEdit("content")}
+                  dangerouslySetInnerHTML={{ __html: formatDocContent(content) }}
+                />
+              )}
+            </div>
+          </>
+        )}
 
         {/* Folder label */}
-        {folder && (
+        {folder && !inPanel && (
           <div className="flex items-baseline gap-2">
             <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 56 }}>{t("documentFolder")}</span>
             <span style={{ fontSize: 12, color: "var(--fg2)" }}>{folder}</span>
@@ -184,7 +228,7 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
         )}
 
         {/* AI Disclosure footer */}
-        {showAiDisclosure && (
+        {showAiDisclosure && !inPanel && (
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 8 }}>
             <p style={{ fontSize: 11, color: "var(--fg2)", fontStyle: "italic" }}>
               {t("aiDisclosure")}

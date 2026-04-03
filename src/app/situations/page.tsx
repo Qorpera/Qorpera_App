@@ -280,6 +280,7 @@ export default function SituationsPage() {
   const [sidePanelData, setSidePanelData] = useState<SidePanelData | null>(null);
   const [panelBreadcrumbs, setPanelBreadcrumbs] = useState<Array<{ label: string; icon: React.ReactNode; step: ExecutionStepForPreview }>>([]);
   const [planRefetchTrigger, setPlanRefetchTrigger] = useState(0);
+  const [panelEditing, setPanelEditing] = useState(false);
 
   // ── Fetch situations ────────────────────────────────────────────────────
 
@@ -347,6 +348,7 @@ export default function SituationsPage() {
     setOutcomeNote("");
     setSidePanelData(null);
     setPanelBreadcrumbs([]);
+    setPanelEditing(false);
   }, [selectedId]);
 
   // ── Derived ─────────────────────────────────────────────────────────────
@@ -421,10 +423,33 @@ export default function SituationsPage() {
 
         {/* ── Left: situation list ── */}
         {(!isMobile || !selectedId) && (
-        <div className={`${isMobile ? "w-full" : "w-[320px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid var(--border)" }}>
+        <div
+          className="flex-shrink-0 flex flex-col overflow-hidden"
+          style={{
+            width: isMobile ? "100%" : sidePanelData ? 48 : 280,
+            transition: "width 200ms ease",
+            borderRight: isMobile ? "none" : "1px solid var(--border)",
+          }}
+        >
           {/* Header */}
+          {!sidePanelData && (
+          <>
           <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>{t("title")}</div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>{t("title")}</div>
+              {isAdmin && (
+                <button
+                  onClick={() => setShowAllSituations(prev => !prev)}
+                  className="text-[10px] font-medium px-2 py-0.5 rounded transition-colors"
+                  style={{
+                    background: showAllSituations ? "var(--badge-bg-strong)" : "var(--badge-bg)",
+                    color: showAllSituations ? "var(--btn-primary-text)" : "var(--fg3)",
+                  }}
+                >
+                  {showAllSituations ? "All" : "Mine"}
+                </button>
+              )}
+            </div>
             <div style={{ fontSize: 11, color: "var(--fg3)" }} className="mt-0.5">
               {situations.length} total &middot; {activeCount} pending
             </div>
@@ -446,19 +471,6 @@ export default function SituationsPage() {
                 {f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
-            {isAdmin && (
-              <button
-                onClick={() => setShowAllSituations(prev => !prev)}
-                className="text-xs px-3 py-1 rounded transition-colors"
-                style={{
-                  background: showAllSituations ? "var(--badge-bg-strong)" : "var(--badge-bg)",
-                  color: showAllSituations ? "var(--btn-primary-text)" : "var(--fg3)",
-                  marginLeft: 8,
-                }}
-              >
-                {showAllSituations ? "All situations" : "My situations"}
-              </button>
-            )}
             {isSuperadmin && (
               <button
                 onClick={() => setShowAllStatuses(prev => !prev)}
@@ -477,6 +489,8 @@ export default function SituationsPage() {
               </button>
             )}
           </div>
+          </>
+          )}
 
           {/* List */}
           <div className="flex-1 overflow-y-auto">
@@ -488,21 +502,23 @@ export default function SituationsPage() {
             )}
             {filteredSituations.map(s => {
               const isUnread = !s.viewedAt;
+              const isCollapsed = !!sidePanelData;
+              const label = (s.triggerSummary ?? s.triggerEntityName ?? "?").slice(0, 2).toUpperCase();
               return (
                 <button
                   key={s.id}
                   onClick={() => {
                     setSelectedId(s.id);
-                    // Optimistic: mark as read immediately
                     if (isUnread) {
                       setSituations(prev => prev.map(sit => sit.id === s.id ? { ...sit, viewedAt: new Date().toISOString() } : sit));
                       fetch(`/api/situations/${s.id}/view`, { method: "POST" }).catch(() => {});
                     }
                   }}
-                  className={`w-full text-left px-4 py-2.5 transition-colors ${
+                  className={`w-full text-left transition-colors ${
                     selectedId === s.id ? "bg-[var(--surface)]" : "hover:bg-[var(--step-hover)]"
                   }`}
                   style={{
+                    padding: isCollapsed ? "6px 0" : "10px 16px",
                     borderBottom: "1px solid var(--border)",
                     borderLeft: selectedId === s.id
                       ? "2px solid var(--dot-color)"
@@ -512,28 +528,38 @@ export default function SituationsPage() {
                           ? "2px solid color-mix(in srgb, var(--warn) 60%, transparent)"
                           : "2px solid transparent",
                   }}
+                  title={isCollapsed ? (s.triggerSummary ?? s.triggerEntityName ?? "") : undefined}
                 >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="flex-shrink-0" style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", visibility: isUnread ? "visible" : "hidden" }} />
-                    <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusDotColor(s) }} />
-                    <span style={{ fontSize: 13, fontWeight: isUnread ? 600 : 500, color: "var(--foreground)" }} className="truncate flex-1">
-                      {s.triggerSummary
-                        ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
-                        : s.triggerEntityName ?? "Unknown"
-                      }
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
-                      {formatRelativeTime(s.createdAt, locale)}
-                    </span>
-                    {s.severity >= 0.7 && (
-                      <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}>
-                        Critical
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
-                    {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
-                  </div>
+                  {isCollapsed ? (
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", visibility: isUnread ? "visible" : "hidden" }} />
+                      <span style={{ fontSize: 10, fontWeight: 600, color: selectedId === s.id ? "var(--foreground)" : "var(--fg3)", lineHeight: 1 }}>{label}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="flex-shrink-0" style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", visibility: isUnread ? "visible" : "hidden" }} />
+                        <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusDotColor(s) }} />
+                        <span style={{ fontSize: 13, fontWeight: isUnread ? 600 : 500, color: "var(--foreground)" }} className="truncate flex-1">
+                          {s.triggerSummary
+                            ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
+                            : s.triggerEntityName ?? "Unknown"
+                          }
+                        </span>
+                        <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
+                          {formatRelativeTime(s.createdAt, locale)}
+                        </span>
+                        {s.severity >= 0.7 && (
+                          <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}>
+                            Critical
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
+                        {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
+                      </div>
+                    </>
+                  )}
                 </button>
               );
             })}
@@ -616,15 +642,17 @@ export default function SituationsPage() {
             return (
               <SidePanel
                 isOpen={!!sidePanelData}
-                onClose={() => { setSidePanelData(null); setPanelBreadcrumbs([]); }}
+                onClose={() => { setSidePanelData(null); setPanelBreadcrumbs([]); setPanelEditing(false); }}
                 title={sidePanelData.step.title}
                 typeBadge={badge}
                 typeIcon={icon}
                 breadcrumbs={breadcrumbEntries}
+                isEditing={panelEditing}
+                onToggleEdit={() => setPanelEditing(prev => !prev)}
               >
                 <PanelPreview
                   step={sidePanelData.step}
-                  isEditable={sidePanelData.isEditable}
+                  isEditable={panelEditing && sidePanelData.isEditable}
                   inPanel
                   onParametersUpdate={async (params) => {
                     let finalParams = params;
