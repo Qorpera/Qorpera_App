@@ -260,7 +260,7 @@ export function SidePanel({
       {/* Optional footer */}
       {footer && (
         <div style={{
-          padding: "10px 16px",
+          padding: "12px 24px",
           borderTop: "1px solid var(--border)",
           background: "var(--surface)",
           flexShrink: 0,

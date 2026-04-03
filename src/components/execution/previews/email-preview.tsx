@@ -35,14 +35,17 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
 
-  const [editingField, setEditingField] = useState<"subject" | "body" | null>(null);
+  const [editingField, setEditingField] = useState<"subject" | "body" | "to" | "cc" | null>(null);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const toInputRef = useRef<HTMLInputElement>(null);
+  const ccInputRef = useRef<HTMLInputElement>(null);
 
   const [expandedAttachments, setExpandedAttachments] = useState<Set<number>>(new Set());
 
   const recipient = (params.to ?? params.recipient ?? "") as string;
+  const cc = (params.cc ?? "") as string;
   const subject = (params.subject ?? "") as string;
   const body = (params.body ?? "") as string;
   const from = (params.from ?? "") as string;
@@ -55,12 +58,17 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
   useEffect(() => {
     if (editingField === "subject") inputRef.current?.focus();
     if (editingField === "body") textareaRef.current?.focus();
+    if (editingField === "to") toInputRef.current?.focus();
+    if (editingField === "cc") ccInputRef.current?.focus();
   }, [editingField]);
 
-  function startEdit(field: "subject" | "body") {
+  function startEdit(field: "subject" | "body" | "to" | "cc") {
     if (!isEditable) return;
     setEditingField(field);
-    setEditValue(field === "subject" ? subject : body);
+    if (field === "to") setEditValue(recipient);
+    else if (field === "cc") setEditValue(cc);
+    else if (field === "subject") setEditValue(subject);
+    else setEditValue(body);
   }
 
   function saveEdit() {
@@ -70,7 +78,7 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (editingField === "subject" && e.key === "Enter") {
+    if (editingField !== "body" && e.key === "Enter") {
       e.preventDefault();
       saveEdit();
     }
@@ -92,7 +100,210 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
     onParametersUpdate({ ...params, attachments: updatedAttachments });
   }
 
+  function removeAttachment(index: number) {
+    if (!onParametersUpdate) return;
+    const updatedAttachments = attachments.filter((_, i) => i !== index);
+    onParametersUpdate({ ...params, attachments: updatedAttachments });
+  }
+
   const showAiDisclosure = isActMode(step);
+
+  // ── inPanel layout ─────────────────────────────────────────────────────────
+
+  if (inPanel) {
+    const editInputStyle = {
+      fontSize: 13,
+      color: "var(--foreground)",
+      background: "color-mix(in srgb, var(--accent) 6%, transparent)",
+      border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
+      borderRadius: 4,
+      padding: "6px 10px",
+      outline: "none",
+      width: "100%",
+    };
+
+    return (
+      <div style={{ padding: "16px 24px 20px" }}>
+        {/* Fields */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* From */}
+          {from && (
+            <div className="flex items-baseline gap-3">
+              <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("from")}</span>
+              <span style={{ fontSize: 13, color: "var(--fg2)" }}>{from}</span>
+            </div>
+          )}
+
+          {/* To — editable */}
+          <div className="flex items-baseline gap-3 group">
+            <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("to")}</span>
+            {editingField === "to" ? (
+              <input
+                ref={toInputRef}
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onBlur={saveEdit}
+                onKeyDown={handleKeyDown}
+                className="flex-1"
+                style={editInputStyle}
+                placeholder="email@example.com"
+              />
+            ) : (
+              <span
+                className={isEditable ? "cursor-pointer" : ""}
+                style={{ fontSize: 13, color: "var(--muted)" }}
+                onClick={() => startEdit("to")}
+              >
+                {recipient || <span style={{ color: "var(--fg4)" }}>Add recipient...</span>}
+                {isEditable && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
+              </span>
+            )}
+          </div>
+
+          {/* Cc — shown when editing or has value */}
+          {(isEditable || cc) && (
+            <div className="flex items-baseline gap-3 group">
+              <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>Cc</span>
+              {editingField === "cc" ? (
+                <input
+                  ref={ccInputRef}
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onBlur={saveEdit}
+                  onKeyDown={handleKeyDown}
+                  className="flex-1"
+                  style={editInputStyle}
+                  placeholder="cc@example.com"
+                />
+              ) : (
+                <span
+                  className={isEditable ? "cursor-pointer" : ""}
+                  style={{ fontSize: 13, color: cc ? "var(--muted)" : "var(--fg4)" }}
+                  onClick={() => startEdit("cc")}
+                >
+                  {cc || (isEditable ? "Add Cc..." : "")}
+                  {isEditable && cc && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Subject */}
+          <div className="flex items-baseline gap-3 group">
+            <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("subject")}</span>
+            {editingField === "subject" ? (
+              <input
+                ref={inputRef}
+                value={editValue}
+                onChange={e => setEditValue(e.target.value)}
+                onBlur={saveEdit}
+                onKeyDown={handleKeyDown}
+                className="flex-1"
+                style={{ ...editInputStyle, fontWeight: 500 }}
+              />
+            ) : (
+              <span
+                className={isEditable ? "cursor-pointer" : ""}
+                style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}
+                onClick={() => startEdit("subject")}
+              >
+                {subject}
+                {isEditable && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div style={{ borderTop: "1px solid var(--border)", margin: "14px 0" }} />
+
+        {/* Body */}
+        <div className="group">
+          {editingField === "body" ? (
+            <textarea
+              ref={textareaRef}
+              value={editValue}
+              onChange={e => setEditValue(e.target.value)}
+              onBlur={saveEdit}
+              rows={14}
+              className="w-full outline-none resize-y"
+              style={{ fontSize: 13, lineHeight: 1.7, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 6%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)", borderRadius: 4, padding: "10px 12px", fontFamily: "inherit", minHeight: 200 }}
+            />
+          ) : (
+            <div
+              className={isEditable ? "cursor-pointer" : ""}
+              style={{ fontSize: 13, lineHeight: 1.7, color: "var(--muted)", minHeight: 100 }}
+              onClick={() => startEdit("body")}
+              dangerouslySetInnerHTML={{ __html: linkify(body).replace(/\n/g, "<br>") }}
+            />
+          )}
+        </div>
+
+        {/* Attachments */}
+        {(attachments.length > 0 || isEditable) && (
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 14 }}>
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {attachments.map((att, idx) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-1"
+                    style={{ fontSize: 12, background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
+                  >
+                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                    </svg>
+                    <span
+                      className="cursor-pointer hover:underline"
+                      onClick={() => {
+                        if (onOpenAttachment) onOpenAttachment(att as Record<string, unknown>, idx);
+                        else toggleAttachment(idx);
+                      }}
+                    >
+                      {att.title ?? `Attachment ${idx + 1}`}
+                    </span>
+                    {isEditable && (
+                      <button
+                        onClick={() => removeAttachment(idx)}
+                        style={{ color: "var(--fg4)", cursor: "pointer", padding: 0, background: "none", border: "none", display: "flex" }}
+                        className="hover:text-[var(--danger)]"
+                      >
+                        <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M18 6 6 18M6 6l12 12" /></svg>
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {isEditable && (
+              <button
+                onClick={() => {/* placeholder — file picker integration later */}}
+                className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded transition-colors hover:bg-[var(--step-hover)]"
+                style={{ color: "var(--fg3)", border: "1px dashed var(--border)" }}
+              >
+                <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                Attach file
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* AI Disclosure */}
+        {showAiDisclosure && (
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 14 }}>
+            <p style={{ fontSize: 11, color: "var(--fg3)", fontStyle: "italic" }}>
+              {t("aiDisclosure")}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Standard (non-panel) layout ────────────────────────────────────────────
 
   return (
     <div className="rounded-md overflow-hidden border border-border bg-surface">

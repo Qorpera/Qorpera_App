@@ -64,26 +64,26 @@
 /* ── Dark Mode ── */
 .dark {
   --background: #101010;
-  --surface: #161616;
-  --elevated: #1c1c1c;
+  --surface: #181818;
+  --elevated: #1f1f1f;
   --sidebar: #0c0c0c;
-  --sidebar-active: #1a1a1a;
-  --hover: #1e1e1e;
+  --sidebar-active: #1c1c1c;
+  --hover: #222222;
 
   --foreground: #e8e8e8;
   --fg: #e8e8e8;
-  --fg2: #b0b0b0;
-  --fg3: #707070;
-  --fg4: #484848;
-  --muted: #b0b0b0;
+  --fg2: #a5a5a5;
+  --fg3: #727272;
+  --fg4: #4e4e4e;
+  --muted: #a5a5a5;
 
   --accent: #ffffff;
   --accent-hover: #d4d4d4;
   --accent-light: rgba(255, 255, 255, 0.08);
   --accent-ink: #000000;
 
-  --border: #2a2a2a;
-  --border-strong: #3a3a3a;
+  --border: #2c2c2c;
+  --border-strong: #3c3c3c;
 
   --ok: #22c55e;
   --warn: #f59e0b;
@@ -91,7 +91,7 @@
   --danger: #ef4444;
   --info: #3b82f6;
 
-  --card: #1c1c1c;
+  --card: #1f1f1f;
 
   --skeleton: rgba(255, 255, 255, 0.06);
   --skeleton-shine: rgba(255, 255, 255, 0.1);
@@ -105,9 +105,9 @@
   --badge-text-inverse: #000;
   --dot-color: rgba(255,255,255,0.4);
   --rail-color: rgba(255,255,255,0.25);
-  --card-bg: rgba(255,255,255,0.04);
-  --card-border: rgba(255,255,255,0.08);
-  --step-hover: rgba(255,255,255,0.03);
+  --card-bg: rgba(255,255,255,0.05);
+  --card-border: rgba(255,255,255,0.09);
+  --step-hover: rgba(255,255,255,0.05);
   --btn-primary-bg: var(--foreground);
   --btn-primary-text: var(--background);
 

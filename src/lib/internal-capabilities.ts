@@ -56,6 +56,20 @@ export const INTERNAL_CAPABILITIES = [
     sideEffects: ["Creates a RecurringTask that triggers on the given cron schedule"],
   },
   {
+    name: "create_system_job",
+    description: "Create a System Job — a recurring intelligence analysis that runs on a schedule, performing deep contextual reasoning about an organizational domain. Unlike RecurringTasks (which execute fixed plans), System Jobs analyze cross-system data, identify patterns and anomalies, and propose situations and initiatives based on their findings. Used when the AI identifies a domain that would benefit from periodic deep analysis.",
+    inputSchema: {
+      title: { type: "string", required: true },
+      description: { type: "string", required: true },
+      cronExpression: { type: "string", required: true, description: "Cron schedule (e.g., '0 8 * * 1' for Monday 8 AM)" },
+      scope: { type: "string", required: false, description: "department | cross_department | personal | company_wide" },
+      scopeDepartmentId: { type: "string", required: false, description: "Department entity ID if scope is department" },
+      contextProfile: { type: "object", required: false, description: "Which data domains to analyze: { dataDomains: string[], timeWindowDays: number, ... }" },
+      reasoningProfile: { type: "string", required: false, description: "Analytical framework — what questions to answer, what to compare, what good/bad looks like" },
+    },
+    sideEffects: ["Creates a SystemJob with status 'proposed' that requires admin approval before it starts running"],
+  },
+  {
     name: "request_meeting",
     description: "Request a meeting with company members. Creates meeting request situations for each invitee and waits for all responses before creating calendar events.",
     inputSchema: {
@@ -123,6 +137,8 @@ export async function executeInternalCapability(
       return executeUpdateGoal(params, operatorId);
     case "create_recurring_task":
       return executeCreateRecurringTask(params, operatorId, planOwnerAiEntityId);
+    case "create_system_job":
+      return executeCreateSystemJob(params, operatorId, planOwnerAiEntityId);
     case "request_meeting": {
       const { handleRequestMeeting } = await import("@/lib/meeting-coordination");
       return handleRequestMeeting(params, operatorId);
@@ -310,5 +326,104 @@ async function executeCreateDelegation(
     delegationId: delegation.id,
     targetType: toUserId ? "human" : "ai",
     targetId: toUserId ?? toAiEntityId ?? "",
+  };
+}
+
+async function executeCreateSystemJob(
+  params: Record<string, unknown>,
+  operatorId: string,
+  planOwnerAiEntityId?: string,
+): Promise<StepOutput> {
+  const title = String(params.title ?? "");
+  const description = String(params.description ?? "");
+  const cronExpression = String(params.cronExpression ?? "");
+
+  if (!title || !description || !cronExpression) {
+    throw new Error("create_system_job requires title, description, and cronExpression");
+  }
+
+  // Validate cron expression
+  const { CronExpressionParser } = await import("cron-parser");
+  CronExpressionParser.parse(cronExpression); // throws on invalid
+
+  const aiEntityId = planOwnerAiEntityId;
+  if (!aiEntityId) throw new Error("Cannot determine aiEntityId for system job");
+
+  const scope = params.scope ? String(params.scope) : (params.scopeDepartmentId ? "department" : "company_wide");
+  const scopeEntityId = params.scopeDepartmentId ? String(params.scopeDepartmentId) : null;
+
+  const contextProfile = params.contextProfile
+    ? JSON.stringify(params.contextProfile)
+    : JSON.stringify({
+        dataDomains: ["communication", "crm"],
+        timeWindowDays: 30,
+        includeInsights: true,
+        includeGoals: true,
+        includeSituationTypeStats: true,
+      });
+
+  const reasoningProfile = params.reasoningProfile
+    ? String(params.reasoningProfile)
+    : description;
+
+  // Dedup check
+  const existing = await prisma.systemJob.findFirst({
+    where: {
+      operatorId,
+      title: { contains: title, mode: "insensitive" },
+      status: { notIn: ["deactivated"] },
+    },
+  });
+  if (existing) {
+    return {
+      type: "data",
+      payload: { systemJobId: existing.id, title: existing.title, alreadyExists: true },
+      description: `System Job already exists: ${existing.title}`,
+    };
+  }
+
+  // Compute next trigger
+  const now = new Date();
+  const interval = CronExpressionParser.parse(cronExpression, { currentDate: now });
+  const nextTriggerAt = interval.next().toDate();
+
+  const systemJob = await prisma.systemJob.create({
+    data: {
+      operatorId,
+      aiEntityId,
+      title,
+      description,
+      contextProfile,
+      reasoningProfile,
+      cronExpression,
+      scope,
+      scopeEntityId,
+      status: "proposed",
+      source: "initiative",
+      nextTriggerAt,
+    },
+  });
+
+  // Notify admins
+  const { sendNotificationToAdmins } = await import("@/lib/notification-dispatch");
+  sendNotificationToAdmins({
+    operatorId,
+    type: "system_alert",
+    title: `System Job proposed: ${title}`,
+    body: `A new System Job has been proposed via initiative. ${description.slice(0, 150)}`,
+    sourceType: "system_job",
+    sourceId: systemJob.id,
+  }).catch(() => {});
+
+  return {
+    type: "data",
+    payload: {
+      systemJobId: systemJob.id,
+      title: systemJob.title,
+      status: "proposed",
+      cronExpression: systemJob.cronExpression,
+      nextTriggerAt: systemJob.nextTriggerAt?.toISOString() ?? null,
+    },
+    description: `System Job proposed: ${title}. Requires admin approval to activate.`,
   };
 }

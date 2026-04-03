@@ -24,6 +24,7 @@ const MODEL_ROUTES = {
   // ── Strategic intelligence ──
   initiativeReasoning: "claude-opus-4-6",
   strategicScan: "claude-opus-4-6",
+  systemJobReasoning: "claude-opus-4-6",
 
   // ── Content detection pipeline ──
   contentDetection: "gpt-5.4-mini",
@@ -152,6 +153,7 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   multiAgentCoordinator: 16_384,
   initiativeReasoning: 16_384,
   strategicScan: 16_384,
+  systemJobReasoning: 16_384,
   situationAudit: 2_048,
   insightExtraction: 8_192,
   // Onboarding

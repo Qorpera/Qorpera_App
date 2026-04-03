@@ -116,7 +116,7 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
         </div>
       )}
 
-      <div className="px-4 py-3 space-y-2.5">
+      <div className={inPanel ? "px-6 py-4 space-y-3" : "px-4 py-3 space-y-2.5"}>
         {inPanel ? (
           <>
             {/* Document-style: title as heading, content directly below */}

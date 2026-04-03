@@ -114,6 +114,8 @@ model Operator {
   recurringTasks       RecurringTask[]
   planAutonomies       PlanAutonomy[]
   operationalInsights  OperationalInsight[]
+  systemJobs           SystemJob[]
+  systemJobRuns        SystemJobRun[]
   priorityOverrides    PriorityOverride[]
   appSettings          AppSetting[]
   onboardingAnalysis   OnboardingAnalysis?
@@ -1019,6 +1021,63 @@ model RecurringTask {
 
   @@index([operatorId, status])
   @@index([status, nextTriggerAt])
+}
+
+model SystemJob {
+  id                    String    @id @default(cuid())
+  operatorId            String
+  aiEntityId            String
+  title                 String
+  description           String?
+  contextProfile        String    // JSON — which data loaders/entities/connectors to pull
+  reasoningProfile      String    // JSON — analytical framework, questions to answer, comparisons
+  outputProfile         String?   // JSON — expected output types, situation/initiative patterns
+  cronExpression        String
+  scope                 String    @default("department") // department | cross_department | personal | company_wide
+  scopeEntityId         String?   // Department or person entity ID
+  archetypeSlug         String?   // Links to system job archetype for cross-org learning
+  status                String    @default("proposed") // proposed | active | paused | deactivated
+  source                String    @default("manual") // initiative | strategic_scan | onboarding | manual | self_amendment
+  importanceThreshold   Float     @default(0.3)
+  autoDispatchFindings  Boolean   @default(false) // For graduated trust — auto-create situations/initiatives
+  consecutiveApprovals  Int       @default(0) // Trust gradient tracking
+  lastTriggeredAt       DateTime?
+  nextTriggerAt         DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  runs     SystemJobRun[]
+
+  @@index([operatorId, status])
+  @@index([status, nextTriggerAt])
+}
+
+model SystemJobRun {
+  id                        String    @id @default(cuid())
+  systemJobId               String
+  operatorId                String
+  cycleNumber               Int
+  status                    String    @default("running") // running | completed | failed | compressed
+  importanceScore           Float?
+  summary                   String?
+  analysisNarrative         String?   @db.Text
+  findings                  Json?     // Array of { title, description, category }
+  proposedSituationCount    Int       @default(0)
+  proposedInitiativeCount   Int       @default(0)
+  selfAmendments            Json?     // Array of { type, description, rationale }
+  cycleComparison           Json?     // { keyChanges[], priorRecommendationOutcomes[] }
+  rawReasoning              String?   @db.Text  // Full LLM output for debugging
+  tokenCost                 Float?
+  durationMs                Int?
+  errorMessage              String?
+  createdAt                 DateTime  @default(now())
+
+  systemJob SystemJob @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
+  operator  Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([systemJobId, cycleNumber])
+  @@index([operatorId, createdAt])
 }
 
 model PlanAutonomy {

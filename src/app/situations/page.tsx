@@ -532,11 +532,7 @@ export default function SituationsPage() {
                     borderBottom: "1px solid var(--border)",
                     borderLeft: selectedId === s.id
                       ? "2px solid var(--dot-color)"
-                      : s.severity >= 0.7
-                        ? "2px solid var(--danger)"
-                        : s.severity >= 0.4
-                          ? "2px solid color-mix(in srgb, var(--warn) 60%, transparent)"
-                          : "2px solid transparent",
+                      : "2px solid transparent",
                   }}
                 >
                   <div className="flex items-center gap-2 mb-0.5">
@@ -551,11 +547,6 @@ export default function SituationsPage() {
                     <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
                       {formatRelativeTime(s.createdAt, locale)}
                     </span>
-                    {s.severity >= 0.7 && (
-                      <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}>
-                        Critical
-                      </span>
-                    )}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
                     {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
@@ -664,10 +655,36 @@ export default function SituationsPage() {
                   const chatInput = document.getElementById("situation-chat-input") as HTMLTextAreaElement;
                   if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
                 }}
+                footer={sidePanelData.isEditable && sidePanelData.step.executionMode === "action" ? (
+                  <button
+                    onClick={() => patchSituation(selectedSituation!.id, { status: "approved" })}
+                    style={{
+                      width: "100%",
+                      padding: "10px 0",
+                      borderRadius: 6,
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      background: "var(--accent)",
+                      color: "var(--background)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                    }}
+                    className="hover:opacity-90 transition-opacity"
+                  >
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="22" x2="11" y1="2" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                    </svg>
+                    Send
+                  </button>
+                ) : undefined}
               >
                 <PanelPreview
                   step={sidePanelData.step}
-                  isEditable={panelEditing}
+                  isEditable={panelEditing && sidePanelData.isEditable}
                   inPanel
                   onParametersUpdate={async (params) => {
                     let finalParams = params;
@@ -1513,21 +1530,27 @@ function DetailPane({
                           {/* Uncertainty annotations */}
                           {planStep?.uncertainties && Array.isArray(planStep.uncertainties) && planStep.uncertainties.length > 0 && (
                             <div className="mt-2 space-y-1.5">
-                              {(planStep.uncertainties as Array<{ field: string; assumption: string; impact: string }>).map((u, ui) => (
-                                <div key={ui} className="flex items-start gap-2 rounded px-3 py-2" style={{
-                                  background: u.impact === "high"
-                                    ? "color-mix(in srgb, var(--warn) 8%, transparent)"
-                                    : "color-mix(in srgb, var(--fg3) 6%, transparent)",
-                                  border: `1px solid ${u.impact === "high" ? "color-mix(in srgb, var(--warn) 15%, transparent)" : "color-mix(in srgb, var(--fg3) 10%, transparent)"}`,
-                                }}>
-                                  <span style={{ fontSize: 12, flexShrink: 0, marginTop: 1 }}>
-                                    {u.impact === "high" ? "⚠" : "ℹ"}
-                                  </span>
-                                  <span style={{ fontSize: 12, color: "var(--fg2)", lineHeight: 1.5 }}>
-                                    {u.assumption}
-                                  </span>
-                                </div>
-                              ))}
+                              {(planStep.uncertainties as Array<{ field: string; assumption: string; impact: string }>).map((u, ui) => {
+                                const hasPlaceholder = /\[.+?\]/.test(u.assumption);
+                                const isDanger = hasPlaceholder;
+                                const isWarn = !hasPlaceholder && u.impact === "high";
+                                const colorVar = isDanger ? "var(--danger)" : isWarn ? "var(--warn)" : "var(--fg3)";
+                                const bgOpacity = isDanger ? "8%" : isWarn ? "8%" : "6%";
+                                const borderOpacity = isDanger ? "15%" : isWarn ? "15%" : "10%";
+                                return (
+                                  <div key={ui} className="flex items-start gap-2 rounded px-3 py-2" style={{
+                                    background: `color-mix(in srgb, ${colorVar} ${bgOpacity}, transparent)`,
+                                    border: `1px solid color-mix(in srgb, ${colorVar} ${borderOpacity}, transparent)`,
+                                  }}>
+                                    <span style={{ fontSize: 12, flexShrink: 0, marginTop: 1, color: isDanger ? "var(--danger)" : undefined }}>
+                                      {isDanger ? "⚠" : isWarn ? "⚠" : "ℹ"}
+                                    </span>
+                                    <span style={{ fontSize: 12, color: isDanger ? "var(--danger)" : "var(--fg2)", lineHeight: 1.5 }}>
+                                      {u.assumption}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
 

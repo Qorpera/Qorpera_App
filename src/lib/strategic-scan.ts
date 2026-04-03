@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { retrieveRelevantContext } from "@/lib/rag/retriever";
-import { extractJSON } from "@/lib/json-helpers";
+import { extractJSONAny } from "@/lib/json-helpers";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
+import { runCoverageGapAnalysis, runIntelligenceHygiene, runDataUtilizationAudit } from "@/lib/meta-intelligence-scans";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,19 +55,21 @@ const approaches: ScanApproach[] = [
     weight: 1.0,
     execute: runDepartmentAudit,
   },
-  // Future approaches will be added here:
-  // { name: "hypothesis_investigation", weight: 1.0, execute: runHypothesisInvestigation },
-  // { name: "decision_review", weight: 0.8, execute: runDecisionReview },
-  // { name: "structural_vulnerability", weight: 0.7, execute: runStructuralVulnerability },
-  // { name: "say_vs_do_divergence", weight: 0.9, execute: runSayVsDoDivergence },
-  // { name: "recurrence_detection", weight: 0.8, execute: runRecurrenceDetection },
-  // { name: "cross_department_friction", weight: 0.7, execute: runCrossDepartmentFriction },
-  // { name: "relationship_trend", weight: 0.6, execute: runRelationshipTrend },
-  // { name: "workload_imbalance", weight: 0.7, execute: runWorkloadImbalance },
-  // { name: "blind_spot_detection", weight: 0.5, execute: runBlindSpotDetection },
-  // { name: "critical_dependency", weight: 0.6, execute: runCriticalDependency },
-  // { name: "resilience_probing", weight: 0.4, execute: runResilienceProbing },
-  // { name: "decision_propagation", weight: 0.5, execute: runDecisionPropagation },
+  {
+    name: "coverage_gap_analysis",
+    weight: 0.8,
+    execute: runCoverageGapAnalysis,
+  },
+  {
+    name: "intelligence_hygiene",
+    weight: 0.6,
+    execute: runIntelligenceHygiene,
+  },
+  {
+    name: "data_utilization_audit",
+    weight: 0.5,
+    execute: runDataUtilizationAudit,
+  },
 ];
 
 // ── Main Entry Point ─────────────────────────────────────────────────────────
@@ -115,8 +118,12 @@ export async function runStrategicScan(operatorId: string): Promise<{
 }
 
 function selectApproach(): ScanApproach {
-  // For now: always department_audit (only one implemented)
-  // Future: weighted random selection, biased by time since last run and recent activity
+  const totalWeight = approaches.reduce((sum, a) => sum + a.weight, 0);
+  let rand = Math.random() * totalWeight;
+  for (const approach of approaches) {
+    rand -= approach.weight;
+    if (rand <= 0) return approach;
+  }
   return approaches[0];
 }
 
@@ -510,7 +517,7 @@ async function reasonAboutDepartment(
     thinkingBudget: getThinkingBudget("strategicScan") ?? undefined,
   });
 
-  const parsed = extractJSON(response.text);
+  const parsed = extractJSONAny(response.text);
   if (!Array.isArray(parsed)) {
     console.warn("[strategic-scan:dept-audit] Failed to parse LLM response as array");
     return [];
