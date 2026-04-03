@@ -68,16 +68,27 @@ export async function GET(req: NextRequest) {
   ]);
 
   // Resolve trigger entity + department display names
+  const situationIds = situations.map((s) => s.id);
   const triggerIds = situations.map((s) => s.triggerEntityId).filter(Boolean) as string[];
   const scopeIds = situations.map((s) => s.situationType.scopeEntityId).filter(Boolean) as string[];
   const allIds = [...new Set([...triggerIds, ...scopeIds])];
-  const entities = allIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: allIds }, operatorId },
-        select: { id: true, displayName: true },
-      })
-    : [];
+
+  const [entities, views] = await Promise.all([
+    allIds.length > 0
+      ? prisma.entity.findMany({
+          where: { id: { in: allIds }, operatorId },
+          select: { id: true, displayName: true },
+        })
+      : Promise.resolve([]),
+    situationIds.length > 0
+      ? prisma.situationView.findMany({
+          where: { userId: user.id, situationId: { in: situationIds } },
+          select: { situationId: true, viewedAt: true },
+        })
+      : Promise.resolve([]),
+  ]);
   const entityMap = new Map(entities.map((e) => [e.id, e.displayName]));
+  const viewMap = new Map(views.map((v) => [v.situationId, v.viewedAt]));
 
   const items = situations.map((s) => {
     let reasoning = null;
@@ -103,6 +114,7 @@ export async function GET(req: NextRequest) {
       editInstruction: s.editInstruction,
       createdAt: s.createdAt.toISOString(),
       resolvedAt: s.resolvedAt?.toISOString() ?? null,
+      viewedAt: viewMap.get(s.id)?.toISOString() ?? null,
     };
     if (sort === "priority" && "executionPlan" in s) {
       item.priorityScore = (s as { executionPlan?: { priorityScore: number | null } | null }).executionPlan?.priorityScore ?? null;

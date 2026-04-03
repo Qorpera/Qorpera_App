@@ -23,6 +23,7 @@ export interface PreviewProps {
   isEditable: boolean;
   onParametersUpdate?: (params: Record<string, unknown>) => void;
   locale: string;
+  onOpenAttachment?: (attachment: Record<string, unknown>, index: number) => void;
 }
 
 // ── Lazy imports (code-split per preview) ────────────────────────────────────

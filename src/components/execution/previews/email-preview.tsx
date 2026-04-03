@@ -31,7 +31,7 @@ function linkify(text: string): string {
   );
 }
 
-export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _locale }: PreviewProps) {
+export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _locale, onOpenAttachment }: PreviewProps) {
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
 
@@ -198,7 +198,13 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
                     <div
                       className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-[var(--step-hover)] transition-colors"
                       style={{ background: "var(--elevated)" }}
-                      onClick={() => toggleAttachment(idx)}
+                      onClick={() => {
+                        if (onOpenAttachment) {
+                          onOpenAttachment(attachment as Record<string, unknown>, idx);
+                        } else {
+                          toggleAttachment(idx);
+                        }
+                      }}
                     >
                       {typeIcon === "grid" ? (
                         <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="var(--fg3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">

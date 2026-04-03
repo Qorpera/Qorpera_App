@@ -9,8 +9,18 @@ import { useIsMobile } from "@/hooks/use-media-query";
 import { useUser } from "@/components/user-provider";
 import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
-import { getPreviewComponent } from "@/components/execution/previews/get-preview-component";
+import { getPreviewComponent, type ExecutionStepForPreview } from "@/components/execution/previews/get-preview-component";
+import { SidePanel } from "@/components/execution/side-panel";
+import { InlineStepCard, getStepCardMeta } from "@/components/execution/inline-step-card";
 import { useToast } from "@/components/ui/toast";
+
+interface SidePanelData {
+  step: ExecutionStepForPreview;
+  index: number;
+  planStepId: string;
+  executionPlanId: string;
+  isEditable: boolean;
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +38,7 @@ interface SituationItem {
   editInstruction: string | null;
   createdAt: string;
   resolvedAt: string | null;
+  viewedAt: string | null;
 }
 
 interface ActionStep {
@@ -266,6 +277,9 @@ export default function SituationsPage() {
   const [billingStatus, setBillingStatus] = useState<string>("active");
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [detectionCount, setDetectionCount] = useState(0);
+  const [sidePanelData, setSidePanelData] = useState<SidePanelData | null>(null);
+  const [panelBreadcrumbs, setPanelBreadcrumbs] = useState<Array<{ label: string; icon: React.ReactNode; step: ExecutionStepForPreview }>>([]);
+  const [planRefetchTrigger, setPlanRefetchTrigger] = useState(0);
 
   // ── Fetch situations ────────────────────────────────────────────────────
 
@@ -331,6 +345,8 @@ export default function SituationsPage() {
     setFeedbackCategory("");
     setOutcomeValue("");
     setOutcomeNote("");
+    setSidePanelData(null);
+    setPanelBreadcrumbs([]);
   }, [selectedId]);
 
   // ── Derived ─────────────────────────────────────────────────────────────
@@ -470,46 +486,57 @@ export default function SituationsPage() {
                 <div className="h-4 w-4 animate-spin rounded-full border border-border border-t-muted" />
               </div>
             )}
-            {filteredSituations.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setSelectedId(s.id)}
-                className={`w-full text-left px-4 py-2.5 transition-colors ${
-                  selectedId === s.id ? "bg-[var(--surface)]" : "hover:bg-[var(--step-hover)]"
-                }`}
-                style={{
-                  borderBottom: "1px solid var(--border)",
-                  borderLeft: selectedId === s.id
-                    ? "2px solid var(--dot-color)"
-                    : s.severity >= 0.7
-                      ? "2px solid var(--danger)"
-                      : s.severity >= 0.4
-                        ? "2px solid color-mix(in srgb, var(--warn) 60%, transparent)"
-                        : "2px solid transparent",
-                }}
-              >
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusDotColor(s) }} />
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }} className="truncate flex-1">
-                    {s.triggerSummary
-                      ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
-                      : s.triggerEntityName ?? "Unknown"
+            {filteredSituations.map(s => {
+              const isUnread = !s.viewedAt;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => {
+                    setSelectedId(s.id);
+                    // Optimistic: mark as read immediately
+                    if (isUnread) {
+                      setSituations(prev => prev.map(sit => sit.id === s.id ? { ...sit, viewedAt: new Date().toISOString() } : sit));
+                      fetch(`/api/situations/${s.id}/view`, { method: "POST" }).catch(() => {});
                     }
-                  </span>
-                  <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
-                    {formatRelativeTime(s.createdAt, locale)}
-                  </span>
-                  {s.severity >= 0.7 && (
-                    <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}>
-                      Critical
+                  }}
+                  className={`w-full text-left px-4 py-2.5 transition-colors ${
+                    selectedId === s.id ? "bg-[var(--surface)]" : "hover:bg-[var(--step-hover)]"
+                  }`}
+                  style={{
+                    borderBottom: "1px solid var(--border)",
+                    borderLeft: selectedId === s.id
+                      ? "2px solid var(--dot-color)"
+                      : s.severity >= 0.7
+                        ? "2px solid var(--danger)"
+                        : s.severity >= 0.4
+                          ? "2px solid color-mix(in srgb, var(--warn) 60%, transparent)"
+                          : "2px solid transparent",
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="flex-shrink-0" style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", visibility: isUnread ? "visible" : "hidden" }} />
+                    <span className="flex-shrink-0" style={{ width: 7, height: 7, borderRadius: "50%", background: statusDotColor(s) }} />
+                    <span style={{ fontSize: 13, fontWeight: isUnread ? 600 : 500, color: "var(--foreground)" }} className="truncate flex-1">
+                      {s.triggerSummary
+                        ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
+                        : s.triggerEntityName ?? "Unknown"
+                      }
                     </span>
-                  )}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
-                  {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
-                </div>
-              </button>
-            ))}
+                    <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
+                      {formatRelativeTime(s.createdAt, locale)}
+                    </span>
+                    {s.severity >= 0.7 && (
+                      <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold" style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}>
+                        Critical
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
+                    {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
+                  </div>
+                </button>
+              );
+            })}
             {!loading && filteredSituations.length === 0 && (
               <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "var(--fg4)" }}>
                 {t("empty")}
@@ -521,48 +548,127 @@ export default function SituationsPage() {
 
         {/* ── Right: detail pane ── */}
         {(!isMobile || selectedId) && (
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {isMobile && (
-            <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-[var(--fg2)] hover:text-[var(--fg2)] min-h-[44px]">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-              Back
-            </button>
-          )}
-          {selectedSituation ? (
-            <>
-              <div className="flex-1 overflow-y-auto">
-                <DetailPane
-                  key={selectedId}
-                  situation={selectedSituation}
-                  detail={detail}
-                  detailLoading={detailLoading}
-                  activeMode={activeMode}
-                  setActiveMode={setActiveMode}
-                  patchSituation={patchSituation}
-                  feedbackText={feedbackText}
-                  setFeedbackText={setFeedbackText}
-                  feedbackCategory={feedbackCategory}
-                  setFeedbackCategory={setFeedbackCategory}
-                  outcomeValue={outcomeValue}
-                  setOutcomeValue={setOutcomeValue}
-                  outcomeNote={outcomeNote}
-                  setOutcomeNote={setOutcomeNote}
-                  billingStatus={billingStatus}
-                  showAllStatuses={showAllStatuses}
+        <div className="flex-1 min-h-0 overflow-hidden" style={{
+          display: "grid",
+          gridTemplateColumns: sidePanelData ? "minmax(300px, 40%) 1fr" : "1fr",
+          transition: "grid-template-columns 0.2s ease-out",
+        }}>
+          {/* Detail column */}
+          <div className="flex flex-col min-h-0 overflow-hidden">
+            {isMobile && (
+              <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-[var(--fg2)] hover:text-[var(--fg2)] min-h-[44px]">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+                Back
+              </button>
+            )}
+            {selectedSituation ? (
+              <>
+                <div className="flex-1 overflow-y-auto">
+                  <DetailPane
+                    key={selectedId}
+                    situation={selectedSituation}
+                    detail={detail}
+                    detailLoading={detailLoading}
+                    activeMode={activeMode}
+                    setActiveMode={setActiveMode}
+                    patchSituation={patchSituation}
+                    feedbackText={feedbackText}
+                    setFeedbackText={setFeedbackText}
+                    feedbackCategory={feedbackCategory}
+                    setFeedbackCategory={setFeedbackCategory}
+                    outcomeValue={outcomeValue}
+                    setOutcomeValue={setOutcomeValue}
+                    outcomeNote={outcomeNote}
+                    setOutcomeNote={setOutcomeNote}
+                    billingStatus={billingStatus}
+                    showAllStatuses={showAllStatuses}
+                    sidePanelStepIndex={sidePanelData?.index ?? null}
+                    onOpenStepPanel={setSidePanelData}
+                    planRefetchTrigger={planRefetchTrigger}
+                  />
+                </div>
+                <ContextualChat
+                  contextType="situation"
+                  contextId={selectedSituation.id}
+                  placeholder={t("discuss")}
+                  hints={["What evidence supports this?", "Should I escalate?"]}
                 />
+              </>
+            ) : (
+              <div className="flex items-center justify-center h-full" style={{ fontSize: 18, color: "var(--fg3)" }}>
+                {t("selectSituation")}
               </div>
-              <ContextualChat
-                contextType="situation"
-                contextId={selectedSituation.id}
-                placeholder={t("discuss")}
-                hints={["What evidence supports this?", "Should I escalate?"]}
-              />
-            </>
-          ) : (
-            <div className="flex items-center justify-center h-full" style={{ fontSize: 18, color: "var(--fg3)" }}>
-              {t("selectSituation")}
-            </div>
-          )}
+            )}
+          </div>
+
+          {/* Side panel */}
+          {sidePanelData && (() => {
+            const { icon, badge } = getStepCardMeta(sidePanelData.step);
+            const PanelPreview = getPreviewComponent(sidePanelData.step);
+            const breadcrumbEntries = panelBreadcrumbs.map(crumb => ({
+              label: crumb.label,
+              icon: crumb.icon,
+              onClick: () => {
+                setSidePanelData(prev => prev ? { ...prev, step: crumb.step } : null);
+                setPanelBreadcrumbs([]);
+              },
+            }));
+            return (
+              <SidePanel
+                isOpen={!!sidePanelData}
+                onClose={() => { setSidePanelData(null); setPanelBreadcrumbs([]); }}
+                title={sidePanelData.step.title}
+                typeBadge={badge}
+                typeIcon={icon}
+                breadcrumbs={breadcrumbEntries}
+              >
+                <PanelPreview
+                  step={sidePanelData.step}
+                  isEditable={sidePanelData.isEditable}
+                  onParametersUpdate={async (params) => {
+                    let finalParams = params;
+                    // When viewing an attachment, merge changes back into parent's attachments array
+                    if (panelBreadcrumbs.length > 0 && panelBreadcrumbs[0]?.step) {
+                      const parentStep = panelBreadcrumbs[0].step;
+                      const parentParams = parentStep.parameters ?? {};
+                      const attachments = [...((parentParams.attachments ?? []) as Array<Record<string, unknown>>)];
+                      // Extract attachment index from synthetic step id (format: "{parentId}-attachment-{idx}")
+                      const idParts = sidePanelData.step.id.split("-attachment-");
+                      const attachIdx = idParts.length > 1 ? parseInt(idParts[idParts.length - 1], 10) : -1;
+                      if (attachIdx >= 0 && attachIdx < attachments.length) {
+                        attachments[attachIdx] = { ...attachments[attachIdx], ...params };
+                      }
+                      finalParams = { ...parentParams, attachments };
+                    }
+                    await fetch(`/api/execution-steps/${sidePanelData.planStepId}/parameters`, {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ parameters: finalParams }),
+                    });
+                    setSidePanelData(prev => prev ? { ...prev, step: { ...prev.step, parameters: params } } : null);
+                    setPlanRefetchTrigger(n => n + 1);
+                  }}
+                  onOpenAttachment={(attachment, attachmentIndex) => {
+                    const parentStep = sidePanelData.step;
+                    const { icon: parentIcon } = getStepCardMeta(parentStep);
+                    const syntheticStep: ExecutionStepForPreview = {
+                      ...parentStep,
+                      id: `${parentStep.id}-attachment-${attachmentIndex}`,
+                      title: (attachment as { title?: string }).title ?? `Attachment ${attachmentIndex + 1}`,
+                      parameters: attachment,
+                    };
+                    setPanelBreadcrumbs([{
+                      label: (parentStep.parameters?.subject as string) || parentStep.title,
+                      icon: parentIcon,
+                      step: parentStep,
+                    }]);
+                    setSidePanelData(prev => prev ? { ...prev, step: syntheticStep } : null);
+                  }}
+                  locale={locale}
+                />
+              </SidePanel>
+            );
+          })()}
         </div>
         )}
 
@@ -736,6 +842,9 @@ function DetailPane({
   outcomeNote, setOutcomeNote,
   billingStatus,
   showAllStatuses,
+  sidePanelStepIndex,
+  onOpenStepPanel,
+  planRefetchTrigger,
 }: {
   situation: SituationItem;
   detail: SituationDetail | null;
@@ -753,6 +862,9 @@ function DetailPane({
   setOutcomeNote: (n: string) => void;
   billingStatus: string;
   showAllStatuses: boolean;
+  sidePanelStepIndex: number | null;
+  onOpenStepPanel: (data: SidePanelData) => void;
+  planRefetchTrigger: number;
 }) {
   const t = useTranslations("situations");
   const tc = useTranslations("common");
@@ -801,7 +913,7 @@ function DetailPane({
     return () => document.removeEventListener("mousedown", handler);
   }, [showStarDropdown]);
 
-  // Fetch execution plan when situation has one
+  // Fetch execution plan when situation has one (also re-fetches when panel updates params)
   useEffect(() => {
     if (!detail?.executionPlanId) { setExecutionPlan(null); return; }
     let cancelled = false;
@@ -810,7 +922,7 @@ function DetailPane({
       .then(data => { if (!cancelled && data) setExecutionPlan(data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [detail?.executionPlanId, detail?.status]);
+  }, [detail?.executionPlanId, detail?.status, planRefetchTrigger]);
 
   // Check if situation is in a WorkStream (single query)
   useEffect(() => {
@@ -1331,19 +1443,24 @@ function DetailPane({
                           <p className="break-words" style={{ fontSize: 12, color: isCurrentStep ? "var(--foreground)" : "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{step.description}</p>
 
                           {planStep?.parameters && (() => {
-                            const enrichedStep = {
+                            const enrichedStep: ExecutionStepForPreview = {
                               ...planStep,
                               plan: { sourceType: "situation" as const, situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } } },
                             };
-                            const PreviewComponent = getPreviewComponent(enrichedStep);
                             return (
-                              <div className="mt-2 mb-2">
-                                <PreviewComponent step={enrichedStep} isEditable={planStep.status === "pending"}
-                                  onParametersUpdate={async (params) => {
-                                    await fetch(`/api/execution-steps/${planStep.id}/parameters`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parameters: params }) });
-                                    if (detail?.executionPlanId) { const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`); if (res.ok) setExecutionPlan(await res.json()); }
+                              <div className="mt-2 mb-2" onClick={e => e.stopPropagation()}>
+                                <InlineStepCard
+                                  step={enrichedStep}
+                                  isActive={sidePanelStepIndex === i}
+                                  onClick={() => {
+                                    onOpenStepPanel({
+                                      step: enrichedStep,
+                                      index: i,
+                                      planStepId: planStep.id,
+                                      executionPlanId: detail?.executionPlanId ?? "",
+                                      isEditable: planStep.status === "pending",
+                                    });
                                   }}
-                                  locale={locale}
                                 />
                               </div>
                             );

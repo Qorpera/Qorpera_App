@@ -153,6 +153,7 @@ model User {
   priorityOverrides       PriorityOverride[]
   passwordResetTokens     PasswordResetToken[]
   contentChunks           ContentChunk[]
+  situationViews          SituationView[]
 
   // Deletion / suspension (for content privacy lifecycle)
   deletionRequestedAt  DateTime?
@@ -551,6 +552,7 @@ model Situation {
   executionPlan ExecutionPlan?   @relation(fields: [executionPlanId], references: [id])
   delegation    Delegation?      @relation(fields: [delegationId], references: [id], onDelete: SetNull)
   cycles        SituationCycle[]
+  views         SituationView[]
 
   @@index([operatorId, status])
   @@index([situationTypeId, createdAt(sort: Desc)])
@@ -565,6 +567,19 @@ model SituationEvent {
   event     Event     @relation(fields: [eventId], references: [id])
 
   @@id([situationId, eventId])
+}
+
+model SituationView {
+  id          String   @id @default(cuid())
+  userId      String
+  situationId String
+  viewedAt    DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  situation Situation @relation(fields: [situationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, situationId])
+  @@index([userId])
 }
 
 // ─── Orientation / Onboarding ────────────────────────
