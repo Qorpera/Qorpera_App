@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { extractJSONAny } from "@/lib/json-helpers";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { createInitiativeFromScan, type ScanResult } from "@/lib/strategic-scan";
+import type { ScanResult } from "@/lib/strategic-scan";
 import { CronExpressionParser } from "cron-parser";
 
 // ── createSystemJobFromScan ────────────────────────────────────────────────
@@ -359,15 +359,9 @@ Return an empty array if coverage is adequate. Do not force findings.`;
       : [],
   }));
 
-  // Dispatch: create initiatives + system jobs
+  // Dispatch: create system jobs (initiatives are created by runStrategicScan's dispatch loop)
   for (const result of results) {
     const raw = parsed.find((p: Record<string, unknown>) => p.title === result.title);
-    try {
-      await createInitiativeFromScan(operatorId, result);
-    } catch (err) {
-      console.error(`[meta-scans:coverage-gap] Failed to create initiative for "${result.title}":`, err);
-    }
-
     const gapType = raw?.gapType as string | undefined;
     const suggestedJob = raw?.suggestedSystemJob as SuggestedJob | undefined;
     if ((gapType === "system_job" || gapType === "both") && suggestedJob) {
@@ -620,14 +614,6 @@ Return an empty array if the system is healthy. Do not force findings — a heal
       : [],
   }));
 
-  for (const result of results) {
-    try {
-      await createInitiativeFromScan(operatorId, result);
-    } catch (err) {
-      console.error(`[meta-scans:hygiene] Failed to create initiative for "${result.title}":`, err);
-    }
-  }
-
   return results;
 }
 
@@ -812,14 +798,9 @@ Return an empty array if all sources are well-utilized.`;
       : [],
   }));
 
+  // Dispatch: create system jobs (initiatives are created by runStrategicScan's dispatch loop)
   for (const result of results) {
     const raw = parsed.find((p: Record<string, unknown>) => p.title === result.title);
-    try {
-      await createInitiativeFromScan(operatorId, result);
-    } catch (err) {
-      console.error(`[meta-scans:data-util] Failed to create initiative for "${result.title}":`, err);
-    }
-
     const suggestedJob = raw?.suggestedSystemJob as SuggestedJob | undefined;
     const classification = raw?.classification as string | undefined;
     if ((classification === "underutilized" || classification === "potential") && suggestedJob) {

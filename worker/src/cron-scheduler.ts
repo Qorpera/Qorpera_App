@@ -5,6 +5,7 @@ import { runScheduledInitiativeEvaluation } from "@/lib/initiative-reasoning";
 import { extractInsights, getLastExtractionTime } from "@/lib/operational-knowledge";
 import { computePriorityScores } from "@/lib/prioritization-engine";
 import { processRecurringTasks } from "@/lib/recurring-tasks";
+import { processSystemJobs } from "@/lib/system-job-reasoning";
 import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
 import { runStrategicScan } from "@/lib/strategic-scan";
 import { checkSituationTimeouts } from "@/lib/situation-timeout-detector";
@@ -171,6 +172,20 @@ export function startCronScheduler() {
     }, 15 * 60 * 1000),
   );
 
+  // ── System Jobs: every 15 minutes ────────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const result = await processSystemJobs();
+        if (result.triggered > 0 || result.compressed > 0) {
+          console.log(`[cron:system-jobs] Processed ${result.processed}, triggered ${result.triggered}, compressed ${result.compressed}, errors ${result.errors}`);
+        }
+      } catch (err) {
+        console.error("[cron:system-jobs] Error:", err);
+      }
+    }, 15 * 60 * 1000),
+  );
+
   // ── ActivitySignal Retention Cleanup: daily ───────────────────────
   timers.push(
     setInterval(async () => {
@@ -238,7 +253,7 @@ export function startCronScheduler() {
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), sync-scheduler, retention(24h), strategic-scan(2h), timeout-check(4h)");
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), timeout-check(4h)");
 }
 
 export function stopCronScheduler() {

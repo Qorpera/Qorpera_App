@@ -184,6 +184,18 @@ export async function evaluateDepartmentGoals(
   const { getPeerSignalsForAi } = await import("@/lib/peer-signals");
   const peerSignals = await getPeerSignalsForAi(deptAi.id, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
 
+  const existingSystemJobs = await prisma.systemJob.findMany({
+    where: {
+      operatorId,
+      status: { in: ["active", "proposed"] },
+      OR: [
+        { scopeEntityId: departmentId },
+        { scope: "company_wide" },
+      ],
+    },
+    select: { title: true, description: true, status: true, scope: true, cronExpression: true },
+  });
+
   // 3. Build prompt
   const systemPrompt = buildDepartmentSystemPrompt(department.displayName, operator?.companyName ?? "the company");
   const userPrompt = buildUserPrompt(
@@ -205,6 +217,7 @@ export async function evaluateDepartmentGoals(
       body: s.body,
       createdAt: s.createdAt.toISOString(),
     })),
+    existingSystemJobs,
   );
 
   // 4. Call LLM + validate
@@ -296,6 +309,14 @@ export async function evaluateHQGoals(operatorId: string): Promise<void> {
     : [];
   const delegationNameMap = new Map(delegationFromEntities.map(e => [e.id, e.displayName]));
 
+  const existingSystemJobs = await prisma.systemJob.findMany({
+    where: {
+      operatorId,
+      status: { in: ["active", "proposed"] },
+    },
+    select: { title: true, description: true, status: true, scope: true, cronExpression: true },
+  });
+
   // 3. Build prompt
   const systemPrompt = buildHQSystemPrompt(operator?.companyName ?? "the company");
   const userPrompt = buildHQUserPrompt(
@@ -312,6 +333,7 @@ export async function evaluateHQGoals(operatorId: string): Promise<void> {
       goalId: ws.goalId,
       itemCount: ws.items.length,
     })),
+    existingSystemJobs,
   );
 
   // 4. Call LLM + validate
@@ -478,7 +500,9 @@ RULES:
 - If an initiative requires work from another department, include a delegation step targeting that department's AI.
 - When you receive delegations, prioritize them alongside your department's goals. A delegation from HQ represents organizational priority.
 - Consider intelligence from peer departments when proposing initiatives. Cross-department patterns may reveal opportunities or risks.
-- If you observe work patterns that repeat on a regular schedule (e.g., weekly reports, monthly reviews, daily digests), you may propose an initiative to create a RecurringTask. Include a step with executionMode "action" and actionCapabilityName "create_recurring_task" that specifies the task title, description, cron expression, and any context hints.
+- If you observe repeating work patterns (e.g., weekly reports, monthly reviews, daily digests), propose a RecurringTask via create_recurring_task.
+- If you identify a domain that would benefit from periodic DEEP ANALYSIS — where the AI should reason about cross-system data to identify patterns, risks, and opportunities — propose a System Job via create_system_job. System Jobs perform analytical reasoning each cycle (not fixed plan execution). Examples: "Weekly Marketing ROI Analysis", "Bi-weekly Client Relationship Health Review", "Monthly Cash Flow Forecast".
+- Do NOT propose System Jobs that duplicate existing ones (see ACTIVE SYSTEM JOBS section).
 
 OUTPUT FORMAT:
 Respond with ONLY valid JSON:
@@ -521,7 +545,9 @@ RULES:
 - Include human_task steps where human judgment or non-digital action is needed.
 - You can create delegations to department AIs or to specific employees using the create_delegation action.
 - Propose work that involves multiple departments by delegating parts to peer department AIs.
-- If you observe work patterns that repeat on a regular schedule (e.g., weekly reports, monthly reviews, daily digests), you may propose an initiative to create a RecurringTask. Include a step with executionMode "action" and actionCapabilityName "create_recurring_task" that specifies the task title, description, cron expression, and any context hints.
+- If you observe repeating work patterns (e.g., weekly reports, monthly reviews, daily digests), propose a RecurringTask via create_recurring_task.
+- If you identify a domain that would benefit from periodic DEEP ANALYSIS — where the AI should reason about cross-system data to identify patterns, risks, and opportunities — propose a System Job via create_system_job. System Jobs perform analytical reasoning each cycle (not fixed plan execution). Examples: "Weekly Marketing ROI Analysis", "Bi-weekly Client Relationship Health Review", "Monthly Cash Flow Forecast".
+- Do NOT propose System Jobs that duplicate existing ones (see ACTIVE SYSTEM JOBS section).
 
 OUTPUT FORMAT:
 Respond with ONLY valid JSON:
@@ -557,6 +583,8 @@ type DelegationContextRow = { fromName: string; instruction: string; context: st
 type WorkStreamContextRow = { title: string; description: string | null; goalId: string | null; itemCount: number };
 type PeerSignalRow = { body: string; createdAt: string };
 
+type SystemJobRow = { title: string; description: string | null; status: string; scope: string; cronExpression: string };
+
 function buildUserPrompt(
   goals: GoalRow[],
   existingInitiatives: InitiativeRow[],
@@ -570,6 +598,7 @@ function buildUserPrompt(
   delegations?: DelegationContextRow[],
   workStreams?: WorkStreamContextRow[],
   peerSignals?: PeerSignalRow[],
+  existingSystemJobs?: SystemJobRow[],
 ): string {
   const sections: string[] = [];
 
@@ -606,6 +635,14 @@ function buildUserPrompt(
   if (situationTypes.length > 0) {
     const stStr = situationTypes.map(s => `  - ${s.name}: ${s.description}`).join("\n");
     sections.push(`MONITORED SITUATION TYPES:\n${stStr}`);
+  }
+
+  // System Jobs
+  if (existingSystemJobs && existingSystemJobs.length > 0) {
+    const sjStr = existingSystemJobs.map(sj =>
+      `  - [${sj.status}] ${sj.title} (${sj.scope}, ${sj.cronExpression})${sj.description ? `: ${sj.description.slice(0, 120)}` : ""}`
+    ).join("\n");
+    sections.push(`ACTIVE SYSTEM JOBS (do not duplicate — propose new ones only if they cover a genuinely different analytical domain):\n${sjStr}`);
   }
 
   // Recent situation outcomes
@@ -678,6 +715,7 @@ function buildHQUserPrompt(
   departments: DepartmentRow[],
   delegations?: DelegationContextRow[],
   workStreams?: WorkStreamContextRow[],
+  existingSystemJobs?: SystemJobRow[],
 ): string {
   const sections: string[] = [];
 
@@ -719,6 +757,14 @@ function buildHQUserPrompt(
   if (situationTypes.length > 0) {
     const stStr = situationTypes.slice(0, 20).map(s => `  - ${s.name}: ${s.description}`).join("\n");
     sections.push(`MONITORED SITUATION TYPES (all departments):\n${stStr}`);
+  }
+
+  // System Jobs
+  if (existingSystemJobs && existingSystemJobs.length > 0) {
+    const sjStr = existingSystemJobs.map(sj =>
+      `  - [${sj.status}] ${sj.title} (${sj.scope}, ${sj.cronExpression})${sj.description ? `: ${sj.description.slice(0, 120)}` : ""}`
+    ).join("\n");
+    sections.push(`ACTIVE SYSTEM JOBS (do not duplicate — propose new ones only if they cover a genuinely different analytical domain):\n${sjStr}`);
   }
 
   // Recent situation outcomes
