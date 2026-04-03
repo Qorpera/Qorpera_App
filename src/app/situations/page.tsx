@@ -281,6 +281,7 @@ export default function SituationsPage() {
   const [panelBreadcrumbs, setPanelBreadcrumbs] = useState<Array<{ label: string; icon: React.ReactNode; step: ExecutionStepForPreview }>>([]);
   const [planRefetchTrigger, setPlanRefetchTrigger] = useState(0);
   const [panelEditing, setPanelEditing] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(55);
 
   // ── Fetch situations ────────────────────────────────────────────────────
 
@@ -576,7 +577,7 @@ export default function SituationsPage() {
         {(!isMobile || selectedId) && (
         <div className="flex-1 min-h-0 overflow-hidden" style={{
           display: "grid",
-          gridTemplateColumns: sidePanelData ? "minmax(300px, 40%) 1fr" : "1fr",
+          gridTemplateColumns: sidePanelData ? `1fr ${panelWidth}%` : "1fr",
           transition: "grid-template-columns 0.2s ease-out",
         }}>
           {/* Detail column */}
@@ -649,6 +650,7 @@ export default function SituationsPage() {
                 breadcrumbs={breadcrumbEntries}
                 isEditing={panelEditing}
                 onToggleEdit={() => setPanelEditing(prev => !prev)}
+                onWidthChange={setPanelWidth}
               >
                 <PanelPreview
                   step={sidePanelData.step}
@@ -1406,7 +1408,7 @@ function DetailPane({
                   const isOpen = openSteps.has(i);
 
                   return (
-                    <div key={i} className="overflow-hidden min-w-0 cursor-pointer hover:bg-[var(--step-hover)] rounded transition-colors" onClick={() => toggleStep(i)} style={{ position: "relative", padding: "14px 0", opacity: isFutureStep ? 0.65 : 1, transition: "all 0.2s" }}>
+                    <div key={i} className="overflow-hidden min-w-0 rounded" style={{ position: "relative", padding: "14px 0", opacity: isFutureStep ? 0.65 : 1, transition: "all 0.2s" }}>
                       {/* Status dot */}
                       <div style={{
                         position: "absolute", left: -30 + 5, top: 4, width: 12, height: 12, borderRadius: "50%", zIndex: 1,
@@ -1417,8 +1419,8 @@ function DetailPane({
                         {isCompleted && <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round"><polyline points="20 6 9 17 4 12" /></svg>}
                       </div>
 
-                      {/* Collapsed row */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 2, minWidth: 0 }}>
+                      {/* Collapsed row — hover scoped here */}
+                      <div className="cursor-pointer hover:bg-[var(--step-hover)] rounded transition-colors" onClick={() => toggleStep(i)} style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 2, minWidth: 0, padding: "2px 4px", margin: "-2px -4px" }}>
                         <span className="truncate" style={{
                           fontSize: isCurrentStep ? 14 : 13, fontWeight: isCurrentStep ? 600 : 500, flex: 1, minWidth: 0,
                           color: isCompleted ? "var(--fg2)" : "var(--fg1, var(--foreground))",
@@ -1524,9 +1526,10 @@ function DetailPane({
                             (step.executionMode === "action" || step.executionMode === "generate") ? (
                               <div style={{ marginTop: 16 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                  <button className="hover:opacity-80 transition-opacity" onClick={handleApprove} style={{ ...STEP_BTN_PRIMARY }}>Approve Execution</button>
+                                  <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); handleApprove(); }} style={{ ...STEP_BTN_PRIMARY }}>Approve Execution</button>
                                   <button
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       const chatInput = document.getElementById("situation-chat-input") as HTMLTextAreaElement;
                                       if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
                                     }}
@@ -1539,10 +1542,10 @@ function DetailPane({
                                 <p style={{ fontSize: 11, fontWeight: 600, color: "var(--foreground)", marginTop: 6 }}>AI will execute this step when approved</p>
                               </div>
                             ) : step.executionMode === "human_task" && planStep ? (
-                              <button className="hover:opacity-80 transition-opacity" onClick={() => handleCompleteStep(planStep.id)} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>{t("markComplete")}</button>
+                              <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); handleCompleteStep(planStep.id); }} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>{t("markComplete")}</button>
                             ) : null
                           ) : isCompleted && step.executionMode === "human_task" && planStep ? (
-                            <button className="hover:opacity-80 transition-opacity" onClick={() => handleUndoStep(planStep.id)} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>{tc("undo")}</button>
+                            <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); handleUndoStep(planStep.id); }} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>{tc("undo")}</button>
                           ) : isFutureStep ? (
                             <span style={{ fontSize: 10, color: "var(--fg4)", fontStyle: "italic", marginTop: 6, display: "inline-block" }}>
                               {t("completeStepFirst")?.replace("{n}", String(currentStepIndex + 1)) ?? `Complete step ${currentStepIndex + 1} first`}

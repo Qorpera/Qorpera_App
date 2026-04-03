@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 // ── Icons ───────────────────────────────────────────────────────────────────
 
@@ -39,6 +39,7 @@ interface SidePanelProps {
   footer?: ReactNode;
   isEditing?: boolean;
   onToggleEdit?: () => void;
+  onWidthChange?: (percent: number) => void;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -54,8 +55,10 @@ export function SidePanel({
   footer,
   isEditing,
   onToggleEdit,
+  onWidthChange,
 }: SidePanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
 
   // ── Close on Escape key ──────────────────────────────────────────────────
 
@@ -67,6 +70,34 @@ export function SidePanel({
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
+
+  // ── Resize drag ──────────────────────────────────────────────────────────
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    function onMouseMove(ev: MouseEvent) {
+      if (!isDragging.current) return;
+      const vw = window.innerWidth;
+      const pct = ((vw - ev.clientX) / vw) * 100;
+      const clamped = Math.max(35, Math.min(70, pct));
+      onWidthChange?.(Math.round(clamped));
+    }
+
+    function onMouseUp() {
+      isDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    }
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [onWidthChange]);
 
   if (!isOpen) return null;
 
@@ -84,6 +115,25 @@ export function SidePanel({
         minWidth: 0,
       }}
     >
+      {/* Resize handle */}
+      {onWidthChange && (
+        <div
+          onMouseDown={handleResizeMouseDown}
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 6,
+            cursor: "col-resize",
+            zIndex: 10,
+            background: "transparent",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = "color-mix(in srgb, var(--accent) 30%, transparent)"; }}
+          onMouseLeave={e => { if (!isDragging.current) e.currentTarget.style.background = "transparent"; }}
+        />
+      )}
+
       {/* Header */}
       <div
         style={{
