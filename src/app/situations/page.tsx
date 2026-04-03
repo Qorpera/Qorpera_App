@@ -298,6 +298,17 @@ export default function SituationsPage() {
     }
   }, [!!sidePanelData]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Listen for approve-action events from email preview footer
+  useEffect(() => {
+    function handlePanelApprove() {
+      if (selectedSituation && sidePanelData?.isEditable) {
+        patchSituation(selectedSituation.id, { status: "approved" });
+      }
+    }
+    window.addEventListener("panel-approve-action", handlePanelApprove);
+    return () => window.removeEventListener("panel-approve-action", handlePanelApprove);
+  }); // intentionally no deps — reads current closure values
+
   // ── Fetch situations ────────────────────────────────────────────────────
 
   const fetchSituations = useCallback(async () => {
@@ -654,32 +665,6 @@ export default function SituationsPage() {
                   const chatInput = document.getElementById("situation-chat-input") as HTMLTextAreaElement;
                   if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
                 }}
-                footer={sidePanelData.isEditable && sidePanelData.step.executionMode === "action" ? (
-                  <button
-                    onClick={() => patchSituation(selectedSituation!.id, { status: "approved" })}
-                    style={{
-                      width: "100%",
-                      padding: "10px 0",
-                      borderRadius: 6,
-                      border: "none",
-                      cursor: "pointer",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      background: "var(--accent)",
-                      color: "var(--background)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                    }}
-                    className="hover:opacity-90 transition-opacity"
-                  >
-                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="22" x2="11" y1="2" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-                    </svg>
-                    Send
-                  </button>
-                ) : undefined}
               >
                 <PanelPreview
                   step={sidePanelData.step}

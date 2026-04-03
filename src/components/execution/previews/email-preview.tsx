@@ -108,197 +108,175 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
 
   const showAiDisclosure = isActMode(step);
 
-  // ── inPanel layout ─────────────────────────────────────────────────────────
+  // ── inPanel layout (matches HTML reference) ────────────────────────────────
 
   if (inPanel) {
-    const editInputStyle = {
+    const fieldStyle = {
+      flex: 1,
+      padding: "4px 8px",
+      border: "0.5px solid var(--border)",
+      borderRadius: 4,
       fontSize: 13,
       color: "var(--foreground)",
-      background: "color-mix(in srgb, var(--accent) 6%, transparent)",
-      border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)",
-      borderRadius: 4,
-      padding: "6px 10px",
+      background: "transparent",
       outline: "none",
-      width: "100%",
+    } as const;
+
+    const editFieldStyle = {
+      ...fieldStyle,
+      background: "color-mix(in srgb, var(--accent) 5%, transparent)",
+      border: "0.5px solid var(--border-strong)",
     };
 
+    const typeLabel = (att: { type: string }) => {
+      if (att.type === "spreadsheet") return "Regneark";
+      if (att.type === "document") return "Dokument";
+      return att.type.toUpperCase();
+    };
+
+    const typeIcon = (att: { type: string }) =>
+      att.type === "spreadsheet" ? "\uD83D\uDCCA" : "\uD83D\uDCC4";
+
     return (
-      <div style={{ padding: "16px 24px 20px" }}>
-        {/* Fields */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* From */}
-          {from && (
-            <div className="flex items-center gap-3">
-              <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("from")}</span>
-              <span style={{ fontSize: 13, color: "var(--fg2)", background: "var(--elevated)", borderRadius: 4, padding: "5px 10px", flex: 1 }}>{from}</span>
-            </div>
-          )}
+      <div style={{ padding: 16 }}>
+        <div style={{ border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "var(--surface)" }}>
 
-          {/* To — editable */}
-          <div className="flex items-center gap-3 group">
-            <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("to")}</span>
-            {editingField === "to" ? (
-              <input
-                ref={toInputRef}
-                value={editValue}
-                onChange={e => setEditValue(e.target.value)}
-                onBlur={saveEdit}
-                onKeyDown={handleKeyDown}
-                className="flex-1"
-                style={editInputStyle}
-                placeholder="email@example.com"
-              />
-            ) : (
-              <div
-                className={isEditable ? "cursor-pointer" : ""}
-                style={{ fontSize: 13, color: "var(--muted)", background: "var(--elevated)", borderRadius: 4, padding: "5px 10px", flex: 1 }}
-                onClick={() => startEdit("to")}
-              >
-                {recipient || <span style={{ color: "var(--fg4)" }}>Add recipient...</span>}
-                {isEditable && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
-              </div>
-            )}
-          </div>
-
-          {/* Cc — shown when editing or has value */}
-          {(isEditable || cc) && (
-            <div className="flex items-center gap-3 group">
-              <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>Cc</span>
-              {editingField === "cc" ? (
-                <input
-                  ref={ccInputRef}
-                  value={editValue}
-                  onChange={e => setEditValue(e.target.value)}
-                  onBlur={saveEdit}
-                  onKeyDown={handleKeyDown}
-                  className="flex-1"
-                  style={editInputStyle}
-                  placeholder="cc@example.com"
-                />
+          {/* Email fields */}
+          <div style={{ padding: "16px 20px", borderBottom: "0.5px solid var(--border)" }}>
+            {/* To */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: "var(--fg2)", width: 28 }}>{t("to")}:</span>
+              {editingField === "to" ? (
+                <input ref={toInputRef} value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={handleKeyDown} style={editFieldStyle} />
               ) : (
-                <div
-                  className={isEditable ? "cursor-pointer" : ""}
-                  style={{ fontSize: 13, color: cc ? "var(--muted)" : "var(--fg4)", background: "var(--elevated)", borderRadius: 4, padding: "5px 10px", flex: 1 }}
-                  onClick={() => startEdit("cc")}
-                >
-                  {cc || (isEditable ? "Add Cc..." : "")}
-                  {isEditable && cc && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
+                <div style={fieldStyle} className={isEditable ? "cursor-pointer" : ""} onClick={() => startEdit("to")}>
+                  {recipient || <span style={{ color: "var(--fg4)" }}>...</span>}
                 </div>
               )}
             </div>
-          )}
 
-          {/* Subject */}
-          <div className="flex items-center gap-3 group">
-            <span style={{ fontSize: 11, color: "var(--fg3)", fontWeight: 500, minWidth: 48 }}>{t("subject")}</span>
-            {editingField === "subject" ? (
-              <input
-                ref={inputRef}
+            {/* Cc */}
+            {(cc || isEditable) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: "var(--fg2)", width: 28 }}>Cc:</span>
+                {editingField === "cc" ? (
+                  <input ref={ccInputRef} value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={handleKeyDown} style={editFieldStyle} />
+                ) : (
+                  <div style={{ ...fieldStyle, color: cc ? "var(--fg2)" : "var(--fg4)" }} className={isEditable ? "cursor-pointer" : ""} onClick={() => startEdit("cc")}>
+                    {cc || (isEditable ? "..." : "")}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Subject */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: "var(--fg2)", width: 28 }}>Re:</span>
+              {editingField === "subject" ? (
+                <input ref={inputRef} value={editValue} onChange={e => setEditValue(e.target.value)} onBlur={saveEdit} onKeyDown={handleKeyDown} style={{ ...editFieldStyle, fontWeight: 500 }} />
+              ) : (
+                <div style={{ ...fieldStyle, fontWeight: 500 }} className={isEditable ? "cursor-pointer" : ""} onClick={() => startEdit("subject")}>
+                  {subject}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Email body */}
+          {editingField === "body" ? (
+            <div style={{ padding: "16px 20px" }}>
+              <textarea
+                ref={textareaRef}
                 value={editValue}
                 onChange={e => setEditValue(e.target.value)}
                 onBlur={saveEdit}
-                onKeyDown={handleKeyDown}
-                className="flex-1"
-                style={{ ...editInputStyle, fontWeight: 500 }}
+                className="w-full outline-none resize-y"
+                style={{ fontSize: 13, lineHeight: 1.6, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 4%, transparent)", border: "0.5px solid var(--border-strong)", borderRadius: 4, padding: "12px 14px", fontFamily: "inherit", minHeight: 140 }}
+                rows={10}
               />
-            ) : (
-              <div
-                className={isEditable ? "cursor-pointer" : ""}
-                style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", background: "var(--elevated)", borderRadius: 4, padding: "5px 10px", flex: 1 }}
-                onClick={() => startEdit("subject")}
-              >
-                {subject}
-                {isEditable && <PencilIcon size={10} className="inline ml-1.5 opacity-0 group-hover:opacity-40 transition-opacity" />}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div style={{ borderTop: "1px solid var(--border)", margin: "14px 0" }} />
-
-        {/* Body */}
-        <div className="group">
-          {editingField === "body" ? (
-            <textarea
-              ref={textareaRef}
-              value={editValue}
-              onChange={e => setEditValue(e.target.value)}
-              onBlur={saveEdit}
-              rows={14}
-              className="w-full outline-none resize-y"
-              style={{ fontSize: 13, lineHeight: 1.7, color: "var(--foreground)", background: "color-mix(in srgb, var(--accent) 6%, transparent)", border: "1px solid color-mix(in srgb, var(--accent) 20%, transparent)", borderRadius: 4, padding: "10px 12px", fontFamily: "inherit", minHeight: 200 }}
-            />
+            </div>
           ) : (
             <div
+              style={{ padding: "16px 20px", minHeight: 120, fontSize: 13, lineHeight: 1.6, color: "var(--foreground)" }}
               className={isEditable ? "cursor-pointer" : ""}
-              style={{ fontSize: 13, lineHeight: 1.7, color: "var(--muted)", minHeight: 100 }}
               onClick={e => { if ((e.target as HTMLElement).tagName !== "A") startEdit("body"); }}
               dangerouslySetInnerHTML={{ __html: linkify(body).replace(/\n/g, "<br>") }}
             />
           )}
-        </div>
 
-        {/* Attachments */}
-        {(attachments.length > 0 || isEditable) && (
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 14 }}>
-            {attachments.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3">
+          {/* Attachments section */}
+          {(attachments.length > 0 || isEditable) && (
+            <div style={{ padding: "12px 20px", borderTop: "0.5px solid var(--border)", background: "var(--elevated)" }}>
+              <p style={{ fontSize: 11, color: "var(--fg2)", margin: "0 0 8px", fontWeight: 500 }}>
+                {attachments.length > 0 ? `${attachments.length} ${attachments.length === 1 ? "vedhæftet fil" : "vedhæftede filer"}` : "Vedhæftede filer"}
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {attachments.map((att, idx) => (
-                  <span
+                  <div
                     key={idx}
-                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-1"
-                    style={{ fontSize: 12, background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "var(--surface)", border: "0.5px solid var(--border)", borderRadius: 6, cursor: "pointer" }}
+                    onClick={() => {
+                      if (onOpenAttachment) onOpenAttachment(att as Record<string, unknown>, idx);
+                      else toggleAttachment(idx);
+                    }}
                   >
-                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                    </svg>
-                    <span
-                      className="cursor-pointer hover:underline"
-                      onClick={() => {
-                        if (onOpenAttachment) onOpenAttachment(att as Record<string, unknown>, idx);
-                        else toggleAttachment(idx);
-                      }}
-                    >
-                      {att.title ?? `Attachment ${idx + 1}`}
-                    </span>
+                    <span style={{ fontSize: 14 }}>{typeIcon(att)}</span>
+                    <div>
+                      <p style={{ fontSize: 12, fontWeight: 500, margin: 0, color: "var(--info)" }}>{att.title ?? `Attachment ${idx + 1}`}</p>
+                      <p style={{ fontSize: 10, color: "var(--fg2)", margin: "1px 0 0" }}>{typeLabel(att)} &middot; Klik for at åbne</p>
+                    </div>
                     {isEditable && (
                       <button
-                        onClick={() => removeAttachment(idx)}
-                        style={{ color: "var(--fg4)", cursor: "pointer", padding: 0, background: "none", border: "none", display: "flex" }}
+                        onClick={e => { e.stopPropagation(); removeAttachment(idx); }}
+                        style={{ color: "var(--fg4)", cursor: "pointer", padding: "0 0 0 4px", background: "none", border: "none", display: "flex" }}
                         className="hover:text-[var(--danger)]"
                       >
                         <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path d="M18 6 6 18M6 6l12 12" /></svg>
                       </button>
                     )}
-                  </span>
+                  </div>
                 ))}
+
+                {isEditable && (
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", border: "0.5px dashed var(--border-strong)", borderRadius: 6, cursor: "pointer" }}
+                    onClick={() => {/* placeholder */}}
+                  >
+                    <span style={{ fontSize: 14, color: "var(--fg2)" }}>+</span>
+                    <span style={{ fontSize: 12, color: "var(--fg2)" }}>Tilføj fil</span>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+          )}
 
-            {isEditable && (
-              <button
-                onClick={() => {/* placeholder — file picker integration later */}}
-                className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded transition-colors hover:bg-[var(--step-hover)]"
-                style={{ color: "var(--fg3)", border: "1px dashed var(--border)" }}
-              >
-                <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-                Attach file
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* AI Disclosure */}
-        {showAiDisclosure && (
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, marginTop: 14 }}>
-            <p style={{ fontSize: 11, color: "var(--fg3)", fontStyle: "italic" }}>
-              {t("aiDisclosure")}
-            </p>
-          </div>
-        )}
+          {/* Footer — Edit + Approve Send */}
+          {showAiDisclosure && (
+            <div style={{ padding: "12px 20px", borderTop: "0.5px solid var(--border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              {isEditable && (
+                <button
+                  style={{ fontSize: 13, padding: "8px 16px", borderRadius: 6, background: "transparent", border: "0.5px solid var(--border-strong)", color: "var(--fg2)", cursor: "pointer" }}
+                  className="hover:bg-[var(--hover)] transition-colors"
+                  onClick={() => { /* toggle edit — handled by panel header */ }}
+                >
+                  Rediger
+                </button>
+              )}
+              {step.executionMode === "action" && (
+                <button
+                  style={{ fontSize: 13, padding: "8px 16px", borderRadius: 6, background: "color-mix(in srgb, var(--info) 12%, transparent)", color: "var(--info)", border: "none", cursor: "pointer", fontWeight: 500 }}
+                  className="hover:opacity-80 transition-opacity"
+                  onClick={() => {
+                    // Fire approve via custom event — the panel's onApprove handler picks it up
+                    window.dispatchEvent(new CustomEvent("panel-approve-action"));
+                  }}
+                >
+                  Godkend afsendelse
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
