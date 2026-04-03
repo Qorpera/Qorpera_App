@@ -66,7 +66,7 @@ function formatDocContent(text: string): string {
   return html;
 }
 
-export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: _locale }: PreviewProps) {
+export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: _locale, inPanel }: PreviewProps) {
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
 
@@ -108,12 +108,13 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
   const showAiDisclosure = isActMode(step);
 
   return (
-    <div className="rounded-md overflow-hidden border border-border bg-surface">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-        <DocIcon size={14} className="text-accent flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("document")}</span>
-      </div>
+    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
+      {!inPanel && (
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <DocIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("document")}</span>
+        </div>
+      )}
 
       <div className="px-4 py-3 space-y-2.5">
         {/* Title */}

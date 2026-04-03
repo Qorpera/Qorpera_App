@@ -286,13 +286,15 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
             }
             actionCapabilityId = cap.id;
           }
+          const stepParams = step.params ? { ...step.params } : {};
+          if (step.previewType) stepParams.previewType = step.previewType;
           resolvedSteps.push({
             title: step.title,
             description: step.description,
             executionMode: step.executionMode,
             actionCapabilityId,
             assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
-            inputContext: step.params ? { params: step.params } : undefined,
+            inputContext: Object.keys(stepParams).length > 0 ? { params: stepParams } : undefined,
           });
         }
       }
@@ -639,13 +641,15 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           }
           actionCapabilityId = cap.id;
         }
+        const stepParams = step.params ? { ...step.params } : {};
+        if (step.previewType) stepParams.previewType = step.previewType;
         resolvedSteps.push({
           title: step.title,
           description: step.description,
           executionMode: step.executionMode,
           actionCapabilityId,
           assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
-          inputContext: step.params ? { params: step.params } : undefined,
+          inputContext: Object.keys(stepParams).length > 0 ? { params: stepParams } : undefined,
         });
       }
     }

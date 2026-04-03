@@ -28,7 +28,7 @@ interface EntityData {
 }
 
 export function CrmUpdatePreview(props: PreviewProps) {
-  const { step, locale } = props;
+  const { step, locale, inPanel } = props;
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
 
@@ -58,11 +58,13 @@ export function CrmUpdatePreview(props: PreviewProps) {
   // Error or entity not found — show warning + raw values
   if (error || (!loading && entityId && !entity)) {
     return (
-      <div className="rounded-md overflow-hidden border border-border bg-surface">
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-          <DatabaseIcon size={14} className="text-accent flex-shrink-0" />
-          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("crmUpdate")}</span>
-        </div>
+      <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
+        {!inPanel && (
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+            <DatabaseIcon size={14} className="text-accent flex-shrink-0" />
+            <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("crmUpdate")}</span>
+          </div>
+        )}
         <div className="px-4 py-3">
           <p style={{ fontSize: 12, color: "var(--warn)", marginBottom: 8 }}>
             {t("entityNotFound")} — {t("showingRawValues")}
@@ -92,12 +94,13 @@ export function CrmUpdatePreview(props: PreviewProps) {
   const updateEntries = Object.entries(updates);
 
   return (
-    <div className="rounded-md overflow-hidden border border-border bg-surface">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-        <DatabaseIcon size={14} className="text-accent flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("crmUpdate")}</span>
-      </div>
+    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
+      {!inPanel && (
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <DatabaseIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("crmUpdate")}</span>
+        </div>
+      )}
 
       <div className="px-4 py-3 space-y-3">
         {/* Entity info */}

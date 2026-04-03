@@ -273,9 +273,10 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
     {
       "title": "Step title",
       "description": "What this step does and why — must be an EXTERNAL response action",
+      "previewType": "email" | "document" | "spreadsheet" | "calendar_event" | "slack_message" | "crm_update" | "ticket" | "presentation" | "generic",
       "executionMode": "action" | "human_task" | "generate",
       "actionCapabilityName": "send_email",  // ONLY for executionMode "action" — must match an available automated action
-      "params": {  // ONLY for executionMode "action" — populate ALL required fields from the capability's input schema
+      "params": {  // ONLY for executionMode "action" or "generate" — populate ALL required fields
         // EXAMPLES of params for common action types — use EXACTLY these structures:
         //
         // EMAIL (simple):
@@ -358,6 +359,7 @@ CRITICAL RULES:
 - "evidenceSummary" should list the 3-5 most important facts driving your decision.
 - For "action" steps: params MUST contain complete, ready-to-send content. For emails, draft the FULL email body in params.body — not a description of what to write, but the actual email the recipient will read. Write in the same language as the situation's source communications. The user will see this as an editable preview before approving execution.
 - UNCERTAINTY ANNOTATIONS: For each step, if ANY aspect depends on evidence from only a single source with no corroboration, or if you made an inference that could be wrong, add an "uncertainties" array. Flag the specific field/aspect, state your assumption, and rate the impact. Do NOT flag things that are clearly supported by multiple sources. Do NOT flag email addresses, names, or dates that appear consistently across the context. Only flag genuine gaps where you made a judgment call.
+- "previewType" is REQUIRED on every step. It tells the UI which renderer to use. Choose the type that best matches the step's output format. For emails use "email", for documents/reports/checklists use "document", for data tables use "spreadsheet", for calendar events use "calendar_event", for Slack/Teams messages use "slack_message", for CRM updates use "crm_update". Default to "generic" for human tasks that don't produce a specific output format.
 - AUDIT YOUR PLAN: Before finalizing, re-read each step. For every step with executionMode "human_task", ask: "Is there an available automated action that could do this?" If yes, change it to "action" with the correct actionCapabilityName and params. Missing an available automation is a critical error.
 - For CRM update steps: params MUST include "entityId" with the actual entity ID from the context (found in TRIGGER ENTITY or RELATED ENTITIES sections). The system uses this ID to fetch current values and show a before/after diff. Without entityId, the user sees raw values with no context.
 - For email steps with supporting documents: include an "attachments" array in params. Each attachment is { "type": "document"|"spreadsheet", "title": "...", "content"|"rows": ... }. The user reviews and can edit each attachment inline before the email is sent.

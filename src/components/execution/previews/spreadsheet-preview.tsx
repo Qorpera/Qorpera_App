@@ -24,7 +24,7 @@ function PencilIcon({ size = 11, className = "" }: { size?: number; className?: 
 const MAX_VISIBLE_ROWS = 20;
 const MAX_VISIBLE_COLS = 10;
 
-export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, locale: _locale }: PreviewProps) {
+export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, locale: _locale, inPanel }: PreviewProps) {
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
 
@@ -130,12 +130,13 @@ export function SpreadsheetPreview({ step, isEditable, onParametersUpdate, local
   const showAiDisclosure = isActMode(step);
 
   return (
-    <div className="rounded-md overflow-hidden border border-border bg-surface">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-        <GridIcon size={14} className="text-accent flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("spreadsheet")}</span>
-      </div>
+    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
+      {!inPanel && (
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <GridIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("spreadsheet")}</span>
+        </div>
+      )}
 
       <div className="px-4 py-3 space-y-2.5">
         {/* Title */}

@@ -16,7 +16,7 @@ function TicketIcon({ size = 14, className = "" }: { size?: number; className?: 
 
 const INTERNAL_SLUGS = ["add_internal_note", "add_note"];
 
-export function TicketReplyPreview({ step }: PreviewProps) {
+export function TicketReplyPreview({ step, inPanel }: PreviewProps) {
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
   const slug = step.actionCapability?.slug ?? "";
@@ -39,26 +39,26 @@ export function TicketReplyPreview({ step }: PreviewProps) {
     : null;
 
   return (
-    <div className="rounded-md overflow-hidden border border-border bg-surface">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-        <TicketIcon size={14} className="text-accent flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("ticketReply")}</span>
-        {/* Internal / Public badge */}
-        {!isStatusChange && !isTagAction && (
-          <span style={{
-            fontSize: 10,
-            fontWeight: 600,
-            padding: "1px 6px",
-            borderRadius: 3,
-            background: isInternal ? "color-mix(in srgb, var(--warn) 12%, transparent)" : "color-mix(in srgb, var(--ok) 12%, transparent)",
-            color: isInternal ? "var(--warn)" : "var(--ok)",
-            marginLeft: "auto",
-          }}>
-            {isInternal ? t("internalNote") : t("publicReply")}
-          </span>
-        )}
-      </div>
+    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
+      {!inPanel && (
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <TicketIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("ticketReply")}</span>
+          {!isStatusChange && !isTagAction && (
+            <span style={{
+              fontSize: 10,
+              fontWeight: 600,
+              padding: "1px 6px",
+              borderRadius: 3,
+              background: isInternal ? "color-mix(in srgb, var(--warn) 12%, transparent)" : "color-mix(in srgb, var(--ok) 12%, transparent)",
+              color: isInternal ? "var(--warn)" : "var(--ok)",
+              marginLeft: "auto",
+            }}>
+              {isInternal ? t("internalNote") : t("publicReply")}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="px-4 py-3 space-y-2.5">
         {/* Ticket reference */}

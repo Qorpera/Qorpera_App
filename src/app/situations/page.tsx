@@ -625,6 +625,7 @@ export default function SituationsPage() {
                 <PanelPreview
                   step={sidePanelData.step}
                   isEditable={sidePanelData.isEditable}
+                  inPanel
                   onParametersUpdate={async (params) => {
                     let finalParams = params;
                     // When viewing an attachment, merge changes back into parent's attachments array

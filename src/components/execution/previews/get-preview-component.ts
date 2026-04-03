@@ -23,6 +23,7 @@ export interface PreviewProps {
   isEditable: boolean;
   onParametersUpdate?: (params: Record<string, unknown>) => void;
   locale: string;
+  inPanel?: boolean;
   onOpenAttachment?: (attachment: Record<string, unknown>, index: number) => void;
 }
 
@@ -112,24 +113,44 @@ export function isActMode(step: ExecutionStepForPreview): boolean {
     step.plan?.situation?.situationType?.autonomyLevel === "autonomous";
 }
 
+// ── previewType → Component mapping ─────────────────────────────────────────
+
+const PREVIEW_TYPE_MAP: Record<string, PreviewComponent> = {
+  email: EmailPreview,
+  document: DocumentPreview,
+  spreadsheet: SpreadsheetPreview,
+  calendar_event: CalendarEventPreview,
+  slack_message: SlackMessagePreview,
+  crm_update: CrmUpdatePreview,
+  ticket: TicketReplyPreview,
+  presentation: PresentationPreview,
+};
+
 // ── Resolver ─────────────────────────────────────────────────────────────────
 
 export function getPreviewComponent(step: ExecutionStepForPreview): PreviewComponent {
   const slug = step.actionCapability?.slug;
-  if (!slug) return GenericStepPreview;
 
-  // 1. Exact match
-  if (EXACT_MATCHES[slug]) return EXACT_MATCHES[slug];
+  // 1. Exact slug match
+  if (slug && EXACT_MATCHES[slug]) return EXACT_MATCHES[slug];
 
-  // 2. Prefix match (check if slug starts with any registered prefix)
-  for (const { prefixes, component } of PREFIX_MATCHES) {
-    for (const prefix of prefixes) {
-      if (slug === prefix || slug.startsWith(prefix + ".") || slug.startsWith(prefix + "_")) {
-        return component;
+  // 2. Prefix slug match
+  if (slug) {
+    for (const { prefixes, component } of PREFIX_MATCHES) {
+      for (const prefix of prefixes) {
+        if (slug === prefix || slug.startsWith(prefix + ".") || slug.startsWith(prefix + "_")) {
+          return component;
+        }
       }
     }
   }
 
-  // 3. Fallback
+  // 3. Check previewType in parameters
+  const previewType = (step.parameters as Record<string, unknown> | null)?.previewType as string | undefined;
+  if (previewType && PREVIEW_TYPE_MAP[previewType]) {
+    return PREVIEW_TYPE_MAP[previewType];
+  }
+
+  // 4. Fallback
   return GenericStepPreview;
 }

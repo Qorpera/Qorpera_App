@@ -54,7 +54,7 @@ const editInputStyle = {
 
 type EditableField = "title" | "startTime" | "endTime" | "location" | "attendees";
 
-export function CalendarEventPreview({ step, isEditable, onParametersUpdate, locale }: PreviewProps) {
+export function CalendarEventPreview({ step, isEditable, onParametersUpdate, locale, inPanel }: PreviewProps) {
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
   const [showAll, setShowAll] = useState(false);
@@ -172,12 +172,13 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
   }
 
   return (
-    <div className="rounded-md overflow-hidden border border-border bg-surface">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-        <CalendarIcon size={14} className="text-accent flex-shrink-0" />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("eventTitle")}</span>
-      </div>
+    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
+      {!inPanel && (
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <CalendarIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("eventTitle")}</span>
+        </div>
+      )}
 
       <div className="px-4 py-3 space-y-2.5">
         {/* Title */}

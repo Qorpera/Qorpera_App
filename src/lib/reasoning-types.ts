@@ -3,6 +3,7 @@ import { z } from "zod";
 const ActionStepSchema = z.object({
   title: z.string(),
   description: z.string(),
+  previewType: z.enum(["email", "document", "spreadsheet", "calendar_event", "slack_message", "crm_update", "ticket", "presentation", "generic"]).optional(),
   executionMode: z.enum(["action", "generate", "human_task", "await_situation"]),
   actionCapabilityName: z.string().optional(),  // matches ActionCapability.name
   assignedUserId: z.string().optional(),

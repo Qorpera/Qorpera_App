@@ -17,18 +17,20 @@ function renderValue(value: unknown): { isComplex: boolean; display: string } {
   return { isComplex: true, display: JSON.stringify(value, null, 2) };
 }
 
-export function GenericStepPreview({ step }: PreviewProps) {
+export function GenericStepPreview({ step, inPanel }: PreviewProps) {
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
-  const entries = Object.entries(params);
+  const entries = Object.entries(params).filter(([key]) => key !== "previewType");
 
   if (entries.length === 0) return null;
 
   return (
-    <div className="rounded-md overflow-hidden" style={{ border: "1px solid #2a2a2a", background: "#141414" }}>
-      <div className="px-4 py-2.5" style={{ borderBottom: "1px solid #222", background: "#181818" }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>{t("parameter")}</span>
-      </div>
+    <div className={inPanel ? "" : "rounded-md overflow-hidden"} style={inPanel ? {} : { border: "1px solid #2a2a2a", background: "#141414" }}>
+      {!inPanel && (
+        <div className="px-4 py-2.5" style={{ borderBottom: "1px solid #222", background: "#181818" }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: "#b0b0b0" }}>{t("parameter")}</span>
+        </div>
+      )}
 
       <div className="px-4 py-3 space-y-2">
         {entries.map(([key, value]) => {

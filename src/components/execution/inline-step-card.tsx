@@ -104,17 +104,29 @@ const PREFIX_CARD_MAP: Array<{ prefixes: string[]; type: CardType }> = [
   { prefixes: ["presentation", "slides"], type: "presentation" },
 ];
 
+const PREVIEW_TYPE_TO_CARD: Record<string, CardType> = {
+  email: "email", document: "document", spreadsheet: "spreadsheet",
+  calendar_event: "calendar", slack_message: "slack", crm_update: "crm",
+  ticket: "ticket", presentation: "presentation",
+};
+
 function getCardType(step: ExecutionStepForPreview): CardType {
   const slug = step.actionCapability?.slug;
-  if (!slug) return "generic";
-  if (EXACT_CARD_MAP[slug]) return EXACT_CARD_MAP[slug];
-  for (const { prefixes, type } of PREFIX_CARD_MAP) {
-    for (const prefix of prefixes) {
-      if (slug === prefix || slug.startsWith(prefix + ".") || slug.startsWith(prefix + "_")) {
-        return type;
+  if (slug) {
+    if (EXACT_CARD_MAP[slug]) return EXACT_CARD_MAP[slug];
+    for (const { prefixes, type } of PREFIX_CARD_MAP) {
+      for (const prefix of prefixes) {
+        if (slug === prefix || slug.startsWith(prefix + ".") || slug.startsWith(prefix + "_")) {
+          return type;
+        }
       }
     }
   }
+
+  // Check previewType in parameters
+  const previewType = (step.parameters as Record<string, unknown> | null)?.previewType as string | undefined;
+  if (previewType && PREVIEW_TYPE_TO_CARD[previewType]) return PREVIEW_TYPE_TO_CARD[previewType];
+
   return "generic";
 }
 
