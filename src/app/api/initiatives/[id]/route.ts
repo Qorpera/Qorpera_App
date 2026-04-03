@@ -33,7 +33,7 @@ export async function GET(
 
   // Department visibility check
   const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
-  if (visibleDepts !== "all" && initiative.goal.departmentId) {
+  if (visibleDepts !== "all" && initiative.goal?.departmentId) {
     if (!visibleDepts.includes(initiative.goal.departmentId)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
@@ -190,7 +190,7 @@ export async function PATCH(
   sendNotificationToAdmins({
     operatorId,
     type: "system_alert",
-    title: `Initiative rejected: ${initiative.goal.title}`,
+    title: `Initiative rejected: ${initiative.goal?.title ?? "Unknown goal"}`,
     body: `The proposed initiative was rejected by ${user.id}.`,
     sourceType: "initiative",
     sourceId: id,

@@ -68,8 +68,8 @@ export async function GET(req: NextRequest) {
   const items = initiatives.map(i => ({
     id: i.id,
     goalId: i.goalId,
-    goalTitle: i.goal.title,
-    goalDepartmentId: i.goal.departmentId,
+    goalTitle: i.goal?.title ?? null,
+    goalDepartmentId: i.goal?.departmentId ?? null,
     aiEntityId: i.aiEntityId,
     aiEntityName: aiEntityMap.get(i.aiEntityId) ?? null,
     status: i.status,

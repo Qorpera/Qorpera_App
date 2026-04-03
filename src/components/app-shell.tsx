@@ -9,7 +9,6 @@ import { NotificationBell } from "./notification-bell";
 import { useUser } from "./user-provider";
 import { QorperaLogo } from "./qorpera-logo";
 import { LocaleSwitcher } from "./locale-switcher";
-import { ThemeToggle } from "./theme-toggle";
 import { useMediaQuery } from "@/hooks/use-media-query";
 
 function CollapseChevron({ collapsed }: { collapsed: boolean }) {
@@ -152,11 +151,7 @@ function SidebarContent({
       {!collapsed && (
         <div className="px-5 py-3 border-t border-border space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-[var(--fg3)]">Theme</span>
-            <div className="flex items-center gap-2">
-              <ThemeToggle />
-              <LocaleSwitcher currentLocale={locale} />
-            </div>
+            <LocaleSwitcher currentLocale={locale} />
           </div>
           <div className="flex items-center justify-between">
             <p className="text-[10px] text-[var(--fg3)]">{t("version")}</p>

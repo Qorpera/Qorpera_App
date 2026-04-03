@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
         });
         if (!init) {
           ctxType = null; ctxId = null;
-        } else if (init.goal.departmentId && !visibleDepts.includes(init.goal.departmentId)) {
+        } else if (init.goal?.departmentId && !visibleDepts.includes(init.goal.departmentId)) {
           ctxType = null; ctxId = null;
         }
       } else if (ctxType === "workstream") {

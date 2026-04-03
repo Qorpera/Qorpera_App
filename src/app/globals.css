@@ -1,113 +1,57 @@
 @import "tailwindcss";
 
-/* ── Light Mode (default) — Warm Latte Palette ── */
 :root {
   /* Backgrounds */
-  --background: #F7F3ED;
-  --surface: #FFFBF5;
-  --elevated: #FFFFFF;
-  --sidebar: #EDE6DA;
-  --sidebar-active: #D8CBBA;
-  --hover: #F0E8DC;
+  --background: #131313;
+  --surface: #1b1b1b;
+  --elevated: #222222;
+  --sidebar: #0f0f0f;
+  --sidebar-active: #1d1d1d;
+  --hover: #262626;
+  --card: #222222;
 
   /* Text */
-  --foreground: #3B2F20;
-  --fg: #3B2F20;
-  --fg2: #6B5C49;
-  --fg3: #96856E;
-  --fg4: #B8A487;
-  --muted: #6B5C49;
+  --foreground: #e6e6e6;
+  --fg: #e6e6e6;
+  --fg2: #a4a4a4;
+  --fg3: #747474;
+  --fg4: #535353;
+  --muted: #a4a4a4;
 
   /* Accent */
-  --accent: #8B5E34;
-  --accent-hover: #744E2A;
-  --accent-light: #E8D5BC;
-  --accent-ink: #FFFBF5;
-
-  /* Borders — darker for better card definition on cream */
-  --border: #D4C4AC;
-  --border-strong: #B8A487;
-
-  /* Status */
-  --ok: #5D8C3E;
-  --warn: #C4873B;
-  --warn-strong: #A87032;
-  --danger: #B5452A;
-  --info: #6B8FAD;
-
-  /* Cards / legacy alias */
-  --card: #FFFBF5;
-
-  /* Skeleton */
-  --skeleton: #EDE6DA;
-  --skeleton-shine: #F7F3ED;
-
-  /* Overlay */
-  --overlay: rgba(59, 47, 32, 0.3);
-  --panel-border: rgba(59, 47, 32, 0.08);
-
-  /* Semantic UI tokens */
-  --badge-bg: rgba(0,0,0,0.06);
-  --badge-bg-strong: rgba(0,0,0,0.8);
-  --badge-text-inverse: #fff;
-  --dot-color: rgba(0,0,0,0.3);
-  --rail-color: rgba(0,0,0,0.12);
-  --card-bg: rgba(0,0,0,0.03);
-  --card-border: rgba(0,0,0,0.08);
-  --step-hover: rgba(0,0,0,0.03);
-  --btn-primary-bg: var(--foreground);
-  --btn-primary-text: var(--background);
-
-  color-scheme: light;
-}
-
-/* ── Dark Mode ── */
-.dark {
-  --background: #121212;
-  --surface: #1a1a1a;
-  --elevated: #212121;
-  --sidebar: #0e0e0e;
-  --sidebar-active: #1e1e1e;
-  --hover: #242424;
-
-  --foreground: #e8e8e8;
-  --fg: #e8e8e8;
-  --fg2: #a5a5a5;
-  --fg3: #727272;
-  --fg4: #4e4e4e;
-  --muted: #a5a5a5;
-
   --accent: #ffffff;
   --accent-hover: #d4d4d4;
-  --accent-light: rgba(255, 255, 255, 0.08);
+  --accent-light: rgba(255, 255, 255, 0.10);
   --accent-ink: #000000;
 
-  --border: #2c2c2c;
-  --border-strong: #3c3c3c;
+  /* Borders — rgba for subtle transparency */
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.18);
 
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --warn-strong: #d97706;
-  --danger: #ef4444;
-  --info: #3b82f6;
+  /* Status — softer, desaturated */
+  --ok: #35b967;
+  --warn: #e9953b;
+  --warn-strong: #c57e2f;
+  --danger: #e15646;
+  --info: #5ba0d5;
 
-  --card: #212121;
+  /* Skeleton */
+  --skeleton: rgba(255, 255, 255, 0.07);
+  --skeleton-shine: rgba(255, 255, 255, 0.12);
 
-  --skeleton: rgba(255, 255, 255, 0.06);
-  --skeleton-shine: rgba(255, 255, 255, 0.1);
-
-  --overlay: rgba(0, 0, 0, 0.6);
-  --panel-border: rgba(255, 255, 255, 0.07);
+  /* Overlay */
+  --overlay: rgba(0, 0, 0, 0.55);
+  --panel-border: rgba(255, 255, 255, 0.10);
 
   /* Semantic UI tokens */
-  --badge-bg: rgba(255,255,255,0.08);
-  --badge-bg-strong: rgba(255,255,255,0.9);
+  --badge-bg: rgba(255, 255, 255, 0.08);
+  --badge-bg-strong: rgba(255, 255, 255, 0.90);
   --badge-text-inverse: #000;
-  --dot-color: rgba(255,255,255,0.4);
-  --rail-color: rgba(255,255,255,0.25);
-  --card-bg: rgba(255,255,255,0.05);
-  --card-border: rgba(255,255,255,0.09);
-  --step-hover: rgba(255,255,255,0.05);
+  --dot-color: rgba(255, 255, 255, 0.40);
+  --rail-color: rgba(255, 255, 255, 0.12);
+  --card-bg: rgba(255, 255, 255, 0.04);
+  --card-border: rgba(255, 255, 255, 0.10);
+  --step-hover: rgba(255, 255, 255, 0.05);
   --btn-primary-bg: var(--foreground);
   --btn-primary-text: var(--background);
 

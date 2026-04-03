@@ -205,11 +205,11 @@ export async function loadInitiativeContext(
 
   // Goal section
   const goal = initiative.goal;
-  const goalSection = [
+  const goalSection = goal ? [
     `\nGoal: ${goal.title}`,
     goal.description ? `Goal description: ${goal.description}` : null,
     `Goal priority: ${goal.priority} | Deadline: ${goal.deadline ? goal.deadline.toISOString().split("T")[0] : "none"}`,
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean).join("\n") : "";
 
   // Rationale
   const rationaleSection = `\nRationale:\n${initiative.rationale}`;

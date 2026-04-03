@@ -383,7 +383,7 @@ export async function loadDepartmentAuditContext(
     activeInitiatives: activeInitiatives.map(i => ({
       title: i.rationale.slice(0, 100),
       status: i.status,
-      goalTitle: i.goal.title,
+      goalTitle: i.goal?.title ?? "No goal",
     })),
   };
 }
@@ -544,61 +544,23 @@ export async function createInitiativeFromScan(
   operatorId: string,
   result: ScanResult,
 ): Promise<boolean> {
-  // Find or create a goal for this department to attach the initiative to
+  // Find existing goal if available, but don't create throwaway goals
   let goalId: string | null = null;
 
   if (result.departmentId) {
-    // Look for existing active goals in this department
     const existingGoal = await prisma.goal.findFirst({
       where: { operatorId, departmentId: result.departmentId, status: "active" },
       select: { id: true },
-      orderBy: { priority: "asc" }, // highest priority first
+      orderBy: { priority: "asc" },
     });
-
-    if (existingGoal) {
-      goalId = existingGoal.id;
-    } else {
-      // Create a catch-all improvement goal for the department
-      const dept = await prisma.entity.findUnique({
-        where: { id: result.departmentId },
-        select: { displayName: true },
-      });
-      const newGoal = await prisma.goal.create({
-        data: {
-          operatorId,
-          departmentId: result.departmentId,
-          title: `Improve ${dept?.displayName ?? "department"} operations`,
-          description: `Strategic improvement opportunities identified through automated department audits.`,
-          priority: 3,
-          status: "active",
-          source: "strategic-scan",
-        },
-      });
-      goalId = newGoal.id;
-    }
+    if (existingGoal) goalId = existingGoal.id;
   } else {
-    // Company-wide — find HQ goal
     const hqGoal = await prisma.goal.findFirst({
       where: { operatorId, departmentId: null, status: "active" },
       select: { id: true },
       orderBy: { priority: "asc" },
     });
-    if (hqGoal) {
-      goalId = hqGoal.id;
-    } else {
-      const newGoal = await prisma.goal.create({
-        data: {
-          operatorId,
-          departmentId: null,
-          title: "Company-wide operational improvements",
-          description: "Strategic improvement opportunities identified through automated company analysis.",
-          priority: 3,
-          status: "active",
-          source: "strategic-scan",
-        },
-      });
-      goalId = newGoal.id;
-    }
+    if (hqGoal) goalId = hqGoal.id;
   }
 
   // Find the department AI entity for attribution
@@ -663,7 +625,7 @@ export async function createInitiativeFromScan(
     title: `Initiative proposed: ${result.title}`,
     body: result.description.slice(0, 200),
     sourceType: "initiative",
-    sourceId: goalId,
+    sourceId: goalId ?? operatorId,
   }).catch(() => {});
 
   return true;

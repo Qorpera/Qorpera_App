@@ -114,7 +114,7 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
 
   // ── Load source data once ────────────────────────────────────────────
   let sourceSituation: { triggerEntityId: string | null; spawningStepId: string | null; situationType: { slug: string; detectionLogic: string } } | null = null;
-  let sourceInitiative: { goal: { priority: number } } | null = null;
+  let sourceInitiative: { goal: { priority: number } | null } | null = null;
 
   if (plan.sourceType === "situation") {
     sourceSituation = await prisma.situation.findFirst({

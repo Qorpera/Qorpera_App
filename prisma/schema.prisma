@@ -846,7 +846,7 @@ model Goal {
 model Initiative {
   id               String   @id @default(cuid())
   operatorId       String
-  goalId           String
+  goalId           String?
   aiEntityId       String // the department-ai or hq-ai that proposed this
   executionPlanId  String?  @unique
   status           String   @default("proposed") // proposed, approved, executing, completed, rejected, failed, paused
@@ -856,7 +856,7 @@ model Initiative {
   updatedAt        DateTime @updatedAt
 
   operator      Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  goal          Goal           @relation(fields: [goalId], references: [id])
+  goal          Goal?          @relation(fields: [goalId], references: [id])
   executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
 
   @@index([operatorId, status])

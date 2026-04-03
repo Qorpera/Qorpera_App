@@ -1891,7 +1891,7 @@ export async function executeTool(
         title: i.rationale.slice(0, 200),
         rationale: i.rationale.slice(0, 200),
         status: i.status,
-        goalTitle: i.goal.title,
+        goalTitle: i.goal?.title ?? null,
         planStatus: i.executionPlan?.status ?? null,
         stepsCompleted: i.executionPlan?.steps.length ?? 0,
         stepsTotal: i.executionPlan?._count.steps ?? 0,

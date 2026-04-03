@@ -5,6 +5,7 @@ import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ensureInternalCapabilities } from "@/lib/internal-capabilities";
 import { extractJSON } from "@/lib/json-helpers";
+import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 
 // ── Scheduled Evaluation ─────────────────────────────────────────────────────
 
@@ -20,13 +21,7 @@ export async function runScheduledInitiativeEvaluation(): Promise<{
   });
 
   for (const op of operators) {
-    // Check if operator has active goals
-    const goalCount = await prisma.goal.count({
-      where: { operatorId: op.id, status: "active" },
-    });
-    if (goalCount === 0) continue;
-
-    // Evaluate department goals
+    // Evaluate department initiatives
     const departments = await prisma.entity.findMany({
       where: { operatorId: op.id, category: "foundational", status: "active" },
       select: { id: true },
@@ -45,20 +40,15 @@ export async function runScheduledInitiativeEvaluation(): Promise<{
       }
     }
 
-    // Evaluate HQ goals
-    const hqGoalCount = await prisma.goal.count({
-      where: { operatorId: op.id, departmentId: null, status: "active" },
-    });
-    if (hqGoalCount > 0) {
-      try {
-        const beforeCount = await prisma.initiative.count({ where: { operatorId: op.id } });
-        await evaluateHQGoals(op.id);
-        const afterCount = await prisma.initiative.count({ where: { operatorId: op.id } });
-        result.proposals += afterCount - beforeCount;
-      } catch (err) {
-        result.errors++;
-        console.error(`[initiative-cron] HQ evaluation failed for operator ${op.id}:`, err);
-      }
+    // Evaluate HQ initiatives
+    try {
+      const beforeCount = await prisma.initiative.count({ where: { operatorId: op.id } });
+      await evaluateHQGoals(op.id);
+      const afterCount = await prisma.initiative.count({ where: { operatorId: op.id } });
+      result.proposals += afterCount - beforeCount;
+    } catch (err) {
+      result.errors++;
+      console.error(`[initiative-cron] HQ evaluation failed for operator ${op.id}:`, err);
     }
   }
 
@@ -76,7 +66,7 @@ const InitiativeStepSchema = z.object({
 });
 
 const InitiativeProposalSchema = z.object({
-  goalId: z.string(),
+  goalId: z.string().nullable().optional(),
   rationale: z.string().min(20),
   impactAssessment: z.string().min(10),
   steps: z.array(InitiativeStepSchema).min(1),
@@ -109,13 +99,12 @@ export async function evaluateDepartmentGoals(
   const goals = await prisma.goal.findMany({
     where: { operatorId, departmentId, status: "active" },
   });
-  if (goals.length === 0) return;
 
   const goalIds = goals.map(g => g.id);
 
   const [existingInitiatives, capabilities, situationTypes, recentSituations, insights, department, operator] = await Promise.all([
     prisma.initiative.findMany({
-      where: { operatorId, goalId: { in: goalIds }, status: { notIn: ["rejected", "failed"] } },
+      where: { operatorId, status: { notIn: ["rejected", "failed"] }, ...(goalIds.length > 0 ? { goalId: { in: goalIds } } : {}) },
       select: { goalId: true, status: true, rationale: true },
     }),
     prisma.actionCapability.findMany({
@@ -196,6 +185,53 @@ export async function evaluateDepartmentGoals(
     select: { title: true, description: true, status: true, scope: true, cronExpression: true },
   });
 
+  // 2c. Load strategic documents via RAG
+  let strategicDocuments: Array<{ documentName: string; content: string; score: number }> = [];
+  try {
+    const { embedChunks } = await import("@/lib/rag/embedder");
+    const { retrieveRelevantChunks } = await import("@/lib/rag/retriever");
+
+    const queries = [
+      `${department.displayName} strategy goals priorities improvements KPIs targets`,
+      `${department.displayName} business plan direction objectives quarterly review`,
+    ];
+
+    for (const query of queries) {
+      const [embedding] = await embedChunks([query]);
+      if (embedding) {
+        const chunks = await retrieveRelevantChunks(operatorId, embedding, {
+          limit: 8,
+          departmentIds: [departmentId],
+          minScore: 0.25,
+          includeParentContext: true,
+          skipUserFilter: true,
+        });
+        for (const chunk of chunks) {
+          if (!strategicDocuments.some(d => d.content === chunk.content)) {
+            strategicDocuments.push({
+              documentName: (chunk.metadata?.fileName as string) ?? "Unknown",
+              content: chunk.content,
+              score: chunk.score,
+            });
+          }
+        }
+      }
+    }
+    strategicDocuments.sort((a, b) => b.score - a.score);
+    strategicDocuments = strategicDocuments.slice(0, 12);
+  } catch (err) {
+    console.warn("[initiative-reasoning] RAG retrieval for strategic docs failed:", err);
+  }
+
+  const businessCtx = await getBusinessContext(operatorId);
+  const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
+
+  // Guard: no context at all means nothing to reason from
+  if (goals.length === 0 && strategicDocuments.length === 0 && !businessContextStr) {
+    console.log(`[initiative-reasoning] No strategic context for department ${departmentId}. Skipping.`);
+    return;
+  }
+
   // 3. Build prompt
   const systemPrompt = buildDepartmentSystemPrompt(department.displayName, operator?.companyName ?? "the company");
   const userPrompt = buildUserPrompt(
@@ -218,6 +254,8 @@ export async function evaluateDepartmentGoals(
       createdAt: s.createdAt.toISOString(),
     })),
     existingSystemJobs,
+    strategicDocuments,
+    businessContextStr,
   );
 
   // 4. Call LLM + validate
@@ -247,13 +285,12 @@ export async function evaluateHQGoals(operatorId: string): Promise<void> {
   const goals = await prisma.goal.findMany({
     where: { operatorId, departmentId: null, status: "active" },
   });
-  if (goals.length === 0) return;
 
   const goalIds = goals.map(g => g.id);
 
   const [existingInitiatives, capabilities, situationTypes, recentSituations, insights, operator] = await Promise.all([
     prisma.initiative.findMany({
-      where: { operatorId, goalId: { in: goalIds }, status: { notIn: ["rejected", "failed"] } },
+      where: { operatorId, status: { notIn: ["rejected", "failed"] }, ...(goalIds.length > 0 ? { goalId: { in: goalIds } } : {}) },
       select: { goalId: true, status: true, rationale: true },
     }),
     prisma.actionCapability.findMany({
@@ -317,6 +354,51 @@ export async function evaluateHQGoals(operatorId: string): Promise<void> {
     select: { title: true, description: true, status: true, scope: true, cronExpression: true },
   });
 
+  // 2c. Load strategic documents via RAG (company-wide)
+  let strategicDocuments: Array<{ documentName: string; content: string; score: number }> = [];
+  try {
+    const { embedChunks } = await import("@/lib/rag/embedder");
+    const { retrieveRelevantChunks } = await import("@/lib/rag/retriever");
+
+    const queries = [
+      `company strategy goals priorities direction business plan`,
+      `organizational objectives KPIs targets quarterly annual review`,
+    ];
+
+    for (const query of queries) {
+      const [embedding] = await embedChunks([query]);
+      if (embedding) {
+        const chunks = await retrieveRelevantChunks(operatorId, embedding, {
+          limit: 8,
+          minScore: 0.25,
+          includeParentContext: true,
+          skipUserFilter: true,
+        });
+        for (const chunk of chunks) {
+          if (!strategicDocuments.some(d => d.content === chunk.content)) {
+            strategicDocuments.push({
+              documentName: (chunk.metadata?.fileName as string) ?? "Unknown",
+              content: chunk.content,
+              score: chunk.score,
+            });
+          }
+        }
+      }
+    }
+    strategicDocuments.sort((a, b) => b.score - a.score);
+    strategicDocuments = strategicDocuments.slice(0, 12);
+  } catch (err) {
+    console.warn("[initiative-reasoning] RAG retrieval for HQ strategic docs failed:", err);
+  }
+
+  const businessCtx = await getBusinessContext(operatorId);
+  const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
+
+  if (goals.length === 0 && strategicDocuments.length === 0 && !businessContextStr) {
+    console.log(`[initiative-reasoning] No strategic context for HQ. Skipping.`);
+    return;
+  }
+
   // 3. Build prompt
   const systemPrompt = buildHQSystemPrompt(operator?.companyName ?? "the company");
   const userPrompt = buildHQUserPrompt(
@@ -334,6 +416,8 @@ export async function evaluateHQGoals(operatorId: string): Promise<void> {
       itemCount: ws.items.length,
     })),
     existingSystemJobs,
+    strategicDocuments,
+    businessContextStr,
   );
 
   // 4. Call LLM + validate
@@ -411,10 +495,14 @@ async function createInitiatives(
   capabilities: CapabilityRow[],
 ): Promise<void> {
   for (const proposal of output.proposals) {
-    // Verify goalId
-    if (!validGoalIds.includes(proposal.goalId)) {
-      console.warn(`[initiative-reasoning] Proposed goalId "${proposal.goalId}" not in valid set. Skipping.`);
-      continue;
+    // Soft goalId validation — use if valid, null if not
+    let resolvedGoalId: string | null = null;
+    if (proposal.goalId) {
+      if (validGoalIds.includes(proposal.goalId)) {
+        resolvedGoalId = proposal.goalId;
+      } else {
+        console.warn(`[initiative-reasoning] Proposed goalId "${proposal.goalId}" not found. Creating initiative without goal link.`);
+      }
     }
 
     // Resolve actionCapabilityName → actionCapabilityId
@@ -448,7 +536,7 @@ async function createInitiatives(
       const initiative = await prisma.initiative.create({
         data: {
           operatorId,
-          goalId: proposal.goalId,
+          goalId: resolvedGoalId,
           aiEntityId,
           status: "proposed",
           rationale: proposal.rationale,
@@ -484,12 +572,12 @@ async function createInitiatives(
 
 function buildDepartmentSystemPrompt(departmentName: string, companyName: string): string {
   return `You are the Department AI for ${departmentName} at ${companyName}.
-Your role is to evaluate department goals and propose strategic initiatives — multi-step plans that advance the department toward its objectives.
+Your role is to analyze the department's strategic context — drawn from company documents, operational data, and organizational priorities — and propose strategic initiatives that advance the department's mission.
 
 You propose initiatives. Humans approve and oversee execution.
 
 RULES:
-- Each proposal MUST link to an existing goal by goalId.
+- Each proposal SHOULD link to an existing goal by goalId if goals are defined. If no explicit goals exist, propose initiatives based on the strategic documents and business context provided. Set goalId to null in that case.
 - Steps with executionMode "action" MUST reference a permitted action by name in actionCapabilityName.
 - Steps with executionMode "generate" produce LLM-generated content (reports, drafts, analysis).
 - Steps with executionMode "human_task" assign work to a human (calls, meetings, decisions that require a person).
@@ -531,12 +619,12 @@ Return an empty proposals array [] if no initiatives are warranted given current
 
 function buildHQSystemPrompt(companyName: string): string {
   return `You are the HQ AI for ${companyName}.
-You evaluate organization-level goals and propose cross-department strategic initiatives.
+You analyze the organization's strategic context — drawn from company documents, operational data, and organizational priorities — and propose cross-department strategic initiatives.
 
 You propose initiatives. Humans approve and oversee execution.
 
 RULES:
-- Each proposal MUST link to an existing goal by goalId.
+- Each proposal SHOULD link to an existing goal by goalId if goals are defined. If no explicit goals exist, propose initiatives based on the strategic documents and business context provided. Set goalId to null in that case.
 - Steps with executionMode "action" MUST reference a permitted action by name in actionCapabilityName.
 - Steps with executionMode "generate" produce LLM-generated content (reports, drafts, analysis).
 - Steps with executionMode "human_task" assign work to a human (calls, meetings, decisions that require a person).
@@ -575,7 +663,7 @@ Return an empty proposals array [] if no initiatives are warranted given current
 }
 
 type GoalRow = { id: string; title: string; description: string; measurableTarget: string | null; priority: number; deadline: Date | null };
-type InitiativeRow = { goalId: string; status: string; rationale: string };
+type InitiativeRow = { goalId: string | null; status: string; rationale: string };
 type SituationTypeRow = { name: string; description: string };
 type SituationRow = { outcome: string | null; status: string };
 type InsightRow = { description: string; confidence: number; evidence: string; insightType: string; promptModification: string | null };
@@ -599,19 +687,36 @@ function buildUserPrompt(
   workStreams?: WorkStreamContextRow[],
   peerSignals?: PeerSignalRow[],
   existingSystemJobs?: SystemJobRow[],
+  strategicDocuments?: Array<{ documentName: string; content: string; score: number }>,
+  businessContextStr?: string | null,
 ): string {
   const sections: string[] = [];
 
   // Department info
   sections.push(`DEPARTMENT: ${departmentName}${departmentDescription ? ` — ${departmentDescription}` : ""}\nTeam size: ${memberCount}`);
 
-  // Goals
-  const goalsStr = goals.map(g => {
-    const deadline = g.deadline ? ` | Deadline: ${g.deadline.toISOString().split("T")[0]}` : "";
-    const target = g.measurableTarget ? ` | Target: ${g.measurableTarget}` : "";
-    return `  - [${g.id}] ${g.title} (priority ${g.priority}${deadline}${target})\n    ${g.description}`;
-  }).join("\n");
-  sections.push(`ACTIVE GOALS:\n${goalsStr}`);
+  // Strategic documents (primary context)
+  if (strategicDocuments && strategicDocuments.length > 0) {
+    const docStr = strategicDocuments.map(d =>
+      `  [${d.documentName}] (relevance: ${d.score.toFixed(2)}):\n    ${d.content.slice(0, 500)}`
+    ).join("\n\n");
+    sections.push(`STRATEGIC CONTEXT (from company documents):\nThese excerpts from company documents define the department's direction, priorities, and targets. Use them to identify what initiatives would advance the department's mission.\n\n${docStr}`);
+  }
+
+  // Business context (company model)
+  if (businessContextStr) {
+    sections.push(`COMPANY MODEL:\n${businessContextStr}`);
+  }
+
+  // Goals (optional additional context)
+  if (goals.length > 0) {
+    const goalsStr = goals.map(g => {
+      const deadline = g.deadline ? ` | Deadline: ${g.deadline.toISOString().split("T")[0]}` : "";
+      const target = g.measurableTarget ? ` | Target: ${g.measurableTarget}` : "";
+      return `  - [${g.id}] ${g.title} (priority ${g.priority}${deadline}${target})\n    ${g.description}`;
+    }).join("\n");
+    sections.push(`EXPLICIT GOALS (if present, these are human-defined priorities):\n${goalsStr}`);
+  }
 
   // Existing initiatives
   if (existingInitiatives.length > 0) {
@@ -716,6 +821,8 @@ function buildHQUserPrompt(
   delegations?: DelegationContextRow[],
   workStreams?: WorkStreamContextRow[],
   existingSystemJobs?: SystemJobRow[],
+  strategicDocuments?: Array<{ documentName: string; content: string; score: number }>,
+  businessContextStr?: string | null,
 ): string {
   const sections: string[] = [];
 
@@ -727,13 +834,28 @@ function buildHQUserPrompt(
     sections.push(`DEPARTMENTS:\n${deptStr}`);
   }
 
-  // Goals
-  const goalsStr = goals.map(g => {
-    const deadline = g.deadline ? ` | Deadline: ${g.deadline.toISOString().split("T")[0]}` : "";
-    const target = g.measurableTarget ? ` | Target: ${g.measurableTarget}` : "";
-    return `  - [${g.id}] ${g.title} (priority ${g.priority}${deadline}${target})\n    ${g.description}`;
-  }).join("\n");
-  sections.push(`HQ-LEVEL GOALS:\n${goalsStr}`);
+  // Strategic documents (primary context)
+  if (strategicDocuments && strategicDocuments.length > 0) {
+    const docStr = strategicDocuments.map(d =>
+      `  [${d.documentName}] (relevance: ${d.score.toFixed(2)}):\n    ${d.content.slice(0, 500)}`
+    ).join("\n\n");
+    sections.push(`STRATEGIC CONTEXT (from company documents):\nThese excerpts define organizational direction, priorities, and targets.\n\n${docStr}`);
+  }
+
+  // Business context (company model)
+  if (businessContextStr) {
+    sections.push(`COMPANY MODEL:\n${businessContextStr}`);
+  }
+
+  // Goals (optional)
+  if (goals.length > 0) {
+    const goalsStr = goals.map(g => {
+      const deadline = g.deadline ? ` | Deadline: ${g.deadline.toISOString().split("T")[0]}` : "";
+      const target = g.measurableTarget ? ` | Target: ${g.measurableTarget}` : "";
+      return `  - [${g.id}] ${g.title} (priority ${g.priority}${deadline}${target})\n    ${g.description}`;
+    }).join("\n");
+    sections.push(`EXPLICIT GOALS (human-defined priorities):\n${goalsStr}`);
+  }
 
   // Existing initiatives
   if (existingInitiatives.length > 0) {

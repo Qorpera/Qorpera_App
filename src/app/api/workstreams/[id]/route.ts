@@ -64,7 +64,7 @@ export async function GET(
           itemId: item.itemId,
           addedAt: item.addedAt.toISOString(),
           status: i?.status ?? "unknown",
-          summary: i ? `${i.goal.title}: ${i.rationale.slice(0, 120)}` : "Unknown initiative",
+          summary: i ? `${i.goal?.title ?? "No goal"}: ${i.rationale.slice(0, 120)}` : "Unknown initiative",
         };
       }
     }),
