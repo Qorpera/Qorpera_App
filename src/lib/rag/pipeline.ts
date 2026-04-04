@@ -127,6 +127,7 @@ export async function processDocument(
       content: text,
       entityId: doc.entityId ?? undefined,
       departmentIds: doc.departmentId ? [doc.departmentId] : [],
+      projectId: doc.projectId ?? undefined,
       metadata: {
         fileName: doc.fileName,
         documentType: doc.documentType,

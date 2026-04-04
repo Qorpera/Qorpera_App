@@ -689,6 +689,8 @@ model InternalDocument {
   documentType      String   @default("context") // "org-chart" | "budget" | "compensation" | "team-roster" | "context"
   embeddingStatus   String   @default("pending") // "pending" | "processing" | "complete" | "error"
   departmentId      String?
+  projectId         String?
+  project           Project? @relation(fields: [projectId], references: [id])
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -753,11 +755,13 @@ model ContentChunk {
   reevaluatedAt        DateTime?
   documentCategory     String? // "foundational" | "operational" | null
   foundationalDocSlug  String? // Links to ExpectedDocument.slug
+  projectId            String?
   createdAt            DateTime  @default(now())
 
   operator  Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   connector SourceConnector? @relation(fields: [connectorId], references: [id])
   user      User?            @relation(fields: [userId], references: [id])
+  project   Project?         @relation(fields: [projectId], references: [id])
 
   @@index([operatorId, sourceType])
   @@index([entityId])
@@ -765,6 +769,7 @@ model ContentChunk {
   @@index([connectorId])
   @@index([operatorId, userId])
   @@index([operatorId, classifiedAt])
+  @@index([operatorId, projectId])
 }
 
 // ─── Activity Signals ───────────────────────────────────
@@ -1381,9 +1386,12 @@ model Project {
   createdById String
   dueDate     DateTime?
   completedAt DateTime?
-  config      Json      @default("{}")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  config             Json      @default("{}")
+  knowledgeIndex     Json?
+  compilationStatus  String?   // null | "compiling" | "compiled" | "stale" | "error"
+  compiledAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   operator     Operator           @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   template     ProjectTemplate?   @relation(fields: [templateId], references: [id])
@@ -1396,6 +1404,8 @@ model Project {
   connectors   ProjectConnector[]
   sourceConnectors SourceConnector[]
   sourceInitiative Initiative?
+  contentChunks    ContentChunk[]
+  documents        InternalDocument[]
 
   @@index([operatorId, status])
   @@index([createdById])

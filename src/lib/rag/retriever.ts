@@ -14,6 +14,7 @@ export interface ContentChunkResult {
   sourceType: string;
   sourceId: string;
   entityId: string | null;
+  projectId: string | null;
   departmentIds: string[];
   metadata: Record<string, unknown> | null;
   chunkIndex: number;
@@ -41,6 +42,7 @@ export async function retrieveRelevantChunks(
     entityId?: string;
     entityIds?: string[];
     departmentIds?: string[];
+    projectId?: string;
     minScore?: number;
     includeParentContext?: boolean;
     userId?: string;
@@ -89,12 +91,22 @@ export async function retrieveRelevantChunks(
     nextIdx += 1;
   }
 
+  // Project scope filter: project queries see only project chunks; operator queries exclude them
+  let projectFilter = "";
+  if (options?.projectId) {
+    projectFilter = `AND "projectId" = $${nextIdx}`;
+    params.push(options.projectId);
+    nextIdx += 1;
+  } else {
+    projectFilter = `AND "projectId" IS NULL`;
+  }
+
   const limitParamIdx = nextIdx;
   params.push(limit);
 
   const query = `
-    SELECT id, content, "sourceType", "sourceId", "entityId", "departmentIds",
-           metadata, "chunkIndex", "tokenCount",
+    SELECT id, content, "sourceType", "sourceId", "entityId", "projectId",
+           "departmentIds", metadata, "chunkIndex", "tokenCount",
            1 - (embedding <=> $1::vector) as score
     FROM "ContentChunk"
     WHERE "operatorId" = $2
@@ -102,6 +114,7 @@ export async function retrieveRelevantChunks(
       ${sourceTypeFilter}
       ${entityFilter}
       ${userFilter}
+      ${projectFilter}
     ORDER BY embedding <=> $1::vector
     LIMIT $${limitParamIdx}
   `;
@@ -112,6 +125,7 @@ export async function retrieveRelevantChunks(
     sourceType: string;
     sourceId: string;
     entityId: string | null;
+    projectId: string | null;
     departmentIds: string | null;
     metadata: string | null;
     chunkIndex: number;
@@ -126,6 +140,7 @@ export async function retrieveRelevantChunks(
     sourceType: row.sourceType,
     sourceId: row.sourceId,
     entityId: row.entityId,
+    projectId: row.projectId ?? null,
     departmentIds: row.departmentIds ? JSON.parse(row.departmentIds) : [],
     metadata: row.metadata ? JSON.parse(row.metadata) : null,
     chunkIndex: row.chunkIndex,
@@ -152,24 +167,34 @@ export async function retrieveRelevantChunks(
     const missingSourceIds = sourceIds.filter((id) => !existingSummarySourceIds.has(id));
 
     if (missingSourceIds.length > 0) {
+      const summaryParams: unknown[] = [operatorId, missingSourceIds];
+      let summaryProjectFilter: string;
+      if (options?.projectId) {
+        summaryProjectFilter = `AND "projectId" = $3`;
+        summaryParams.push(options.projectId);
+      } else {
+        summaryProjectFilter = `AND "projectId" IS NULL`;
+      }
+
       let summaryChunks = await prisma.$queryRawUnsafe<Array<{
         id: string;
         content: string;
         sourceType: string;
         sourceId: string;
         entityId: string | null;
+        projectId: string | null;
         departmentIds: string | null;
         metadata: string | null;
         chunkIndex: number;
       }>>(
-        `SELECT id, content, "sourceType", "sourceId", "entityId", "departmentIds",
-                metadata, "chunkIndex"
+        `SELECT id, content, "sourceType", "sourceId", "entityId", "projectId",
+                "departmentIds", metadata, "chunkIndex"
          FROM "ContentChunk"
          WHERE "operatorId" = $1
            AND "sourceId" = ANY($2::text[])
-           AND "chunkIndex" = 0`,
-        operatorId,
-        missingSourceIds,
+           AND "chunkIndex" = 0
+           ${summaryProjectFilter}`,
+        ...summaryParams,
       );
 
       // Apply department scoping to summary chunks (same logic as main results)
@@ -199,6 +224,7 @@ export async function retrieveRelevantChunks(
             sourceType: summary.sourceType,
             sourceId: summary.sourceId,
             entityId: summary.entityId,
+            projectId: summary.projectId ?? null,
             departmentIds: summary.departmentIds ? JSON.parse(summary.departmentIds) : [],
             metadata: summary.metadata ? JSON.parse(summary.metadata) : null,
             chunkIndex: summary.chunkIndex,
@@ -226,6 +252,7 @@ export async function retrieveRelevantContext(
   departmentIds: string[],
   topK: number = 8,
   userFilter?: { userId: string; skipUserFilter?: boolean },
+  projectId?: string,
 ): Promise<RAGResult[]> {
   const [queryEmbedding] = await embedChunks([query]);
   if (!queryEmbedding) return [];
@@ -233,6 +260,7 @@ export async function retrieveRelevantContext(
   const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
     limit: topK,
     departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
+    projectId,
     minScore: 0.3,
     userId: userFilter?.userId,
     skipUserFilter: userFilter?.skipUserFilter,

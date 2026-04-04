@@ -40,6 +40,10 @@ export async function GET(
           user: { select: { id: true, name: true, email: true } },
         },
       },
+      documents: {
+        select: { id: true, fileName: true, mimeType: true, embeddingStatus: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 
@@ -60,7 +64,9 @@ export async function GET(
     ? Math.max(0, Math.ceil((project.dueDate.getTime() - now.getTime()) / 86400000))
     : null;
 
-  return NextResponse.json({ ...project, stageCounts, daysLeft });
+  // Exclude knowledgeIndex from response (can be very large)
+  const { knowledgeIndex: _ki, ...rest } = project;
+  return NextResponse.json({ ...rest, stageCounts, daysLeft });
 }
 
 export async function PATCH(

@@ -144,6 +144,12 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     console.log(`[generate_deliverable] Would generate content for deliverable ${deliverableId} in project ${projectId}`);
   },
 
+  async compile_project(payload) {
+    const { projectId } = payload as { projectId: string };
+    const { compileProjectKnowledge } = await import("@/lib/project-compilation");
+    await compileProjectKnowledge(projectId);
+  },
+
   async post_synthesis_pipeline(payload) {
     const { operatorId } = payload as { operatorId: string };
     const { runPostSynthesisPipeline } = await import("@/lib/onboarding-intelligence/post-synthesis-pipeline");

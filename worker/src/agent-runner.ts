@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { executeTool, getToolsForAgent } from "@/lib/onboarding-intelligence/tools/registry";
+import { executeTool, getToolsForAgent } from "../../src/lib/onboarding-intelligence/tools/registry";
 import type { ToolContext } from "@/lib/onboarding-intelligence/types";
 import { addProgressMessage } from "@/lib/onboarding-intelligence/progress";
 import { estimateTokenCount, shouldPrune, pruneOldToolResults } from "./context-manager";

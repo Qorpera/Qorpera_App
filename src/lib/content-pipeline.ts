@@ -22,13 +22,14 @@ type ContentInput = {
   connectorId?: string;
   entityId?: string;
   departmentIds?: string[];
+  projectId?: string;
   metadata?: Record<string, unknown>;
 };
 
 export async function ingestContent(
   input: ContentInput,
 ): Promise<{ chunksCreated: number }> {
-  const { operatorId, userId, sourceType, sourceId, content, connectorId, entityId, departmentIds, metadata } = input;
+  const { operatorId, userId, sourceType, sourceId, content, connectorId, entityId, departmentIds, projectId, metadata } = input;
 
   if (!userId && sourceType !== "uploaded_doc") {
     console.warn(`[content-pipeline] ContentChunk created without userId — sourceType: ${sourceType}, sourceId: ${sourceId}`);
@@ -116,6 +117,7 @@ export async function ingestContent(
         sourceId,
         entityId: entityId ?? null,
         departmentIds: deptJson,
+        projectId: projectId ?? null,
         chunkIndex: chunk.chunkIndex,
         content: chunk.content,
         tokenCount: chunk.tokenCount,

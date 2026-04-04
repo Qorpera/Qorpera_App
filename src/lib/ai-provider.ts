@@ -38,6 +38,9 @@ const MODEL_ROUTES = {
   executionGenerate: "gpt-5.4",
   recurringTasks: "gpt-5.4-mini",
 
+  // ── Project intelligence ──
+  projectCompilation: "claude-opus-4-6",
+
   // ── Infrastructure ──
   embedding: "text-embedding-3-small",
   // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
