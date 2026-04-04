@@ -46,6 +46,9 @@ const MODEL_ROUTES = {
   // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
   chunkClassification: "claude-haiku-4-5-20251001",
 
+  // ── Agentic reasoning ──
+  agenticReasoning: "claude-opus-4-6",
+
   // ── Onboarding pipeline ──
   onboardingIntelligence: "gpt-5.4",
   onboardingMemory: "gpt-5.4-mini",
@@ -157,6 +160,7 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   initiativeReasoning: 16_384,
   strategicScan: 16_384,
   systemJobReasoning: 16_384,
+  agenticReasoning: 16_384,
   situationAudit: 2_048,
   insightExtraction: 8_192,
   // Onboarding

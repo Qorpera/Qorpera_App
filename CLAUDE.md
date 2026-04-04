@@ -207,10 +207,15 @@ maxTokens equal to or below the thinking budget.
 ## Database Workflow (CRITICAL)
 
 **After any schema change in `prisma/schema.prisma`:**
-1. Run `npx prisma migrate dev --name <short-description>` (generates SQL migration file)
-2. Review the SQL in `prisma/migrations/<timestamp>_<name>/migration.sql`
-3. Commit the migration file to git
-4. `prisma migrate deploy` runs automatically in Docker on startup
+
+`prisma migrate dev` uses a shadow database that cannot install the `pgvector`
+extension, so it always fails. Create migrations manually instead:
+
+1. Create the migration directory: `mkdir -p prisma/migrations/<YYYYMMDD>_<short_description>`
+2. Write the SQL by hand in `prisma/migrations/<YYYYMMDD>_<short_description>/migration.sql`
+3. Mark it as applied locally: `npx prisma migrate resolve --applied <YYYYMMDD>_<short_description>`
+4. Commit the migration file to git
+5. `prisma migrate deploy` runs automatically in Docker on startup
 
 ## Auth Pattern (CRITICAL)
 - Every API route MUST call `getSessionUser(request)` from `src/lib/auth.ts` as its first operation

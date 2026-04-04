@@ -195,7 +195,7 @@ export interface OperationalInsightContext {
 
 // ── Department Discovery ─────────────────────────────────────────────────────
 
-async function findRelevantDepartments(
+export async function findRelevantDepartments(
   operatorId: string,
   entityId: string,
   category: string | null,
@@ -287,7 +287,7 @@ async function findRelevantDepartments(
 
 // ── Department Context Loading ───────────────────────────────────────────────
 
-async function loadDepartmentContext(
+export async function loadDepartmentContext(
   operatorId: string,
   deptId: string,
 ): Promise<DepartmentContext> {
@@ -348,7 +348,7 @@ async function loadDepartmentContext(
 
 // ── Activity Intelligence Loaders (v3) ───────────────────────────────────────
 
-async function loadActivityTimeline(
+export async function loadActivityTimeline(
   operatorId: string,
   entityId: string,
   relatedEntityIds: string[],
@@ -481,7 +481,7 @@ async function loadActivityTimeline(
   }
 }
 
-async function loadCommunicationContext(
+export async function loadCommunicationContext(
   operatorId: string,
   entityId: string,
   situationDescription: string,
@@ -568,7 +568,7 @@ async function loadCommunicationContext(
   }
 }
 
-async function loadCrossDepartmentSignals(
+export async function loadCrossDepartmentSignals(
   operatorId: string,
   entityId: string,
   entityCategory: string | null,

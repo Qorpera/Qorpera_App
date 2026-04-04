@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db";
-import { callLLM, getModel, getModelForArchetype, getThinkingBudgetForArchetype, getArchetypeTier } from "@/lib/ai-provider";
-import { assembleSituationContext } from "@/lib/context-assembly";
+import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
+import type { LLMMessage } from "@/lib/ai-provider";
+import { loadOperationalInsights } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
-import { buildReasoningSystemPrompt, buildReasoningUserPrompt, type ReasoningInput } from "@/lib/reasoning-prompts";
+import { buildAgenticSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
@@ -10,9 +11,10 @@ import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-typ
 import { captureApiError } from "@/lib/api-error";
 import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 import { extractJSON } from "@/lib/json-helpers";
-import { parseCitedSections } from "@/lib/reasoning/citation-parser";
 import { generateSituationSummaries } from "@/lib/situation-summarizer";
 import { refineUncertainties } from "@/lib/reasoning/uncertainty-refiner";
+import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
+import { logToolCall } from "@/lib/tool-call-trace";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
 export const REASONING_PROMPT_VERSION = 5; // v5: capability binding, email drafting, params population
@@ -48,29 +50,12 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
   }
 
   try {
-    // 4. Load context
-    const context = await assembleSituationContext(
-      situation.operatorId,
-      situation.situationTypeId,
-      situation.triggerEntityId ?? "",
-      situation.triggerEventId ?? undefined,
-      situationId,
-    );
-
-    // 4b. Flag hollow context sections for reasoning quality awareness
-    const hollowSections = context.contextSections.filter(s => s.itemCount === 0);
-    let missingContextNote: string | undefined;
-    if (hollowSections.length >= 3) {
-      const hollowNames = hollowSections.map(s => s.section).join(", ");
-      missingContextNote = `WARNING: ${hollowSections.length} context sections returned empty (${hollowNames}). This may indicate data sync issues or embedding failures. Reason with reduced confidence.`;
-    }
-
-    // 5. Resolve governance
+    // 4. Resolve governance
     // Get trigger entity type slug
     let triggerEntityTypeSlug = "unknown";
     if (situation.triggerEntityId) {
-      const entity = await prisma.entity.findUnique({
-        where: { id: situation.triggerEntityId },
+      const entity = await prisma.entity.findFirst({
+        where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
         include: { entityType: { select: { slug: true } } },
       });
       if (entity) {
@@ -103,8 +88,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     let personalAutonomyLevel: string | undefined;
 
     if (situation.triggerEntityId) {
-      const triggerEntity = await prisma.entity.findUnique({
-        where: { id: situation.triggerEntityId },
+      const triggerEntity = await prisma.entity.findFirst({
+        where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
         select: { parentDepartmentId: true },
       });
 
@@ -169,44 +154,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     ]);
     const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
 
-    const reasoningInput: ReasoningInput = {
-      situationType: {
-        name: situation.situationType.name,
-        description: situation.situationType.description,
-        autonomyLevel: effectiveAutonomy,
-      },
-      severity: situation.severity,
-      confidence: situation.confidence,
-      triggerEntity: {
-        displayName: context.triggerEntity.displayName,
-        type: context.triggerEntity.type,
-        category: context.triggerEntity.category,
-        properties: context.triggerEntity.properties,
-      },
-      departments: context.departments,
-      departmentKnowledge: context.departmentKnowledge,
-      relatedEntities: context.relatedEntities,
-      recentEvents: context.recentEvents.map((e) => ({
-        type: e.eventType,
-        timestamp: e.createdAt,
-        payload: e.payload,
-      })),
-      priorSituations: await enrichPriorSituations(context.priorSituations),
-      autonomyLevel: effectiveAutonomy,
-      permittedActions: policyResult.permitted,
-      blockedActions: policyResult.blocked,
-      businessContext: businessContextStr,
-      activityTimeline: context.activityTimeline,
-      communicationContext: context.communicationContext,
-      crossDepartmentSignals: context.crossDepartmentSignals,
-      connectorCapabilities: context.connectorCapabilities,
-      workStreamContexts: context.workStreamContexts,
-      delegationSource: context.delegationSource,
-      operationalInsights: context.operationalInsights,
-      actionCycles: context.actionCycles,
-    };
-
-    // 6a. Compute edit instruction and prior feedback (needed by both paths)
+    // 5a. Compute edit instruction and prior feedback
     let editInstructionText: string | null = null;
     if (situation.editInstruction) {
       let originalProposal = "null";
@@ -230,380 +178,162 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       ? priorFeedback.map((f) => `  - ${f.feedback}${f.feedbackCategory ? ` [${f.feedbackCategory}]` : ""}`)
       : null;
 
-    // 6b. Route: single-pass vs multi-agent based on context complexity
-    const { shouldUseMultiAgent, runMultiAgentReasoning } = await import("@/lib/multi-agent-reasoning");
-
-    if (shouldUseMultiAgent(context.contextSections)) {
-      console.log(`[reasoning-engine] Multi-agent path activated for situation ${situationId} (${context.contextSections.reduce((s, c) => s + c.tokenEstimate, 0)} estimated tokens)`);
-
-      const maStartTime = performance.now();
-      const maModelString = getModel("multiAgentCoordinator");
-      const multiAgentResult = await runMultiAgentReasoning(
-        reasoningInput,
-        context.contextSections,
-        operator?.companyName ?? undefined,
-        editInstructionText,
-        priorFeedbackLines,
-      );
-
-      let reasoning = multiAgentResult.coordinatorReasoning;
-
-      // Post-reasoning policy verification (same as single-pass)
-      if (reasoning.actionPlan) {
-        const actionSteps = reasoning.actionPlan.filter(s => s.executionMode === "action");
-        for (const step of actionSteps) {
-          if (step.actionCapabilityName) {
-            const isPermitted = policyResult.permitted.some(p => p.name === step.actionCapabilityName);
-            const isBlocked = policyResult.blocked.some(b => b.name === step.actionCapabilityName);
-            if (!isPermitted || isBlocked) {
-              console.warn(`[reasoning-engine] AI proposed blocked action "${step.actionCapabilityName}" in plan for situation ${situationId}. Nullifying plan.`);
-              reasoning = {
-                ...reasoning,
-                actionPlan: null,
-                analysis: reasoning.analysis + `\n\n[SYSTEM: Plan nullified — step "${step.title}" uses blocked action "${step.actionCapabilityName}".]`,
-              };
-              break;
-            }
-          }
-        }
-      }
-
-      // Resolve actionCapabilityName → actionCapabilityId for action steps
-      let resolvedSteps: StepDefinition[] | null = null;
-      if (reasoning.actionPlan) {
-        resolvedSteps = [];
-        for (const step of reasoning.actionPlan) {
-          let actionCapabilityId: string | undefined;
-          if (step.executionMode === "action" && step.actionCapabilityName) {
-            const cap = await prisma.actionCapability.findFirst({
-              where: { operatorId: situation.operatorId, name: step.actionCapabilityName, enabled: true },
-            });
-            if (!cap) {
-              console.warn(`[reasoning-engine] ActionCapability "${step.actionCapabilityName}" not found. Nullifying plan.`);
-              reasoning = { ...reasoning, actionPlan: null };
-              resolvedSteps = null;
-              break;
-            }
-            actionCapabilityId = cap.id;
-          }
-          const stepParams = step.params ? { ...step.params } : {};
-          if (step.previewType) stepParams.previewType = step.previewType;
-          resolvedSteps.push({
-            title: step.title,
-            description: step.description,
-            executionMode: step.executionMode,
-            actionCapabilityId,
-            assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
-            inputContext: Object.keys(stepParams).length > 0 ? { params: stepParams } : undefined,
-          });
-        }
-      }
-
-      // Refine uncertainties — Opus 4.6 focused pass to resolve or confirm
-      if (resolvedSteps && reasoning.actionPlan) {
-        const hasUncertainties = reasoning.actionPlan.some(s => s.uncertainties && s.uncertainties.length > 0);
-        if (hasUncertainties) {
-          try {
-            let triggerEvidenceStr: string | undefined;
-            if (situation.triggerEvidence) {
-              try {
-                const te = JSON.parse(situation.triggerEvidence);
-                triggerEvidenceStr = te.content ?? te.summary ?? undefined;
-              } catch {}
-            }
-
-            const refinement = await refineUncertainties(
-              reasoning.actionPlan,
-              reasoning.evidenceSummary ?? "",
-              context.communicationContext?.excerpts?.[0]?.content,
-              triggerEvidenceStr,
-            );
-
-            for (const refined of refinement.refinedSteps) {
-              if (refined.stepIndex >= resolvedSteps.length) continue;
-              const step = resolvedSteps[refined.stepIndex];
-
-              if (refined.paramUpdates && step.inputContext) {
-                const existingParams = (step.inputContext as Record<string, unknown>).params as Record<string, unknown> ?? {};
-                (step.inputContext as Record<string, unknown>).params = { ...existingParams, ...refined.paramUpdates };
-              }
-
-              if (refined.descriptionUpdate) {
-                step.description = refined.descriptionUpdate;
-              }
-
-              if (refined.remainingUncertainties.length > 0) {
-                step.inputContext = {
-                  ...(step.inputContext ?? {}),
-                  uncertainties: refined.remainingUncertainties,
-                };
-              }
-            }
-
-            const totalFlagged = reasoning.actionPlan.reduce((n, s) => n + (s.uncertainties?.length ?? 0), 0);
-            const totalRemaining = refinement.refinedSteps.reduce((n, s) => n + s.remainingUncertainties.length, 0);
-            if (totalFlagged > 0) {
-              console.log(`[reasoning-engine] Uncertainty refinement: ${totalFlagged} flagged → ${totalRemaining} kept for situation ${situationId}`);
-            }
-          } catch (err) {
-            console.error(`[reasoning-engine] Uncertainty refinement failed for ${situationId}:`, err);
-          }
-        }
-      }
-
-      // Store reasoning with multi-agent metadata + model tracking
-      const maDurationMs = Math.round(performance.now() - maStartTime);
-      const maPlanTracking = { modelId: maModelString, promptVersion: REASONING_PROMPT_VERSION };
-      const updates: Record<string, unknown> = {
-        reasoning: JSON.stringify({
-          ...reasoning,
-          _multiAgent: {
-            routingReason: multiAgentResult.routingReason,
-            specialistFindings: multiAgentResult.findings,
+    // 5b. Load trigger entity stub (minimal — model uses lookup_entity for full details)
+    const triggerStub = situation.triggerEntityId
+      ? await prisma.entity.findFirst({
+          where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
+          select: {
+            id: true,
+            displayName: true,
+            category: true,
+            entityType: { select: { name: true, slug: true } },
           },
-        }),
-        modelId: maModelString,
-        promptVersion: REASONING_PROMPT_VERSION,
-        reasoningDurationMs: maDurationMs,
-        apiCostCents: multiAgentResult.totalApiCostCents,
-      };
+        })
+      : null;
 
-      // Store proposedAction as the full plan for backward-compatible UI display
-      if (reasoning.actionPlan) {
-        updates.proposedAction = JSON.stringify(reasoning.actionPlan);
-      }
-
-      // Advance status
-      if (reasoning.actionPlan === null || !resolvedSteps) {
-        updates.status = "proposed";
-      } else if (effectiveAutonomy === "supervised") {
-        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, maPlanTracking);
-        updates.executionPlanId = planId;
-        updates.status = "proposed";
-      } else if (effectiveAutonomy === "notify") {
-        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, maPlanTracking);
-        updates.executionPlanId = planId;
-        updates.status = "executing";
-      } else {
-        // autonomous
-        const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, maPlanTracking);
-        updates.executionPlanId = planId;
-        updates.status = "executing";
-      }
-
-      // Fold situationTitle into the main update
-      if (reasoning.situationTitle) {
-        updates.triggerSummary = reasoning.situationTitle;
-      }
-
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: updates,
+    // 5c. Load operational insights
+    let aiEntityId: string | null = null;
+    let triggerDepartmentId: string | null = null;
+    if (situation.triggerEntityId) {
+      const te = await prisma.entity.findFirst({
+        where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
+        select: { parentDepartmentId: true },
       });
-
-      await assignSituationOwner(situationId, situation.operatorId, reasoning, situation.assignedUserId);
-
-      await createSituationCycle(situationId, situation, reasoning, updates.executionPlanId as string | undefined);
-
-      // Generate Haiku summaries (fire-and-forget — non-blocking)
-      generateSituationSummaries(situationId).catch(err =>
-        console.error(`[reasoning-engine] Summary generation failed for ${situationId}:`, err)
-      );
-
-      // Workstream absorption: link situation to related workstream
-      if (reasoning.relatedWorkStreamId) {
-        absorbSituationIntoWorkStream(situationId, reasoning.relatedWorkStreamId, situation.operatorId).catch(err =>
-          console.error(`[reasoning-engine] Workstream absorption failed for ${situationId}:`, err),
-        );
-      }
-
-      // For notify/autonomous: auto-advance the first step
-      if (resolvedSteps && (effectiveAutonomy === "notify" || effectiveAutonomy === "autonomous")) {
-        const plan = await prisma.executionPlan.findFirst({
-          where: { id: updates.executionPlanId as string },
-          include: { steps: { orderBy: { sequenceOrder: "asc" }, take: 1 } },
+      triggerDepartmentId = te?.parentDepartmentId ?? null;
+      if (triggerDepartmentId) {
+        const deptAi = await prisma.entity.findFirst({
+          where: { ownerDepartmentId: triggerDepartmentId, operatorId: situation.operatorId, status: "active" },
+          select: { id: true },
         });
-        if (plan?.steps[0]) {
-          const { advanceStep } = await import("@/lib/execution-engine");
-          advanceStep(plan.steps[0].id, "approve", "system").catch(err =>
-            console.error(`[reasoning-engine] Auto-advance failed for ${situationId}:`, err)
-          );
-        }
-      }
-
-      // For supervised: check plan autonomy graduation
-      if (resolvedSteps && effectiveAutonomy === "supervised" && updates.executionPlanId) {
-        await checkPlanAutonomyAutoApprove(
-          situation.operatorId, situation.triggerEntityId, updates.executionPlanId as string,
-          resolvedSteps, situation.situationType.name, situationId,
-        );
-      }
-
-      // Situation-level notifications
-      if (reasoning.actionPlan === null || !resolvedSteps) {
-        sendNotificationToAdmins({
-          operatorId: situation.operatorId,
-          type: "situation_proposed",
-          title: `Review needed: ${situation.situationType.name}`,
-          body: "AI analyzed the situation but recommends no action. Please review the reasoning.",
-          sourceType: "situation",
-          sourceId: situationId,
-        }).catch(() => {});
-      } else if (effectiveAutonomy === "supervised") {
-        sendNotificationToAdmins({
-          operatorId: situation.operatorId,
-          type: "situation_proposed",
-          title: `Plan proposed: ${situation.situationType.name}`,
-          body: `AI proposes a ${resolvedSteps.length}-step plan: ${resolvedSteps.map(s => s.title).join(" → ")}`,
-          sourceType: "situation",
-          sourceId: situationId,
-        }).catch(() => {});
-      } else if (effectiveAutonomy === "notify") {
-        sendNotificationToAdmins({
-          operatorId: situation.operatorId,
-          type: "situation_proposed",
-          title: `Auto-executing: ${situation.situationType.name}`,
-          body: `AI is executing a ${resolvedSteps.length}-step plan. Review and reverse if needed.`,
-          sourceType: "situation",
-          sourceId: situationId,
-        }).catch(() => {});
-      }
-      // autonomous: no notification (by design)
-
-      // Handle escalation
-      if (reasoning.escalation) {
-        const triggerEntity = situation.triggerEntityId
-          ? await prisma.entity.findUnique({ where: { id: situation.triggerEntityId }, select: { parentDepartmentId: true } })
-          : null;
-
-        if (triggerEntity?.parentDepartmentId) {
-          const deptAi = await prisma.entity.findFirst({
-            where: { ownerDepartmentId: triggerEntity.parentDepartmentId, operatorId: situation.operatorId },
-            select: { id: true },
-          });
-
-          const goal = await prisma.goal.findFirst({
-            where: { operatorId: situation.operatorId, departmentId: triggerEntity.parentDepartmentId, status: "active" },
-            orderBy: { priority: "asc" },
-          });
-
-          if (deptAi && goal) {
-            await prisma.initiative.create({
-              data: {
-                operatorId: situation.operatorId,
-                goalId: goal.id,
-                aiEntityId: deptAi.id,
-                status: "proposed",
-                rationale: reasoning.escalation.rationale,
-                impactAssessment: `Escalated from situation: ${situation.situationType?.name ?? situationId}`,
-              },
-            }).catch(err => console.error(`[reasoning-engine] Escalation initiative creation failed:`, err));
-          }
-        }
-      }
-
-      return; // multi-agent path complete
-    }
-
-    // 6c. Single-pass: build prompt with edit instruction and prior feedback
-    const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
-    let userPrompt = buildReasoningUserPrompt(reasoningInput);
-
-    if (missingContextNote) {
-      userPrompt += `\n\nDATA QUALITY NOTICE:\n${missingContextNote}`;
-    }
-
-    if (editInstructionText) {
-      userPrompt += `\n\nEDIT REQUEST:\n${editInstructionText}\n\nRevise your actionPlan to incorporate this feedback. Keep the same situation analysis but adjust the plan steps and justification accordingly.`;
-    }
-
-    if (priorFeedbackLines) {
-      userPrompt += `\n\nHUMAN FEEDBACK ON SIMILAR SITUATIONS:\n${priorFeedbackLines.join("\n")}\nIncorporate this feedback into your reasoning.`;
-    }
-
-    // 7. Call LLM
-    const reasoningStartTime = performance.now();
-    const archetypeSlug = situation.situationType.archetypeSlug ?? null;
-    const modelString = getModelForArchetype(archetypeSlug);
-    const thinkingBudget = getThinkingBudgetForArchetype(archetypeSlug);
-    console.log(`[reasoning-engine] Situation ${situationId} reasoned with tier=${getArchetypeTier(archetypeSlug)} model=${modelString}`);
-    let reasoning: ReasoningOutput | null = null;
-    let rawResponse = "";
-    let parseError = "";
-    let reasoningApiCostCents = 0;
-
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const userContent = attempt === 0
-        ? userPrompt
-        : `${userPrompt}\n\nPREVIOUS ATTEMPT FAILED VALIDATION: ${parseError}\nPlease fix the JSON output to match the required schema exactly.`;
-
-      try {
-        const response = await callLLM({
-          instructions: systemPrompt,
-          messages: [{ role: "user", content: userContent }],
-          temperature: 0.2,
-          maxTokens: 32768,
-          aiFunction: "reasoning",
-          model: modelString,
-          operatorId: situation.operatorId,
-          thinking: thinkingBudget !== null,
-          thinkingBudget: thinkingBudget ?? undefined,
-        });
-        rawResponse = response.text;
-        reasoningApiCostCents += response.apiCostCents;
-
-        // 8. Validate response
-        const parsed = extractJSON(rawResponse);
-        if (!parsed) {
-          parseError = "Could not parse JSON from response";
-          if (attempt === 0) continue;
-          break;
-        }
-
-        const result = ReasoningOutputSchema.safeParse(parsed);
-        if (!result.success) {
-          parseError = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-          if (attempt === 0) continue;
-          break;
-        }
-
-        reasoning = result.data;
-
-        // Label web sources if present
-        if (response.webSources && response.webSources.length > 0) {
-          reasoning = {
-            ...reasoning,
-            analysis: reasoning.analysis + "\n\n[External web sources were consulted.]",
-            webSources: response.webSources.map(s => s.url),
-          };
-        }
-
-        break;
-      } catch (err) {
-        console.error(`[reasoning-engine] LLM call failed for situation ${situationId}:`, err);
-        // Leave at detected status for retry
-        await prisma.situation.update({
-          where: { id: situationId },
-          data: { status: "detected" },
-        });
-        return;
+        aiEntityId = deptAi?.id ?? null;
       }
     }
+    const operationalInsights = await loadOperationalInsights(
+      situation.operatorId, aiEntityId, triggerDepartmentId, situation.situationTypeId,
+    );
 
-    // If validation failed after both attempts
-    if (!reasoning) {
-      console.warn(`[reasoning-engine] Validation failed for situation ${situationId}: ${parseError}`);
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: {
-          status: "detected",
-          reasoning: JSON.stringify({ raw: rawResponse, parseError }),
+    // 5d. Load action cycles (prior completed cycles for this situation)
+    const completedCycles = await prisma.situationCycle.findMany({
+      where: { situationId, status: "completed" },
+      orderBy: { cycleNumber: "asc" },
+      include: {
+        executionPlan: {
+          include: { steps: { orderBy: { sequenceOrder: "asc" } } },
         },
+      },
+    });
+    const actionCycles = completedCycles.map((c) => ({
+      cycleNumber: c.cycleNumber,
+      triggerType: c.triggerType,
+      triggerSummary: c.triggerSummary,
+      steps: (c.executionPlan?.steps ?? []).map((s) => ({
+        title: s.title,
+        completed: s.status === "completed",
+        notes: s.outputResult ? (() => { try { const r = JSON.parse(s.outputResult!); return r.notes || r.description || undefined; } catch { return undefined; } })() : undefined,
+      })),
+    }));
+    const cycleNumber = completedCycles.length + 1;
+
+    // 5e. Load delegation source
+    let delegationSource: { instruction: string; context: unknown; fromEntityName: string | null } | null = null;
+    if (situation.delegationId) {
+      const delegation = await prisma.delegation.findFirst({
+        where: { id: situation.delegationId!, operatorId: situation.operatorId },
+        select: { instruction: true, context: true, fromAiEntityId: true },
       });
-      return;
+      if (delegation) {
+        const fromEntity = await prisma.entity.findFirst({
+          where: { id: delegation.fromAiEntityId, operatorId: situation.operatorId },
+          select: { displayName: true },
+        });
+        delegationSource = {
+          instruction: delegation.instruction,
+          context: delegation.context ? (() => { try { return JSON.parse(delegation.context!); } catch { return null; } })() : null,
+          fromEntityName: fromEntity?.displayName ?? null,
+        };
+      }
     }
 
-    // 8b. Post-reasoning policy verification — catch LLM ignoring BLOCKED instructions
+    // 5f. Load workstream membership
+    const workstreamItems = await prisma.workStreamItem.findMany({
+      where: { itemType: "situation", itemId: situationId },
+      select: { workStreamId: true },
+    });
+
+    // 6. Load connector capabilities for seed context
+    const PROVIDER_TYPES: Record<string, string[]> = {
+      google: ["gmail", "google_drive", "google_calendar", "google_sheets"],
+      microsoft: ["outlook", "onedrive", "teams", "microsoft_calendar"],
+      slack: ["slack"],
+      hubspot: ["hubspot"],
+      stripe: ["stripe"],
+    };
+    const activeConnectors = await prisma.sourceConnector.findMany({
+      where: { operatorId: situation.operatorId, status: "active", deletedAt: null },
+      select: { provider: true, userId: true },
+    });
+    const connSeen = new Set<string>();
+    const connectorCapabilities = activeConnectors.flatMap((c) => {
+      const types = PROVIDER_TYPES[c.provider] ?? [c.provider];
+      return types
+        .filter((type) => {
+          const key = `${c.provider}:${type}:${c.userId ? "personal" : "company"}`;
+          if (connSeen.has(key)) return false;
+          connSeen.add(key);
+          return true;
+        })
+        .map((type) => ({
+          provider: c.provider,
+          type,
+          scope: (c.userId ? "personal" : "company") as "personal" | "company",
+        }));
+    });
+
+    // 6b. Build system prompt and seed context
+    const systemPrompt = buildAgenticSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
+
+    const seedInput: AgenticSeedInput = {
+      situationType: { name: situation.situationType.name, description: situation.situationType.description },
+      severity: situation.severity,
+      confidence: situation.confidence,
+      autonomyLevel: effectiveAutonomy,
+      triggerEvidence: situation.triggerEvidence,
+      triggerSummary: situation.triggerSummary,
+      triggerStub: triggerStub ? {
+        id: triggerStub.id,
+        displayName: triggerStub.displayName,
+        category: triggerStub.category,
+        typeName: triggerStub.entityType.name,
+      } : null,
+      permittedActions: policyResult.permitted,
+      blockedActions: policyResult.blocked,
+      businessContext: businessContextStr,
+      operationalInsights,
+      actionCycles,
+      delegationSource,
+      workstreamCount: workstreamItems.length,
+      connectorCapabilities,
+    };
+    const seedContext = buildAgenticSeedContext(seedInput);
+
+    // 7. Run agentic reasoning loop
+    const agenticResult = await runAgenticLoop({
+      operatorId: situation.operatorId,
+      situationId,
+      cycleNumber,
+      systemPrompt,
+      seedContext,
+      editInstruction: editInstructionText,
+      priorFeedbackLines,
+    });
+    let reasoning = agenticResult.reasoning;
+    const reasoningApiCostCents = agenticResult.apiCostCents;
+    const modelString = agenticResult.modelId;
+    const reasoningDurationMs = agenticResult.durationMs;
+
+    console.log(`[reasoning-engine] Agentic reasoning complete for situation ${situationId}: ${reasoningDurationMs}ms, $${(reasoningApiCostCents / 100).toFixed(2)}`);
+
+    // 8. Post-reasoning policy verification — catch LLM ignoring BLOCKED instructions
     if (reasoning.actionPlan) {
       const actionSteps = reasoning.actionPlan.filter(s => s.executionMode === "action");
       for (const step of actionSteps) {
@@ -654,7 +384,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       }
     }
 
-    // Refine uncertainties — Opus 4.6 focused pass to resolve or confirm
+    // Refine uncertainties — focused pass to resolve or confirm
     if (resolvedSteps && reasoning.actionPlan) {
       const hasUncertainties = reasoning.actionPlan.some(s => s.uncertainties && s.uncertainties.length > 0);
       if (hasUncertainties) {
@@ -670,7 +400,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           const refinement = await refineUncertainties(
             reasoning.actionPlan,
             reasoning.evidenceSummary ?? "",
-            context.communicationContext?.excerpts?.[0]?.content,
+            undefined, // agentic model already investigated communications
             triggerEvidenceStr,
           );
 
@@ -707,15 +437,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }
 
     // 10. Store reasoning + model tracking
-    const reasoningDurationMs = Math.round(performance.now() - reasoningStartTime);
     const planTracking = { modelId: modelString, promptVersion: REASONING_PROMPT_VERSION };
-
-    // Parse cited context sections from reasoning text
-    const citedSections = parseCitedSections(rawResponse);
-    const contextMeta = context.contextSections.map((s) => ({
-      ...s,
-      citedInReasoning: citedSections.includes(s.section),
-    }));
 
     const updates: Record<string, unknown> = {
       reasoning: JSON.stringify(reasoning),
@@ -723,10 +445,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       promptVersion: REASONING_PROMPT_VERSION,
       reasoningDurationMs,
       apiCostCents: reasoningApiCostCents,
-      contextSnapshot: JSON.stringify({
-        ...(() => { try { return situation.contextSnapshot ? JSON.parse(situation.contextSnapshot as string) : {}; } catch { return {}; } })(),
-        contextMeta,
-      }),
+      contextSnapshot: JSON.stringify({ agenticReasoning: true, toolCallCount: "see ToolCallTrace" }),
     };
 
     // Store proposedAction as the full plan for backward-compatible UI display
@@ -738,7 +457,6 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     if (reasoning.actionPlan === null || !resolvedSteps) {
       updates.status = "proposed";
     } else if (effectiveAutonomy === "autonomous") {
-      // Autonomous: auto-execute without approval
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "executing";
@@ -747,7 +465,6 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         data: { confirmedCount: { increment: 1 } },
       }).catch(() => {});
     } else {
-      // Propose: create plan, await human approval (supervised + notify both land here)
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
       updates.status = "proposed";
@@ -812,7 +529,6 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         sourceId: situationId,
       }).catch(() => {});
     } else if (effectiveAutonomy !== "autonomous") {
-      // Propose: notify admins of proposed plan (supervised + notify both land here)
       sendNotificationToAdmins({
         operatorId: situation.operatorId,
         type: "situation_proposed",
@@ -827,7 +543,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     // Handle escalation
     if (reasoning.escalation) {
       const triggerEntity = situation.triggerEntityId
-        ? await prisma.entity.findUnique({ where: { id: situation.triggerEntityId }, select: { parentDepartmentId: true } })
+        ? await prisma.entity.findFirst({ where: { id: situation.triggerEntityId, operatorId: situation.operatorId }, select: { parentDepartmentId: true } })
         : null;
 
       if (triggerEntity?.parentDepartmentId) {
@@ -865,6 +581,177 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       data: { status: "detected" },
     }).catch(() => {});
   }
+}
+
+// ── Agentic Loop ────────────────────────────────────────────────────────────
+
+const SOFT_BUDGET = 20;
+const HARD_BUDGET = 25;
+
+async function runAgenticLoop(params: {
+  operatorId: string;
+  situationId: string;
+  cycleNumber: number;
+  systemPrompt: string;
+  seedContext: string;
+  editInstruction?: string | null;
+  priorFeedbackLines?: string[] | null;
+}): Promise<{
+  reasoning: ReasoningOutput;
+  apiCostCents: number;
+  durationMs: number;
+  modelId: string;
+}> {
+  const model = getModel("agenticReasoning");
+  const thinkingBudget = getThinkingBudget("agenticReasoning");
+  const startTime = performance.now();
+  let apiCostCents = 0;
+  let totalCalls = 0;
+  let callIndex = 0;
+  let softNudgeSent = false;
+  let parseRetried = false;
+
+  // Build initial user message
+  let initialContent = params.seedContext;
+  if (params.editInstruction) {
+    initialContent += `\n\nEDIT REQUEST:\n${params.editInstruction}\nRevise your actionPlan to incorporate this feedback. Keep the same situation analysis but adjust the plan steps and justification accordingly.`;
+  }
+  if (params.priorFeedbackLines) {
+    initialContent += `\n\nHUMAN FEEDBACK ON SIMILAR SITUATIONS:\n${params.priorFeedbackLines.join("\n")}\nIncorporate this feedback into your reasoning.`;
+  }
+
+  const messages: LLMMessage[] = [
+    { role: "user", content: initialContent },
+  ];
+
+  while (totalCalls < HARD_BUDGET) {
+    // Soft budget nudge
+    if (totalCalls >= SOFT_BUDGET && !softNudgeSent) {
+      messages.push({
+        role: "user",
+        content: `BUDGET NOTICE: You have used ${totalCalls} of your ${HARD_BUDGET} tool call budget. You may make up to ${HARD_BUDGET - totalCalls} more calls if critical evidence is still missing. Otherwise, produce your final JSON assessment now.`,
+      });
+      softNudgeSent = true;
+    }
+
+    const response = await callLLM({
+      instructions: params.systemPrompt,
+      messages,
+      tools: REASONING_TOOLS,
+      temperature: 0.2,
+      aiFunction: "reasoning",
+      model,
+      operatorId: params.operatorId,
+      thinking: thinkingBudget !== null,
+      thinkingBudget: thinkingBudget ?? undefined,
+    });
+    apiCostCents += response.apiCostCents;
+
+    // Terminal check — model produced final output (no tool calls)
+    if (!response.toolCalls?.length) {
+      const parsed = extractJSON(response.text);
+      if (!parsed) {
+        if (!parseRetried) {
+          parseRetried = true;
+          messages.push({ role: "assistant", content: response.text });
+          messages.push({ role: "user", content: "Your output could not be parsed as JSON. Produce valid JSON matching the required schema." });
+          continue;
+        }
+        throw new Error(`Agentic reasoning failed: could not parse JSON after retry`);
+      }
+      const result = ReasoningOutputSchema.safeParse(parsed);
+      if (!result.success) {
+        const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+        if (!parseRetried) {
+          parseRetried = true;
+          messages.push({ role: "assistant", content: response.text });
+          messages.push({ role: "user", content: `Your output could not be parsed: ${errors}. Produce valid JSON matching the required schema.` });
+          continue;
+        }
+        throw new Error(`Agentic reasoning failed: schema validation failed after retry: ${errors}`);
+      }
+      return {
+        reasoning: result.data,
+        apiCostCents,
+        durationMs: Math.round(performance.now() - startTime),
+        modelId: model,
+      };
+    }
+
+    // Tool execution — push assistant message with tool_calls, then execute each
+    messages.push({
+      role: "assistant",
+      content: response.text || "",
+      tool_calls: response.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: "function" as const,
+        function: {
+          name: tc.name,
+          arguments: JSON.stringify(tc.arguments),
+        },
+      })),
+    });
+
+    for (const toolCall of response.toolCalls) {
+      const toolStart = performance.now();
+      const result = await executeReasoningTool(params.operatorId, toolCall.name, toolCall.arguments);
+      const toolDurationMs = Math.round(performance.now() - toolStart);
+
+      messages.push({
+        role: "tool",
+        content: result,
+        tool_call_id: toolCall.id,
+        name: toolCall.name,
+      });
+
+      // Fire-and-forget telemetry
+      logToolCall({
+        situationId: params.situationId,
+        cycleNumber: params.cycleNumber,
+        callIndex,
+        toolName: toolCall.name,
+        arguments: toolCall.arguments,
+        result,
+        durationMs: toolDurationMs,
+      }).catch(() => {});
+
+      callIndex++;
+      totalCalls++;
+    }
+  }
+
+  // Hard budget hit — force final output with no tools
+  messages.push({
+    role: "user",
+    content: "You must produce your final JSON assessment now. Note any remaining evidence gaps in the missingContext field.",
+  });
+
+  const finalResponse = await callLLM({
+    instructions: params.systemPrompt,
+    messages,
+    temperature: 0.2,
+    aiFunction: "reasoning",
+    model,
+    operatorId: params.operatorId,
+    thinking: thinkingBudget !== null,
+    thinkingBudget: thinkingBudget ?? undefined,
+  });
+  apiCostCents += finalResponse.apiCostCents;
+
+  const parsed = extractJSON(finalResponse.text);
+  if (!parsed) throw new Error("Agentic reasoning failed: could not parse final JSON after budget exhaustion");
+  const result = ReasoningOutputSchema.safeParse(parsed);
+  if (!result.success) {
+    const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    throw new Error(`Agentic reasoning failed: final output schema validation failed: ${errors}`);
+  }
+
+  return {
+    reasoning: result.data,
+    apiCostCents,
+    durationMs: Math.round(performance.now() - startTime),
+    modelId: model,
+  };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -925,36 +812,6 @@ async function assignSituationOwner(
   }
 }
 
-async function enrichPriorSituations(
-  priors: Array<{ id: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>,
-) {
-  if (priors.length === 0) return [];
-
-  // Fetch reasoning field for prior situations to extract analysis
-  const priorRecords = await prisma.situation.findMany({
-    where: { id: { in: priors.map((p) => p.id) } },
-    select: { id: true, reasoning: true },
-  });
-  const reasoningMap = new Map(priorRecords.map((r) => [r.id, r.reasoning]));
-
-  return priors.map((p) => {
-    let analysis: string | undefined;
-    const raw = reasoningMap.get(p.id);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (typeof parsed.analysis === "string") analysis = parsed.analysis;
-      } catch {}
-    }
-    return {
-      analysis,
-      outcome: p.outcome ?? undefined,
-      feedback: p.feedback ?? undefined,
-      actionTaken: p.actionTaken,
-      createdAt: p.createdAt,
-    };
-  });
-}
 
 async function checkPlanAutonomyAutoApprove(
   operatorId: string,

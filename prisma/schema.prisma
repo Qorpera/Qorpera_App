@@ -570,8 +570,9 @@ model Situation {
   events        SituationEvent[]
   executionPlan ExecutionPlan?   @relation(fields: [executionPlanId], references: [id])
   delegation    Delegation?      @relation(fields: [delegationId], references: [id], onDelete: SetNull)
-  cycles        SituationCycle[]
-  views         SituationView[]
+  cycles         SituationCycle[]
+  views          SituationView[]
+  toolCallTraces ToolCallTrace[]
 
   @@index([operatorId, status])
   @@index([situationTypeId, createdAt(sort: Desc)])
@@ -1310,6 +1311,24 @@ model SituationCycle {
 
   @@index([situationId, cycleNumber])
   @@index([situationId, status])
+}
+
+model ToolCallTrace {
+  id              String   @id @default(cuid())
+  situationId     String
+  cycleNumber     Int      @default(1)
+  callIndex       Int      // Sequential index within this reasoning session (0-based)
+  toolName        String   // e.g., "lookup_entity", "search_communications"
+  arguments       Json     // The arguments the model passed
+  resultSummary   String?  // First 500 chars of result for quick scanning
+  resultTokens    Int      // Estimated token count of result
+  durationMs      Int      // How long the tool call took to execute
+  createdAt       DateTime @default(now())
+
+  situation       Situation @relation(fields: [situationId], references: [id], onDelete: Cascade)
+
+  @@index([situationId])
+  @@index([toolName])
 }
 
 model EvaluationLog {
