@@ -53,12 +53,17 @@ const ACTIVITY_BATCH_SIZE = 500;
 
 export async function runSyntheticSeed(
   company: SyntheticCompany,
-  options?: { modelOverride?: string },
+  options?: {
+    modelOverride?: string;
+    seedProject?: boolean;
+    projectOptions?: { projectType?: string; targetCompanyName?: string };
+  },
 ): Promise<{
   operatorId: string;
   userCredentials: Array<{ name: string; email: string; password: string; role: string }>;
   stats: Record<string, number>;
   analysisId: string;
+  projectId?: string;
 }> {
   console.log(`[synthetic-seed] Starting seed for ${company.name}...`);
   console.time(`[synthetic-seed] Total seed time — ${company.slug}`);
@@ -465,6 +470,15 @@ export async function runSyntheticSeed(
   });
   console.log(`[synthetic-seed] Created pending analysis ${analysis.id} — worker will pick up shortly`);
 
+  // ── Optional: seed project data ──────────────────────────────────
+  let projectId: string | undefined;
+  if (options?.seedProject) {
+    const { seedProjectData } = await import("./seed-project-data");
+    const result = await seedProjectData(operatorId, options.projectOptions);
+    projectId = result.projectId;
+    console.log(`[synthetic-seed] Project seeded: ${result.projectId} (${result.deliverableCount} deliverables)`);
+  }
+
   // ── Return stats ─────────────────────────────────────────────────
   console.timeEnd(`[synthetic-seed] Total seed time — ${company.slug}`);
   return {
@@ -483,6 +497,7 @@ export async function runSyntheticSeed(
       activitySignals: signalCount,
     },
     analysisId: analysis.id,
+    projectId,
   };
 }
 

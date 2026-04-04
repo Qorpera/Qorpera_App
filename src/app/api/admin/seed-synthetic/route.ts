@@ -14,6 +14,7 @@ const COMPANY_LOADERS: Record<string, () => Promise<{ default: import("@/lib/dem
   tallyo: () => import("@/lib/demo/companies/tallyo"),
   "meridian-teknik": () => import("@/lib/demo/companies/meridian-teknik"),
   "hansens-is": () => import("@/lib/demo/companies/hansens-is"),
+  "nordisk-kapital": () => import("@/lib/demo/companies/nordisk-kapital"),
 };
 
 export async function POST(req: NextRequest) {
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { company: companySlug, action, operatorId: targetOperatorId, mode = "onboarding" } = await req.json().catch(() => ({ company: null, action: null, operatorId: null, mode: "onboarding" }));
+  const { company: companySlug, action, operatorId: targetOperatorId, mode = "onboarding", seedProject, projectOptions } = await req.json().catch(() => ({ company: null, action: null, operatorId: null, mode: "onboarding", seedProject: undefined, projectOptions: undefined }));
 
   // ── seed-all action — seeds all companies sequentially ──────────
   if (action === "seed-all") {
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
       console.log(`[synthetic-seed] Removing existing ${companySlug} operator...`);
       await cleanupSyntheticCompany(existing.id, companyData.domain);
     }
-    const result = await runSyntheticSeed(companyData);
+    const result = await runSyntheticSeed(companyData, { seedProject, projectOptions });
 
     // Ground truth mode: bypass onboarding, create pre-built state
     if (mode === "ground-truth" && companySlug === "hansens-is") {
@@ -115,9 +116,10 @@ export async function POST(req: NextRequest) {
       mode: "onboarding",
       operatorId: result.operatorId,
       analysisId: result.analysisId,
+      projectId: result.projectId,
       credentials: result.userCredentials,
       stats: result.stats,
-      message: `${companyData.name} seeded. Onboarding analysis queued — worker will start within 5 seconds.`,
+      message: `${companyData.name} seeded.${result.projectId ? ` Project ${result.projectId} created.` : ""} Onboarding analysis queued — worker will start within 5 seconds.`,
     });
   } catch (error) {
     console.error(`[synthetic-seed] Failed to seed ${companySlug}:`, error);
