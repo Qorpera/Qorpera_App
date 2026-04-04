@@ -5,6 +5,7 @@ import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
+import { createProjectFromInitiative } from "@/lib/initiative-project";
 
 export async function GET(
   _req: NextRequest,
@@ -126,6 +127,22 @@ export async function PATCH(
       where: { id },
       data: { status: "approved" },
     });
+
+    // If initiative has a proposed project config, create the project
+    if (initiative.proposedProjectConfig) {
+      let projectId: string | undefined;
+      try {
+        projectId = await createProjectFromInitiative(initiative.id, user.id);
+      } catch (err) {
+        console.error("[initiative-api] Failed to create project from initiative:", err);
+        // Don't fail the approval — the initiative is approved, project creation can be retried
+      }
+
+      triggerInitiativeWorkStreamRecheck(id);
+
+      const current = await prisma.initiative.findUnique({ where: { id }, select: { status: true } });
+      return NextResponse.json({ id, status: current?.status ?? "approved", projectId });
+    }
 
     if (initiative.executionPlanId) {
       // Approve the execution plan

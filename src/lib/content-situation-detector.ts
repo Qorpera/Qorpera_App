@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { resolveEntity } from "@/lib/entity-resolution";
 import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { extractJSONArray } from "@/lib/json-helpers";
+import { enrichSignalContext, type EnrichedSignalContext } from "./detection-enrichment";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
 import { getArchetypeTaxonomy, ensureArchetypeSituationType } from "@/lib/archetype-classifier";
 import { ensureActionRequiredType, ensureAwarenessType } from "@/lib/situation-type-helpers";
@@ -24,7 +25,7 @@ export type CommunicationItem = {
 
 type EvaluationResult = {
   messageIndex: number;
-  classification: "action_required" | "awareness" | "irrelevant";
+  classification: "action_required" | "awareness" | "irrelevant" | "initiative_candidate";
   awarenessType: "informational" | "strategic" | null; // only for awareness
   summary: string;
   urgency: "low" | "medium" | "high" | null; // null for irrelevant
@@ -32,9 +33,28 @@ type EvaluationResult = {
   relatedSituationId: string | null;
   updatedSummary: string | null;
   evidence: string;
-  reasoning: string; // NEW: why the LLM classified it this way
+  reasoning: string;
   archetypeSlug: string | null;
   archetypeConfidence: number | null;
+  projectRecommendation: {
+    title: string;
+    description: string;
+    coordinatorEmail: string;
+    dueDate: string | null;
+    proposedMembers: Array<{
+      email: string;
+      name: string;
+      role: string;
+    }>;
+    proposedDeliverables: Array<{
+      title: string;
+      description: string;
+      assignedToEmail: string;
+      format: string;
+      suggestedDeadline: string | null;
+    }>;
+    rationale: string;
+  } | null;
 };
 
 type ActorBatch = {
@@ -50,7 +70,7 @@ type ActorBatch = {
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const MAX_BATCH_SIZE = 20;
-const COMMUNICATION_TYPES = new Set(["email", "slack_message", "teams_message"]);
+const COMMUNICATION_TYPES = new Set(["email", "slack_message", "teams_message", "calendar_proactive"]);
 
 const URGENCY_CONFIDENCE: Record<string, number> = {
   high: 0.9,
@@ -192,7 +212,7 @@ async function buildSystemPrompt(): Promise<string> {
 
   return `You are evaluating incoming business communications to determine what attention they require from a specific person within their organization.
 
-Classify each message into one of three categories:
+Classify each message into one of four categories:
 
 **action_required** — The recipient needs to perform a concrete action: respond to a question, complete a task, make a decision, attend a meeting, review a document, follow up on something, approve/reject something. The action must be relevant to legitimate business operations — not personal purchases, spam, or solicitations.
 
@@ -201,6 +221,20 @@ Classify each message into one of three categories:
 For each awareness message, you must ALSO sub-classify as:
 - **informational** — Routine updates requiring zero thought or decision-making: meeting acceptances/declines, calendar reminders for existing meetings, read receipts, auto-generated status notifications, newsletter digests, booking confirmations, schedule change confirmations, system notifications ("synced successfully"), out-of-office auto-replies, meeting notes shared as FYI with no questions asked. The KEY TEST: would the recipient delete this email without reading it twice? If yes → informational.
 - **strategic** — Information the recipient didn't ask for but that carries BUSINESS RISK or OPPORTUNITY if ignored: being CC'd on an escalating dispute, competitor pricing shared in a thread, a client's payment pattern changing, an employee mentioning they're considering leaving, a regulatory deadline appearing in a forwarded document, a partner signaling dissatisfaction. The KEY TEST: could ignoring this cost the company money, a relationship, or a legal obligation within 30 days? If yes → strategic. Calendar reminders, meeting confirmations, and scheduling logistics are NEVER strategic — even if the meeting topic is important, the reminder itself carries no strategic information.
+
+**initiative_candidate** — This signal indicates work that requires COORDINATION across multiple people, each producing distinct deliverables toward a shared objective with a deadline. Use this when:
+- The signal references a meeting/event where multiple people must PREPARE MATERIALS (not just attend)
+- The signal describes a project, audit, review, or coordinated effort involving 3+ people producing distinct outputs
+- A calendar event exists with multiple attendees and substantive preparation is clearly needed but hasn't started
+- The effort has a clear deadline and the deliverables don't exist yet
+
+Do NOT use initiative_candidate for:
+- A meeting that's just a discussion with no deliverables needed
+- A single person being asked to do multiple tasks (that's action_required)
+- Status updates about ongoing work (that's awareness)
+- An event that already has an active Project with these participants (check ACTIVE PROJECTS in enriched context)
+
+When you classify as initiative_candidate, you must ALSO provide a projectRecommendation object with: title, description, coordinatorEmail (who should scope this — typically the meeting organizer or most senior attendee), dueDate, proposedMembers (each with email, name, role), proposedDeliverables (each with title, description, assignedToEmail, format, suggestedDeadline), and rationale explaining why this should be a project.
 
 **irrelevant** — This has nothing to do with the recipient's work responsibilities. Spam, marketing solicitations, newsletters they didn't subscribe to for work purposes, automated system notifications with no actionable content, social/casual messages with no work relevance, promotional offers (gambling, personal shopping, etc).
 
@@ -228,10 +262,21 @@ For each message classified as "action_required" OR as "awareness" with awarenes
 SITUATION ARCHETYPE TAXONOMY:
 ${taxonomy}
 
+For initiative_candidate messages, also include:
+    "projectRecommendation": {
+      "title": "Project title",
+      "description": "What this project accomplishes",
+      "coordinatorEmail": "email of person who should review/scope this",
+      "dueDate": "ISO date or null",
+      "proposedMembers": [{"email": "...", "name": "...", "role": "owner|contributor|reviewer"}],
+      "proposedDeliverables": [{"title": "...", "description": "...", "assignedToEmail": "...", "format": "document|spreadsheet|presentation|analysis", "suggestedDeadline": "ISO date or null"}],
+      "rationale": "Why this needs a project, not individual tasks"
+    }
+
 Respond with ONLY valid JSON (no markdown fences):`;
 }
 
-async function evaluateActorBatch(batch: ActorBatch): Promise<EvaluationResult[]> {
+async function evaluateActorBatch(batch: ActorBatch, enrichments: (EnrichedSignalContext | null)[]): Promise<EvaluationResult[]> {
   const openSitLines =
     batch.openSituations.length > 0
       ? batch.openSituations
@@ -248,13 +293,55 @@ async function evaluateActorBatch(batch: ActorBatch): Promise<EvaluationResult[]
           : item.content;
       const msgDate = meta.date ? new Date(meta.date as string) : null;
       const daysAgo = msgDate ? Math.round((Date.now() - msgDate.getTime()) / 86_400_000) : null;
+
+      // Build enriched context block
+      const enrichment = enrichments[idx];
+      let enrichmentBlock = "";
+      if (enrichment) {
+        const parts: string[] = [];
+
+        if (enrichment.relatedCalendarEvents.length > 0) {
+          parts.push("RELATED CALENDAR EVENTS:\n" + enrichment.relatedCalendarEvents
+            .map(e => `  - "${e.title}" on ${e.date} (${e.daysUntil} days), attendees: ${e.attendees.join(", ")}`)
+            .join("\n"));
+        }
+
+        if (enrichment.threadHistory.length > 0) {
+          parts.push("THREAD HISTORY:\n" + enrichment.threadHistory
+            .map(t => `  - ${t.from} (${t.date}): ${t.contentSnippet.slice(0, 200)}`)
+            .join("\n"));
+        }
+
+        if (enrichment.recentActorActivity.length > 0) {
+          parts.push("RECENT ACTOR ACTIVITY (7 DAYS):\n" + enrichment.recentActorActivity
+            .map(a => `  - ${a.type} (${a.date}): ${a.summary}`)
+            .join("\n"));
+        }
+
+        if (enrichment.relatedDocuments.length > 0) {
+          parts.push("RELATED DOCUMENTS:\n" + enrichment.relatedDocuments
+            .map(d => `  - ${d.fileName} (modified: ${d.lastModified}, by: ${d.author})`)
+            .join("\n"));
+        }
+
+        if (enrichment.activeProjects.length > 0) {
+          parts.push("ACTIVE PROJECTS WITH THESE PARTICIPANTS:\n" + enrichment.activeProjects
+            .map(p => `  - "${p.name}" (${p.status}, ${p.memberCount} members, ${p.deliverableCount} deliverables${p.dueDate ? `, due: ${p.dueDate}` : ""})`)
+            .join("\n"));
+        }
+
+        if (parts.length > 0) {
+          enrichmentBlock = "\n  ENRICHED CONTEXT:\n" + parts.join("\n");
+        }
+      }
+
       return `MESSAGE ${idx}:
   Source: ${item.sourceType}
   From: ${meta.from ?? meta.authorEmail ?? "unknown"}
   To: ${meta.to ?? "unknown"}
   Subject: ${meta.subject ?? "(none)"}
   Date: ${meta.date ?? "unknown"}${daysAgo !== null ? ` (${daysAgo} days ago)` : ""}
-  Content: ${contentTruncated}`;
+  Content: ${contentTruncated}${enrichmentBlock}`;
     })
     .join("\n\n");
 
@@ -271,7 +358,7 @@ For each message, respond with:
 [
   {
     "messageIndex": 0,
-    "classification": "action_required" | "awareness" | "irrelevant",
+    "classification": "action_required" | "awareness" | "irrelevant" | "initiative_candidate",
     "awarenessType": "informational" | "strategic" | null,
     "summary": "Brief description (1-2 sentences). For awareness: what the person should know. For irrelevant: why it doesn't matter.",
     "urgency": "low" | "medium" | "high" | null,
@@ -291,7 +378,7 @@ For each message, respond with:
     instructions: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
     temperature: 0.1,
-    maxTokens: 4000,
+    maxTokens: 8000,
     aiFunction: "reasoning",
     model: getModel("contentDetection"),
   });
@@ -304,9 +391,9 @@ For each message, respond with:
 
   return parsed.map((r) => ({
     messageIndex: Number(r.messageIndex ?? 0),
-    classification: (["action_required", "awareness", "irrelevant"].includes(r.classification as string)
+    classification: (["action_required", "awareness", "irrelevant", "initiative_candidate"].includes(r.classification as string)
       ? r.classification
-      : r.actionRequired === true ? "action_required" : "irrelevant") as "action_required" | "awareness" | "irrelevant",
+      : r.actionRequired === true ? "action_required" : "irrelevant") as EvaluationResult["classification"],
     awarenessType: r.classification === "awareness"
       ? (["informational", "strategic"].includes(r.awarenessType as string) ? r.awarenessType as "informational" | "strategic" : "informational")
       : null,
@@ -327,6 +414,33 @@ For each message, respond with:
       && typeof r.archetypeConfidence === "number"
       ? r.archetypeConfidence
       : null,
+    projectRecommendation: (() => {
+      if (r.classification !== "initiative_candidate" || !r.projectRecommendation) return null;
+      const pr = r.projectRecommendation as Record<string, any>;
+      return {
+        title: String(pr.title ?? ""),
+        description: String(pr.description ?? ""),
+        coordinatorEmail: String(pr.coordinatorEmail ?? ""),
+        dueDate: pr.dueDate ? String(pr.dueDate) : null,
+        proposedMembers: Array.isArray(pr.proposedMembers)
+          ? pr.proposedMembers.map((m: any) => ({
+              email: String(m.email ?? ""),
+              name: String(m.name ?? ""),
+              role: String(m.role ?? "contributor"),
+            }))
+          : [],
+        proposedDeliverables: Array.isArray(pr.proposedDeliverables)
+          ? pr.proposedDeliverables.map((d: any) => ({
+              title: String(d.title ?? ""),
+              description: String(d.description ?? ""),
+              assignedToEmail: String(d.assignedToEmail ?? ""),
+              format: String(d.format ?? "document"),
+              suggestedDeadline: d.suggestedDeadline ? String(d.suggestedDeadline) : null,
+            }))
+          : [],
+        rationale: String(pr.rationale ?? ""),
+      };
+    })(),
   }));
 }
 
@@ -383,6 +497,141 @@ async function checkResponseToOpenSituation(
   }
 
   return null;
+}
+
+// ── Initiative Candidate Handler ─────────────────────────────────────────────
+
+async function handleInitiativeCandidate(
+  operatorId: string,
+  batch: ActorBatch,
+  result: EvaluationResult,
+  correlationId?: string,
+): Promise<void> {
+  const item = batch.items[result.messageIndex];
+  if (!item || !result.projectRecommendation) return;
+
+  const rec = result.projectRecommendation;
+  const meta = item.metadata ?? {};
+
+  // Dedup: check if a similar initiative already exists
+  const existing = await prisma.initiative.findFirst({
+    where: {
+      operatorId,
+      status: { notIn: ["rejected", "failed"] },
+      rationale: { contains: rec.title.slice(0, 50) },
+      proposedProjectConfig: { not: Prisma.DbNull },
+    },
+  });
+  if (existing) {
+    console.log(`[content-detection] Initiative "${rec.title}" already exists (${existing.id}), skipping`);
+    return;
+  }
+
+  // Also dedup by source signal — don't create multiple initiatives from the same email
+  const existingFromSource = await prisma.initiative.findFirst({
+    where: {
+      operatorId,
+      status: { notIn: ["rejected", "failed"] },
+      proposedProjectConfig: { path: ["sourceSignal", "sourceId"], equals: item.sourceId },
+    },
+  });
+  if (existingFromSource) {
+    console.log(`[content-detection] Initiative already created from source ${item.sourceId}, skipping`);
+    return;
+  }
+
+  // Resolve department for the actor
+  const departmentId = batch.departmentId
+    ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0]
+    ?? null;
+
+  // Find relevant goal (if any)
+  let goalId: string | null = null;
+  if (departmentId) {
+    const goal = await prisma.goal.findFirst({
+      where: { operatorId, departmentId, status: "active" },
+      select: { id: true },
+      orderBy: { priority: "asc" },
+    });
+    goalId = goal?.id ?? null;
+  }
+  if (!goalId) {
+    const hqGoal = await prisma.goal.findFirst({
+      where: { operatorId, departmentId: null, status: "active" },
+      select: { id: true },
+      orderBy: { priority: "asc" },
+    });
+    goalId = hqGoal?.id ?? null;
+  }
+
+  // Find AI entity for attribution
+  let aiEntityId: string | null = null;
+  if (departmentId) {
+    const deptAi = await prisma.entity.findFirst({
+      where: { operatorId, ownerDepartmentId: departmentId, status: "active" },
+      select: { id: true },
+    });
+    aiEntityId = deptAi?.id ?? null;
+  }
+  if (!aiEntityId) {
+    const hqAi = await prisma.entity.findFirst({
+      where: {
+        operatorId,
+        status: "active",
+        entityType: { slug: { in: ["hq-ai", "ai-agent"] } },
+        ownerDepartmentId: null,
+      },
+      select: { id: true },
+    });
+    aiEntityId = hqAi?.id ?? null;
+  }
+  if (!aiEntityId) {
+    console.warn("[content-detection] No AI entity found for initiative attribution, skipping");
+    return;
+  }
+
+  // Create initiative with project config
+  const initiative = await prisma.initiative.create({
+    data: {
+      operatorId,
+      goalId,
+      aiEntityId,
+      status: "proposed",
+      rationale: `[content-detected:initiative_candidate] ${rec.title}\n\n${rec.rationale}`,
+      impactAssessment: rec.description,
+      proposedProjectConfig: {
+        title: rec.title,
+        description: rec.description,
+        coordinatorEmail: rec.coordinatorEmail,
+        dueDate: rec.dueDate,
+        members: rec.proposedMembers,
+        deliverables: rec.proposedDeliverables,
+        sourceSignal: {
+          sourceType: item.sourceType,
+          sourceId: item.sourceId,
+          sender: (meta.from as string) ?? (meta.authorEmail as string) ?? "unknown",
+          subject: (meta.subject as string) ?? null,
+          date: (meta.date as string) ?? new Date().toISOString(),
+          summary: result.summary,
+        },
+      },
+    },
+  });
+
+  // Notify admins about the proposed initiative
+  const { sendNotificationToAdmins } = await import("@/lib/notification-dispatch");
+  await sendNotificationToAdmins({
+    operatorId,
+    type: "initiative_proposed",
+    title: `Foreslået projekt: ${rec.title}`,
+    body: `${rec.proposedDeliverables.length} leverancer identificeret. Gennemgå og godkend for at oprette projektet.`,
+    sourceType: "initiative",
+    sourceId: initiative.id,
+  }).catch(() => {});
+
+  console.log(
+    `[content-detection] Created initiative "${rec.title}" with ${rec.proposedDeliverables.length} proposed deliverables`,
+  );
 }
 
 // ── Situation Creation / Update ──────────────────────────────────────────────
@@ -1047,8 +1296,19 @@ export async function evaluateContentForSituations(
       if (remainingItems.length === 0) continue; // All items linked to open situations
       batch.items = remainingItems;
 
+      // Enrich signals with surrounding context (parallel, per-item)
+      const enrichments = await Promise.all(
+        batch.items.map(item =>
+          enrichSignalContext(operatorId, item, batch.actorEntityId)
+            .catch(err => {
+              console.warn("[content-detection] Enrichment failed, proceeding without:", err);
+              return null;
+            })
+        )
+      );
+
       // LLM evaluation
-      const results = await evaluateActorBatch(batch);
+      const results = await evaluateActorBatch(batch, enrichments);
 
       // Handle results
       for (const result of results) {
@@ -1059,7 +1319,9 @@ export async function evaluateContentForSituations(
           console.error("[content-detection] Failed to log evaluation:", err),
         );
 
-        if (result.classification === "action_required") {
+        if (result.classification === "initiative_candidate") {
+          await handleInitiativeCandidate(operatorId, batch, result, correlationId);
+        } else if (result.classification === "action_required") {
           await handleActionRequired(operatorId, batch, result, createdInBatch, companyWideArchetypes, correlationId);
         } else if (result.classification === "awareness") {
           await handleAwareness(operatorId, batch, result, createdInBatch, companyWideArchetypes);

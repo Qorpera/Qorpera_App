@@ -872,9 +872,13 @@ model Initiative {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  proposedProjectConfig Json?
+  projectId             String?  @unique
+
   operator      Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   goal          Goal?          @relation(fields: [goalId], references: [id])
   executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
+  project       Project?       @relation(fields: [projectId], references: [id])
 
   @@index([operatorId, status])
   @@index([goalId])
@@ -1391,6 +1395,7 @@ model Project {
   chatMessages ProjectChatMessage[]
   connectors   ProjectConnector[]
   sourceConnectors SourceConnector[]
+  sourceInitiative Initiative?
 
   @@index([operatorId, status])
   @@index([createdById])

@@ -4,33 +4,6 @@
 
 import { prisma } from "@/lib/db";
 
-// ── Cleanup for orphaned data from the old prisma/seed-projects.ts ──────
-
-export async function cleanupBrokenProjectSeed(): Promise<void> {
-  const brokenProject = await prisma.project.findUnique({
-    where: { id: "proj-nordtech-dd" },
-  });
-  if (brokenProject) {
-    await prisma.project.delete({ where: { id: "proj-nordtech-dd" } });
-    console.log("[cleanup] Deleted orphaned project proj-nordtech-dd");
-  }
-
-  for (const email of ["sarah@example.com", "erik@example.com", "mia@example.com"]) {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (user) {
-      const hasSituations = await prisma.situation.count({
-        where: { assignedUserId: user.id },
-      });
-      if (hasSituations === 0) {
-        await prisma.user.delete({ where: { email } });
-        console.log(`[cleanup] Deleted orphaned user ${email}`);
-      } else {
-        console.log(`[cleanup] Skipped ${email} — has associated data`);
-      }
-    }
-  }
-}
-
 // ── Template sections ───────────────────────────────────────────────────
 
 const TEMPLATE_SECTIONS = [
@@ -195,7 +168,7 @@ export async function seedProjectData(
   // ── Find operator users ───────────────────────────────────────────
 
   const admins = await prisma.user.findMany({
-    where: { operatorId, role: { in: ["admin", "superadmin"] } },
+    where: { operatorId, role: "admin" },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true },
   });
