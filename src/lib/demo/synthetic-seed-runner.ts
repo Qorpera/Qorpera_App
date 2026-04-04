@@ -534,6 +534,12 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
   await prisma.$executeRaw`DELETE FROM "ExecutionPlan" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "Project" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "Initiative" WHERE "operatorId" = ${operatorId}`;
+  // These reference Entity or SourceConnector via FK — must go before those tables
+  await prisma.$executeRaw`DELETE FROM "SlackChannelMapping" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "DepartmentHealth" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "PlanAutonomy" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "RecurringTask" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "FollowUp" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "Entity" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "ContentChunk" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "ActivitySignal" WHERE "operatorId" = ${operatorId}`;
@@ -565,12 +571,7 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
   await prisma.$executeRaw`DELETE FROM "FoundationalDocStatus" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "SystemJob" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "SystemJobRun" WHERE "operatorId" = ${operatorId}`;
-  await prisma.$executeRaw`DELETE FROM "PlanAutonomy" WHERE "operatorId" = ${operatorId}`;
-  await prisma.$executeRaw`DELETE FROM "SlackChannelMapping" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "CreditTransaction" WHERE "operatorId" = ${operatorId}`;
-  await prisma.$executeRaw`DELETE FROM "DepartmentHealth" WHERE "operatorId" = ${operatorId}`;
-  await prisma.$executeRaw`DELETE FROM "RecurringTask" WHERE "operatorId" = ${operatorId}`;
-  await prisma.$executeRaw`DELETE FROM "FollowUp" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "PriorityOverride" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`DELETE FROM "WorkerJob" WHERE "operatorId" = ${operatorId}`;
   await prisma.$executeRaw`UPDATE "ProjectTemplate" SET "operatorId" = NULL WHERE "operatorId" = ${operatorId}`;
