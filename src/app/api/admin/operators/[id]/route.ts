@@ -40,10 +40,19 @@ export async function DELETE(
   await prisma.policyRule.deleteMany({ where: { operatorId: id } });
   await prisma.actionCapability.deleteMany({ where: { operatorId: id } });
   await prisma.event.deleteMany({ where: { operatorId: id } });
+  // Project module (children cascade from Project, but delete explicitly for SourceConnector FK)
+  await prisma.projectChatMessage.deleteMany({ where: { project: { operatorId: id } } });
+  await prisma.projectNotification.deleteMany({ where: { project: { operatorId: id } } });
+  await prisma.projectMessage.deleteMany({ where: { project: { operatorId: id } } });
+  await prisma.projectDeliverable.deleteMany({ where: { project: { operatorId: id } } });
+  await prisma.projectMember.deleteMany({ where: { project: { operatorId: id } } });
+  await prisma.projectConnector.deleteMany({ where: { project: { operatorId: id } } });
   await prisma.syncLog.deleteMany({ where: { connector: { operatorId: id } } });
   await prisma.sourceConnector.deleteMany({ where: { operatorId: id } });
   await prisma.contentChunk.deleteMany({ where: { operatorId: id } });
   await prisma.internalDocument.deleteMany({ where: { operatorId: id } });
+  await prisma.project.deleteMany({ where: { operatorId: id } });
+  await prisma.projectTemplate.deleteMany({ where: { operatorId: id } });
   await prisma.entityMention.deleteMany({ where: { entity: { operatorId: id } } });
   await prisma.propertyValue.deleteMany({ where: { entity: { operatorId: id } } });
   await prisma.relationship.deleteMany({ where: { relationshipType: { operatorId: id } } });
