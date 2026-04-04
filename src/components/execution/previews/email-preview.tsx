@@ -108,6 +108,7 @@ export function EmailPreview({ step, isEditable, onParametersUpdate, locale: _lo
     onParametersUpdate({ ...params, attachments: updatedAttachments });
   }
 
+  // TODO: File blobs are discarded here — only metadata is kept. Need upload infrastructure to persist files before execution.
   function addFiles(files: FileList | File[]) {
     if (!onParametersUpdate) return;
     const newAttachments = [...attachments];

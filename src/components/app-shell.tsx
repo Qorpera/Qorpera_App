@@ -126,12 +126,14 @@ function CloseIcon() {
 function SidebarContent({
   pendingApprovals,
   healthIssues,
+  activeProjects,
   collapsed,
   locale,
   onNavClick,
 }: {
   pendingApprovals: number;
   healthIssues: number;
+  activeProjects: number;
   collapsed: boolean;
   locale: string;
   onNavClick?: () => void;
@@ -143,7 +145,7 @@ function SidebarContent({
       {/* Navigation */}
       <nav className={`flex-1 overflow-y-auto ${collapsed ? "px-1.5" : "px-3"} pb-4`}>
         <Suspense>
-          <AppNav pendingApprovals={pendingApprovals} healthIssues={healthIssues} collapsed={collapsed} onNavClick={onNavClick} />
+          <AppNav pendingApprovals={pendingApprovals} healthIssues={healthIssues} activeProjects={activeProjects} collapsed={collapsed} onNavClick={onNavClick} />
         </Suspense>
       </nav>
 
@@ -179,7 +181,7 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   // Fetch badge counts for nav — situations pending + health issues
-  const [navBadges, setNavBadges] = useState<{ situations: number; health: number }>({ situations: 0, health: 0 });
+  const [navBadges, setNavBadges] = useState<{ situations: number; health: number; projects: number }>({ situations: 0, health: 0, projects: 0 });
   useEffect(() => {
     // Situations: count pending proposals
     fetch("/api/situations?status=detected,proposed&limit=1")
@@ -199,6 +201,14 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
         const errors = connectors.filter((c: { status: string }) => c.status === "error").length;
         const zeroDetections = (Array.isArray(stTypes) ? stTypes : []).filter((st: { totalProposed: number }) => st.totalProposed === 0).length;
         setNavBadges(prev => ({ ...prev, health: errors + zeroDetections }));
+      })
+      .catch(() => {});
+
+    // Projects: count active projects
+    fetch("/api/projects?status=active&limit=1")
+      .then(r => r.ok ? r.json() : { total: 0 })
+      .then(data => {
+        setNavBadges(prev => ({ ...prev, projects: data.total ?? 0 }));
       })
       .catch(() => {});
   }, [pathname]); // Refresh on navigation
@@ -295,7 +305,7 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
               )}
             </div>
 
-            <SidebarContent pendingApprovals={effectiveSituationsBadge} healthIssues={navBadges.health} collapsed={collapsed} locale={locale} />
+            <SidebarContent pendingApprovals={effectiveSituationsBadge} healthIssues={navBadges.health} activeProjects={navBadges.projects} collapsed={collapsed} locale={locale} />
           </aside>
 
         {/* ── Mobile drawer overlay (below lg) ── */}
@@ -321,7 +331,7 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
                 </button>
               </div>
 
-              <SidebarContent pendingApprovals={effectiveSituationsBadge} healthIssues={navBadges.health} collapsed={false} locale={locale} onNavClick={handleNavClick} />
+              <SidebarContent pendingApprovals={effectiveSituationsBadge} healthIssues={navBadges.health} activeProjects={navBadges.projects} collapsed={false} locale={locale} onNavClick={handleNavClick} />
             </div>
           </>
         )}

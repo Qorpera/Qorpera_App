@@ -33,7 +33,7 @@ function SuperadminNavInfo() {
   );
 }
 
-type BadgeKey = "situations" | "health";
+type BadgeKey = "situations" | "health" | "projects";
 type NavItem = { href: string; labelKey: string; icon: string; badgeKey?: BadgeKey; superadminOnly?: boolean; adminOnly?: boolean };
 type NavGroup = { labelKey: string; items: NavItem[] };
 
@@ -43,7 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/situations", labelKey: "situations", icon: "alert-triangle", badgeKey: "situations" },
       { href: "/initiatives", labelKey: "initiatives", icon: "lightbulb", adminOnly: true },
-      { href: "/projects", labelKey: "projects", icon: "layers", adminOnly: true },
+      { href: "/projects", labelKey: "projects", icon: "layers", badgeKey: "projects", adminOnly: true },
       { href: "/map", labelKey: "map", icon: "map", adminOnly: true },
     ],
   },
@@ -99,10 +99,11 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
   superadmin: "bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] text-warn",
 };
 
-export function AppNav({ pendingApprovals = 0, healthIssues = 0, collapsed = false, onNavClick }: { pendingApprovals?: number; healthIssues?: number; collapsed?: boolean; onNavClick?: () => void }) {
+export function AppNav({ pendingApprovals = 0, healthIssues = 0, activeProjects = 0, collapsed = false, onNavClick }: { pendingApprovals?: number; healthIssues?: number; activeProjects?: number; collapsed?: boolean; onNavClick?: () => void }) {
   const badgeCounts: Record<BadgeKey, number> = {
     situations: pendingApprovals,
     health: healthIssues,
+    projects: activeProjects,
   };
   const pathname = usePathname();
   const searchParams = useSearchParams();

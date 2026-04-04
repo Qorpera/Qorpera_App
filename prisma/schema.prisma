@@ -121,6 +121,9 @@ model Operator {
   onboardingAnalysis   OnboardingAnalysis?
   creditTransactions   CreditTransaction[]
   departmentHealth     DepartmentHealth[]
+  // v4: Projects
+  projectTemplates     ProjectTemplate[]
+  projects             Project[]
 
   // Deletion lifecycle (GDPR)
   deletionRequestedAt     DateTime?
@@ -156,6 +159,14 @@ model User {
   passwordResetTokens     PasswordResetToken[]
   contentChunks           ContentChunk[]
   situationViews          SituationView[]
+  // v4: Projects
+  createdProjects         Project[]                @relation("ProjectCreator")
+  projectMemberships      ProjectMember[]          @relation("ProjectMemberUser")
+  projectMembersAdded     ProjectMember[]          @relation("ProjectMemberAddedBy")
+  projectMessages         ProjectMessage[]
+  projectChatMessages     ProjectChatMessage[]
+  projectDeliverableAssignments ProjectDeliverable[] @relation("DeliverableAssignee")
+  projectDeliverableAcceptances ProjectDeliverable[] @relation("DeliverableAcceptor")
 
   // Deletion / suspension (for content privacy lifecycle)
   deletionRequestedAt  DateTime?
@@ -359,6 +370,9 @@ model SourceConnector {
 
   materializerConfig String? // JSON: dynamic materializer rules from ontology inference
 
+  projectId            String?
+  project              Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
   operator             Operator              @relation(fields: [operatorId], references: [id])
   user                 User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   events               Event[]
@@ -366,6 +380,9 @@ model SourceConnector {
   actionCapabilities   ActionCapability[]
   contentChunks        ContentChunk[]
   slackChannelMappings SlackChannelMapping[]
+  projectConnectors    ProjectConnector[]
+
+  @@index([projectId])
 }
 
 model SlackChannelMapping {
@@ -1325,4 +1342,164 @@ model FoundationalDocStatus {
 
   @@unique([operatorId, docSlug])
   @@index([operatorId, status])
+}
+
+// ─── Projects ───────────────────────────────────────────
+
+model ProjectTemplate {
+  id                String    @id @default(cuid())
+  operatorId        String?
+  archetypeId       String?
+  name              String
+  description       String
+  category          String // financial, legal, consulting, audit, compliance, etc.
+  analysisFramework Json // array of section definitions
+  dataExpectations  Json // expected connector types
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  operator          Operator?          @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+  archetype         ProjectTemplate?   @relation("TemplateArchetype", fields: [archetypeId], references: [id])
+  customizations    ProjectTemplate[]  @relation("TemplateArchetype")
+  projects          Project[]
+
+  @@index([operatorId])
+  @@index([category])
+}
+
+model Project {
+  id          String    @id @default(cuid())
+  operatorId  String
+  templateId  String?
+  name        String
+  description String?
+  status      String    @default("draft") // draft, active, paused, completed, archived
+  createdById String
+  dueDate     DateTime?
+  completedAt DateTime?
+  config      Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  operator     Operator           @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  template     ProjectTemplate?   @relation(fields: [templateId], references: [id])
+  createdBy    User               @relation("ProjectCreator", fields: [createdById], references: [id])
+  members      ProjectMember[]
+  deliverables ProjectDeliverable[]
+  messages     ProjectMessage[]
+  notifications ProjectNotification[]
+  chatMessages ProjectChatMessage[]
+  connectors   ProjectConnector[]
+  sourceConnectors SourceConnector[]
+
+  @@index([operatorId, status])
+  @@index([createdById])
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String   @default("analyst") // owner, reviewer, analyst, viewer
+  addedAt   DateTime @default(now())
+  addedById String
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user     User    @relation("ProjectMemberUser", fields: [userId], references: [id])
+  addedBy  User    @relation("ProjectMemberAddedBy", fields: [addedById], references: [id])
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+model ProjectDeliverable {
+  id                 String    @id @default(cuid())
+  projectId          String
+  title              String
+  description        String?
+  stage              String    @default("intelligence") // intelligence, workboard, deliverable
+  generationMode     String    @default("ai_generated") // ai_generated, human_authored, ai_assisted
+  content            Json?
+  completenessReport Json?
+  confidenceLevel    String? // high, medium, low
+  riskCount          Int       @default(0)
+  templateSectionId  String?
+  assignedToId       String?
+  acceptedById       String?
+  acceptedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedTo   User?                @relation("DeliverableAssignee", fields: [assignedToId], references: [id])
+  acceptedBy   User?                @relation("DeliverableAcceptor", fields: [acceptedById], references: [id])
+  messages     ProjectMessage[]
+  chatMessages ProjectChatMessage[]
+
+  @@index([projectId, stage])
+  @@index([assignedToId])
+}
+
+model ProjectMessage {
+  id            String   @id @default(cuid())
+  projectId     String
+  userId        String
+  content       String
+  threadId      String?
+  deliverableId String?
+  createdAt     DateTime @default(now())
+
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user        User                @relation(fields: [userId], references: [id])
+  deliverable ProjectDeliverable? @relation(fields: [deliverableId], references: [id])
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([deliverableId])
+}
+
+model ProjectNotification {
+  id        String   @id @default(cuid())
+  projectId String
+  type      String // analysis_complete, data_uploaded, risk_flagged, deliverable_ready, stage_change, deadline_approaching, connector_status
+  content   String
+  metadata  Json?
+  readBy    String[] @default([])
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt(sort: Desc)])
+}
+
+model ProjectChatMessage {
+  id            String   @id @default(cuid())
+  projectId     String
+  deliverableId String
+  role          String // user, assistant
+  content       String
+  userId        String?
+  apiCostCents  Int?
+  createdAt     DateTime @default(now())
+
+  project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deliverable ProjectDeliverable @relation(fields: [deliverableId], references: [id], onDelete: Cascade)
+  user        User?              @relation(fields: [userId], references: [id])
+
+  @@index([projectId, deliverableId, createdAt])
+}
+
+model ProjectConnector {
+  id                String   @id @default(cuid())
+  projectId         String
+  sourceConnectorId String?
+  label             String
+  provider          String // google-drive, hubspot, economic, etc.
+  status            String   @default("pending") // pending, syncing, synced, error
+  syncedItemCount   Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceConnector SourceConnector? @relation(fields: [sourceConnectorId], references: [id])
+
+  @@index([projectId])
 }

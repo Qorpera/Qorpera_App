@@ -277,7 +277,7 @@ export function InlineStepCard({ step, onClick, isActive }: InlineStepCardProps)
         background: "var(--elevated)",
         border: isActive ? "2px solid var(--accent)" : "1.5px solid var(--border-strong)",
         cursor: "pointer",
-        transition: "border-color 0.15s, background 0.15s, brightness 0.15s",
+        transition: "border-color 0.15s, background 0.15s, filter 0.15s",
       }}
       className="hover:brightness-110 hover:border-[var(--fg4)]"
     >
