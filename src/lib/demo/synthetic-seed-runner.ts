@@ -529,48 +529,51 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     await tx.$executeRaw`DELETE FROM "ProjectMember" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "ProjectConnector" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
 
-    // 3. Delete from tables with operatorId column (order: most-referenced last)
+    // 3. Delete tables with operatorId — ordered so FK children go before parents
+    // Group A: reference Situation, ExecutionPlan, or their children (already cleaned in step 2)
     await tx.$executeRaw`DELETE FROM "Situation" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "ExecutionPlan" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Project" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Initiative" WHERE "operatorId" = ${operatorId}`;
-    // These reference Entity or SourceConnector via FK — must go before those tables
+    // Group B: reference Entity via FK — must go before Entity
     await tx.$executeRaw`DELETE FROM "SlackChannelMapping" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "DepartmentHealth" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "PlanAutonomy" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "RecurringTask" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "FollowUp" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "Entity" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "PersonalAutonomy" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "InternalDocument" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "FoundationalDocStatus" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "ContentChunk" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "ActivitySignal" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "OperationalInsight" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "EntityMergeLog" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "Entity" WHERE "operatorId" = ${operatorId}`;
+    // Group C: reference SituationType or EntityType via FK — must go before those
     await tx.$executeRaw`DELETE FROM "SituationType" WHERE "operatorId" = ${operatorId}`;
     // SyncLog references SourceConnector (no operatorId)
     await tx.$executeRaw`DELETE FROM "SyncLog" WHERE "connectorId" IN (SELECT id FROM "SourceConnector" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "SourceConnector" WHERE "operatorId" = ${operatorId}`;
-    // EntityProperty references EntityType (no operatorId)
+    // EntityProperty + RelationshipType reference EntityType
     await tx.$executeRaw`DELETE FROM "EntityProperty" WHERE "entityTypeId" IN (SELECT id FROM "EntityType" WHERE "operatorId" = ${operatorId})`;
+    await tx.$executeRaw`DELETE FROM "RelationshipType" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "EntityType" WHERE "operatorId" = ${operatorId}`;
+    // Group D: no FK to other operator tables (safe in any order)
     await tx.$executeRaw`DELETE FROM "Goal" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "PolicyRule" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "ActionCapability" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "EvaluationLog" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "OnboardingAnalysis" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "OrientationSession" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "PersonalAutonomy" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "OperationalInsight" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "Event" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "CopilotMessage" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "Invite" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "SystemJob" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "SystemJobRun" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "WorkStream" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Delegation" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Notification" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "AppSetting" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "EntityType" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "RelationshipType" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "EntityMergeLog" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "Event" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "CopilotMessage" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "InternalDocument" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "Invite" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "FoundationalDocStatus" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "SystemJob" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "SystemJobRun" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "CreditTransaction" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "PriorityOverride" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "WorkerJob" WHERE "operatorId" = ${operatorId}`;
