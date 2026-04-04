@@ -508,8 +508,6 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
   console.time(`[synthetic-seed] Cleanup — ${operatorId}`);
 
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SET LOCAL session_replication_role = 'replica'`;
-
     // 1. Break Entity circular references
     await tx.$executeRaw`UPDATE "Entity" SET "parentDepartmentId" = NULL, "mergedIntoId" = NULL, "ownerDepartmentId" = NULL WHERE "operatorId" = ${operatorId}`;
 
