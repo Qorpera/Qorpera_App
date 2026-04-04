@@ -75,7 +75,7 @@ async function findQualifyingEvents(operatorId: string): Promise<CalendarEvent[]
     where: {
       operatorId,
       sourceType: "calendar_note",
-      createdAt: { gte: new Date(now.getTime() - 30 * 86_400_000) },
+      createdAt: { gte: new Date(now.getTime() - 90 * 86_400_000) },
     },
     select: { id: true, content: true, metadata: true, createdAt: true },
   });

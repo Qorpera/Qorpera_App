@@ -152,10 +152,10 @@ async function loadRelatedCalendarEvents(
       where: {
         operatorId,
         sourceType: { in: ["calendar_note", "calendar_event"] },
-        createdAt: { gte: from, lte: to },
+        createdAt: { gte: new Date(now.getTime() - 90 * 86_400_000) },
       },
-      orderBy: { createdAt: "asc" },
-      take: 10 - events.length,
+      orderBy: { createdAt: "desc" },
+      take: 50,
       select: { id: true, content: true, metadata: true, createdAt: true },
     });
 

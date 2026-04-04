@@ -368,7 +368,8 @@ For each message, respond with:
     "evidence": "The specific text that drove the classification",
     "reasoning": "One sentence: why this classification",
     "archetypeSlug": "overdue_invoice | client_escalation | ... | unclassified (action_required and strategic awareness only, null otherwise)",
-    "archetypeConfidence": "0.0-1.0 (action_required and strategic awareness only, null otherwise)"
+    "archetypeConfidence": "0.0-1.0 (action_required and strategic awareness only, null otherwise)",
+    "projectRecommendation": "(include ONLY for initiative_candidate — see system prompt for schema)"
   }
 ]`;
 
