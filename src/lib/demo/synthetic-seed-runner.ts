@@ -507,37 +507,62 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
   console.log(`[synthetic-seed] Starting cleanup for operator ${operatorId}${domain ? ` (${domain})` : ""}...`);
   console.time(`[synthetic-seed] Cleanup — ${operatorId}`);
 
-  // Use raw SQL to find ALL tables with an operatorId column and delete in one transaction.
-  // This avoids the fragile manual cascade ordering that breaks whenever new tables are added.
-  await prisma.$executeRaw`
-    DO $$
-    DECLARE
-      tbl text;
-    BEGIN
-      -- First: null out self-referencing FKs on Entity to break circular deps
-      UPDATE "Entity" SET "parentDepartmentId" = NULL, "mergedIntoId" = NULL, "ownerDepartmentId" = NULL
-        WHERE "operatorId" = ${operatorId};
+  // 1. Break Entity circular references
+  await prisma.$executeRaw`UPDATE "Entity" SET "parentDepartmentId" = NULL, "mergedIntoId" = NULL, "ownerDepartmentId" = NULL WHERE "operatorId" = ${operatorId}`;
 
-      -- Delete from all tables that have an operatorId column (except Operator itself)
-      FOR tbl IN
-        SELECT c.table_name
-        FROM information_schema.columns c
-        JOIN information_schema.tables t ON t.table_name = c.table_name AND t.table_schema = c.table_schema
-        WHERE c.column_name = 'operatorId'
-          AND c.table_schema = 'public'
-          AND c.table_name != 'Operator'
-          AND t.table_type = 'BASE TABLE'
-      LOOP
-        EXECUTE format('DELETE FROM %I WHERE "operatorId" = $1', tbl) USING ${operatorId};
-      END LOOP;
+  // 2. Delete from child tables that reference operator-owned tables via FK (no operatorId column)
+  // These must be deleted via subquery before their parent tables
+  await prisma.$executeRaw`DELETE FROM "ToolCallTrace" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "SituationCycle" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "SituationEvent" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "SituationView" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "ExecutionStep" WHERE "planId" IN (SELECT id FROM "ExecutionPlan" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "WorkStreamItem" WHERE "workStreamId" IN (SELECT id FROM "WorkStream" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "Relationship" WHERE "fromEntityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId}) OR "toEntityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "PropertyValue" WHERE "entityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId})`;
 
-      -- Delete the Operator record itself
-      DELETE FROM "Operator" WHERE id = ${operatorId};
-    END $$;
-  `;
+  // 2b. Project child tables
+  await prisma.$executeRaw`DELETE FROM "ProjectChatMessage" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "ProjectMessage" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "ProjectNotification" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "ProjectDeliverable" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "ProjectMember" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "ProjectConnector" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
 
-  // Delete users whose email matches the company domain (users linked by operatorId
-  // are already deleted above, but domain-matched users from failed partial seeds may remain)
+  // 3. Delete from tables with operatorId column (order: most-referenced last)
+  await prisma.$executeRaw`DELETE FROM "Situation" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "ExecutionPlan" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "Project" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "Initiative" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "Entity" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "ContentChunk" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "ActivitySignal" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "SituationType" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "SituationArchetype" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "SourceConnector" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "Goal" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "PolicyRule" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "ActionCapability" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "EvaluationLog" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "OnboardingAnalysis" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "OrientationSession" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "PersonalAutonomy" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "OperationalInsight" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "WorkStream" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "Delegation" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "Notification" WHERE "operatorId" = ${operatorId}`;
+  await prisma.$executeRaw`DELETE FROM "AppSetting" WHERE "operatorId" = ${operatorId}`;
+
+  // 4. Delete operator-linked users (by operatorId FK)
+  await prisma.$executeRaw`DELETE FROM "UserScope" WHERE "userId" IN (SELECT id FROM "User" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "Session" WHERE "userId" IN (SELECT id FROM "User" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "NotificationPreference" WHERE "userId" IN (SELECT id FROM "User" WHERE "operatorId" = ${operatorId})`;
+  await prisma.$executeRaw`DELETE FROM "User" WHERE "operatorId" = ${operatorId}`;
+
+  // 5. Delete the Operator itself
+  await prisma.$executeRaw`DELETE FROM "Operator" WHERE id = ${operatorId}`;
+
+  // 6. Clean up domain-matched users from partial/failed seeds
   if (domain) {
     const domainPattern = `%@${domain}`;
     await prisma.$executeRaw`DELETE FROM "Session" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE ${domainPattern})`;
