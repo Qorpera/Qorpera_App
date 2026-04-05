@@ -58,6 +58,8 @@ const MODEL_ROUTES = {
   onboardingOrganizer: "claude-opus-4-6",
   onboardingSynthesis: "claude-sonnet-4-6",
   onboardingChat: "claude-sonnet-4-6",
+  // Wiki knowledge verification (deliberately different model than synthesis)
+  verifier: "claude-sonnet-4-6",
   // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
   onboardingExtraction: "claude-haiku-4-5-20251001",
 } as const;
@@ -68,93 +70,13 @@ export function getModel(route: ModelRoute): string {
   return MODEL_ROUTES[route];
 }
 
-// ── Archetype-Based Dynamic Routing ─────────────────────────────────────────
-// Maps situation archetype slugs to model tiers for situation reasoning.
-// The archetype is available via situation.situationType.archetypeSlug at reasoning time.
-
-type ArchetypeTier = "deep" | "standard" | "structured" | "light";
-
-const ARCHETYPE_MODEL_TIER: Record<string, ArchetypeTier> = {
-  // Opus 4.6 — deep interpretive reasoning + strategic analysis
-  budget_variance: "deep",
-  cash_flow_alert: "deep",
-  deal_stagnation: "deep",
-  pipeline_risk: "deep",
-  client_escalation: "deep",
-  relationship_cooling: "deep",
-  workload_imbalance: "deep",
-  employee_concern: "deep",
-  delivery_risk: "deep",
-  decision_needed: "deep",
-
-  // Sonnet 4.6 — communication craft + factual grounding + moderate reasoning
-  overdue_invoice: "standard",
-  contract_renewal: "standard",
-  lead_follow_up: "standard",
-  upsell_opportunity: "standard",
-  response_overdue: "standard",
-  meeting_follow_up: "standard",
-  communication_gap: "standard",
-  deadline_approaching: "standard",
-  compliance_deadline: "standard",
-  process_bottleneck: "standard",
-  knowledge_request: "standard",
-  document_action: "standard",
-
-  // GPT-5.4 — structured precision + tool calling + speed
-  payment_reconciliation: "structured",
-  onboarding_task: "structured",
-  team_coordination: "structured",
-  material_order: "structured",
-  urgent_dispatch: "structured",
-
-  // GPT-5.4 Mini — procedural, low-stakes
-  expense_approval: "light",
-  access_request: "light",
-};
-
-const TIER_TO_MODEL: Record<ArchetypeTier, string> = {
-  deep: "claude-opus-4-6",
-  standard: "claude-sonnet-4-6",
-  structured: "gpt-5.4",
-  light: "gpt-5.4-mini",
-};
-
-const TIER_TO_THINKING_BUDGET: Record<ArchetypeTier, number | null> = {
-  deep: 16_384,
-  standard: 8_192,
-  structured: null,   // GPT uses reasoning.effort, not token budget
-  light: null,
-};
-
-/** Get the optimal model for a situation archetype. Falls back to Sonnet 4.6 for unknown archetypes. */
-export function getModelForArchetype(archetypeSlug: string | null | undefined): string {
-  if (!archetypeSlug) return MODEL_ROUTES.situationReasoning;
-  const tier = ARCHETYPE_MODEL_TIER[archetypeSlug] ?? "standard";
-  return TIER_TO_MODEL[tier];
-}
-
-/** Get the thinking token budget for a situation archetype. Returns null for non-thinking models. */
-export function getThinkingBudgetForArchetype(archetypeSlug: string | null | undefined): number | null {
-  if (!archetypeSlug) return 8_192;
-  const tier = ARCHETYPE_MODEL_TIER[archetypeSlug] ?? "standard";
-  return TIER_TO_THINKING_BUDGET[tier];
-}
-
-/** Get the archetype tier for logging/monitoring. */
-export function getArchetypeTier(archetypeSlug: string | null | undefined): ArchetypeTier {
-  if (!archetypeSlug) return "standard";
-  return ARCHETYPE_MODEL_TIER[archetypeSlug] ?? "standard";
-}
-
 /**
  * Extended thinking budget per route (tokens).
  * null = no extended thinking for this component.
  * The worker SDK (0.39.x) uses budget_tokens, not the newer effort parameter.
  */
 export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
-  // Situation reasoning uses per-archetype budgets via getThinkingBudgetForArchetype()
-  // These are for the non-archetype-routed calls:
+  // All situation reasoning now uses the agentic path (agenticReasoning route).
   multiAgentSpecialist: 4_096,
   multiAgentCoordinator: 16_384,
   initiativeReasoning: 16_384,
@@ -170,6 +92,7 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   onboardingOrganizer: 8_192,
   onboardingSynthesis: 16_384,
   onboardingChat: null,
+  verifier: 4_096,
   onboardingExtraction: null,
 };
 

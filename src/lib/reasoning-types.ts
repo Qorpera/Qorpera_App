@@ -45,6 +45,20 @@ export const ReasoningOutputSchema = z.object({
     followUpAction: z.string(),
   }).nullable().optional(),
   relatedWorkStreamId: z.string().nullable().optional(),  // link situation to existing workstream
+  wikiUpdates: z.array(z.object({
+    slug: z.string(),
+    pageType: z.string(),
+    title: z.string(),
+    subjectEntityId: z.string().optional(),
+    updateType: z.enum(["create", "update", "flag_contradiction"]),
+    content: z.string(),
+    sourceCitations: z.array(z.object({
+      sourceType: z.enum(["chunk", "signal", "entity"]),
+      sourceId: z.string(),
+      claim: z.string(),
+    })),
+    reasoning: z.string(),
+  })).optional(),
 });
 
 export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;

@@ -91,6 +91,14 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     console.error("[post-synthesis] Content detection failed:", err);
   }
 
+  // Reconcile orphaned entities (assign to departments via email/relationship matching)
+  try {
+    const { reconcileOrphanedEntities } = await import("@/lib/entity-reconciliation");
+    await reconcileOrphanedEntities(operatorId);
+  } catch (err) {
+    console.error("[post-synthesis] Entity reconciliation failed:", err);
+  }
+
   // Count total situations created
   const totalSituations = await prisma.situation.count({
     where: { operatorId, status: { in: ["detected", "reasoning", "proposed"] } },

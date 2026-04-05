@@ -1,0 +1,820 @@
+/**
+ * Wiki engine — core CRUD for KnowledgePage.
+ *
+ * Processes wiki updates from reasoning, background synthesis, and onboarding.
+ * Provides entity profile lookups, semantic search, and seed context loading
+ * for the reasoning engine.
+ */
+
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/db";
+import { embedChunks } from "@/lib/rag/embedder";
+import { verifyPage } from "@/lib/wiki-verification";
+
+// ─── Types ──────────────────────────────────────────────
+
+export interface WikiUpdate {
+  slug: string;
+  pageType: string;
+  title: string;
+  subjectEntityId?: string;
+  updateType: "create" | "update" | "flag_contradiction";
+  content: string;
+  sourceCitations: Array<{
+    sourceType: "chunk" | "signal" | "entity";
+    sourceId: string;
+    claim: string;
+  }>;
+  reasoning: string;
+}
+
+export interface ProcessWikiUpdatesParams {
+  operatorId: string;
+  projectId?: string;
+  situationId?: string;
+  updates: WikiUpdate[];
+  synthesisPath: "reasoning" | "background" | "onboarding" | "lint";
+  synthesizedByModel: string;
+  synthesisCostCents?: number;
+  synthesisDurationMs?: number;
+}
+
+// ─── Main entry point ───────────────────────────────────
+
+export async function processWikiUpdates(params: ProcessWikiUpdatesParams): Promise<{
+  created: number;
+  updated: number;
+  contradictions: number;
+  errors: number;
+}> {
+  const stats = { created: 0, updated: 0, contradictions: 0, errors: 0 };
+
+  for (const update of params.updates) {
+    try {
+      switch (update.updateType) {
+        case "create":
+          await createPage({
+            operatorId: params.operatorId,
+            projectId: params.projectId,
+            ...update,
+            synthesisPath: params.synthesisPath,
+            synthesizedByModel: params.synthesizedByModel,
+            situationId: params.situationId,
+            synthesisCostCents: params.synthesisCostCents,
+            synthesisDurationMs: params.synthesisDurationMs,
+          });
+          stats.created++;
+          break;
+
+        case "update":
+          await updatePage({
+            operatorId: params.operatorId,
+            projectId: params.projectId,
+            ...update,
+            synthesisPath: params.synthesisPath,
+            synthesizedByModel: params.synthesizedByModel,
+            situationId: params.situationId,
+          });
+          stats.updated++;
+          break;
+
+        case "flag_contradiction":
+          await flagContradiction({
+            operatorId: params.operatorId,
+            projectId: params.projectId,
+            ...update,
+            synthesizedByModel: params.synthesizedByModel,
+          });
+          stats.contradictions++;
+          break;
+      }
+    } catch (err) {
+      console.error(`[wiki-engine] Failed to process update for ${update.slug}:`, err);
+      stats.errors++;
+    }
+  }
+
+  // Update the index page
+  await updateIndexPage(params.operatorId, params.projectId).catch((err) => {
+    console.error("[wiki-engine] Failed to update index:", err);
+  });
+
+  // Append to the log page
+  await appendToLog(params.operatorId, params.projectId, params.updates, params.synthesisPath).catch((err) => {
+    console.error("[wiki-engine] Failed to update log:", err);
+  });
+
+  console.log(
+    `[wiki-engine] Processed ${params.updates.length} updates: ` +
+    `${stats.created} created, ${stats.updated} updated, ${stats.contradictions} contradictions, ${stats.errors} errors`,
+  );
+  return stats;
+}
+
+// ─── Page CRUD ──────────────────────────────────────────
+
+async function createPage(params: {
+  operatorId: string;
+  projectId?: string;
+  slug: string;
+  pageType: string;
+  title: string;
+  subjectEntityId?: string;
+  content: string;
+  sourceCitations: WikiUpdate["sourceCitations"];
+  synthesisPath: string;
+  synthesizedByModel: string;
+  situationId?: string;
+  synthesisCostCents?: number;
+  synthesisDurationMs?: number;
+}): Promise<void> {
+  const slug = normalizeSlug(params.slug);
+
+  // Check if page already exists — if so, delegate to updatePage
+  const existing = await prisma.knowledgePage.findUnique({
+    where: { operatorId_slug: { operatorId: params.operatorId, slug } },
+    select: { id: true },
+  });
+  if (existing) {
+    return updatePage({ ...params, slug });
+  }
+
+  const sources = buildSourcesArray(params.sourceCitations);
+  const contentTokens = Math.ceil(params.content.length / 4);
+  const crossReferences = extractCrossReferences(params.content);
+  const sourceTypes = [...new Set(params.sourceCitations.map((c) => c.sourceType))];
+
+  // Embed content for search
+  const embeddings = await embedChunks([params.content]).catch(() => [null]);
+  const embedding = embeddings[0];
+
+  // Create page — use raw SQL for the embedding column (pgvector)
+  if (embedding) {
+    const embeddingStr = `[${embedding.join(",")}]`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "KnowledgePage" (
+        "id", "operatorId", "projectId", "pageType", "subjectEntityId",
+        "title", "slug", "content", "contentTokens", "crossReferences",
+        "sources", "sourceCount", "sourceTypes", "status", "confidence",
+        "version", "synthesisPath", "synthesizedByModel", "synthesisPromptHash",
+        "synthesisCostCents", "synthesisDurationMs", "situationId",
+        "lastSynthesizedAt", "createdAt", "updatedAt", "embedding"
+      ) VALUES (
+        gen_random_uuid()::text, $1, $2, $3, $4,
+        $5, $6, $7, $8, $9::text[],
+        $10::jsonb, $11, $12::text[], $13, $14,
+        $15, $16, $17, $18,
+        $19, $20, $21,
+        NOW(), NOW(), NOW(), $22::vector
+      )`,
+      params.operatorId,
+      params.projectId ?? null,
+      params.pageType,
+      params.subjectEntityId ?? null,
+      params.title,
+      slug,
+      params.content,
+      contentTokens,
+      crossReferences,
+      JSON.stringify(sources),
+      params.sourceCitations.length,
+      sourceTypes,
+      "draft",
+      0.5,
+      1,
+      params.synthesisPath,
+      params.synthesizedByModel,
+      null, // synthesisPromptHash
+      params.synthesisCostCents ?? null,
+      params.synthesisDurationMs ?? null,
+      params.situationId ?? null,
+      embeddingStr,
+    );
+  } else {
+    await prisma.knowledgePage.create({
+      data: {
+        operatorId: params.operatorId,
+        projectId: params.projectId ?? null,
+        pageType: params.pageType,
+        subjectEntityId: params.subjectEntityId ?? null,
+        title: params.title,
+        slug,
+        content: params.content,
+        contentTokens,
+        crossReferences,
+        sources,
+        sourceCount: params.sourceCitations.length,
+        sourceTypes,
+        status: "draft",
+        confidence: 0.5,
+        version: 1,
+        synthesisPath: params.synthesisPath,
+        synthesizedByModel: params.synthesizedByModel,
+        situationId: params.situationId ?? null,
+        synthesisCostCents: params.synthesisCostCents ?? null,
+        synthesisDurationMs: params.synthesisDurationMs ?? null,
+        lastSynthesizedAt: new Date(),
+      },
+    });
+  }
+
+  // Update citedByPages counter on referenced pages
+  if (crossReferences.length > 0) {
+    await prisma.knowledgePage.updateMany({
+      where: { operatorId: params.operatorId, slug: { in: crossReferences } },
+      data: { citedByPages: { increment: 1 } },
+    });
+  }
+
+  // Trigger verification
+  const created = await prisma.knowledgePage.findUnique({
+    where: { operatorId_slug: { operatorId: params.operatorId, slug } },
+    select: { id: true },
+  });
+  if (created) {
+    if (params.synthesisPath === "reasoning") {
+      verifyPage(created.id).catch((err) => {
+        console.error(`[wiki-engine] Verification failed for ${slug}:`, err);
+      });
+    } else {
+      await verifyPage(created.id);
+    }
+  }
+}
+
+async function updatePage(params: {
+  operatorId: string;
+  projectId?: string;
+  slug: string;
+  pageType: string;
+  title: string;
+  subjectEntityId?: string;
+  content: string;
+  sourceCitations: WikiUpdate["sourceCitations"];
+  synthesisPath: string;
+  synthesizedByModel: string;
+  situationId?: string;
+}): Promise<void> {
+  const slug = normalizeSlug(params.slug);
+
+  const existing = await prisma.knowledgePage.findUnique({
+    where: { operatorId_slug: { operatorId: params.operatorId, slug } },
+  });
+
+  if (!existing) {
+    return createPage({ ...params, slug });
+  }
+
+  // Merge sources (existing + new, dedup by sourceId)
+  const existingSources = (existing.sources as Array<{ id: string }>) ?? [];
+  const newSources = buildSourcesArray(params.sourceCitations);
+  const mergedSources = mergeSources(existingSources, newSources);
+
+  const contentTokens = Math.ceil(params.content.length / 4);
+  const crossReferences = extractCrossReferences(params.content);
+  const sourceTypes = [...new Set([
+    ...existing.sourceTypes,
+    ...params.sourceCitations.map((c) => c.sourceType),
+  ])];
+
+  // Re-embed updated content
+  const embeddings = await embedChunks([params.content]).catch(() => [null]);
+  const embedding = embeddings[0];
+
+  if (embedding) {
+    const embeddingStr = `[${embedding.join(",")}]`;
+    await prisma.$executeRawUnsafe(
+      `UPDATE "KnowledgePage"
+       SET "content" = $1, "contentTokens" = $2, "crossReferences" = $3::text[],
+           "sources" = $4::jsonb, "sourceCount" = $5, "sourceTypes" = $6::text[],
+           "status" = 'draft', "version" = "version" + 1,
+           "synthesisPath" = $7, "synthesizedByModel" = $8,
+           "situationId" = COALESCE($9, "situationId"),
+           "lastSynthesizedAt" = NOW(), "updatedAt" = NOW(),
+           "verifiedAt" = NULL, "verifiedByModel" = NULL,
+           "verificationLog" = NULL, "quarantineReason" = NULL, "staleReason" = NULL,
+           "embedding" = $10::vector
+       WHERE "id" = $11`,
+      params.content,
+      contentTokens,
+      crossReferences,
+      JSON.stringify(mergedSources),
+      mergedSources.length,
+      sourceTypes,
+      params.synthesisPath,
+      params.synthesizedByModel,
+      params.situationId ?? null,
+      embeddingStr,
+      existing.id,
+    );
+  } else {
+    await prisma.knowledgePage.update({
+      where: { id: existing.id },
+      data: {
+        content: params.content,
+        contentTokens,
+        crossReferences,
+        sources: mergedSources as unknown as Prisma.InputJsonValue,
+        sourceCount: mergedSources.length,
+        sourceTypes,
+        status: "draft",
+        version: { increment: 1 },
+        synthesisPath: params.synthesisPath,
+        synthesizedByModel: params.synthesizedByModel,
+        situationId: params.situationId ?? existing.situationId,
+        lastSynthesizedAt: new Date(),
+        verifiedAt: null,
+        verifiedByModel: null,
+        verificationLog: Prisma.JsonNull,
+        quarantineReason: null,
+        staleReason: null,
+      },
+    });
+  }
+
+  // Trigger verification
+  if (params.synthesisPath === "reasoning") {
+    verifyPage(existing.id).catch((err) => {
+      console.error(`[wiki-engine] Verification failed for ${slug}:`, err);
+    });
+  } else {
+    await verifyPage(existing.id);
+  }
+}
+
+async function flagContradiction(params: {
+  operatorId: string;
+  projectId?: string;
+  slug: string;
+  content: string;
+  sourceCitations: WikiUpdate["sourceCitations"];
+  synthesizedByModel: string;
+}): Promise<void> {
+  const logSlug = params.projectId
+    ? `contradiction-log-${params.projectId}`
+    : "contradiction-log";
+
+  const existing = await prisma.knowledgePage.findUnique({
+    where: { operatorId_slug: { operatorId: params.operatorId, slug: logSlug } },
+  });
+
+  const timestamp = new Date().toISOString().split("T")[0];
+  const entry = `\n\n## [${timestamp}] ${params.slug}\n\n${params.content}`;
+
+  if (existing) {
+    await prisma.knowledgePage.update({
+      where: { id: existing.id },
+      data: {
+        content: existing.content + entry,
+        version: { increment: 1 },
+        lastSynthesizedAt: new Date(),
+      },
+    });
+  } else {
+    await prisma.knowledgePage.create({
+      data: {
+        operatorId: params.operatorId,
+        projectId: params.projectId ?? null,
+        pageType: "contradiction_log",
+        title: "Contradiction log",
+        slug: logSlug,
+        content: `# Contradiction log\n\nActive contradictions detected across knowledge pages.${entry}`,
+        contentTokens: Math.ceil(entry.length / 4),
+        sources: buildSourcesArray(params.sourceCitations),
+        sourceCount: params.sourceCitations.length,
+        status: "verified",
+        confidence: 1.0,
+        version: 1,
+        synthesisPath: "reasoning",
+        synthesizedByModel: params.synthesizedByModel,
+        lastSynthesizedAt: new Date(),
+      },
+    });
+  }
+
+  // Mark the referenced page as stale
+  await prisma.knowledgePage.updateMany({
+    where: {
+      operatorId: params.operatorId,
+      slug: normalizeSlug(params.slug),
+      status: "verified",
+    },
+    data: {
+      status: "stale",
+      staleReason: "Contradiction flagged — new data conflicts with existing claims",
+    },
+  });
+}
+
+// ─── Query functions ────────────────────────────────────
+
+export async function getPageForEntity(
+  operatorId: string,
+  entityId: string,
+  projectId?: string,
+): Promise<{ content: string; status: string; confidence: number; slug: string } | null> {
+  // Prefer verified > stale > draft (exclude quarantined)
+  const page = await prisma.knowledgePage.findFirst({
+    where: {
+      operatorId,
+      subjectEntityId: entityId,
+      pageType: "entity_profile",
+      projectId: projectId ?? null,
+      status: { in: ["verified", "stale", "draft"] },
+    },
+    orderBy: [{ lastSynthesizedAt: "desc" }],
+    select: { content: true, status: true, confidence: true, slug: true, id: true },
+  });
+
+  if (!page) return null;
+
+  // Increment reasoning use count (fire-and-forget)
+  prisma.knowledgePage.update({
+    where: { id: page.id },
+    data: { reasoningUseCount: { increment: 1 } },
+  }).catch(() => {});
+
+  return page;
+}
+
+export async function searchPages(
+  operatorId: string,
+  query: string,
+  options?: {
+    pageType?: string;
+    projectId?: string;
+    limit?: number;
+    statusFilter?: string[];
+  },
+): Promise<Array<{
+  slug: string;
+  title: string;
+  pageType: string;
+  status: string;
+  confidence: number;
+  contentPreview: string;
+}>> {
+  const limit = options?.limit ?? 5;
+  const statusFilter = options?.statusFilter ?? ["verified", "stale"];
+
+  // Try embedding-based search first
+  const embeddings = await embedChunks([query]).catch(() => [null]);
+  const queryEmbedding = embeddings[0];
+
+  if (queryEmbedding) {
+    const embeddingStr = `[${queryEmbedding.join(",")}]`;
+
+    // Build parameterized query with stable parameter indices
+    const conditions: string[] = [
+      `"operatorId" = $2`,
+      `status = ANY($3::text[])`,
+      `embedding IS NOT NULL`,
+    ];
+    const params: unknown[] = [embeddingStr, operatorId, statusFilter];
+    let nextIdx = 4;
+
+    if (options?.pageType) {
+      conditions.push(`"pageType" = $${nextIdx}`);
+      params.push(options.pageType);
+      nextIdx++;
+    }
+
+    if (options?.projectId) {
+      conditions.push(`"projectId" = $${nextIdx}`);
+      params.push(options.projectId);
+      nextIdx++;
+    } else {
+      conditions.push(`"projectId" IS NULL`);
+    }
+
+    params.push(limit);
+    const limitIdx = nextIdx;
+
+    const sql = `
+      SELECT id, slug, title, "pageType", status, confidence, content,
+             1 - (embedding <=> $1::vector) as score
+      FROM "KnowledgePage"
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY embedding <=> $1::vector
+      LIMIT $${limitIdx}
+    `;
+
+    const results = await prisma.$queryRawUnsafe<Array<{
+      id: string;
+      slug: string;
+      title: string;
+      pageType: string;
+      status: string;
+      confidence: number;
+      content: string;
+      score: number;
+    }>>(sql, ...params);
+
+    return results.map((r) => ({
+      slug: r.slug,
+      title: r.title,
+      pageType: r.pageType,
+      status: r.status,
+      confidence: r.confidence,
+      contentPreview: r.content.slice(0, 500),
+    }));
+  }
+
+  // Fallback: text search on title and content
+  const results = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      status: { in: statusFilter },
+      ...(options?.pageType ? { pageType: options.pageType } : {}),
+      ...(options?.projectId ? { projectId: options.projectId } : { projectId: null }),
+      OR: [
+        { title: { contains: query, mode: "insensitive" } },
+        { content: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    select: { slug: true, title: true, pageType: true, status: true, confidence: true, content: true },
+    take: limit,
+    orderBy: { confidence: "desc" },
+  });
+
+  return results.map((r) => ({
+    slug: r.slug,
+    title: r.title,
+    pageType: r.pageType,
+    status: r.status,
+    confidence: r.confidence,
+    contentPreview: r.content.slice(0, 500),
+  }));
+}
+
+export async function getRelevantPagesForSeed(
+  operatorId: string,
+  triggerEntityId: string,
+  situationTypeSlug?: string,
+  projectId?: string,
+): Promise<Array<{ slug: string; title: string; pageType: string; status: string; content: string }>> {
+  const pages: Array<{ slug: string; title: string; pageType: string; status: string; content: string }> = [];
+  const TOKEN_BUDGET = 6000;
+  let tokensUsed = 0;
+
+  // 1. Entity profile for trigger entity
+  const entityProfile = await getPageForEntity(operatorId, triggerEntityId, projectId);
+  if (entityProfile && tokensUsed + Math.ceil(entityProfile.content.length / 4) < TOKEN_BUDGET) {
+    const statusTag = entityProfile.status === "verified" ? "" : ` [${entityProfile.status}]`;
+    pages.push({
+      slug: entityProfile.slug,
+      title: `Entity profile${statusTag}`,
+      pageType: "entity_profile",
+      status: entityProfile.status,
+      content: entityProfile.content,
+    });
+    tokensUsed += Math.ceil(entityProfile.content.length / 4);
+  }
+
+  // 2. Situation pattern page (if situation type known)
+  if (situationTypeSlug) {
+    const pattern = await prisma.knowledgePage.findFirst({
+      where: {
+        operatorId,
+        pageType: "situation_pattern",
+        slug: { contains: situationTypeSlug },
+        status: { in: ["verified", "stale"] },
+        projectId: projectId ?? null,
+      },
+      select: { slug: true, title: true, pageType: true, status: true, content: true },
+    });
+    if (pattern && tokensUsed + Math.ceil(pattern.content.length / 4) < TOKEN_BUDGET) {
+      pages.push(pattern);
+      tokensUsed += Math.ceil(pattern.content.length / 4);
+    }
+  }
+
+  // 3. Department overview for the trigger entity's department
+  const entity = await prisma.entity.findFirst({
+    where: { id: triggerEntityId, operatorId },
+    select: { parentDepartmentId: true },
+  });
+  if (entity?.parentDepartmentId) {
+    const deptPage = await getPageForEntity(operatorId, entity.parentDepartmentId, projectId);
+    if (deptPage && tokensUsed + Math.ceil(deptPage.content.length / 4) < TOKEN_BUDGET) {
+      pages.push({
+        slug: deptPage.slug,
+        title: "Department overview",
+        pageType: "department_overview",
+        status: deptPage.status,
+        content: deptPage.content,
+      });
+      tokensUsed += Math.ceil(deptPage.content.length / 4);
+    }
+  }
+
+  // 4. Fill remaining budget with high-confidence relevant pages
+  if (tokensUsed < TOKEN_BUDGET - 500) {
+    const additional = await prisma.knowledgePage.findMany({
+      where: {
+        operatorId,
+        status: "verified",
+        pageType: { in: ["process_description", "financial_pattern", "communication_pattern"] },
+        projectId: projectId ?? null,
+        slug: { notIn: pages.map((p) => p.slug) },
+      },
+      orderBy: [{ reasoningUseCount: "desc" }, { confidence: "desc" }],
+      take: 3,
+      select: { slug: true, title: true, pageType: true, status: true, content: true, contentTokens: true },
+    });
+    for (const page of additional) {
+      if (tokensUsed + page.contentTokens > TOKEN_BUDGET) break;
+      pages.push(page);
+      tokensUsed += page.contentTokens;
+    }
+  }
+
+  return pages;
+}
+
+// ─── Helpers ────────────────────────────────────────────
+
+function normalizeSlug(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[æ]/g, "ae").replace(/[ø]/g, "oe").replace(/[å]/g, "aa")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 120);
+}
+
+function buildSourcesArray(citations: WikiUpdate["sourceCitations"]): Array<{
+  type: string;
+  id: string;
+  citation: string;
+  claimCount: number;
+}> {
+  const map = new Map<string, { type: string; id: string; citation: string; claimCount: number }>();
+  for (const c of citations) {
+    const key = `${c.sourceType}:${c.sourceId}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.claimCount++;
+    } else {
+      map.set(key, { type: c.sourceType, id: c.sourceId, citation: c.claim, claimCount: 1 });
+    }
+  }
+  return [...map.values()];
+}
+
+function mergeSources(
+  existing: Array<{ id: string; [k: string]: unknown }>,
+  incoming: Array<{ id: string; [k: string]: unknown }>,
+): Array<{ id: string; [k: string]: unknown }> {
+  const map = new Map<string, { id: string; [k: string]: unknown }>();
+  for (const s of existing) map.set(s.id, s);
+  for (const s of incoming) map.set(s.id, s);
+  return [...map.values()];
+}
+
+function extractCrossReferences(content: string): string[] {
+  const matches = content.match(/\[\[([a-z0-9-]+)\]\]|\[page:([a-z0-9-]+)\]/g) ?? [];
+  return [...new Set(matches.map((m) => m.replace(/[\[\]]/g, "").replace("page:", "")))];
+}
+
+async function updateIndexPage(operatorId: string, projectId?: string): Promise<void> {
+  const pages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      projectId: projectId ?? null,
+      pageType: { not: "index" },
+    },
+    select: { slug: true, title: true, pageType: true, status: true, sourceCount: true, lastSynthesizedAt: true },
+    orderBy: [{ pageType: "asc" }, { title: "asc" }],
+  });
+
+  // Group by pageType
+  const groups = new Map<string, typeof pages>();
+  for (const p of pages) {
+    const group = groups.get(p.pageType) ?? [];
+    group.push(p);
+    groups.set(p.pageType, group);
+  }
+
+  let content = "# Wiki index\n\n";
+  for (const [type, pgs] of groups) {
+    content += `## ${type.replace(/_/g, " ")}\n\n`;
+    for (const p of pgs) {
+      const statusTag = p.status !== "verified" ? ` [${p.status}]` : "";
+      const date = p.lastSynthesizedAt.toISOString().split("T")[0];
+      content += `- [[${p.slug}]] — ${p.title}${statusTag} (${p.sourceCount} sources, ${date})\n`;
+    }
+    content += "\n";
+  }
+
+  const slug = projectId ? `index-${projectId}` : "index";
+  await prisma.knowledgePage.upsert({
+    where: { operatorId_slug: { operatorId, slug } },
+    update: {
+      content,
+      contentTokens: Math.ceil(content.length / 4),
+      version: { increment: 1 },
+      lastSynthesizedAt: new Date(),
+    },
+    create: {
+      operatorId,
+      projectId: projectId ?? null,
+      pageType: "index",
+      title: "Wiki index",
+      slug,
+      content,
+      contentTokens: Math.ceil(content.length / 4),
+      status: "verified",
+      confidence: 1.0,
+      version: 1,
+      synthesisPath: "background",
+      synthesizedByModel: "system",
+      lastSynthesizedAt: new Date(),
+    },
+  });
+}
+
+async function appendToLog(
+  operatorId: string,
+  projectId: string | undefined,
+  updates: WikiUpdate[],
+  synthesisPath: string,
+): Promise<void> {
+  const slug = projectId ? `log-${projectId}` : "log";
+  const timestamp = new Date().toISOString();
+  const entries = updates.map((u) =>
+    `## [${timestamp}] ${synthesisPath} | ${u.updateType} | ${u.slug}\n${u.reasoning}`,
+  ).join("\n\n");
+
+  const existing = await prisma.knowledgePage.findUnique({
+    where: { operatorId_slug: { operatorId, slug } },
+  });
+
+  if (existing) {
+    await prisma.knowledgePage.update({
+      where: { id: existing.id },
+      data: {
+        content: existing.content + "\n\n" + entries,
+        contentTokens: Math.ceil((existing.content.length + entries.length) / 4),
+        version: { increment: 1 },
+        lastSynthesizedAt: new Date(),
+      },
+    });
+  } else {
+    await prisma.knowledgePage.create({
+      data: {
+        operatorId,
+        projectId: projectId ?? null,
+        pageType: "log",
+        title: "Wiki log",
+        slug,
+        content: `# Wiki log\n\nChronological record of wiki operations.\n\n${entries}`,
+        contentTokens: Math.ceil(entries.length / 4),
+        status: "verified",
+        confidence: 1.0,
+        version: 1,
+        synthesisPath: "background",
+        synthesizedByModel: "system",
+        lastSynthesizedAt: new Date(),
+      },
+    });
+  }
+}
+
+// ─── Outcome feedback ───────────────────────────────────
+
+export async function updateWikiOutcomeSignals(
+  situationId: string,
+  outcome: "approved" | "rejected" | "dismissed",
+): Promise<void> {
+  if (outcome === "dismissed") return;
+
+  const situation = await prisma.situation.findUnique({
+    where: { id: situationId },
+    select: { operatorId: true },
+  });
+  if (!situation) return;
+
+  // Find wiki pages accessed via tool calls during reasoning
+  const traces = await prisma.toolCallTrace.findMany({
+    where: { situationId, toolName: { in: ["read_wiki_page", "search_wiki"] } },
+    select: { arguments: true },
+  });
+
+  const pageSlugs = new Set<string>();
+  for (const trace of traces) {
+    const args = trace.arguments as Record<string, unknown> | null;
+    if (args?.slug) pageSlugs.add(String(args.slug));
+  }
+
+  if (pageSlugs.size === 0) return;
+
+  const field = outcome === "approved" ? "outcomeApproved" : "outcomeRejected";
+
+  for (const slug of pageSlugs) {
+    await prisma.knowledgePage.updateMany({
+      where: { operatorId: situation.operatorId, slug },
+      data: { [field]: { increment: 1 } },
+    }).catch(() => {});
+  }
+}

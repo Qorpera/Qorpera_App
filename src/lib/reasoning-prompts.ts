@@ -152,8 +152,9 @@ Use these statistics to inform your approach. High success rate = proven approac
   return lines.join("\n");
 }
 
-// ── System Prompt ────────────────────────────────────────────────────────────
+// ── System Prompt (pre-agentic — retained for admin test-harness) ────────────
 
+/** DEPRECATED: Use buildAgenticSystemPrompt() for all production reasoning. */
 export function buildReasoningSystemPrompt(businessContext: string | null, companyName?: string): string {
   const bizSection = businessContext
     ? `\nBUSINESS CONTEXT:\n${businessContext}\n`
@@ -371,8 +372,9 @@ CRITICAL RULES:
 - For response_dependent: monitoringCriteria MUST specify what you're waiting for, how many business days before follow-up, and what the follow-up action should be. Be specific: "Payment of 87.000 DKK from Vestegnens Boligforening" not "response from client".`;
 }
 
-// ── User Prompt ──────────────────────────────────────────────────────────────
+// ── User Prompt (pre-agentic — retained for admin test-harness) ──────────────
 
+/** DEPRECATED: The agentic loop uses buildAgenticSeedContext() instead. */
 export function buildReasoningUserPrompt(input: ReasoningInput): string {
   const sections: string[] = [];
 
@@ -644,6 +646,13 @@ INVESTIGATION PROCESS:
 6. Check prior situations of this type to learn from how they were handled before.
 7. When you have enough evidence, produce your final JSON output.
 
+WIKI-FIRST INVESTIGATION:
+When investigating, prefer wiki pages over raw data when available:
+1. First, check if relevant wiki pages exist (they may be in your seed context above, or use search_wiki to find them)
+2. Wiki pages contain cross-referenced, verified synthesis — richer than individual lookups
+3. Fall back to raw data tools (lookup_entity, search_documents, search_communications) when wiki coverage is insufficient or when you need to verify a specific claim
+4. If you find information during raw data investigation that contradicts a wiki page, include a "flag_contradiction" in your wikiUpdates
+
 RULES FOR INVESTIGATION:
 - You reason ONLY from what the tools return. Never assume information that wasn't in a tool result. If a tool returns no results, that absence is meaningful evidence.
 - If you're uncertain whether a piece of information exists, call the tool and find out. Do not guess.
@@ -812,8 +821,41 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
     "waitingFor": "Payment confirmation from Karen Holm for INV-2026-035",
     "expectedWithinDays": 5,
     "followUpAction": "Send formal escalation with payment deadline and consequence warning"
-  } or null
+  } or null,
+  "wikiUpdates": [  // OPTIONAL — knowledge worth preserving for future reasoning
+    {
+      "slug": "entity-name-type",
+      "pageType": "entity_profile",
+      "title": "Entity Name — profile type",
+      "subjectEntityId": "entity-id-if-applicable",
+      "updateType": "create",
+      "content": "# Title\\n\\nSynthesized knowledge with [src:chunk-id] citations...",
+      "sourceCitations": [
+        { "sourceType": "chunk", "sourceId": "chunk-id", "claim": "what this source supports" }
+      ],
+      "reasoning": "Why this knowledge is worth persisting"
+    }
+  ]
 }
+
+WIKI KNOWLEDGE UPDATES:
+As you investigate, you are building organizational understanding that should persist for future use. At the end of your investigation, include a "wikiUpdates" array with knowledge worth preserving.
+
+For each update:
+- "slug": page identifier (e.g., "lund-co-client-profile", "tilbudsproces-pattern")
+- "pageType": one of entity_profile, process_description, financial_pattern, communication_pattern, situation_pattern, department_overview, topic_synthesis
+- "updateType": "create" (new page), "update" (enrich existing), or "flag_contradiction" (new evidence conflicts with existing knowledge)
+- "content": synthesized knowledge in markdown. Every factual claim must include a source citation as [src:CHUNK_ID] or [src:SIGNAL_ID] using the actual IDs from your tool call results. Be precise — specific numbers, dates, names. Do not generalize when you have specific data.
+- "sourceCitations": structured array of {sourceType, sourceId, claim} for provenance
+- "reasoning": why this knowledge is worth persisting (one sentence)
+
+Wiki guidelines:
+- Only persist knowledge useful in FUTURE reasoning sessions. Skip trivial observations.
+- Every claim needs a source citation. No citation = do not include the claim.
+- Entity profiles should capture behavioral patterns and dynamics, not just static facts.
+- Process descriptions should capture how things actually work based on observed evidence.
+- If you found a contradiction between data sources, use "flag_contradiction".
+- Typical investigation produces 2-5 updates. Empty array is fine if nothing worth persisting was discovered.
 
 CRITICAL RULES:
 - "actionPlan" is an array of EXTERNAL response actions, or null if no action is warranted.
@@ -837,7 +879,8 @@ CRITICAL RULES:
   - "response_dependent" — Sending a payment reminder, requesting information, asking for approval, submitting an application. Something external needs to happen for the situation to be truly resolved.
   - "informational" — Notifying someone of something, CC'ing a stakeholder, sharing an update. One-way communication with no expected feedback.
   When in doubt between self_resolving and response_dependent: if a reasonable person would check back in a few days to see if something happened, it's response_dependent. If they'd fire-and-forget, it's self_resolving.
-- For response_dependent: monitoringCriteria MUST specify what you're waiting for, how many business days before follow-up, and what the follow-up action should be. Be specific: "Payment of 87.000 DKK from Vestegnens Boligforening" not "response from client".`;
+- For response_dependent: monitoringCriteria MUST specify what you're waiting for, how many business days before follow-up, and what the follow-up action should be. Be specific: "Payment of 87.000 DKK from Vestegnens Boligforening" not "response from client".
+- "wikiUpdates" is optional. Include it when your investigation uncovered knowledge worth preserving — behavioral patterns, process insights, contradictions. Empty array or omission is fine when nothing novel was found.`;
 }
 
 // ── Agentic Seed Context ────────────────────────────────────────────────────
@@ -878,6 +921,7 @@ export interface AgenticSeedInput {
   } | null;
   workstreamCount: number;
   connectorCapabilities: ConnectorCapability[];
+  wikiPages: Array<{ slug: string; title: string; pageType: string; status: string; content: string }>;
 }
 
 export function buildAgenticSeedContext(input: AgenticSeedInput): string {
@@ -985,6 +1029,15 @@ Autonomy level: ${input.autonomyLevel} — ${autonomyNote}`);
   // WORKSTREAM
   if (input.workstreamCount > 0) {
     sections.push(`WORKSTREAM: This situation is part of ${input.workstreamCount} workstream(s). Use get_workstream_context tool to investigate.`);
+  }
+
+  // ORGANIZATIONAL KNOWLEDGE (from wiki)
+  if (input.wikiPages.length > 0) {
+    const pageContent = input.wikiPages.map((p) => {
+      const statusNote = p.status !== "verified" ? ` [${p.status}]` : "";
+      return `### ${p.title}${statusNote}\n\n${p.content}`;
+    }).join("\n\n---\n\n");
+    sections.push(`ORGANIZATIONAL KNOWLEDGE (from wiki):\nPre-loaded knowledge pages relevant to this situation. These contain cross-referenced, synthesized intelligence — use them as a starting point before falling back to raw data tools.\n\n${pageContent}`);
   }
 
   // GOVERNANCE

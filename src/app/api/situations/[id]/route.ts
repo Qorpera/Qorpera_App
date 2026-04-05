@@ -10,6 +10,7 @@ import { getVisibleDepartmentIds } from "@/lib/user-scope";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { completeDelegation } from "@/lib/delegations";
 import { checkInsightExtractionTrigger } from "@/lib/operational-knowledge";
+import { updateWikiOutcomeSignals } from "@/lib/wiki-engine";
 
 export async function GET(
   _req: NextRequest,
@@ -413,6 +414,13 @@ export async function PATCH(
     import("@/lib/billing-events")
       .then((m) => m.emitSituationBillingEvent(id))
       .catch(console.error);
+  }
+
+  // Wiki outcome feedback (fire-and-forget)
+  if (body.status === "approved" || body.status === "rejected" || body.status === "dismissed") {
+    updateWikiOutcomeSignals(id, body.status).catch((err) =>
+      console.error(`[situation-patch] Wiki outcome signals failed for ${id}:`, err),
+    );
   }
 
   return NextResponse.json({ id: updated.id, status: updated.status });

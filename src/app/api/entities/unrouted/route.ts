@@ -15,14 +15,19 @@ export async function GET() {
     where: { operatorId, slug: "department-member" },
   });
 
-  // Get IDs of entities that have a department-member relationship
+  // Get IDs of entities that have a department-member relationship (either side)
   const routedEntityIds: string[] = [];
   if (relType) {
     const routedRels = await prisma.relationship.findMany({
       where: { relationshipTypeId: relType.id },
-      select: { fromEntityId: true },
+      select: { fromEntityId: true, toEntityId: true },
     });
-    routedEntityIds.push(...routedRels.map((r) => r.fromEntityId));
+    const routedSet = new Set<string>();
+    for (const r of routedRels) {
+      routedSet.add(r.fromEntityId);
+      routedSet.add(r.toEntityId);
+    }
+    routedEntityIds.push(...routedSet);
   }
 
   const entities = await prisma.entity.findMany({

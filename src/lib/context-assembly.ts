@@ -658,6 +658,12 @@ export async function loadCrossDepartmentSignals(
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
+/**
+ * DEPRECATED: Direct context assembly was replaced by the agentic reasoning loop
+ * + wiki knowledge pages. Still called by situation-detector.ts (detection enrichment)
+ * and admin test-harness routes. Individual data loaders (loadActivityTimeline,
+ * loadCommunicationContext, etc.) remain active as reasoning tool implementations.
+ */
 export async function assembleSituationContext(
   operatorId: string,
   situationTypeId: string,

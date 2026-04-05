@@ -44,6 +44,7 @@ ${project.deliverables.map((d) => `- ${d.id}: ${d.title}`).join("\n")}`;
 
     try {
       const response = await callLLM({
+        operatorId: project.operatorId,
         instructions: systemPrompt,
         messages: [{ role: "user", content: userMessage }],
         model: getModel("copilot"),

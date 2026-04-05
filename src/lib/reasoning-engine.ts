@@ -16,6 +16,7 @@ import { refineUncertainties } from "@/lib/reasoning/uncertainty-refiner";
 import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
 import { getConnectorReadTools, executeConnectorReadTool } from "@/lib/connector-read-tools";
 import { logToolCall } from "@/lib/tool-call-trace";
+import { processWikiUpdates, getRelevantPagesForSeed, type WikiUpdate } from "@/lib/wiki-engine";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
 export const REASONING_PROMPT_VERSION = 5; // v5: capability binding, email drafting, params population
@@ -291,8 +292,19 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     });
 
     // 6b. Assemble dynamic tool set (knowledge-graph + connector read tools)
-    const { tools: connectorTools, availableToolNames: connectorToolNames } =
-      await getConnectorReadTools(situation.operatorId);
+    const [
+      { tools: connectorTools, availableToolNames: connectorToolNames },
+      wikiPages,
+    ] = await Promise.all([
+      getConnectorReadTools(situation.operatorId),
+      situation.triggerEntityId
+        ? getRelevantPagesForSeed(
+            situation.operatorId,
+            situation.triggerEntityId,
+            situation.situationType.slug,
+          )
+        : Promise.resolve([]),
+    ]);
     const allTools = [...REASONING_TOOLS, ...connectorTools];
 
     const dispatchTool = async (toolName: string, args: Record<string, unknown>): Promise<string> => {
@@ -326,6 +338,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       delegationSource,
       workstreamCount: workstreamItems.length,
       connectorCapabilities,
+      wikiPages,
     };
     const seedContext = buildAgenticSeedContext(seedInput);
 
@@ -503,6 +516,43 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     generateSituationSummaries(situationId).catch(err =>
       console.error(`[reasoning-engine] Summary generation failed for ${situationId}:`, err)
     );
+
+    // Wiki knowledge updates (fire-and-forget)
+    if (reasoning.wikiUpdates && reasoning.wikiUpdates.length > 0) {
+      processWikiUpdates({
+        operatorId: situation.operatorId,
+        situationId: situation.id,
+        updates: reasoning.wikiUpdates as WikiUpdate[],
+        synthesisPath: "reasoning",
+        synthesizedByModel: modelString,
+        synthesisCostCents: Math.round(reasoningApiCostCents),
+        synthesisDurationMs: Math.round(reasoningDurationMs),
+      }).catch((err) => {
+        console.error(`[reasoning-engine] Wiki update processing failed for ${situationId}:`, err);
+      });
+
+      // Mark cited sources as wiki-processed
+      const chunkIds: string[] = [];
+      const signalIds: string[] = [];
+      for (const update of reasoning.wikiUpdates) {
+        for (const cite of update.sourceCitations) {
+          if (cite.sourceType === "chunk") chunkIds.push(cite.sourceId);
+          if (cite.sourceType === "signal") signalIds.push(cite.sourceId);
+        }
+      }
+      if (chunkIds.length > 0) {
+        prisma.contentChunk.updateMany({
+          where: { id: { in: chunkIds } },
+          data: { wikiProcessedAt: new Date() },
+        }).catch(() => {});
+      }
+      if (signalIds.length > 0) {
+        prisma.activitySignal.updateMany({
+          where: { id: { in: signalIds } },
+          data: { wikiProcessedAt: new Date() },
+        }).catch(() => {});
+      }
+    }
 
     // Workstream absorption: link situation to related workstream
     if (reasoning.relatedWorkStreamId) {

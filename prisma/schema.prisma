@@ -124,6 +124,8 @@ model Operator {
   // v4: Projects
   projectTemplates     ProjectTemplate[]
   projects             Project[]
+  // v5: Wiki knowledge
+  knowledgePages       KnowledgePage[]
 
   // Deletion lifecycle (GDPR)
   deletionRequestedAt     DateTime?
@@ -759,6 +761,8 @@ model ContentChunk {
   projectId            String?
   createdAt            DateTime  @default(now())
 
+  wikiProcessedAt      DateTime?
+
   operator  Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   connector SourceConnector? @relation(fields: [connectorId], references: [id])
   user      User?            @relation(fields: [userId], references: [id])
@@ -785,6 +789,7 @@ model ActivitySignal {
   departmentIds   String? // JSON array — derived from participant routing
   metadata        String? // JSON: { response_time_ms, thread_id, channel, file_name, attendees, etc. }
   occurredAt      DateTime // when the activity happened (not when we ingested it)
+  wikiProcessedAt DateTime?
   createdAt       DateTime @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
@@ -1537,4 +1542,72 @@ model ProjectConnector {
   sourceConnector SourceConnector? @relation(fields: [sourceConnectorId], references: [id])
 
   @@index([projectId])
+}
+
+// ─── Wiki Knowledge ─────────────────────────────────────
+
+model KnowledgePage {
+  id                  String    @id @default(cuid())
+  operatorId          String
+  projectId           String?
+
+  // Identity
+  pageType            String    // entity_profile, relationship_map, process_description,
+                                // financial_pattern, communication_pattern, situation_pattern,
+                                // department_overview, topic_synthesis, contradiction_log,
+                                // index, log
+  subjectEntityId     String?
+  title               String
+  slug                String
+
+  // Content
+  content             String
+  contentTokens       Int       @default(0)
+  crossReferences     String[]  @default([])
+
+  // Provenance
+  sources             Json      @default("[]")
+  sourceCount         Int       @default(0)
+  sourceTypes         String[]  @default([])
+
+  // Verification lifecycle
+  status              String    @default("draft") // draft | verified | stale | quarantined
+  verifiedAt          DateTime?
+  verifiedByModel     String?
+  verificationLog     Json?
+  quarantineReason    String?
+  staleReason         String?
+
+  // Quality signals
+  confidence          Float     @default(0.5)
+  reasoningUseCount   Int       @default(0)
+  outcomeApproved     Int       @default(0)
+  outcomeRejected     Int       @default(0)
+  citedByPages        Int       @default(0)
+
+  // Synthesis metadata
+  version             Int       @default(1)
+  synthesisPath       String    // "reasoning" | "background" | "onboarding" | "lint"
+  synthesizedByModel  String
+  synthesisPromptHash String?
+  synthesisCostCents  Int?
+  synthesisDurationMs Int?
+  situationId         String?
+
+  // Timestamps
+  lastSynthesizedAt   DateTime
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Embedding for search_wiki
+  embedding           Unsupported("vector(1536)")?
+
+  operator  Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@unique([operatorId, slug])
+  @@unique([operatorId, projectId, subjectEntityId, pageType])
+  @@index([operatorId, status])
+  @@index([operatorId, pageType])
+  @@index([operatorId, projectId])
+  @@index([subjectEntityId])
 }

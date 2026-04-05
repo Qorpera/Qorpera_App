@@ -23,7 +23,6 @@ interface Department {
   mapY: number | null;
   memberCount: number;
   documentCount: number;
-  filledSlots: string[];
   entityType: { slug: string };
   isHQ: boolean;
 }

@@ -1,3 +1,9 @@
+/**
+ * DEPRECATED: Multi-agent reasoning is no longer called from the main reasoning path.
+ * The agentic reasoning loop (reasoning-engine.ts) with wiki integration handles all
+ * situation reasoning. This module is retained for the admin test-harness routes and
+ * as architectural reference.
+ */
 import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { formatPriorOutcomeStats, type ReasoningInput } from "@/lib/reasoning-prompts";
 import type { ContextSectionMeta, EntitySummary } from "@/lib/context-assembly";

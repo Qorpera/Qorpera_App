@@ -12,6 +12,7 @@ import {
   findRelevantDepartments,
 } from "@/lib/context-assembly";
 import { getWorkStreamContext } from "@/lib/workstreams";
+import { getPageForEntity, searchPages } from "@/lib/wiki-engine";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -283,6 +284,52 @@ export const REASONING_TOOLS: AITool[] = [
       required: ["entityId"],
     },
   },
+  {
+    name: "read_wiki_page",
+    description:
+      "Read a knowledge page from the organizational wiki. Wiki pages contain synthesized intelligence about entities, processes, patterns, and topics — richer and more cross-referenced than raw data lookups. Use this when you need deep context about an entity or topic.",
+    parameters: {
+      type: "object",
+      properties: {
+        slug: {
+          type: "string",
+          description: "Page slug (from cross-references in other pages or from search_wiki results)",
+        },
+        subjectEntityId: {
+          type: "string",
+          description: "Alternative: find the wiki page for this entity ID",
+        },
+        pageType: {
+          type: "string",
+          description: "Optional: filter by page type (entity_profile, process_description, financial_pattern, communication_pattern, situation_pattern, department_overview, topic_synthesis)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "search_wiki",
+    description:
+      "Search the organizational wiki for pages relevant to a topic. Returns page titles, types, confidence levels, and content previews. Use this to discover what synthesized knowledge exists before falling back to raw data tools.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query — topic, entity name, or concept to find wiki pages about",
+        },
+        pageType: {
+          type: "string",
+          description: "Optional: filter results by page type",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum results to return (default 5, max 10)",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 // ── Dispatch ────────────────────────────────────────────────────────────────
@@ -307,6 +354,8 @@ export async function executeReasoningTool(
       case "get_org_structure": return capResult(await executeGetOrgStructure(operatorId, args));
       case "get_available_actions": return capResult(await executeGetAvailableActions(operatorId, args));
       case "get_workstream_context": return capResult(await executeGetWorkstreamContext(operatorId, args));
+      case "read_wiki_page": return capResult(await executeReadWikiPage(operatorId, args));
+      case "search_wiki": return capResult(await executeSearchWiki(operatorId, args));
       default: return `Unknown tool: "${toolName}". Available tools: ${REASONING_TOOLS.map(t => t.name).join(", ")}`;
     }
   } catch (err) {
@@ -798,4 +847,92 @@ async function executeGetWorkstreamContext(
   }
 
   return lines.join("\n").trim();
+}
+
+// ── Group D: Wiki Tools ───────────────────────────────────────────────────
+
+async function executeReadWikiPage(
+  operatorId: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const slug = args.slug ? String(args.slug) : undefined;
+  const subjectEntityId = args.subjectEntityId ? String(args.subjectEntityId) : undefined;
+  const pageType = args.pageType ? String(args.pageType) : undefined;
+
+  // Route 1: by entity ID
+  if (subjectEntityId) {
+    const page = await getPageForEntity(operatorId, subjectEntityId);
+    if (!page) return `No wiki page found for entity ${subjectEntityId}. Try using lookup_entity for raw data.`;
+
+    const statusNote = page.status !== "verified"
+      ? `\n\nNote: This page is ${page.status} — information may be outdated or unverified.`
+      : "";
+
+    return `Wiki page: ${page.slug} (confidence: ${page.confidence.toFixed(2)})${statusNote}\n\n${page.content}`;
+  }
+
+  // Route 2: by slug
+  if (slug) {
+    const page = await prisma.knowledgePage.findUnique({
+      where: { operatorId_slug: { operatorId, slug } },
+      select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true },
+    });
+
+    if (!page) return `No wiki page found with slug "${slug}".`;
+    if (page.status === "quarantined") return `Wiki page "${slug}" is quarantined (unreliable). Use raw data tools instead.`;
+
+    // Increment use count (fire-and-forget)
+    prisma.knowledgePage.update({
+      where: { id: page.id },
+      data: { reasoningUseCount: { increment: 1 } },
+    }).catch(() => {});
+
+    const statusNote = page.status !== "verified"
+      ? `\n\nNote: This page is ${page.status} — information may be outdated or unverified.`
+      : "";
+
+    return `Wiki page: ${page.title} [${page.pageType}] (confidence: ${page.confidence.toFixed(2)})${statusNote}\n\n${page.content}`;
+  }
+
+  // Route 3: by pageType only (return first match)
+  if (pageType) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId, pageType, status: { in: ["verified", "stale"] } },
+      orderBy: { confidence: "desc" },
+      select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true },
+    });
+
+    if (!page) return `No wiki page of type "${pageType}" found.`;
+    return `Wiki page: ${page.title} [${page.pageType}] (confidence: ${page.confidence.toFixed(2)})\n\n${page.content}`;
+  }
+
+  return "Please provide a slug, subjectEntityId, or pageType to read a wiki page.";
+}
+
+async function executeSearchWiki(
+  operatorId: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const query = String(args.query ?? "");
+  const pageType = args.pageType ? String(args.pageType) : undefined;
+  const limit = typeof args.limit === "number" ? Math.min(args.limit, 10) : 5;
+
+  if (!query) return "Please provide a search query.";
+
+  const results = await searchPages(operatorId, query, { pageType, limit });
+
+  if (results.length === 0) return `No wiki pages found matching "${query}". Try raw data tools (search_entities, search_documents, search_communications).`;
+
+  const lines: string[] = [`Found ${results.length} wiki pages:`];
+
+  for (const r of results) {
+    const statusTag = r.status !== "verified" ? ` [${r.status}]` : "";
+    lines.push(`\n### ${r.title} [${r.pageType}]${statusTag}`);
+    lines.push(`Slug: ${r.slug} | Confidence: ${r.confidence.toFixed(2)}`);
+    lines.push(r.contentPreview);
+  }
+
+  lines.push(`\nUse read_wiki_page with a slug to read the full page.`);
+
+  return lines.join("\n");
 }

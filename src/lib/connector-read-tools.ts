@@ -296,6 +296,8 @@ async function getAccessToken(
     token = await getMicrosoftAccessToken(config);
   } else if (provider === "hubspot") {
     token = await getValidHubSpotToken(config);
+  } else if (provider === "slack") {
+    token = (config.bot_token as string) || (config.access_token as string) || "";
   } else {
     throw new Error(`Unsupported provider for token refresh: ${provider}`);
   }

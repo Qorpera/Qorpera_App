@@ -357,12 +357,11 @@ async function computeKnowledge(
     where: { operatorId, departmentId: departmentEntityId },
   });
 
-  // RAG chunks — knowledge-type ContentChunks linked to this department
+  // RAG chunks — ALL ContentChunks linked to this department (documents, emails, messages, etc.)
   // departmentIds is a JSON string array — use raw SQL jsonb ? operator
   const ragChunkResult = await prisma.$queryRaw<[{ count: bigint }]>`
     SELECT COUNT(*) as count FROM "ContentChunk"
     WHERE "operatorId" = ${operatorId}
-      AND "sourceType" IN ('uploaded_doc', 'drive_doc', 'slack_message')
       AND "departmentIds" IS NOT NULL
       AND "departmentIds" != 'null'
       AND "departmentIds" != '[]'
@@ -374,7 +373,7 @@ async function computeKnowledge(
   const operationalChunkResult = await prisma.$queryRaw<[{ count: bigint }]>`
     SELECT COUNT(*) as count FROM "ContentChunk"
     WHERE "operatorId" = ${operatorId}
-      AND "sourceType" IN ('email', 'calendar_note')
+      AND "sourceType" IN ('email', 'calendar_note', 'calendar_event')
       AND "departmentIds" IS NOT NULL
       AND "departmentIds" != 'null'
       AND "departmentIds" != '[]'
