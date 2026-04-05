@@ -59,7 +59,25 @@ export const ReasoningOutputSchema = z.object({
     })),
     reasoning: z.string(),
   })).optional(),
+  depthUpgrade: z.boolean().optional(), // request upgrade from standard → thorough
+});
+
+export const DeepReasoningOutputSchema = ReasoningOutputSchema.extend({
+  analysisDocument: z.object({
+    sections: z.array(z.object({
+      type: z.enum(["heading", "paragraph", "finding", "risk", "data_table", "recommendation", "gap"]),
+      level: z.number().optional(),
+      title: z.string().optional(),
+      text: z.string(),
+      severity: z.enum(["high", "medium", "low"]).optional(),
+      confidence: z.number().optional(),
+      sources: z.array(z.string()).optional(),
+    })),
+    overallConfidence: z.number(),
+    investigationSummary: z.string(),
+  }).optional().nullable(),
 });
 
 export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;
+export type DeepReasoningOutput = z.infer<typeof DeepReasoningOutputSchema>;
 export type ActionStep = z.infer<typeof ActionStepSchema>;

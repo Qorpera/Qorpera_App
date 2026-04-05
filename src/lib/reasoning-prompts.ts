@@ -628,7 +628,7 @@ ${propsStr || "  (no properties)"}`);
 
 // ── Agentic Reasoning Prompts ───────────────────────────────────────────────
 
-export function buildAgenticSystemPrompt(businessContext: string | null, companyName?: string, connectorToolNames?: Set<string>): string {
+export function buildAgenticSystemPrompt(businessContext: string | null, companyName?: string, connectorToolNames?: Set<string>, investigationDepth?: string): string {
   const connectorToolSection = connectorToolNames && connectorToolNames.size > 0
     ? `\n\nYou also have direct-read tools for the company's connected systems: ${[...connectorToolNames].join(", ")}. Use these when you need specific data from source systems — calendar events with exact times, full email threads, file contents, spreadsheet data, or CRM records. These give you live data from the actual tools, not just the knowledge graph summary.`
     : "";
@@ -727,7 +727,25 @@ GOVERNANCE POLICIES ARE HARD BLOCKERS:
 - REQUIRE_APPROVAL actions must go through human review regardless of autonomy level.
 - Policies are not guidelines — they are constraints that cannot be reasoned around.
 
-OUTPUT FORMAT:
+${investigationDepth === "thorough" ? `THOROUGH INVESTIGATION MODE:
+This situation has been flagged for deep investigation. You have a large tool call budget (50+ calls available). Use it.
+
+Your output must include an "analysisDocument" — a structured analysis report covering:
+1. WHAT is happening — the full picture assembled from evidence across all sources
+2. WHY it matters — impact assessment with specific numbers and stakeholder implications
+3. WHAT HAS BEEN TRIED — any prior responses or existing situations related to this pattern
+4. RISKS — specific risks with severity levels and evidence
+5. GAPS — what information is missing that would improve the assessment
+6. RECOMMENDATIONS — concrete next steps, each tied to specific findings
+
+The analysis document is NOT the same as your "analysis" field. The analysis field is a brief summary for the situation card. The analysisDocument is a thorough, structured report that the user can read to understand the full picture before acting on the action plan.
+
+Every finding must cite specific evidence from your tool call results.
+
+` : `DEPTH UPGRADE:
+If during your investigation you discover this situation is significantly more complex than expected — involving multiple entities, contradictory evidence, systemic patterns — include "depthUpgrade": true in your output. The system will re-run with a higher budget and request a thorough analysis document. Use sparingly.
+
+`}OUTPUT FORMAT:
 Respond with ONLY valid JSON (no markdown fences, no commentary):
 {
   "situationTitle": "Short specific identifier — use invoice numbers, project names, email subjects. NOT just a person's name.",

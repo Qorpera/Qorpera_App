@@ -54,6 +54,7 @@ export async function runWikiStrategicScan(
   const pages = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
+      scope: "operator",
       projectId: null,
       status: { in: ["verified", "stale"] },
       pageType: { notIn: ["index", "log", "contradiction_log"] },

@@ -84,6 +84,8 @@ export async function GET(
     triggerSummary: situation.triggerSummary ?? null,
     resumeSummary: situation.resumeSummary ?? null,
     currentEntityState,
+    investigationDepth: situation.investigationDepth,
+    analysisDocument: situation.analysisDocument ?? null,
     reasoning: situation.reasoning ? JSON.parse(situation.reasoning) : null,
     proposedAction: situation.proposedAction ? JSON.parse(situation.proposedAction) : null,
     executionPlanId: situation.executionPlanId,
@@ -420,6 +422,15 @@ export async function PATCH(
   if (body.status === "approved" || body.status === "rejected" || body.status === "dismissed") {
     updateWikiOutcomeSignals(id, body.status).catch((err) =>
       console.error(`[situation-patch] Wiki outcome signals failed for ${id}:`, err),
+    );
+
+    // Outcome reflection — extract operational learnings (fire-and-forget via worker)
+    enqueueWorkerJob("reflect_on_outcome", operatorId, {
+      situationId: id,
+      outcome: body.status,
+      feedback: body.feedback ?? body.feedbackText ?? null,
+    }).catch((err) =>
+      console.error(`[situation-patch] Failed to enqueue reflection for ${id}:`, err),
     );
   }
 

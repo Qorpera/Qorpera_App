@@ -188,7 +188,7 @@ async function createPage(params: {
   // Update citedByPages counter on referenced pages
   if (crossReferences.length > 0) {
     await prisma.knowledgePage.updateMany({
-      where: { operatorId: params.operatorId, slug: { in: crossReferences } },
+      where: { operatorId: params.operatorId, scope: "operator", slug: { in: crossReferences } },
       data: { citedByPages: { increment: 1 } },
     });
   }
@@ -359,6 +359,7 @@ async function flagContradiction(params: {
   await prisma.knowledgePage.updateMany({
     where: {
       operatorId: params.operatorId,
+      scope: "operator",
       slug: normalizeSlug(params.slug),
       status: "verified",
     },
@@ -381,6 +382,7 @@ export async function getPageForEntity(
   const page = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
+      scope: "operator",
       subjectEntityId: entityId,
       pageType,
       projectId: projectId ?? null,
@@ -433,6 +435,7 @@ export async function searchPages(
       `"operatorId" = $2`,
       `status = ANY($3::text[])`,
       `embedding IS NOT NULL`,
+      `scope = 'operator'`,
     ];
     const params: unknown[] = [embeddingStr, operatorId, statusFilter];
     let nextIdx = 4;
@@ -488,6 +491,7 @@ export async function searchPages(
   const results = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
+      scope: "operator",
       status: { in: statusFilter },
       ...(options?.pageType ? { pageType: options.pageType } : {}),
       ...(options?.projectId ? { projectId: options.projectId } : { projectId: null }),
@@ -510,6 +514,166 @@ export async function searchPages(
     contentPreview: r.content.slice(0, 500),
   }));
 }
+
+// ─── System Wiki Queries ───────────────────────────────
+
+export async function getSystemWikiPages(params: {
+  pageTypes?: string[];
+  maxPages?: number;
+  query?: string;
+}): Promise<Array<{
+  slug: string;
+  title: string;
+  pageType: string;
+  status: string;
+  confidence: number;
+  content: string;
+}>> {
+  const limit = params.maxPages ?? 5;
+
+  // Semantic search if query provided and embedding available
+  if (params.query) {
+    const embeddings = await embedChunks([params.query]).catch(() => [null]);
+    if (embeddings[0]) {
+      const embeddingStr = `[${embeddings[0].join(",")}]`;
+      const conditions = [
+        `scope = 'system'`,
+        `status = 'verified'`,
+        `embedding IS NOT NULL`,
+      ];
+      const sqlParams: unknown[] = [embeddingStr];
+      let nextIdx = 2;
+
+      if (params.pageTypes?.length) {
+        conditions.push(`"pageType" = ANY($${nextIdx}::text[])`);
+        sqlParams.push(params.pageTypes);
+        nextIdx++;
+      }
+
+      sqlParams.push(limit);
+
+      const sql = `
+        SELECT slug, title, "pageType", status, confidence, content
+        FROM "KnowledgePage"
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY embedding <=> $1::vector
+        LIMIT $${nextIdx}
+      `;
+
+      return prisma.$queryRawUnsafe<Array<{
+        slug: string;
+        title: string;
+        pageType: string;
+        status: string;
+        confidence: number;
+        content: string;
+      }>>(sql, ...sqlParams);
+    }
+  }
+
+  // Fallback: sort by citedByPages and confidence
+  return prisma.knowledgePage.findMany({
+    where: {
+      scope: "system",
+      status: "verified",
+      ...(params.pageTypes?.length ? { pageType: { in: params.pageTypes } } : {}),
+    },
+    orderBy: [{ citedByPages: "desc" }, { confidence: "desc" }],
+    take: limit,
+    select: { slug: true, title: true, pageType: true, status: true, confidence: true, content: true },
+  });
+}
+
+export async function searchSystemPages(
+  query: string,
+  options?: { pageType?: string; limit?: number },
+): Promise<Array<{
+  slug: string;
+  title: string;
+  pageType: string;
+  status: string;
+  confidence: number;
+  contentPreview: string;
+  scope: string;
+}>> {
+  const limit = options?.limit ?? 5;
+
+  const embeddings = await embedChunks([query]).catch(() => [null]);
+  if (embeddings[0]) {
+    const embeddingStr = `[${embeddings[0].join(",")}]`;
+    const conditions = [
+      `scope = 'system'`,
+      `status IN ('verified', 'stale')`,
+      `embedding IS NOT NULL`,
+    ];
+    const params: unknown[] = [embeddingStr];
+    let nextIdx = 2;
+
+    if (options?.pageType) {
+      conditions.push(`"pageType" = $${nextIdx}`);
+      params.push(options.pageType);
+      nextIdx++;
+    }
+
+    params.push(limit);
+
+    const sql = `
+      SELECT slug, title, "pageType", status, confidence, content, scope
+      FROM "KnowledgePage"
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY embedding <=> $1::vector
+      LIMIT $${nextIdx}
+    `;
+
+    const results = await prisma.$queryRawUnsafe<Array<{
+      slug: string;
+      title: string;
+      pageType: string;
+      status: string;
+      confidence: number;
+      content: string;
+      scope: string;
+    }>>(sql, ...params);
+
+    return results.map((r) => ({
+      slug: r.slug,
+      title: r.title,
+      pageType: r.pageType,
+      status: r.status,
+      confidence: r.confidence,
+      contentPreview: r.content.slice(0, 500),
+      scope: r.scope,
+    }));
+  }
+
+  // Fallback text search
+  const results = await prisma.knowledgePage.findMany({
+    where: {
+      scope: "system",
+      status: { in: ["verified", "stale"] },
+      ...(options?.pageType ? { pageType: options.pageType } : {}),
+      OR: [
+        { title: { contains: query, mode: "insensitive" } },
+        { content: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    select: { slug: true, title: true, pageType: true, status: true, confidence: true, content: true, scope: true },
+    take: limit,
+    orderBy: { confidence: "desc" },
+  });
+
+  return results.map((r) => ({
+    slug: r.slug,
+    title: r.title,
+    pageType: r.pageType,
+    status: r.status,
+    confidence: r.confidence,
+    contentPreview: r.content.slice(0, 500),
+    scope: r.scope,
+  }));
+}
+
+// ─── Seed Context Loading ──────────────────────────────
 
 export async function getRelevantPagesForSeed(
   operatorId: string,
@@ -540,6 +704,7 @@ export async function getRelevantPagesForSeed(
     const pattern = await prisma.knowledgePage.findFirst({
       where: {
         operatorId,
+        scope: "operator",
         pageType: "situation_pattern",
         slug: { contains: situationTypeSlug },
         status: { in: ["verified", "stale"] },
@@ -577,6 +742,7 @@ export async function getRelevantPagesForSeed(
     const additional = await prisma.knowledgePage.findMany({
       where: {
         operatorId,
+        scope: "operator",
         status: "verified",
         pageType: { in: ["process_description", "financial_pattern", "communication_pattern"] },
         projectId: projectId ?? null,
@@ -645,6 +811,7 @@ async function updateIndexPage(operatorId: string, projectId?: string): Promise<
   const pages = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
+      scope: "operator",
       projectId: projectId ?? null,
       pageType: { not: "index" },
     },
@@ -777,7 +944,7 @@ export async function updateWikiOutcomeSignals(
 
   for (const slug of pageSlugs) {
     await prisma.knowledgePage.updateMany({
-      where: { operatorId: situation.operatorId, slug },
+      where: { operatorId: situation.operatorId, scope: "operator", slug },
       data: { [field]: { increment: 1 } },
     }).catch(() => {});
   }

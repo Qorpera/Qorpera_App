@@ -139,9 +139,8 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
 
   async generate_deliverable(payload) {
     const { deliverableId, projectId } = payload as { deliverableId: string; projectId: string };
-    // TODO: Implement AI deliverable generation
-    // This will use context assembly to produce draft content for the deliverable
-    console.log(`[generate_deliverable] Would generate content for deliverable ${deliverableId} in project ${projectId}`);
+    const { generateDeliverable } = await import("@/lib/deliverable-generator");
+    await generateDeliverable(deliverableId, projectId);
   },
 
   async compile_project(payload) {
@@ -154,6 +153,40 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     const { operatorId } = payload as { operatorId: string };
     const { runPostSynthesisPipeline } = await import("@/lib/onboarding-intelligence/post-synthesis-pipeline");
     await runPostSynthesisPipeline(operatorId);
+  },
+
+  async reflect_on_outcome(payload) {
+    const { situationId, outcome, feedback } = payload as {
+      situationId: string;
+      outcome: "approved" | "rejected" | "dismissed";
+      feedback?: string | null;
+    };
+    const { reflectOnOutcome } = await import("@/lib/reflection-engine");
+    await reflectOnOutcome({ situationId, outcome, feedback });
+  },
+
+  async wiki_background_synthesis(payload) {
+    const { operatorId, mode } = payload as { operatorId: string; mode: "onboarding" | "incremental" };
+    const { runBackgroundSynthesis } = await import("@/lib/wiki-background-synthesis");
+    const result = await runBackgroundSynthesis(operatorId, { mode });
+    console.log(`[wiki_background_synthesis] ${mode} for ${operatorId}: ${result.pagesCreated} pages created, ${result.pagesVerified} verified`);
+
+    if (mode === "onboarding") {
+      try {
+        const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
+        const scanResult = await runWikiStrategicScan(operatorId);
+        console.log(`[wiki_background_synthesis] Post-synthesis scan: ${scanResult.patternsDetected} patterns, ${scanResult.initiativesCreated} initiatives`);
+      } catch (err) {
+        console.error(`[wiki_background_synthesis] Post-synthesis scan failed:`, err);
+      }
+    }
+  },
+
+  async synthesize_research(payload) {
+    const { content, title, focusArea } = payload as { content: string; title: string; focusArea?: string };
+    const { synthesizeResearchDocument } = await import("@/lib/research-synthesizer");
+    const result = await synthesizeResearchDocument({ documentContent: content, documentTitle: title, focusArea });
+    console.log(`[synthesize_research] Created ${result.pagesCreated} system wiki pages from "${title}"`);
   },
 };
 

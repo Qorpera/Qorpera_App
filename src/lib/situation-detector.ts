@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { getEntityContext } from "@/lib/entity-resolution";
-import { assembleSituationContext, type SituationContext } from "@/lib/context-assembly";
+import { getPageForEntity } from "@/lib/wiki-engine";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { isEntityInScope } from "@/lib/situation-scope";
 import { extractJSONArray } from "@/lib/json-helpers";
@@ -9,12 +9,60 @@ import { checkConfirmationRate } from "@/lib/confirmation-rate";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+interface TriggerEntityContext {
+  displayName: string;
+  type: string;
+  properties: Record<string, string>;
+  wikiSummary?: string | null;
+}
+
 type StructuredSignal = {
   field: string;
   condition: string;
   value?: string | number;
   threshold?: number;
 };
+
+// ── Lightweight Entity Context Loader ──────────────────────────────────────
+
+async function loadTriggerEntityContext(
+  operatorId: string,
+  entityId: string,
+): Promise<TriggerEntityContext> {
+  const entity = await prisma.entity.findFirst({
+    where: { id: entityId, operatorId },
+    include: {
+      entityType: { select: { name: true } },
+      propertyValues: {
+        include: { property: { select: { slug: true } } },
+      },
+    },
+  });
+
+  if (!entity) {
+    return { displayName: "Unknown", type: "unknown", properties: {} };
+  }
+
+  const properties: Record<string, string> = {};
+  for (const pv of entity.propertyValues) {
+    properties[pv.property.slug] = pv.value;
+  }
+
+  let wikiSummary: string | null = null;
+  try {
+    const page = await getPageForEntity(operatorId, entityId);
+    if (page) wikiSummary = page.content.slice(0, 500);
+  } catch (err) {
+    console.error("[situation-detector] Wiki lookup failed:", err);
+  }
+
+  return {
+    displayName: entity.displayName,
+    type: entity.entityType.name,
+    properties,
+    wikiSummary,
+  };
+}
 
 type DetectionLogic = {
   mode: "structured" | "natural" | "hybrid";
@@ -182,10 +230,10 @@ async function detectSituationsForEntity(
       if (existing) continue;
 
       // Assemble context and create situation
-      const context = await assembleSituationContext(operatorId, st.id, entityId, triggerEventId);
+      const triggerEntity = await loadTriggerEntityContext(operatorId, entityId);
       const signals = detection.structured?.signals;
       const situation = await createDetectedSituation(
-        operatorId, st, entityId, context, match.confidence, triggerEventId,
+        operatorId, st, entityId, triggerEntity, match.confidence, triggerEventId,
         {
           detectedBy: match.detectedBy,
           llmReasoning: match.reasoning,
@@ -341,9 +389,9 @@ async function detectForSituationType(
     });
     if (existing) continue;
 
-    const context = await assembleSituationContext(operatorId, st.id, m.candidate.id);
+    const triggerEntity = await loadTriggerEntityContext(operatorId, m.candidate.id);
     const situation = await createDetectedSituation(
-      operatorId, st, m.candidate.id, context, m.confidence,
+      operatorId, st, m.candidate.id, triggerEntity, m.confidence,
       undefined,
       { detectedBy: m.detectedBy, matchedSignals: m.matchedSignals, matchedValues: m.matchedValues, llmReasoning: m.reasoning },
     );
@@ -685,13 +733,12 @@ async function createDetectedSituation(
   operatorId: string,
   situationType: { id: string; name: string },
   triggerEntityId: string,
-  context: SituationContext,
+  triggerEntity: TriggerEntityContext,
   confidence: number,
   triggerEventId?: string,
   triggerInfo?: { detectedBy: "structured" | "llm" | "both"; matchedSignals?: StructuredSignal[]; matchedValues?: Record<string, string>; llmReasoning?: string },
 ) {
-  // Calculate severity — if entity has a monetary property, use it
-  const severity = calculateSeverity(context);
+  const severity = calculateSeverity(triggerEntity.properties);
 
   // Build trigger evidence based on detection method
   let triggerEvidence: string | null = null;
@@ -703,33 +750,33 @@ async function createDetectedSituation(
         type: "structured",
         matchedSignals: triggerInfo.matchedSignals ?? [],
         matchedValues: triggerInfo.matchedValues ?? {},
-        entityName: context.triggerEntity.displayName,
-        entityType: context.triggerEntity.type,
+        entityName: triggerEntity.displayName,
+        entityType: triggerEntity.type,
       });
       const signalDescriptions = (triggerInfo.matchedSignals ?? []).map(s => {
         const val = triggerInfo.matchedValues?.[s.field] ?? s.value ?? s.threshold;
         return `${s.field} ${s.condition} ${val}`;
       });
-      triggerSummary = `${context.triggerEntity.displayName}: ${signalDescriptions.join(", ")}`.slice(0, 300);
+      triggerSummary = `${triggerEntity.displayName}: ${signalDescriptions.join(", ")}`.slice(0, 300);
     } else if (triggerInfo.detectedBy === "llm") {
       triggerEvidence = JSON.stringify({
         type: "natural",
         reasoning: triggerInfo.llmReasoning ?? "",
-        entityName: context.triggerEntity.displayName,
-        entityType: context.triggerEntity.type,
-        properties: context.triggerEntity.properties,
+        entityName: triggerEntity.displayName,
+        entityType: triggerEntity.type,
+        properties: triggerEntity.properties,
       });
-      triggerSummary = (triggerInfo.llmReasoning ?? `Pattern detected for ${context.triggerEntity.displayName}`).slice(0, 300);
+      triggerSummary = (triggerInfo.llmReasoning ?? `Pattern detected for ${triggerEntity.displayName}`).slice(0, 300);
     } else if (triggerInfo.detectedBy === "both") {
       triggerEvidence = JSON.stringify({
         type: "hybrid",
         matchedSignals: triggerInfo.matchedSignals ?? [],
         matchedValues: triggerInfo.matchedValues ?? {},
         llmReasoning: triggerInfo.llmReasoning ?? "",
-        entityName: context.triggerEntity.displayName,
-        entityType: context.triggerEntity.type,
+        entityName: triggerEntity.displayName,
+        entityType: triggerEntity.type,
       });
-      triggerSummary = (triggerInfo.llmReasoning ?? `${context.triggerEntity.displayName}: pattern confirmed by structured + AI analysis`).slice(0, 300);
+      triggerSummary = (triggerInfo.llmReasoning ?? `${triggerEntity.displayName}: pattern confirmed by structured + AI analysis`).slice(0, 300);
     }
   }
 
@@ -745,7 +792,7 @@ async function createDetectedSituation(
       severity,
       triggerEvidence,
       triggerSummary,
-      contextSnapshot: JSON.stringify(context),
+      contextSnapshot: JSON.stringify({ triggerEntity, wikiSummary: triggerEntity.wikiSummary }),
     },
   });
 
@@ -804,8 +851,7 @@ export async function trackFreeDetection(operatorId: string): Promise<void> {
   }
 }
 
-function calculateSeverity(context: SituationContext): number {
-  const props = context.triggerEntity.properties;
+function calculateSeverity(props: Record<string, string>): number {
   // Look for monetary properties
   const monetaryKeys = ["amount", "value", "total", "price", "arr", "mrr", "revenue"];
   for (const key of monetaryKeys) {

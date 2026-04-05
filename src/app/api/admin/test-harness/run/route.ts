@@ -7,18 +7,12 @@ import {
   isEligibleCommunication,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
-import { assembleSituationContext, type SituationContext } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import {
   runIdentityResolution,
   updateEntityEmbedding,
   reverseMerge,
 } from "@/lib/identity-resolution";
-import { buildReasoningSystemPrompt, buildReasoningUserPrompt } from "@/lib/reasoning-prompts";
-import { ReasoningOutputSchema } from "@/lib/reasoning-types";
-import { shouldUseMultiAgent, runMultiAgentReasoning } from "@/lib/multi-agent-reasoning";
-import { callLLM } from "@/lib/ai-provider";
-import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -140,7 +134,7 @@ export async function POST(req: NextRequest) {
     const createdMergeLogIds: string[] = [];
     let contentChunkIds: string[] = [];
     let situationIds: string[] = [];
-    let assembledContext: SituationContext | null = null;
+    let assembledContext: unknown = null;
     let contextSituationId: string | null = null;
 
     const layers: LayerResult[] = [];
@@ -655,47 +649,34 @@ export async function POST(req: NextRequest) {
               return;
             }
 
-            const context = await assembleSituationContext(
-              operatorId,
-              situation.situationTypeId,
-              situation.triggerEntityId ?? "",
-              situation.triggerEventId ?? undefined,
-            );
+            // Lightweight entity context (full context assembly removed — reasoning engine uses agentic tool-use loop)
+            const entity = situation.triggerEntityId
+              ? await prisma.entity.findFirst({
+                  where: { id: situation.triggerEntityId, operatorId },
+                  include: {
+                    entityType: { select: { name: true } },
+                    propertyValues: { include: { property: { select: { slug: true } } } },
+                  },
+                })
+              : null;
 
-            assembledContext = context;
             contextSituationId = targetSituationId;
 
             assert(assertions, "Context assembly returned", true);
             assert(
               assertions,
-              "contextSections populated",
-              context.contextSections.length > 0,
-              `${context.contextSections.length} sections`,
-            );
-            assert(
-              assertions,
               "Trigger entity populated",
-              !!context.triggerEntity.displayName,
-              context.triggerEntity.displayName,
+              !!entity?.displayName,
+              entity?.displayName ?? "null",
             );
-
-            // Report optional sections
-            const timeline = context.activityTimeline;
-            const comms = context.communicationContext;
-            const xdept = context.crossDepartmentSignals;
 
             data.situationId = targetSituationId;
-            data.sections = context.contextSections.map((s) => ({
-              section: s.section,
-              itemCount: s.itemCount,
-              tokenEstimate: s.tokenEstimate,
-            }));
-            data.totalTokenEstimate = context.contextSections.reduce((s, c) => s + c.tokenEstimate, 0);
-            data.optionalSections = {
-              activityTimeline: timeline.totalSignals > 0 ? `populated (${timeline.totalSignals} signals)` : "empty",
-              communicationContext: comms.excerpts.length > 0 ? `populated (${comms.excerpts.length} excerpts)` : "empty",
-              crossDepartmentSignals: xdept.signals.length > 0 ? `populated (${xdept.signals.length} signals)` : "empty",
-            };
+            data.triggerEntity = entity ? {
+              displayName: entity.displayName,
+              type: entity.entityType.name,
+              propertyCount: entity.propertyValues.length,
+            } : null;
+            data.note = "Lightweight context — full investigation done by agentic loop";
           }, LAYER_TIMEOUT_MS);
         } catch (err) {
           status = "failed";
@@ -707,278 +688,61 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Layer 7: reasoning-single ────────────────────────────────────────
+    // ── Layer 7: reasoning (agentic loop) ─────────────────────────────────
 
-    if (shouldRun("reasoning-single")) {
+    if (shouldRun("reasoning-single") || shouldRun("reasoning")) {
       const start = Date.now();
       const assertions: Assertion[] = [];
       let status: "passed" | "failed" | "skipped" = "passed";
       const data: Record<string, unknown> = {};
 
-      const ctxLayer = layers.find((l) => l.name === "context-assembly");
-      const ctx7 = assembledContext as SituationContext | null;
-      if (!ctx7 || ctxLayer?.status === "failed" || !contextSituationId) {
+      if (!contextSituationId) {
         status = "skipped";
         layers.push({
-          name: "reasoning-single",
+          name: "reasoning",
           status,
           duration_ms: Date.now() - start,
-          reason: "skipped — context-assembly failed or not run",
+          reason: "skipped — no situation to reason about",
           assertions: [],
         });
       } else {
-        const tokenEstimate = ctx7.contextSections.reduce((s, c) => s + c.tokenEstimate, 0);
-        if (tokenEstimate >= 12000 && !requestedLayers.includes("reasoning-single")) {
-          status = "skipped";
-          layers.push({
-            name: "reasoning-single",
-            status,
-            duration_ms: Date.now() - start,
-            reason: `skipped — context is ${tokenEstimate} tokens (above 12K threshold). Include 'reasoning-single' in layers to force.`,
-            assertions: [],
-          });
-        } else {
-          try {
-            await withTimeout(async () => {
-              const situation = await prisma.situation.findFirst({
-                where: { id: contextSituationId!, operatorId },
-                include: { situationType: true },
-              });
-              if (!situation) {
-                assert(assertions, "Situation exists", false);
-                return;
-              }
+        try {
+          await withTimeout(async () => {
+            // Use the production agentic loop — enqueue reasoning
+            const { reasonAboutSituation } = await import("@/lib/reasoning-engine");
+            await reasonAboutSituation(contextSituationId!);
+            assert(assertions, "Agentic reasoning completed", true);
 
-              const context = ctx7;
-              const [businessCtx, operator] = await Promise.all([
-                getBusinessContext(operatorId),
-                prisma.operator.findUnique({ where: { id: operatorId }, select: { companyName: true } }),
-              ]);
-              const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
-
-              const policyResult = await evaluateActionPolicies(operatorId, [], "unknown", "");
-              const effectiveAutonomy = getEffectiveAutonomy(situation.situationType, policyResult);
-
-              const reasoningInput = {
-                situationType: {
-                  name: situation.situationType.name,
-                  description: situation.situationType.description,
-                  autonomyLevel: effectiveAutonomy,
-                },
-                severity: situation.severity,
-                confidence: situation.confidence,
-                triggerEntity: {
-                  displayName: context.triggerEntity.displayName,
-                  type: context.triggerEntity.type,
-                  category: context.triggerEntity.category,
-                  properties: context.triggerEntity.properties,
-                },
-                departments: context.departments,
-                departmentKnowledge: context.departmentKnowledge,
-                relatedEntities: context.relatedEntities,
-                recentEvents: context.recentEvents.map((e) => ({
-                  type: e.eventType,
-                  timestamp: e.createdAt,
-                  payload: e.payload,
-                })),
-                priorSituations: [],
-                autonomyLevel: effectiveAutonomy,
-                permittedActions: policyResult.permitted,
-                blockedActions: policyResult.blocked,
-                businessContext: businessContextStr,
-                activityTimeline: context.activityTimeline,
-                communicationContext: context.communicationContext,
-                crossDepartmentSignals: context.crossDepartmentSignals,
-                connectorCapabilities: context.connectorCapabilities,
-              };
-
-              const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
-              const userPrompt = buildReasoningUserPrompt(reasoningInput);
-
-              const response = await callLLM({
-                instructions: systemPrompt,
-                messages: [
-                  { role: "user", content: userPrompt },
-                ],
-                temperature: 0.2,
-                maxTokens: 4096,
-                aiFunction: "reasoning",
-              });
-
-              assert(assertions, "LLM returned a response", !!response.text, `${response.text.length} chars`);
-
-              // Parse
-              const rawResponse = response.text;
-              const fenceMatch = rawResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
-              const jsonStr = fenceMatch ? fenceMatch[1].trim() : rawResponse.trim();
-
-              let reasoning = null;
-              try {
-                const parsed = JSON.parse(jsonStr);
-                const result = ReasoningOutputSchema.safeParse(parsed);
-                if (result.success) {
-                  reasoning = result.data;
-                  assert(assertions, "Zod validation passes", true);
-                } else {
-                  assert(assertions, "Zod validation passes", false, result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
-                  data.rawOutput = rawResponse;
-                }
-              } catch {
-                assert(assertions, "Zod validation passes", false, "Failed to parse JSON from response");
-                data.rawOutput = rawResponse;
-              }
-
-              if (reasoning) {
-                assert(assertions, "analysis is non-empty", !!reasoning.analysis && reasoning.analysis.length > 0);
-                assert(assertions, "evidenceSummary is non-empty", !!reasoning.evidenceSummary && reasoning.evidenceSummary.length > 0);
-                assert(assertions, "confidence between 0 and 1", reasoning.confidence >= 0 && reasoning.confidence <= 1, `confidence=${reasoning.confidence}`);
-
-                data.summary = reasoning.analysis?.slice(0, 200);
-                data.chosenAction = reasoning.actionPlan?.[0]?.actionCapabilityName ?? null;
-                data.confidence = reasoning.confidence;
-                data.consideredActionsCount = reasoning.consideredActions?.length ?? 0;
-              }
-            }, LAYER_TIMEOUT_MS);
-          } catch (err) {
-            status = "failed";
-            assert(assertions, "Layer completed without error", false, err instanceof Error ? err.message : String(err));
-          }
-
-          if (assertions.some((a) => !a.passed)) status = "failed";
-          layers.push({ name: "reasoning-single", status, duration_ms: Date.now() - start, assertions, data });
+            // Load result
+            const result = await prisma.situation.findUnique({
+              where: { id: contextSituationId! },
+              select: { status: true, reasoning: true, proposedAction: true, investigationDepth: true },
+            });
+            data.status = result?.status;
+            data.investigationDepth = result?.investigationDepth;
+            data.hasReasoning = !!result?.reasoning;
+            data.hasActionPlan = !!result?.proposedAction;
+          }, LAYER_TIMEOUT_MS);
+        } catch (err) {
+          status = "failed";
+          assert(assertions, "Layer completed without error", false, err instanceof Error ? err.message : String(err));
         }
+
+        if (assertions.some((a) => !a.passed)) status = "failed";
+        layers.push({ name: "reasoning", status, duration_ms: Date.now() - start, assertions, data });
       }
     }
 
-    // ── Layer 8: reasoning-multi ──────────────────────────────────────────
+    // ── Layer 8: reasoning-multi (REMOVED — agentic loop handles all reasoning) ──
 
     if (shouldRun("reasoning-multi")) {
-      const start = Date.now();
-      const assertions: Assertion[] = [];
-      let status: "passed" | "failed" | "skipped" = "passed";
-      const data: Record<string, unknown> = {};
-
-      const ctxLayer8 = layers.find((l) => l.name === "context-assembly");
-      const ctx8 = assembledContext as SituationContext | null;
-      if (!ctx8 || ctxLayer8?.status === "failed" || !contextSituationId) {
-        status = "skipped";
-        layers.push({
-          name: "reasoning-multi",
-          status,
-          duration_ms: Date.now() - start,
-          reason: "skipped — context-assembly failed or not run",
-          assertions: [],
-        });
-      } else {
-        const tokenEstimate = ctx8.contextSections.reduce((s, c) => s + c.tokenEstimate, 0);
-        const forceRun = requestedLayers.includes("reasoning-multi");
-        if (tokenEstimate < 12000 && !forceRun) {
-          status = "skipped";
-          layers.push({
-            name: "reasoning-multi",
-            status,
-            duration_ms: Date.now() - start,
-            reason: `skipped — context below 12K token threshold (${tokenEstimate} tokens). Include 'reasoning-multi' in layers param to force.`,
-            assertions: [],
-          });
-        } else {
-          try {
-            await withTimeout(async () => {
-              const situation = await prisma.situation.findFirst({
-                where: { id: contextSituationId!, operatorId },
-                include: { situationType: true },
-              });
-              if (!situation) {
-                assert(assertions, "Situation exists", false);
-                return;
-              }
-
-              const context = ctx8;
-              const [businessCtx, operator] = await Promise.all([
-                getBusinessContext(operatorId),
-                prisma.operator.findUnique({ where: { id: operatorId }, select: { companyName: true } }),
-              ]);
-              const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
-
-              const policyResult = await evaluateActionPolicies(operatorId, [], "unknown", "");
-              const effectiveAutonomy = getEffectiveAutonomy(situation.situationType, policyResult);
-
-              const reasoningInput = {
-                situationType: {
-                  name: situation.situationType.name,
-                  description: situation.situationType.description,
-                  autonomyLevel: effectiveAutonomy,
-                },
-                severity: situation.severity,
-                confidence: situation.confidence,
-                triggerEntity: {
-                  displayName: context.triggerEntity.displayName,
-                  type: context.triggerEntity.type,
-                  category: context.triggerEntity.category,
-                  properties: context.triggerEntity.properties,
-                },
-                departments: context.departments,
-                departmentKnowledge: context.departmentKnowledge,
-                relatedEntities: context.relatedEntities,
-                recentEvents: context.recentEvents.map((e) => ({
-                  type: e.eventType,
-                  timestamp: e.createdAt,
-                  payload: e.payload,
-                })),
-                priorSituations: [],
-                autonomyLevel: effectiveAutonomy,
-                permittedActions: policyResult.permitted,
-                blockedActions: policyResult.blocked,
-                businessContext: businessContextStr,
-                activityTimeline: context.activityTimeline,
-                communicationContext: context.communicationContext,
-                crossDepartmentSignals: context.crossDepartmentSignals,
-                connectorCapabilities: context.connectorCapabilities,
-              };
-
-              const result = await runMultiAgentReasoning(
-                reasoningInput,
-                context.contextSections,
-                operator?.companyName ?? undefined,
-              );
-
-              assert(assertions, "Multi-agent completed", true);
-              assert(
-                assertions,
-                "3 specialist findings returned",
-                result.findings.length === 3,
-                `${result.findings.length} findings`,
-              );
-
-              for (const finding of result.findings) {
-                const hasFindingsContent = finding.keyFindings && finding.keyFindings.length > 0;
-                assert(
-                  assertions,
-                  `Specialist ${finding.domain} has non-empty keyFindings`,
-                  hasFindingsContent,
-                  `${finding.keyFindings?.length ?? 0} findings`,
-                );
-              }
-
-              const coordValid = ReasoningOutputSchema.safeParse(result.coordinatorReasoning);
-              assert(assertions, "Coordinator produced valid ReasoningOutput", coordValid.success);
-
-              data.specialists = result.findings.map((f) => ({
-                domain: f.domain,
-                keyFindingsCount: f.keyFindings?.length ?? 0,
-                confidence: f.confidenceLevel,
-              }));
-              data.coordinatorSummary = result.coordinatorReasoning.analysis?.slice(0, 200);
-            }, LAYER_TIMEOUT_MS);
-          } catch (err) {
-            status = "failed";
-            assert(assertions, "Layer completed without error", false, err instanceof Error ? err.message : String(err));
-          }
-
-          if (assertions.some((a) => !a.passed)) status = "failed";
-          layers.push({ name: "reasoning-multi", status, duration_ms: Date.now() - start, assertions, data });
-        }
-      }
+      layers.push({
+        name: "reasoning-multi",
+        status: "skipped",
+        duration_ms: 0,
+        reason: "Removed — all reasoning uses the agentic tool-use loop now",
+        assertions: [],
+      });
     }
 
     // ── Layer 9: policy-evaluation ────────────────────────────────────────

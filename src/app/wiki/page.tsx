@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import { AppShell } from "@/components/app-shell";
+import { useUser } from "@/components/user-provider";
 import { Badge } from "@/components/ui/badge";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { formatRelativeTime } from "@/lib/format-helpers";
@@ -130,11 +131,13 @@ export default function WikiPage() {
   const searchParams = useSearchParams();
   const locale = useLocale();
   const isMobile = useIsMobile();
+  const { isSuperadmin } = useUser();
 
   // URL state
   const activeType = searchParams.get("type") ?? "";
   const searchQuery = searchParams.get("q") ?? "";
   const activeSlug = searchParams.get("page") ?? "";
+  const activeScope = searchParams.get("scope") ?? "operator";
 
   // Data
   const [pages, setPages] = useState<WikiPageSummary[]>([]);
@@ -164,6 +167,13 @@ export default function WikiPage() {
   const [searchInput, setSearchInput] = useState(searchQuery);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Ingest modal (superadmin only)
+  const [ingestOpen, setIngestOpen] = useState(false);
+  const [ingestTitle, setIngestTitle] = useState("");
+  const [ingestContent, setIngestContent] = useState("");
+  const [ingestFocus, setIngestFocus] = useState("");
+  const [ingesting, setIngesting] = useState(false);
+
   // ── URL helpers ──
 
   const setParam = useCallback(
@@ -182,6 +192,7 @@ export default function WikiPage() {
     const p = new URLSearchParams();
     if (activeType) p.set("pageType", activeType);
     if (searchQuery) p.set("q", searchQuery);
+    if (activeScope === "system") p.set("scope", "system");
     try {
       const res = await fetch(`/api/wiki?${p.toString()}`);
       const data = await res.json();
@@ -193,7 +204,7 @@ export default function WikiPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeType, searchQuery]);
+  }, [activeType, searchQuery, activeScope]);
 
   useEffect(() => {
     fetchList();
@@ -256,6 +267,34 @@ export default function WikiPage() {
     }
   };
 
+  // ── Ingest research ──
+
+  const handleIngest = async () => {
+    if (!ingestTitle.trim() || !ingestContent.trim() || ingesting) return;
+    setIngesting(true);
+    try {
+      const res = await fetch("/api/admin/research-ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: ingestTitle.trim(),
+          content: ingestContent.trim(),
+          focusArea: ingestFocus || undefined,
+        }),
+      });
+      if (res.ok) {
+        setIngestOpen(false);
+        setIngestTitle("");
+        setIngestContent("");
+        setIngestFocus("");
+      }
+    } catch (err) {
+      console.error("Ingest failed:", err);
+    } finally {
+      setIngesting(false);
+    }
+  };
+
   // ── Citation click handler ──
 
   const handleCitationClick = useCallback((sourceId: string) => {
@@ -282,10 +321,62 @@ export default function WikiPage() {
 
   return (
     <AppShell>
+      {/* ── Scope Toggle (superadmin) ── */}
+      {isSuperadmin && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 14px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--surface)",
+            flexShrink: 0,
+          }}
+        >
+          {(["operator", "system"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setParam("scope", s === "operator" ? "" : s)}
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                padding: "4px 12px",
+                borderRadius: 4,
+                border: "none",
+                background: activeScope === s ? "var(--hover)" : "transparent",
+                color: activeScope === s ? "var(--foreground)" : "var(--fg3)",
+                cursor: "pointer",
+              }}
+            >
+              {s === "operator" ? "Organization Wiki" : "System Intelligence"}
+            </button>
+          ))}
+          {activeScope === "system" && (
+            <button
+              onClick={() => setIngestOpen(true)}
+              style={{
+                marginLeft: "auto",
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "4px 12px",
+                borderRadius: 4,
+                background: "rgba(139,92,246,0.12)",
+                border: "0.5px solid rgba(139,92,246,0.25)",
+                color: "rgb(139,92,246)",
+                cursor: "pointer",
+              }}
+            >
+              Ingest research
+            </button>
+          )}
+        </div>
+      )}
+
       <div
         style={{
           display: "flex",
-          height: "calc(100vh - 56px)",
+          height: isSuperadmin ? "calc(100vh - 56px - 37px)" : "calc(100vh - 56px)",
           overflow: "hidden",
         }}
       >
@@ -379,6 +470,143 @@ export default function WikiPage() {
           />
         )}
       </div>
+
+      {/* ── Ingest Research Modal ── */}
+      {ingestOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.6)",
+          }}
+          onClick={() => setIngestOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 560,
+              maxHeight: "80vh",
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)" }}>
+              <h2 style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)", margin: 0 }}>
+                Ingest research document
+              </h2>
+              <p style={{ fontSize: 12, color: "var(--fg3)", marginTop: 4 }}>
+                Paste markdown content to synthesize into system wiki pages.
+              </p>
+            </div>
+
+            <div style={{ padding: "14px 20px", overflow: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--fg2)", display: "block", marginBottom: 4 }}>Title</label>
+                <input
+                  value={ingestTitle}
+                  onChange={(e) => setIngestTitle(e.target.value)}
+                  placeholder="Research paper title..."
+                  style={{
+                    width: "100%",
+                    padding: "7px 10px",
+                    borderRadius: 4,
+                    border: "1px solid var(--border)",
+                    background: "var(--background)",
+                    color: "var(--foreground)",
+                    fontSize: 13,
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--fg2)", display: "block", marginBottom: 4 }}>Focus area</label>
+                <select
+                  value={ingestFocus}
+                  onChange={(e) => setIngestFocus(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "7px 10px",
+                    borderRadius: 4,
+                    border: "1px solid var(--border)",
+                    background: "var(--background)",
+                    color: "var(--foreground)",
+                    fontSize: 13,
+                  }}
+                >
+                  <option value="">General</option>
+                  <option value="due_diligence">Due diligence</option>
+                  <option value="financial_analysis">Financial analysis</option>
+                  <option value="operational_assessment">Operational assessment</option>
+                  <option value="legal_compliance">Legal compliance</option>
+                </select>
+              </div>
+
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "var(--fg2)", display: "block", marginBottom: 4 }}>Content (markdown)</label>
+                <textarea
+                  value={ingestContent}
+                  onChange={(e) => setIngestContent(e.target.value)}
+                  placeholder="Paste research document content here..."
+                  style={{
+                    width: "100%",
+                    minHeight: 200,
+                    padding: "8px 10px",
+                    borderRadius: 4,
+                    border: "1px solid var(--border)",
+                    background: "var(--background)",
+                    color: "var(--foreground)",
+                    fontSize: 12,
+                    fontFamily: "monospace",
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ padding: "10px 20px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                onClick={() => setIngestOpen(false)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 4,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--fg2)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleIngest}
+                disabled={!ingestTitle.trim() || !ingestContent.trim() || ingesting}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 4,
+                  border: "none",
+                  background: ingesting ? "rgba(139,92,246,0.3)" : "rgb(139,92,246)",
+                  color: "#fff",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: ingesting ? "wait" : "pointer",
+                  opacity: !ingestTitle.trim() || !ingestContent.trim() ? 0.4 : 1,
+                }}
+              >
+                {ingesting ? "Synthesizing..." : "Synthesize"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

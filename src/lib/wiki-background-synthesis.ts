@@ -81,6 +81,19 @@ export async function runBackgroundSynthesis(
     `[background-synthesis] Starting ${mode} synthesis for operator ${operatorId}`,
   );
 
+  // Check for outcome-driven staleness before synthesis
+  if (mode === "incremental") {
+    try {
+      const { checkOutcomeStaleness } = await import("@/lib/reflection-engine");
+      const flagged = await checkOutcomeStaleness(operatorId);
+      if (flagged > 0) {
+        console.log(`[background-synthesis] Flagged ${flagged} pages as stale due to high rejection rate`);
+      }
+    } catch (err) {
+      console.error("[background-synthesis] Staleness check failed:", err);
+    }
+  }
+
   if (mode === "onboarding") {
     await runOnboardingSynthesis(operatorId, options?.projectId, report);
   } else {
@@ -242,6 +255,7 @@ async function evaluateWikiCoverage(
   const pages = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
+      scope: "operator",
       projectId: projectId ?? null,
       pageType: { notIn: ["index", "log"] },
     },

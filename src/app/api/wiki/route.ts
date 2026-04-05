@@ -12,12 +12,25 @@ export async function GET(req: NextRequest) {
   const status = params.get("status");
   const search = params.get("q");
   const projectId = params.get("projectId");
+  const scopeParam = params.get("scope") ?? "operator";
+
+  // System scope requires superadmin
+  if (scopeParam === "system" && su.effectiveRole !== "superadmin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const where: Record<string, unknown> = {
-    operatorId,
-    projectId: projectId ?? null,
     pageType: { notIn: ["index", "log"] },
   };
+
+  if (scopeParam === "system") {
+    where.scope = "system";
+  } else {
+    where.operatorId = operatorId;
+    where.scope = "operator";
+    where.projectId = projectId ?? null;
+  }
+
   if (pageType && !["index", "log"].includes(pageType)) where.pageType = pageType;
   if (status) where.status = status;
   if (search) {

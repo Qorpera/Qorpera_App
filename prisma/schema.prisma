@@ -70,6 +70,9 @@ model Operator {
   freeDetectionStartedAt      DateTime?
   freeDetectionSituationCount Int       @default(0)
 
+  // Intelligence network
+  intelligenceAccess  Boolean @default(false) // true = can read system wiki pages
+
   // Emergency stop
   aiPaused       Boolean   @default(false)
   aiPausedAt     DateTime?
@@ -539,6 +542,8 @@ model Situation {
   assignedUserId  String?
 
   // AI reasoning
+  investigationDepth  String  @default("standard") // "standard" | "thorough"
+  analysisDocument    Json?   // ContentDoc JSON — thorough analysis for deep situations
   reasoning      String? // JSON - analysis, considered actions, justification
   proposedAction String? // JSON - what the AI wants to do
 
@@ -1548,8 +1553,9 @@ model ProjectConnector {
 
 model KnowledgePage {
   id                  String    @id @default(cuid())
-  operatorId          String
+  operatorId          String?
   projectId           String?
+  scope               String    @default("operator") // "operator" | "system"
 
   // Identity
   pageType            String    // entity_profile, relationship_map, process_description,
@@ -1602,7 +1608,7 @@ model KnowledgePage {
   // Embedding for search_wiki
   embedding           Unsupported("vector(1536)")?
 
-  operator  Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operator  Operator?  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
   @@unique([operatorId, slug])
   @@unique([operatorId, projectId, subjectEntityId, pageType])
@@ -1610,4 +1616,5 @@ model KnowledgePage {
   @@index([operatorId, pageType])
   @@index([operatorId, projectId])
   @@index([subjectEntityId])
+  @@index([scope, pageType])
 }

@@ -40,11 +40,13 @@ const MODEL_ROUTES = {
 
   // ── Project intelligence ──
   projectCompilation: "claude-opus-4-6",
+  projectChat: "claude-sonnet-4-6",
 
   // ── Infrastructure ──
   embedding: "text-embedding-3-small",
   // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
   chunkClassification: "claude-haiku-4-5-20251001",
+  reflection: "claude-haiku-4-5-20251001",
 
   // ── Agentic reasoning ──
   agenticReasoning: "claude-opus-4-6",

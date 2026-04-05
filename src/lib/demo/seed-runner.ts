@@ -8,6 +8,7 @@ import { encryptConfig } from "@/lib/config-encryption";
 import { ensureHardcodedEntityType } from "@/lib/event-materializer";
 import { ensureHqAi, ensureDepartmentAi, seedNotificationPreferences } from "@/lib/ai-entity-helpers";
 import { embedChunks } from "@/lib/rag/embedder";
+import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import {
   COMPANY,
   ADMIN_USER,
@@ -1266,6 +1267,17 @@ export async function runDemoSeed(operatorId: string) {
   }
 
   console.log("[demo-seed] Phase 3+4 complete.");
+
+  // ─── Wiki Synthesis ──────────────────────────────────────────────
+  try {
+    await enqueueWorkerJob("wiki_background_synthesis", operatorId, {
+      operatorId,
+      mode: "onboarding",
+    });
+    console.log(`[seed] Wiki synthesis job enqueued for ${operatorId}`);
+  } catch (err) {
+    console.error(`[seed] Failed to enqueue wiki synthesis:`, err);
+  }
 
   // ─── Return Stats ────────────────────────────────────────────────
   return {

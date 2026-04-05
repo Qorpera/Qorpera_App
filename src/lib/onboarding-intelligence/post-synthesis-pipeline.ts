@@ -15,6 +15,8 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
   properties: number;
   relationships: number;
   situations: number;
+  wikiPages: number;
+  initiatives: number;
 }> {
   console.log(`[post-synthesis] Starting entity extraction for ${operatorId}`);
   const extraction = await extractEntitiesFromChunks(operatorId);
@@ -32,6 +34,22 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
   } catch (err) {
     console.error("[post-synthesis] Content linkage failed:", err);
     // Non-fatal — detection proceeds with degraded department context
+  }
+
+  // ── Wiki Knowledge Synthesis ──────────────────────────────────────
+  // Build wiki pages from the enriched entity graph + raw data.
+  // Runs BEFORE detection so the content-situation-detector can use
+  // wiki enrichment for better-informed classification.
+  console.log(`[post-synthesis] Running wiki background synthesis for ${operatorId}`);
+  let wikiPageCount = 0;
+  try {
+    const { runBackgroundSynthesis } = await import("@/lib/wiki-background-synthesis");
+    const wikiResult = await runBackgroundSynthesis(operatorId, { mode: "onboarding" });
+    wikiPageCount = wikiResult?.pagesCreated ?? 0;
+    console.log(`[post-synthesis] Wiki synthesis complete: ${wikiPageCount} pages created`);
+  } catch (err) {
+    console.error(`[post-synthesis] Wiki synthesis failed for ${operatorId}:`, err);
+    // Non-fatal — detection proceeds without wiki pages (degraded but functional)
   }
 
   console.log(`[post-synthesis] Running full situation detection for ${operatorId}`);
@@ -99,17 +117,34 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     console.error("[post-synthesis] Entity reconciliation failed:", err);
   }
 
+  // ── Strategic Pattern Detection ───────────────────────────────────
+  // Scan wiki pages for cross-cutting patterns → create initiatives.
+  // Runs AFTER both wiki synthesis and detection so it sees the full picture.
+  console.log(`[post-synthesis] Running wiki strategic scan for ${operatorId}`);
+  let initiativeCount = 0;
+  try {
+    const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
+    const scanResult = await runWikiStrategicScan(operatorId);
+    initiativeCount = scanResult.initiativesCreated ?? 0;
+    console.log(`[post-synthesis] Strategic scan: ${scanResult.patternsDetected} patterns, ${initiativeCount} initiatives, ${scanResult.situationsCreated} situations`);
+  } catch (err) {
+    console.error(`[post-synthesis] Wiki strategic scan failed for ${operatorId}:`, err);
+    // Non-fatal
+  }
+
   // Count total situations created
   const totalSituations = await prisma.situation.count({
     where: { operatorId, status: { in: ["detected", "reasoning", "proposed"] } },
   });
 
-  console.log(`[post-synthesis] Complete: ${extraction.entitiesCreated} entities, ${inference.relationshipsCreated} relationships, ${totalSituations} situations`);
+  console.log(`[post-synthesis] Complete: ${extraction.entitiesCreated} entities, ${inference.relationshipsCreated} relationships, ${wikiPageCount} wiki pages, ${totalSituations} situations, ${initiativeCount} initiatives`);
 
   return {
     entities: extraction.entitiesCreated,
     properties: extraction.propertiesSet,
     relationships: inference.relationshipsCreated,
     situations: totalSituations,
+    wikiPages: wikiPageCount,
+    initiatives: initiativeCount,
   };
 }

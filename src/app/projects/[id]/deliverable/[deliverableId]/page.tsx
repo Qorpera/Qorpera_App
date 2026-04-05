@@ -57,6 +57,7 @@ export default function DeliverableDetailPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [transitioning, setTransitioning] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   // Chat state
   const [chatInput, setChatInput] = useState("");
@@ -108,6 +109,22 @@ export default function DeliverableDetailPage() {
       }
     } catch {}
     setTransitioning(false);
+  };
+
+  const handleGenerate = async () => {
+    if (generating) return;
+    setGenerating(true);
+    try {
+      const res = await fetchApi(
+        `/api/projects/${projectId}/deliverables/${deliverableId}/generate`,
+        { method: "POST" },
+      );
+      if (res.ok) {
+        // Update local state to show "generating" state
+        setDeliverable((prev) => prev ? { ...prev, confidenceLevel: null } : prev);
+      }
+    } catch {}
+    setGenerating(false);
   };
 
   const handleSendChat = async () => {
@@ -212,7 +229,26 @@ export default function DeliverableDetailPage() {
 
           <div style={{ flex: 1 }} />
 
-          {/* Right: stage action */}
+          {/* Right: stage actions */}
+          {deliverable.stage === "intelligence" && !deliverable.content && (
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "5px 14px",
+                borderRadius: 6,
+                background: generating ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.12)",
+                border: "0.5px solid rgba(139,92,246,0.25)",
+                color: generating ? "rgba(139,92,246,0.5)" : "rgb(139,92,246)",
+                cursor: generating ? "wait" : "pointer",
+              }}
+              className="hover:brightness-125 transition"
+            >
+              {generating ? "Queued..." : "Generate analysis"}
+            </button>
+          )}
           {deliverable.stage === "intelligence" && (
             <button
               onClick={() => handleTransition("workboard")}

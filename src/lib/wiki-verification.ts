@@ -118,7 +118,7 @@ ${sourceTexts.map((s) => `### Source ${s.id} (${s.type})\n${s.content}`).join("\
   const model = getModel("verifier");
 
   const response = await callLLM({
-    operatorId: page.operatorId,
+    operatorId: page.operatorId ?? undefined,
     instructions: verificationPrompt,
     messages: [{ role: "user", content: userMessage }],
     model,
@@ -209,6 +209,7 @@ export async function verifyDraftPages(operatorId: string, projectId?: string): 
   const drafts = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
+      scope: "operator",
       status: "draft",
       ...(projectId !== undefined ? { projectId } : {}),
     },

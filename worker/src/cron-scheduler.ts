@@ -278,10 +278,36 @@ export function startCronScheduler() {
     }, 4 * 60 * 60 * 1000),
   );
 
+  // ── Wiki Background Synthesis: every 4 hours ───────────────────────
+  // Processes unprocessed data into wiki pages (incremental mode).
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({
+          where: { aiPaused: false },
+          select: { id: true },
+        });
+        for (const op of operators) {
+          try {
+            const { runBackgroundSynthesis } = await import("@/lib/wiki-background-synthesis");
+            const result = await runBackgroundSynthesis(op.id, { mode: "incremental" });
+            if (result.pagesCreated > 0 || result.pagesUpdated > 0) {
+              console.log(`[cron:wiki-synthesis] Operator ${op.id}: ${result.pagesCreated} created, ${result.pagesUpdated} updated`);
+            }
+          } catch (err) {
+            console.error(`[cron:wiki-synthesis] Operator ${op.id} failed:`, err);
+          }
+        }
+      } catch (err) {
+        console.error("[cron:wiki-synthesis] Error:", err);
+      }
+    }, 4 * 60 * 60 * 1000),
+  );
+
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h)");
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), wiki-synthesis(4h)");
 }
 
 export function stopCronScheduler() {

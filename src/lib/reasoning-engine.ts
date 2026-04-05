@@ -1,21 +1,18 @@
 import { prisma } from "@/lib/db";
-import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
-import type { LLMMessage, AITool } from "@/lib/ai-provider";
+import { runAgenticLoop } from "@/lib/agentic-loop";
 import { loadOperationalInsights } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import { buildAgenticSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { ReasoningOutputSchema, type ReasoningOutput } from "@/lib/reasoning-types";
+import { ReasoningOutputSchema, DeepReasoningOutputSchema, type ReasoningOutput, type DeepReasoningOutput } from "@/lib/reasoning-types";
 import { captureApiError } from "@/lib/api-error";
 import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
-import { extractJSON } from "@/lib/json-helpers";
 import { generateSituationSummaries } from "@/lib/situation-summarizer";
 import { refineUncertainties } from "@/lib/reasoning/uncertainty-refiner";
 import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
 import { getConnectorReadTools, executeConnectorReadTool } from "@/lib/connector-read-tools";
-import { logToolCall } from "@/lib/tool-call-trace";
 import { processWikiUpdates, getRelevantPagesForSeed, type WikiUpdate } from "@/lib/wiki-engine";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
@@ -315,7 +312,10 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     };
 
     // 6c. Build system prompt and seed context
-    const systemPrompt = buildAgenticSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames);
+    const depth = situation.investigationDepth ?? "standard";
+    const softBudget = depth === "thorough" ? 50 : 20;
+    const hardBudget = depth === "thorough" ? 80 : 25;
+    const systemPrompt = buildAgenticSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, depth);
 
     const seedInput: AgenticSeedInput = {
       situationType: { name: situation.situationType.name, description: situation.situationType.description },
@@ -345,21 +345,39 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     // 7. Run agentic reasoning loop
     const agenticResult = await runAgenticLoop({
       operatorId: situation.operatorId,
-      situationId,
+      contextId: situationId,
+      contextType: "situation",
       cycleNumber,
       systemPrompt,
       seedContext,
       tools: allTools,
       dispatchTool,
+      outputSchema: depth === "thorough" ? DeepReasoningOutputSchema : ReasoningOutputSchema,
+      softBudget,
+      hardBudget,
       editInstruction: editInstructionText,
       priorFeedbackLines,
     });
-    let reasoning = agenticResult.reasoning;
+    let reasoning = agenticResult.output as DeepReasoningOutput;
     const reasoningApiCostCents = agenticResult.apiCostCents;
     const modelString = agenticResult.modelId;
     const reasoningDurationMs = agenticResult.durationMs;
 
-    console.log(`[reasoning-engine] Agentic reasoning complete for situation ${situationId}: ${reasoningDurationMs}ms, $${(reasoningApiCostCents / 100).toFixed(2)}`);
+    console.log(`[reasoning-engine] Agentic reasoning complete for situation ${situationId} (${depth}): ${reasoningDurationMs}ms, $${(reasoningApiCostCents / 100).toFixed(2)}`);
+
+    // Depth upgrade: if standard investigation discovers complexity, re-run as thorough
+    if (reasoning.depthUpgrade && depth === "standard") {
+      await prisma.situation.update({
+        where: { id: situationId },
+        data: {
+          investigationDepth: "thorough",
+          status: "detected",
+          apiCostCents: reasoningApiCostCents,
+        },
+      });
+      console.log(`[reasoning-engine] Situation ${situationId} upgraded to thorough investigation (standard run cost: ${reasoningApiCostCents}c)`);
+      return reasonAboutSituation(situationId);
+    }
 
     // 8. Post-reasoning policy verification — catch LLM ignoring BLOCKED instructions
     if (reasoning.actionPlan) {
@@ -467,14 +485,22 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     // 10. Store reasoning + model tracking
     const planTracking = { modelId: modelString, promptVersion: REASONING_PROMPT_VERSION };
 
+    // Accumulate cost from prior depth upgrade run (if any)
+    const priorCostCents = situation.apiCostCents ?? 0;
+
     const updates: Record<string, unknown> = {
       reasoning: JSON.stringify(reasoning),
       modelId: modelString,
       promptVersion: REASONING_PROMPT_VERSION,
       reasoningDurationMs,
-      apiCostCents: reasoningApiCostCents,
+      apiCostCents: reasoningApiCostCents + priorCostCents,
       contextSnapshot: JSON.stringify({ agenticReasoning: true, toolCallCount: "see ToolCallTrace" }),
     };
+
+    // Store analysis document for thorough investigations
+    if (depth === "thorough" && reasoning.analysisDocument) {
+      updates.analysisDocument = reasoning.analysisDocument;
+    }
 
     // Store proposedAction as the full plan for backward-compatible UI display
     if (reasoning.actionPlan) {
@@ -646,179 +672,6 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       data: { status: "detected" },
     }).catch(() => {});
   }
-}
-
-// ── Agentic Loop ────────────────────────────────────────────────────────────
-
-const SOFT_BUDGET = 20;
-const HARD_BUDGET = 25;
-
-async function runAgenticLoop(params: {
-  operatorId: string;
-  situationId: string;
-  cycleNumber: number;
-  systemPrompt: string;
-  seedContext: string;
-  tools: AITool[];
-  dispatchTool: (toolName: string, args: Record<string, unknown>) => Promise<string>;
-  editInstruction?: string | null;
-  priorFeedbackLines?: string[] | null;
-}): Promise<{
-  reasoning: ReasoningOutput;
-  apiCostCents: number;
-  durationMs: number;
-  modelId: string;
-}> {
-  const model = getModel("agenticReasoning");
-  const thinkingBudget = getThinkingBudget("agenticReasoning");
-  const startTime = performance.now();
-  let apiCostCents = 0;
-  let totalCalls = 0;
-  let callIndex = 0;
-  let softNudgeSent = false;
-  let parseRetried = false;
-
-  // Build initial user message
-  let initialContent = params.seedContext;
-  if (params.editInstruction) {
-    initialContent += `\n\nEDIT REQUEST:\n${params.editInstruction}\nRevise your actionPlan to incorporate this feedback. Keep the same situation analysis but adjust the plan steps and justification accordingly.`;
-  }
-  if (params.priorFeedbackLines) {
-    initialContent += `\n\nHUMAN FEEDBACK ON SIMILAR SITUATIONS:\n${params.priorFeedbackLines.join("\n")}\nIncorporate this feedback into your reasoning.`;
-  }
-
-  const messages: LLMMessage[] = [
-    { role: "user", content: initialContent },
-  ];
-
-  while (totalCalls < HARD_BUDGET) {
-    // Soft budget nudge
-    if (totalCalls >= SOFT_BUDGET && !softNudgeSent) {
-      messages.push({
-        role: "user",
-        content: `BUDGET NOTICE: You have used ${totalCalls} of your ${HARD_BUDGET} tool call budget. You may make up to ${HARD_BUDGET - totalCalls} more calls if critical evidence is still missing. Otherwise, produce your final JSON assessment now.`,
-      });
-      softNudgeSent = true;
-    }
-
-    const response = await callLLM({
-      instructions: params.systemPrompt,
-      messages,
-      tools: params.tools,
-      temperature: 0.2,
-      aiFunction: "reasoning",
-      model,
-      operatorId: params.operatorId,
-      thinking: thinkingBudget !== null,
-      thinkingBudget: thinkingBudget ?? undefined,
-    });
-    apiCostCents += response.apiCostCents;
-
-    // Terminal check — model produced final output (no tool calls)
-    if (!response.toolCalls?.length) {
-      const parsed = extractJSON(response.text);
-      if (!parsed) {
-        if (!parseRetried) {
-          parseRetried = true;
-          messages.push({ role: "assistant", content: response.text });
-          messages.push({ role: "user", content: "Your output could not be parsed as JSON. Produce valid JSON matching the required schema." });
-          continue;
-        }
-        throw new Error(`Agentic reasoning failed: could not parse JSON after retry`);
-      }
-      const result = ReasoningOutputSchema.safeParse(parsed);
-      if (!result.success) {
-        const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-        if (!parseRetried) {
-          parseRetried = true;
-          messages.push({ role: "assistant", content: response.text });
-          messages.push({ role: "user", content: `Your output could not be parsed: ${errors}. Produce valid JSON matching the required schema.` });
-          continue;
-        }
-        throw new Error(`Agentic reasoning failed: schema validation failed after retry: ${errors}`);
-      }
-      return {
-        reasoning: result.data,
-        apiCostCents,
-        durationMs: Math.round(performance.now() - startTime),
-        modelId: model,
-      };
-    }
-
-    // Tool execution — push assistant message with tool_calls, then execute each
-    messages.push({
-      role: "assistant",
-      content: response.text || "",
-      tool_calls: response.toolCalls.map((tc) => ({
-        id: tc.id,
-        type: "function" as const,
-        function: {
-          name: tc.name,
-          arguments: JSON.stringify(tc.arguments),
-        },
-      })),
-    });
-
-    for (const toolCall of response.toolCalls) {
-      const toolStart = performance.now();
-      const result = await params.dispatchTool(toolCall.name, toolCall.arguments);
-      const toolDurationMs = Math.round(performance.now() - toolStart);
-
-      messages.push({
-        role: "tool",
-        content: result,
-        tool_call_id: toolCall.id,
-        name: toolCall.name,
-      });
-
-      // Fire-and-forget telemetry
-      logToolCall({
-        situationId: params.situationId,
-        cycleNumber: params.cycleNumber,
-        callIndex,
-        toolName: toolCall.name,
-        arguments: toolCall.arguments,
-        result,
-        durationMs: toolDurationMs,
-      }).catch(() => {});
-
-      callIndex++;
-      totalCalls++;
-    }
-  }
-
-  // Hard budget hit — force final output with no tools
-  messages.push({
-    role: "user",
-    content: "You must produce your final JSON assessment now. Note any remaining evidence gaps in the missingContext field.",
-  });
-
-  const finalResponse = await callLLM({
-    instructions: params.systemPrompt,
-    messages,
-    temperature: 0.2,
-    aiFunction: "reasoning",
-    model,
-    operatorId: params.operatorId,
-    thinking: thinkingBudget !== null,
-    thinkingBudget: thinkingBudget ?? undefined,
-  });
-  apiCostCents += finalResponse.apiCostCents;
-
-  const parsed = extractJSON(finalResponse.text);
-  if (!parsed) throw new Error("Agentic reasoning failed: could not parse final JSON after budget exhaustion");
-  const result = ReasoningOutputSchema.safeParse(parsed);
-  if (!result.success) {
-    const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    throw new Error(`Agentic reasoning failed: final output schema validation failed: ${errors}`);
-  }
-
-  return {
-    reasoning: result.data,
-    apiCostCents,
-    durationMs: Math.round(performance.now() - startTime),
-    modelId: model,
-  };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

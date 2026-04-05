@@ -7,8 +7,8 @@ import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { enrichSignalContext, type EnrichedSignalContext } from "./detection-enrichment";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
-import { getArchetypeTaxonomy, ensureArchetypeSituationType } from "@/lib/archetype-classifier";
 import { ensureActionRequiredType, ensureAwarenessType } from "@/lib/situation-type-helpers";
+import { getPageForEntity, searchPages } from "@/lib/wiki-engine";
 
 // Re-export so existing consumers don't break
 export { ensureActionRequiredType, ensureAwarenessType };
@@ -32,10 +32,9 @@ type EvaluationResult = {
   confidence: number;
   relatedSituationId: string | null;
   updatedSummary: string | null;
+  investigationDepth: "standard" | "thorough";
   evidence: string;
   reasoning: string;
-  archetypeSlug: string | null;
-  archetypeConfidence: number | null;
   projectRecommendation: {
     title: string;
     description: string;
@@ -83,10 +82,43 @@ const URGENCY_CONFIDENCE: Record<string, number> = {
 export function isEligibleCommunication(item: {
   sourceType: string;
   metadata?: Record<string, unknown>;
+  content?: string;
 }): boolean {
   if (!COMMUNICATION_TYPES.has(item.sourceType)) return false;
   if (item.metadata?.isAutomated === true) return false;
+  if (item.metadata?.isAutoReply === true) return false;
+  if (item.content && item.content.length < 20) return false;
   return true;
+}
+
+// ── Wiki Enrichment ─────────────────────────────────────────────────────────
+
+type WikiEnrichment = {
+  actorContext: string | null;
+  relatedKnowledge: Array<{ title: string; pageType: string; contentSnippet: string }>;
+  existingSituations: Array<{ id: string; summary: string }>;
+};
+
+async function enrichBatchWithWiki(
+  batch: ActorBatch,
+  operatorId: string,
+): Promise<WikiEnrichment> {
+  const actorPage = batch.actorEntityId
+    ? await getPageForEntity(operatorId, batch.actorEntityId).catch(() => null)
+    : null;
+
+  const contentSample = batch.items.map((i) => i.content.slice(0, 200)).join(" ");
+  const relatedPages = await searchPages(operatorId, contentSample, { limit: 3 }).catch(() => []);
+
+  return {
+    actorContext: actorPage?.content ?? null,
+    relatedKnowledge: relatedPages.map((p) => ({
+      title: p.title,
+      pageType: p.pageType,
+      contentSnippet: p.contentPreview,
+    })),
+    existingSituations: batch.openSituations,
+  };
 }
 
 function extractSenderName(meta: Record<string, unknown>): { raw: string; name: string } {
@@ -207,9 +239,7 @@ async function loadOpenSituations(
 
 // ── LLM Evaluation ──────────────────────────────────────────────────────────
 
-async function buildSystemPrompt(): Promise<string> {
-  const taxonomy = await getArchetypeTaxonomy();
-
+function buildSystemPrompt(): string {
   return `You are evaluating incoming business communications to determine what attention they require from a specific person within their organization.
 
 Classify each message into one of four categories:
@@ -234,7 +264,7 @@ Do NOT use initiative_candidate for:
 - Status updates about ongoing work (that's awareness)
 - An event that already has an active Project with these participants (check ACTIVE PROJECTS in enriched context)
 
-When you classify as initiative_candidate, you must ALSO provide a projectRecommendation object with: title, description, coordinatorEmail (who should scope this — typically the meeting organizer or most senior attendee), dueDate, proposedMembers (each with email, name, role), proposedDeliverables (each with title, description, assignedToEmail, format, suggestedDeadline), and rationale explaining why this should be a project.
+When you classify as initiative_candidate, you must ALSO provide a projectRecommendation object.
 
 **irrelevant** — This has nothing to do with the recipient's work responsibilities. Spam, marketing solicitations, newsletters they didn't subscribe to for work purposes, automated system notifications with no actionable content, social/casual messages with no work relevance, promotional offers (gambling, personal shopping, etc).
 
@@ -257,26 +287,21 @@ Examples:
 - "Vi mister kunden hvis vi ikke reagerer" — 12 days old → awareness (moment passed)
 - "Forsikringspolicen dækker kun 35 medarbejdere" — 60 days old → action_required (structural)
 
-For each message classified as "action_required" OR as "awareness" with awarenessType "strategic", you must ALSO classify it against the situation archetype taxonomy. Pick the single best-matching archetype slug. If no archetype fits well, use "unclassified".
+INVESTIGATION DEPTH:
+For each action_required or strategic awareness message, determine how much investigation it warrants:
+- "standard": A clear, bounded issue resolvable with a direct action plan. Examples: overdue invoice follow-up, meeting scheduling, simple client question, routine approval.
+- "thorough": A complex pattern requiring deep analysis before action. Examples: declining revenue across multiple clients, repeated complaints suggesting systemic issues, regulatory concerns, multi-party disputes, strategic decisions with significant consequences.
+Key question: does this need a REPORT explaining what's happening before proposing actions? If yes → thorough. If the right action is obvious → standard.
 
-SITUATION ARCHETYPE TAXONOMY:
-${taxonomy}
-
-For initiative_candidate messages, also include:
-    "projectRecommendation": {
-      "title": "Project title",
-      "description": "What this project accomplishes",
-      "coordinatorEmail": "email of person who should review/scope this",
-      "dueDate": "ISO date or null",
-      "proposedMembers": [{"email": "...", "name": "...", "role": "owner|contributor|reviewer"}],
-      "proposedDeliverables": [{"title": "...", "description": "...", "assignedToEmail": "...", "format": "document|spreadsheet|presentation|analysis", "suggestedDeadline": "ISO date or null"}],
-      "rationale": "Why this needs a project, not individual tasks"
-    }
+Use the organizational context provided for each actor batch to make better-informed decisions:
+- If the wiki shows this person has a pattern of late payments, an invoice mention is more likely action_required
+- If there's already an open situation about this topic, this message may be an update to the existing situation (set relatedSituationId)
+- If the wiki shows this is a routine communication pattern for this person, it's more likely awareness or irrelevant
 
 Respond with ONLY valid JSON (no markdown fences):`;
 }
 
-async function evaluateActorBatch(batch: ActorBatch, enrichments: (EnrichedSignalContext | null)[]): Promise<EvaluationResult[]> {
+async function evaluateActorBatch(batch: ActorBatch, enrichments: (EnrichedSignalContext | null)[], wikiEnrichment: WikiEnrichment): Promise<EvaluationResult[]> {
   const openSitLines =
     batch.openSituations.length > 0
       ? batch.openSituations
@@ -345,12 +370,22 @@ async function evaluateActorBatch(batch: ActorBatch, enrichments: (EnrichedSigna
     })
     .join("\n\n");
 
+  // Build wiki context block
+  const wikiBlock: string[] = [];
+  if (wikiEnrichment.actorContext) {
+    wikiBlock.push(`ORGANIZATIONAL CONTEXT FOR THIS ACTOR:\nAbout ${batch.actorName}:\n${wikiEnrichment.actorContext.slice(0, 1500)}`);
+  }
+  if (wikiEnrichment.relatedKnowledge.length > 0) {
+    wikiBlock.push(`RELATED KNOWLEDGE:\n${wikiEnrichment.relatedKnowledge.map((k) => `- ${k.title} (${k.pageType}): ${k.contentSnippet}`).join("\n")}`);
+  }
+  const wikiContextStr = wikiBlock.length > 0 ? `\n${wikiBlock.join("\n\n")}\n` : "";
+
   const userPrompt = `PERSON WHO NEEDS TO ACT: ${batch.actorName}${batch.actorRole ? ` (${batch.actorRole})` : ""}
 DEPARTMENT: ${batch.departmentName ?? "Unknown"}
 
 EXISTING OPEN SITUATIONS FOR THIS PERSON:
 ${openSitLines}
-
+${wikiContextStr}
 NEW MESSAGES TO EVALUATE:
 ${messageLines}
 
@@ -367,13 +402,12 @@ For each message, respond with:
     "updatedSummary": "If related to existing situation, the updated summary, or null",
     "evidence": "The specific text that drove the classification",
     "reasoning": "One sentence: why this classification",
-    "archetypeSlug": "overdue_invoice | client_escalation | ... | unclassified (action_required and strategic awareness only, null otherwise)",
-    "archetypeConfidence": "0.0-1.0 (action_required and strategic awareness only, null otherwise)",
+    "investigationDepth": "standard | thorough (for action_required and strategic awareness only)",
     "projectRecommendation": "(include ONLY for initiative_candidate — see system prompt for schema)"
   }
 ]`;
 
-  const systemPrompt = await buildSystemPrompt();
+  const systemPrompt = buildSystemPrompt();
 
   const response = await callLLM({
     instructions: systemPrompt,
@@ -406,15 +440,8 @@ For each message, respond with:
     relatedSituationId: r.relatedSituationId ? String(r.relatedSituationId) : null,
     updatedSummary: r.updatedSummary ? String(r.updatedSummary) : null,
     evidence: String(r.evidence ?? ""),
+    investigationDepth: (r.investigationDepth === "thorough" ? "thorough" : "standard") as "standard" | "thorough",
     reasoning: String(r.reasoning ?? ""),
-    archetypeSlug: (r.classification === "action_required" || (r.classification === "awareness" && r.awarenessType === "strategic"))
-      && typeof r.archetypeSlug === "string"
-      ? r.archetypeSlug
-      : null,
-    archetypeConfidence: (r.classification === "action_required" || (r.classification === "awareness" && r.awarenessType === "strategic"))
-      && typeof r.archetypeConfidence === "number"
-      ? r.archetypeConfidence
-      : null,
     projectRecommendation: (() => {
       if (r.classification !== "initiative_candidate" || !r.projectRecommendation) return null;
       const pr = r.projectRecommendation as Record<string, any>;
@@ -641,8 +668,8 @@ async function handleActionRequired(
   operatorId: string,
   batch: ActorBatch,
   result: EvaluationResult,
+  wikiEnrichment: WikiEnrichment,
   createdInBatch: Set<string>,
-  companyWideArchetypes: Set<string>,
   correlationId?: string,
 ): Promise<void> {
   const item = batch.items[result.messageIndex];
@@ -706,87 +733,68 @@ async function handleActionRequired(
     }
   }
 
-  // Safety: don't create multiple situations for the same actor from one batch
-  const dedupeKey = result.archetypeSlug && result.archetypeSlug !== "unclassified"
-    ? `${batch.actorEntityId}:archetype:${result.archetypeSlug}`
-    : `${batch.actorEntityId}:${result.summary.slice(0, 50)}`;
+  // Safety: don't create multiple situations for the same actor+topic from one batch
+  const dedupeKey = `${batch.actorEntityId}:${result.summary.slice(0, 80).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   if (createdInBatch.has(dedupeKey)) return;
 
-  // Cross-actor dedup for company-wide events: if the SAME source email
-  // has already created a situation for a DIFFERENT actor with the SAME archetype,
-  // merge into the first situation instead of creating a new one
-  if (result.archetypeSlug && result.archetypeSlug !== "unclassified") {
-    const sourceKey = `${item.sourceId}:${result.archetypeSlug}`;
-    if (companyWideArchetypes.has(sourceKey)) {
-      const existingCWSituation = await prisma.situation.findFirst({
-        where: {
-          operatorId,
-          source: "content_detected",
-          status: { notIn: ["resolved", "closed"] },
-          situationType: { archetypeSlug: result.archetypeSlug },
-          triggerEvidence: { contains: item.sourceId },
-        },
-        select: { id: true, contextSnapshot: true },
-        orderBy: { createdAt: "desc" },
-      });
-      if (existingCWSituation) {
-        let snapshot: Record<string, unknown> = {};
-        if (existingCWSituation.contextSnapshot) {
-          try { snapshot = JSON.parse(existingCWSituation.contextSnapshot as string); } catch {}
-        }
-        const evidenceArr = Array.isArray(snapshot.contentEvidence)
-          ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
-          : [];
-        evidenceArr.push({
-          sourceId: item.sourceId,
-          sourceType: item.sourceType,
-          sender: meta.from ?? meta.authorEmail ?? "unknown",
-          subject: meta.subject ?? null,
-          date: meta.date ?? new Date().toISOString(),
-          summary: result.summary,
-          additionalActor: batch.actorName,
-          classification: "merged_company_wide",
-        });
-        snapshot.contentEvidence = evidenceArr;
-        await prisma.situation.update({
-          where: { id: existingCWSituation.id },
-          data: { contextSnapshot: JSON.stringify(snapshot) },
-        });
-
-        await prisma.evaluationLog.updateMany({
-          where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
-          data: { situationId: existingCWSituation.id },
-        }).catch(() => {});
-
-        console.log(`[content-detection] Company-wide dedup: merged ${batch.actorName}'s instance into existing situation ${existingCWSituation.id} (${result.archetypeSlug})`);
-        createdInBatch.add(dedupeKey);
-        return;
-      }
+  // Company-wide dedup: check if this source message already triggered a situation
+  const existingForSource = await prisma.situation.findFirst({
+    where: {
+      operatorId,
+      status: { in: ["detected", "reasoning", "proposed"] },
+      triggerEvidence: { contains: item.sourceId },
+    },
+    select: { id: true, contextSnapshot: true },
+  });
+  if (existingForSource) {
+    let snapshot: Record<string, unknown> = {};
+    if (existingForSource.contextSnapshot) {
+      try { snapshot = JSON.parse(existingForSource.contextSnapshot as string); } catch {}
     }
+    const evidenceArr = Array.isArray(snapshot.contentEvidence)
+      ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
+      : [];
+    evidenceArr.push({
+      sourceId: item.sourceId,
+      sourceType: item.sourceType,
+      sender: meta.from ?? meta.authorEmail ?? "unknown",
+      summary: result.summary,
+      additionalActor: batch.actorName,
+      classification: "merged_company_wide",
+    });
+    snapshot.contentEvidence = evidenceArr;
+    await prisma.situation.update({
+      where: { id: existingForSource.id },
+      data: { contextSnapshot: JSON.stringify(snapshot) },
+    });
+    await prisma.evaluationLog.updateMany({
+      where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+      data: { situationId: existingForSource.id },
+    }).catch(() => {});
+    console.log(`[content-detection] Source dedup: merged ${batch.actorName} into existing situation ${existingForSource.id}`);
+    createdInBatch.add(dedupeKey);
+    return;
   }
 
-  // Cross-mechanism dedup: check if entity-based detection already created
-  // a situation for this entity with the same archetype
-  if (result.archetypeSlug && result.archetypeSlug !== "unclassified") {
-    const existingSituation = await prisma.situation.findFirst({
-      where: {
-        operatorId,
-        triggerEntityId: batch.actorEntityId,
-        status: { notIn: ["resolved", "closed"] },
-        situationType: {
-          archetypeSlug: result.archetypeSlug,
-        },
-      },
-    });
-    if (existingSituation) {
-      // Situation already exists from entity-based detection — enrich context instead
-      const existing = await prisma.situation.findUnique({
-        where: { id: existingSituation.id },
-        select: { contextSnapshot: true },
-      });
+  // Cross-mechanism dedup: check for recent open situations for this actor entity
+  const recentSituation = await prisma.situation.findFirst({
+    where: {
+      operatorId,
+      triggerEntityId: batch.actorEntityId,
+      status: { in: ["detected", "reasoning", "proposed"] },
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, contextSnapshot: true, triggerSummary: true, createdAt: true },
+  });
+  if (recentSituation) {
+    // Merge if LLM explicitly linked, OR if very recent (< 2h) as conservative fallback
+    const llmLinked = result.relatedSituationId === recentSituation.id;
+    const veryRecent = recentSituation.createdAt > new Date(Date.now() - 2 * 60 * 60 * 1000);
+    if (llmLinked || (!result.relatedSituationId && veryRecent)) {
       let snapshot: Record<string, unknown> = {};
-      if (existing?.contextSnapshot) {
-        try { snapshot = JSON.parse(existing.contextSnapshot as string); } catch {}
+      if (recentSituation.contextSnapshot) {
+        try { snapshot = JSON.parse(recentSituation.contextSnapshot as string); } catch {}
       }
       const evidenceArr = Array.isArray(snapshot.contentEvidence)
         ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
@@ -795,32 +803,19 @@ async function handleActionRequired(
         sourceId: item.sourceId,
         sourceType: item.sourceType,
         sender: meta.from ?? meta.authorEmail ?? "unknown",
-        subject: meta.subject ?? null,
-        date: meta.date ?? new Date().toISOString(),
         summary: result.summary,
         evidence: result.evidence,
       });
       snapshot.contentEvidence = evidenceArr;
       await prisma.situation.update({
-        where: { id: existingSituation.id },
+        where: { id: recentSituation.id },
         data: { contextSnapshot: JSON.stringify(snapshot) },
       });
-
-      // Log evaluation linked to the existing situation
       await prisma.evaluationLog.updateMany({
-        where: {
-          operatorId,
-          sourceId: item.sourceId,
-          sourceType: item.sourceType,
-          actorEntityId: batch.actorEntityId,
-          situationId: null,
-        },
-        data: { situationId: existingSituation.id },
+        where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+        data: { situationId: recentSituation.id },
       }).catch(() => {});
-
-      console.log(
-        `[content-detection] Cross-mechanism dedup: enriched existing situation ${existingSituation.id} (${result.archetypeSlug}) instead of creating duplicate`,
-      );
+      console.log(`[content-detection] Cross-mechanism dedup: enriched recent situation ${recentSituation.id} (${llmLinked ? "llm-linked" : "time-fallback"})`);
       createdInBatch.add(dedupeKey);
       return;
     }
@@ -834,10 +829,7 @@ async function handleActionRequired(
     return;
   }
 
-  // Route to archetype-specific type, or generic "Action Required" for unclassified
-  const situationTypeId = result.archetypeSlug && result.archetypeSlug !== "unclassified" && result.archetypeConfidence && result.archetypeConfidence >= 0.6
-    ? await ensureArchetypeSituationType(operatorId, departmentId, result.archetypeSlug)
-    : await ensureActionRequiredType(operatorId, departmentId);
+  const situationTypeId = await ensureActionRequiredType(operatorId, departmentId);
 
   const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.7;
 
@@ -857,6 +849,10 @@ async function handleActionRequired(
     evidence: result.evidence,
     reasoning: result.reasoning,
     urgency: result.urgency,
+    wikiEnrichment: {
+      actorPageTitle: wikiEnrichment.actorContext ? "available" : null,
+      relatedPages: wikiEnrichment.relatedKnowledge.map((k) => k.title),
+    },
   });
 
   const situation = await prisma.situation.create({
@@ -866,6 +862,7 @@ async function handleActionRequired(
       triggerEntityId: batch.actorEntityId,
       source: "content_detected",
       status: "detected",
+      investigationDepth: result.investigationDepth,
       confidence,
       severity: 0.5,
       triggerEvidence,
@@ -887,11 +884,6 @@ async function handleActionRequired(
   });
 
   createdInBatch.add(dedupeKey);
-
-  // Register for cross-actor dedup
-  if (result.archetypeSlug && result.archetypeSlug !== "unclassified") {
-    companyWideArchetypes.add(`${item.sourceId}:${result.archetypeSlug}`);
-  }
 
   // Link situation back to evaluation log
   await prisma.evaluationLog.updateMany({
@@ -947,8 +939,8 @@ async function logEvaluation(
       reasoning: result.reasoning || null,
       urgency: result.urgency,
       confidence: result.confidence,
-      archetypeSlug: result.archetypeSlug ?? null,
-      archetypeConfidence: result.archetypeConfidence ?? null,
+      archetypeSlug: null,
+      archetypeConfidence: null,
       situationId: null, // Updated after situation creation if applicable
       metadata: item?.metadata ? (item.metadata as Prisma.InputJsonValue) : undefined,
     },
@@ -961,8 +953,8 @@ async function handleAwareness(
   operatorId: string,
   batch: ActorBatch,
   result: EvaluationResult,
+  wikiEnrichment: WikiEnrichment,
   createdInBatch: Set<string>,
-  companyWideArchetypes: Set<string>,
 ): Promise<void> {
   const item = batch.items[result.messageIndex];
   if (!item) return;
@@ -1014,31 +1006,28 @@ async function handleAwareness(
   }
 
   if (result.awarenessType === "strategic") {
-    // Strategic awareness → create real situation with reasoning, same as action_required
-    const dedupeKey = result.archetypeSlug && result.archetypeSlug !== "unclassified"
-      ? `${batch.actorEntityId}:strategic:archetype:${result.archetypeSlug}`
-      : `${batch.actorEntityId}:strategic:${result.summary.slice(0, 50)}`;
+    // Strategic awareness → create real situation with reasoning
+    const dedupeKey = `${batch.actorEntityId}:strategic:${result.summary.slice(0, 80).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     if (createdInBatch.has(dedupeKey)) return;
 
-    // Cross-mechanism dedup (same as handleActionRequired)
-    if (result.archetypeSlug && result.archetypeSlug !== "unclassified") {
-      const existingSituation = await prisma.situation.findFirst({
-        where: {
-          operatorId,
-          triggerEntityId: batch.actorEntityId,
-          status: { notIn: ["resolved", "closed"] },
-          situationType: { archetypeSlug: result.archetypeSlug },
-        },
-      });
-      if (existingSituation) {
-        // Enrich existing situation context instead of creating duplicate
-        const existing = await prisma.situation.findUnique({
-          where: { id: existingSituation.id },
-          select: { contextSnapshot: true },
-        });
+    // Cross-mechanism dedup: check for recent open situations for this actor
+    const recentSituation = await prisma.situation.findFirst({
+      where: {
+        operatorId,
+        triggerEntityId: batch.actorEntityId,
+        status: { in: ["detected", "reasoning", "proposed"] },
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, contextSnapshot: true, createdAt: true },
+    });
+    if (recentSituation) {
+      const llmLinked = result.relatedSituationId === recentSituation.id;
+      const veryRecent = recentSituation.createdAt > new Date(Date.now() - 2 * 60 * 60 * 1000);
+      if (llmLinked || (!result.relatedSituationId && veryRecent)) {
         let snapshot: Record<string, unknown> = {};
-        if (existing?.contextSnapshot) {
-          try { snapshot = JSON.parse(existing.contextSnapshot as string); } catch {}
+        if (recentSituation.contextSnapshot) {
+          try { snapshot = JSON.parse(recentSituation.contextSnapshot as string); } catch {}
         }
         const evidenceArr = Array.isArray(snapshot.contentEvidence)
           ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
@@ -1047,23 +1036,21 @@ async function handleAwareness(
           sourceId: item.sourceId,
           sourceType: item.sourceType,
           sender: meta.from ?? meta.authorEmail ?? "unknown",
-          subject: meta.subject ?? null,
-          date: meta.date ?? new Date().toISOString(),
           summary: result.summary,
           evidence: result.evidence,
           classification: "strategic_awareness",
         });
         snapshot.contentEvidence = evidenceArr;
         await prisma.situation.update({
-          where: { id: existingSituation.id },
+          where: { id: recentSituation.id },
           data: { contextSnapshot: JSON.stringify(snapshot) },
         });
         await prisma.evaluationLog.updateMany({
           where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
-          data: { situationId: existingSituation.id },
+          data: { situationId: recentSituation.id },
         }).catch(() => {});
         createdInBatch.add(dedupeKey);
-        console.log(`[content-detection] Strategic awareness: enriched existing situation ${existingSituation.id}`);
+        console.log(`[content-detection] Strategic awareness: enriched recent situation ${recentSituation.id} (${llmLinked ? "llm-linked" : "time-fallback"})`);
         return;
       }
     }
@@ -1076,10 +1063,7 @@ async function handleAwareness(
       return;
     }
 
-    // Route to archetype type or generic awareness type
-    const situationTypeId = result.archetypeSlug && result.archetypeSlug !== "unclassified" && result.archetypeConfidence && result.archetypeConfidence >= 0.6
-      ? await ensureArchetypeSituationType(operatorId, departmentId, result.archetypeSlug)
-      : await ensureAwarenessType(operatorId, departmentId);
+    const situationTypeId = await ensureAwarenessType(operatorId, departmentId);
 
     const { raw: senderRaw, name: senderName } = extractSenderName(meta);
     const subjectStr = meta.subject ? ` re: ${meta.subject}` : "";
@@ -1098,6 +1082,10 @@ async function handleAwareness(
       reasoning: result.reasoning,
       urgency: result.urgency,
       classification: "strategic_awareness",
+      wikiEnrichment: {
+        actorPageTitle: wikiEnrichment.actorContext ? "available" : null,
+        relatedPages: wikiEnrichment.relatedKnowledge.map((k) => k.title),
+      },
     });
 
     const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.5;
@@ -1108,9 +1096,10 @@ async function handleAwareness(
         situationTypeId,
         triggerEntityId: batch.actorEntityId,
         source: "content_detected",
-        status: "detected",  // Goes through reasoning — NOT pre-resolved
+        status: "detected",
+        investigationDepth: result.investigationDepth,
         confidence,
-        severity: 0.3, // Lower than action_required (0.5) but not negligible
+        severity: 0.3,
         triggerEvidence,
         triggerSummary,
         contextSnapshot: JSON.stringify({
@@ -1232,8 +1221,6 @@ export async function evaluateContentForSituations(
 
   // Step 2–4: Process each actor batch
   const createdInBatch = new Set<string>();
-  // Cross-actor dedup: prevent the same company-wide event from creating situations for every actor
-  const companyWideArchetypes = new Set<string>();
   const correlationId = `${operatorId}:reason_situation:${Date.now()}`;
 
   for (const [entityId, actor] of actorMap) {
@@ -1308,8 +1295,11 @@ export async function evaluateContentForSituations(
         )
       );
 
+      // Wiki enrichment (batch-level — one query per batch, not per item)
+      const wikiEnrichment = await enrichBatchWithWiki(batch, operatorId);
+
       // LLM evaluation
-      const results = await evaluateActorBatch(batch, enrichments);
+      const results = await evaluateActorBatch(batch, enrichments, wikiEnrichment);
 
       // Handle results
       for (const result of results) {
@@ -1323,9 +1313,9 @@ export async function evaluateContentForSituations(
         if (result.classification === "initiative_candidate") {
           await handleInitiativeCandidate(operatorId, batch, result, correlationId);
         } else if (result.classification === "action_required") {
-          await handleActionRequired(operatorId, batch, result, createdInBatch, companyWideArchetypes, correlationId);
+          await handleActionRequired(operatorId, batch, result, wikiEnrichment, createdInBatch, correlationId);
         } else if (result.classification === "awareness") {
-          await handleAwareness(operatorId, batch, result, createdInBatch, companyWideArchetypes);
+          await handleAwareness(operatorId, batch, result, wikiEnrichment, createdInBatch);
         }
         // irrelevant items: logged but no situation created
       }

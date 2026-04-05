@@ -153,6 +153,12 @@ interface SituationDetail {
   triggerSummary: string | null;
   resumeSummary: string | null;
   currentEntityState: { id: string; displayName: string; typeName: string; properties: Record<string, string> } | null;
+  investigationDepth: string;
+  analysisDocument: {
+    sections: Array<{ type: string; level?: number; title?: string; text: string; severity?: string; confidence?: number; sources?: string[] }>;
+    overallConfidence: number;
+    investigationSummary: string;
+  } | null;
   reasoning: ReasoningData | null;
   proposedAction: ActionStep[] | null;
   executionPlanId: string | null;
@@ -1332,6 +1338,74 @@ function DetailPane({
                   {detail.resumeSummary}
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* ── ANALYSIS DOCUMENT (thorough investigations) ── */}
+          {detail?.analysisDocument && detail?.investigationDepth === "thorough" && (
+            <div className="w-[80%] mx-auto" style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }}>
+                  Investigation Analysis
+                </span>
+                <span style={{ fontSize: 11, color: "var(--fg3)", marginLeft: 8 }}>
+                  {(detail.analysisDocument.overallConfidence * 100).toFixed(0)}% confidence
+                </span>
+              </div>
+              {detail.analysisDocument.sections.map((section, i) => {
+                if (section.type === "heading") {
+                  const Tag = (section.level ?? 2) <= 2 ? "h3" : "h4";
+                  return (
+                    <Tag key={i} style={{ fontSize: section.level === 1 ? 16 : 14, fontWeight: 500, color: "var(--foreground)", marginTop: i > 0 ? 16 : 0, marginBottom: 8 }}>
+                      {section.text}
+                    </Tag>
+                  );
+                }
+                if (section.type === "risk") {
+                  return (
+                    <div key={i} style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: section.severity === "high" ? "rgba(248,113,113,0.08)" : section.severity === "medium" ? "rgba(250,204,21,0.08)" : "rgba(255,255,255,0.03)", border: `0.5px solid ${section.severity === "high" ? "rgba(248,113,113,0.2)" : section.severity === "medium" ? "rgba(250,204,21,0.2)" : "rgba(255,255,255,0.06)"}` }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: section.severity === "high" ? "rgb(248,113,113)" : section.severity === "medium" ? "rgb(250,204,21)" : "var(--fg2)", marginBottom: 4 }}>
+                        {section.title ?? "Risk"}
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>{section.text}</div>
+                    </div>
+                  );
+                }
+                if (section.type === "finding") {
+                  return (
+                    <div key={i} style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: "rgba(52,211,153,0.05)", border: "0.5px solid rgba(52,211,153,0.15)" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "rgb(52,211,153)", marginBottom: 4 }}>{section.title ?? "Finding"}</div>
+                      <div style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>{section.text}</div>
+                    </div>
+                  );
+                }
+                if (section.type === "recommendation") {
+                  return (
+                    <div key={i} style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: "rgba(139,92,246,0.05)", border: "0.5px solid rgba(139,92,246,0.15)" }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "rgb(139,92,246)", marginBottom: 4 }}>{section.title ?? "Recommendation"}</div>
+                      <div style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>{section.text}</div>
+                    </div>
+                  );
+                }
+                if (section.type === "gap") {
+                  return (
+                    <div key={i} style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: "rgba(255,255,255,0.02)", border: "0.5px dashed rgba(255,255,255,0.1)" }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: "var(--fg3)", marginBottom: 4 }}>{section.title ?? "Data Gap"}</div>
+                      <div style={{ fontSize: 12, color: "var(--fg4)", lineHeight: 1.5 }}>{section.text}</div>
+                    </div>
+                  );
+                }
+                return (
+                  <p key={i} style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", marginBottom: 10 }}>
+                    {section.text}
+                  </p>
+                );
+              })}
+              {detail.analysisDocument.investigationSummary && (
+                <div style={{ fontSize: 12, color: "var(--fg4)", marginTop: 12, padding: "8px 0", borderTop: "0.5px solid rgba(255,255,255,0.06)" }}>
+                  {detail.analysisDocument.investigationSummary}
+                </div>
+              )}
             </div>
           )}
 

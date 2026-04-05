@@ -6,7 +6,6 @@ import {
   isEligibleCommunication,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
-import { assembleSituationContext } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import { runIdentityResolution, runDeterministicMerges } from "@/lib/identity-resolution";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
@@ -154,7 +153,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // ── Context Assembly ────────────────────────────────────────────────
+      // ── Context Assembly (lightweight) ─────────────────────────────────
       case "context-assembly": {
         const situationId = params?.situationId;
         if (!situationId) {
@@ -169,56 +168,39 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: `Situation ${situationId} not found` }, { status: 404 });
         }
 
-        const context = await assembleSituationContext(
-          operatorId,
-          situation.situationTypeId,
-          situation.triggerEntityId ?? "",
-          situation.triggerEventId ?? undefined,
-        );
+        // Lightweight entity context (same as production detector uses)
+        const entity = situation.triggerEntityId
+          ? await prisma.entity.findFirst({
+              where: { id: situation.triggerEntityId, operatorId },
+              include: {
+                entityType: { select: { name: true } },
+                propertyValues: { include: { property: { select: { slug: true } } } },
+              },
+            })
+          : null;
+
+        const properties: Record<string, string> = {};
+        for (const pv of entity?.propertyValues ?? []) {
+          properties[pv.property.slug] = pv.value;
+        }
 
         return NextResponse.json({
           pipeline: "context-assembly",
           operatorId,
           situationId,
-          triggerEntity: {
-            id: context.triggerEntity.id,
-            displayName: context.triggerEntity.displayName,
-            type: context.triggerEntity.type,
-            category: context.triggerEntity.category,
-            propertyCount: Object.keys(context.triggerEntity.properties).length,
-          },
-          departments: context.departments.map((d) => ({
-            id: d.id,
-            name: d.name,
-            memberCount: d.memberCount,
-          })),
-          relatedEntities: {
-            base: context.relatedEntities.base.length,
-            digital: context.relatedEntities.digital.length,
-            external: context.relatedEntities.external.length,
-          },
-          recentEvents: context.recentEvents.length,
-          priorSituations: context.priorSituations.length,
-          departmentKnowledge: context.departmentKnowledge.length,
-          activityTimeline: {
-            bucketCount: context.activityTimeline.buckets.length,
-            totalSignals: context.activityTimeline.totalSignals,
-            trend: context.activityTimeline.trend,
-          },
-          communicationContext: {
-            excerptCount: context.communicationContext.excerpts.length,
-            sourceBreakdown: context.communicationContext.sourceBreakdown,
-          },
-          crossDepartmentSignals: context.crossDepartmentSignals.signals.length,
-          contextSections: context.contextSections,
-          totalEstimatedTokens: context.contextSections.reduce((s, c) => s + c.tokenEstimate, 0),
-          // Full context for deep inspection
-          fullContext: context,
+          triggerEntity: entity ? {
+            id: entity.id,
+            displayName: entity.displayName,
+            type: entity.entityType.name,
+            propertyCount: Object.keys(properties).length,
+            properties,
+          } : null,
+          note: "Full context assembly removed — reasoning engine investigates via agentic tool-use loop",
           timestamp: formatTimestamp(new Date()),
         });
       }
 
-      // ── Reasoning (dry-run) ─────────────────────────────────────────────
+      // ── Reasoning (trigger production agentic loop) ───────────────────
       case "reasoning": {
         const situationId = params?.situationId;
         if (!situationId) {
@@ -227,160 +209,30 @@ export async function POST(req: NextRequest) {
 
         const situation = await prisma.situation.findFirst({
           where: { id: situationId, operatorId },
-          include: { situationType: true },
+          select: { id: true, status: true, investigationDepth: true },
         });
         if (!situation) {
           return NextResponse.json({ error: `Situation ${situationId} not found` }, { status: 404 });
         }
 
-        // The production reasonAboutSituation() has side effects (status update, notifications).
-        // For dry-run, we replicate the pipeline steps manually without persisting.
-        const { assembleSituationContext: assembleCtx } = await import("@/lib/context-assembly");
-        const { buildReasoningSystemPrompt, buildReasoningUserPrompt } = await import("@/lib/reasoning-prompts");
-        const { callLLM } = await import("@/lib/ai-provider");
-        const { getBusinessContext, formatBusinessContext } = await import("@/lib/business-context");
-        const { shouldUseMultiAgent, runMultiAgentReasoning } = await import("@/lib/multi-agent-reasoning");
-        const { ReasoningOutputSchema } = await import("@/lib/reasoning-types");
-
-        // Assemble context
-        const context = await assembleCtx(
-          operatorId,
-          situation.situationTypeId,
-          situation.triggerEntityId ?? "",
-          situation.triggerEventId ?? undefined,
-        );
-
-        // Resolve governance
-        let triggerEntityTypeSlug = "unknown";
-        if (situation.triggerEntityId) {
-          const entity = await prisma.entity.findUnique({
-            where: { id: situation.triggerEntityId },
-            include: { entityType: { select: { slug: true } } },
+        // Reset to detected so the production reasoning engine picks it up
+        if (situation.status !== "detected") {
+          await prisma.situation.update({
+            where: { id: situationId },
+            data: { status: "detected" },
           });
-          if (entity) triggerEntityTypeSlug = entity.entityType.slug;
         }
 
-        const capabilities = await prisma.actionCapability.findMany({
-          where: { operatorId, enabled: true },
-          include: { connector: { select: { provider: true } } },
-        });
-        const actionsForEval = capabilities.map((c) => ({
-          name: c.name,
-          description: c.description,
-          connectorId: c.connectorId,
-          connectorProvider: c.connector?.provider ?? null,
-          inputSchema: c.inputSchema,
-        }));
-
-        const policyResult = await evaluateActionPolicies(
-          operatorId,
-          actionsForEval,
-          triggerEntityTypeSlug,
-          situation.triggerEntityId ?? "",
-        );
-
-        const effectiveAutonomy = getEffectiveAutonomy(situation.situationType, policyResult);
-
-        const [businessCtx, operator] = await Promise.all([
-          getBusinessContext(operatorId),
-          prisma.operator.findUnique({ where: { id: operatorId }, select: { companyName: true } }),
-        ]);
-        const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
-
-        const reasoningInput = {
-          situationType: {
-            name: situation.situationType.name,
-            description: situation.situationType.description,
-            autonomyLevel: effectiveAutonomy,
-          },
-          severity: situation.severity,
-          confidence: situation.confidence,
-          triggerEntity: {
-            displayName: context.triggerEntity.displayName,
-            type: context.triggerEntity.type,
-            category: context.triggerEntity.category,
-            properties: context.triggerEntity.properties,
-          },
-          departments: context.departments,
-          departmentKnowledge: context.departmentKnowledge,
-          relatedEntities: context.relatedEntities,
-          recentEvents: context.recentEvents.map((e) => ({
-            type: e.eventType,
-            timestamp: e.createdAt,
-            payload: e.payload,
-          })),
-          priorSituations: [],
-          autonomyLevel: effectiveAutonomy,
-          permittedActions: policyResult.permitted,
-          blockedActions: policyResult.blocked,
-          businessContext: businessContextStr,
-          activityTimeline: context.activityTimeline,
-          communicationContext: context.communicationContext,
-          crossDepartmentSignals: context.crossDepartmentSignals,
-          connectorCapabilities: context.connectorCapabilities,
-        };
-
-        const useMultiAgent = shouldUseMultiAgent(context.contextSections);
-        let reasoningOutput = null;
-        let multiAgentFindings = null;
-        let reasoningPath = "single-pass";
-        let rawResponse = "";
-
-        if (useMultiAgent) {
-          reasoningPath = "multi-agent";
-          const result = await runMultiAgentReasoning(
-            reasoningInput,
-            context.contextSections,
-            operator?.companyName ?? undefined,
-          );
-          reasoningOutput = result.coordinatorReasoning;
-          multiAgentFindings = result.findings;
-        } else {
-          const systemPrompt = buildReasoningSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
-          const userPrompt = buildReasoningUserPrompt(reasoningInput);
-
-          const response = await callLLM({
-            instructions: systemPrompt,
-            messages: [
-              { role: "user", content: userPrompt },
-            ],
-            temperature: 0.2,
-            maxTokens: 4096,
-            aiFunction: "reasoning",
-          });
-          rawResponse = response.text;
-
-          // Parse
-          const fenceMatch = rawResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
-          const jsonStr = fenceMatch ? fenceMatch[1].trim() : rawResponse.trim();
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const result = ReasoningOutputSchema.safeParse(parsed);
-            if (result.success) {
-              reasoningOutput = result.data;
-            } else {
-              reasoningOutput = { raw: rawResponse, parseErrors: result.error.issues };
-            }
-          } catch {
-            reasoningOutput = { raw: rawResponse, parseError: "Failed to parse JSON" };
-          }
-        }
+        const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+        const jobId = await enqueueWorkerJob("reason_situation", operatorId, { situationId });
 
         return NextResponse.json({
           pipeline: "reasoning",
           operatorId,
           situationId,
-          dryRun: true,
-          reasoningPath,
-          estimatedTokens: context.contextSections.reduce((s, c) => s + c.tokenEstimate, 0),
-          effectiveAutonomy,
-          policyResult: {
-            permitted: policyResult.permitted.map((p) => p.name),
-            blocked: policyResult.blocked.map((b) => ({ name: b.name, reason: b.reason })),
-            hasRequireApproval: policyResult.hasRequireApproval,
-          },
-          reasoningOutput,
-          multiAgentFindings,
+          investigationDepth: situation.investigationDepth,
+          jobId,
+          message: "Reasoning enqueued via production agentic loop",
           timestamp: formatTimestamp(new Date()),
         });
       }

@@ -3,7 +3,9 @@ import type { Prisma } from "@prisma/client";
 import { estimateTokens } from "@/lib/reasoning-tools";
 
 export async function logToolCall(params: {
-  situationId: string;
+  situationId?: string;       // required when contextType is "situation"
+  contextId?: string;         // generic context ID (situationId, deliverableId, etc.)
+  contextType?: string;       // "situation" | "deliverable" — defaults to "situation"
   cycleNumber: number;
   callIndex: number;
   toolName: string;
@@ -12,9 +14,18 @@ export async function logToolCall(params: {
   durationMs: number;
 }): Promise<void> {
   try {
+    const effectiveSituationId = params.situationId ?? (params.contextType === "situation" ? params.contextId : undefined);
+
+    // ToolCallTrace table requires situationId FK — only write for situation context.
+    // Non-situation contexts (deliverable, etc.) log to console until schema is extended.
+    if (!effectiveSituationId) {
+      console.log(`[tool-call-trace] ${params.contextType}/${params.contextId} #${params.callIndex} ${params.toolName} (${params.durationMs}ms)`);
+      return;
+    }
+
     await prisma.toolCallTrace.create({
       data: {
-        situationId: params.situationId,
+        situationId: effectiveSituationId,
         cycleNumber: params.cycleNumber,
         callIndex: params.callIndex,
         toolName: params.toolName,

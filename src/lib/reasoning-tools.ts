@@ -12,7 +12,7 @@ import {
   findRelevantDepartments,
 } from "@/lib/context-assembly";
 import { getWorkStreamContext } from "@/lib/workstreams";
-import { getPageForEntity, searchPages } from "@/lib/wiki-engine";
+import { getPageForEntity, searchPages, searchSystemPages } from "@/lib/wiki-engine";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -310,13 +310,18 @@ export const REASONING_TOOLS: AITool[] = [
   {
     name: "search_wiki",
     description:
-      "Search the organizational wiki for pages relevant to a topic. Returns page titles, types, confidence levels, and content previews. Use this to discover what synthesized knowledge exists before falling back to raw data tools.",
+      "Search the organizational wiki for relevant knowledge pages. Use scope 'system' to search general professional knowledge and best practices, or 'all' to search both.",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
           description: "Search query — topic, entity name, or concept to find wiki pages about",
+        },
+        scope: {
+          type: "string",
+          enum: ["operator", "system", "all"],
+          description: "Which wiki to search. Default: operator",
         },
         pageType: {
           type: "string",
@@ -871,12 +876,25 @@ async function executeReadWikiPage(
     return `Wiki page: ${page.slug} (confidence: ${page.confidence.toFixed(2)})${statusNote}\n\n${page.content}`;
   }
 
-  // Route 2: by slug
+  // Route 2: by slug (try operator-scoped, then system-scoped)
   if (slug) {
-    const page = await prisma.knowledgePage.findUnique({
+    let page = await prisma.knowledgePage.findUnique({
       where: { operatorId_slug: { operatorId, slug } },
-      select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true },
+      select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, scope: true },
     });
+    // Fallback: try system-scoped page (gated by intelligenceAccess)
+    if (!page) {
+      const operator = await prisma.operator.findUnique({
+        where: { id: operatorId },
+        select: { intelligenceAccess: true },
+      });
+      if (operator?.intelligenceAccess) {
+        page = await prisma.knowledgePage.findFirst({
+          where: { scope: "system", slug, status: { in: ["verified", "stale"] } },
+          select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, scope: true },
+        });
+      }
+    }
 
     if (!page) return `No wiki page found with slug "${slug}".`;
     if (page.status === "quarantined") return `Wiki page "${slug}" is quarantined (unreliable). Use raw data tools instead.`;
@@ -897,7 +915,7 @@ async function executeReadWikiPage(
   // Route 3: by pageType only (return first match)
   if (pageType) {
     const page = await prisma.knowledgePage.findFirst({
-      where: { operatorId, pageType, status: { in: ["verified", "stale"] } },
+      where: { operatorId, scope: "operator", pageType, status: { in: ["verified", "stale"] } },
       orderBy: { confidence: "desc" },
       select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true },
     });
@@ -915,19 +933,38 @@ async function executeSearchWiki(
 ): Promise<string> {
   const query = String(args.query ?? "");
   const pageType = args.pageType ? String(args.pageType) : undefined;
+  const scopeParam = args.scope ? String(args.scope) : "operator";
   const limit = typeof args.limit === "number" ? Math.min(args.limit, 10) : 5;
 
   if (!query) return "Please provide a search query.";
 
-  const results = await searchPages(operatorId, query, { pageType, limit });
+  // Operator-scoped search
+  const operatorResults = (scopeParam === "operator" || scopeParam === "all")
+    ? await searchPages(operatorId, query, { pageType, limit })
+    : [];
 
-  if (results.length === 0) return `No wiki pages found matching "${query}". Try raw data tools (search_entities, search_documents, search_communications).`;
+  // System-scoped search (check intelligenceAccess gate)
+  let systemResults: typeof operatorResults = [];
+  if (scopeParam === "system" || scopeParam === "all") {
+    const operator = await prisma.operator.findUnique({
+      where: { id: operatorId },
+      select: { intelligenceAccess: true },
+    });
+    if (operator?.intelligenceAccess) {
+      systemResults = await searchSystemPages(query, { pageType, limit });
+    }
+  }
 
-  const lines: string[] = [`Found ${results.length} wiki pages:`];
+  const allResults = [...operatorResults, ...systemResults].slice(0, limit);
 
-  for (const r of results) {
+  if (allResults.length === 0) return `No wiki pages found matching "${query}". Try raw data tools (search_entities, search_documents, search_communications).`;
+
+  const lines: string[] = [`Found ${allResults.length} wiki pages:`];
+
+  for (const r of allResults) {
     const statusTag = r.status !== "verified" ? ` [${r.status}]` : "";
-    lines.push(`\n### ${r.title} [${r.pageType}]${statusTag}`);
+    const scopeTag = "scope" in r && r.scope === "system" ? " [system]" : "";
+    lines.push(`\n### ${r.title} [${r.pageType}]${statusTag}${scopeTag}`);
     lines.push(`Slug: ${r.slug} | Confidence: ${r.confidence.toFixed(2)}`);
     lines.push(r.contentPreview);
   }

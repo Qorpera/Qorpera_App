@@ -3,6 +3,38 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { embedChunks } from "@/lib/rag/embedder";
 
+/** Resolve a wiki page by slug — tries operator-scoped first, then system-scoped. */
+async function resolvePageBySlug(
+  slug: string,
+  operatorId: string,
+  isSuperadmin: boolean,
+) {
+  // Try operator-scoped page first
+  const operatorPage = await prisma.knowledgePage.findUnique({
+    where: { operatorId_slug: { operatorId, slug } },
+  });
+  if (operatorPage) return operatorPage;
+
+  // Try system-scoped page (superadmin can always see; non-superadmin requires intelligenceAccess)
+  if (isSuperadmin) {
+    return prisma.knowledgePage.findFirst({
+      where: { scope: "system", slug },
+    });
+  }
+
+  const operator = await prisma.operator.findUnique({
+    where: { id: operatorId },
+    select: { intelligenceAccess: true },
+  });
+  if (operator?.intelligenceAccess) {
+    return prisma.knowledgePage.findFirst({
+      where: { scope: "system", slug, status: { in: ["verified", "stale"] } },
+    });
+  }
+
+  return null;
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
@@ -11,11 +43,9 @@ export async function GET(
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
   const { slug } = await params;
+  const isSuperadmin = su.effectiveRole === "superadmin";
 
-  const page = await prisma.knowledgePage.findUnique({
-    where: { operatorId_slug: { operatorId, slug } },
-  });
-
+  const page = await resolvePageBySlug(slug, operatorId, isSuperadmin);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
 
   // Resolve source details for citations
@@ -36,46 +66,57 @@ export async function GET(
     date?: string;
   }> = [];
 
-  for (const src of sources.slice(0, 30)) {
-    try {
-      if (src.type === "chunk") {
-        const chunk = await prisma.contentChunk.findFirst({
-          where: { id: src.id, operatorId },
-          select: { content: true, sourceType: true, sourceId: true, createdAt: true },
-        });
-        if (chunk) {
-          sourceDetails.push({
-            ...src,
-            preview: chunk.content.slice(0, 300),
-            sourceType: chunk.sourceType,
-            date: chunk.createdAt.toISOString(),
+  // System pages have no operatorId — skip source resolution for those
+  const sourceOperatorId = page.operatorId;
+  if (sourceOperatorId) {
+    for (const src of sources.slice(0, 30)) {
+      try {
+        if (src.type === "chunk") {
+          const chunk = await prisma.contentChunk.findFirst({
+            where: { id: src.id, operatorId: sourceOperatorId },
+            select: { content: true, sourceType: true, sourceId: true, createdAt: true },
           });
-        }
-      } else if (src.type === "signal") {
-        const signal = await prisma.activitySignal.findFirst({
-          where: { id: src.id, operatorId },
-          select: { signalType: true, metadata: true, occurredAt: true },
-        });
-        if (signal) {
-          sourceDetails.push({
-            ...src,
-            preview: `${signal.signalType}: ${JSON.stringify(signal.metadata ?? {}).slice(0, 250)}`,
-            sourceType: signal.signalType,
-            date: signal.occurredAt.toISOString(),
+          if (chunk) {
+            sourceDetails.push({
+              ...src,
+              preview: chunk.content.slice(0, 300),
+              sourceType: chunk.sourceType,
+              date: chunk.createdAt.toISOString(),
+            });
+          }
+        } else if (src.type === "signal") {
+          const signal = await prisma.activitySignal.findFirst({
+            where: { id: src.id, operatorId: sourceOperatorId },
+            select: { signalType: true, metadata: true, occurredAt: true },
           });
+          if (signal) {
+            sourceDetails.push({
+              ...src,
+              preview: `${signal.signalType}: ${JSON.stringify(signal.metadata ?? {}).slice(0, 250)}`,
+              sourceType: signal.signalType,
+              date: signal.occurredAt.toISOString(),
+            });
+          }
         }
+      } catch {
+        sourceDetails.push({ ...src, preview: "[source not found]" });
       }
-    } catch {
-      sourceDetails.push({ ...src, preview: "[source not found]" });
     }
   }
 
-  // Find pages that cross-reference this one
+  // Find pages that cross-reference this one (same scope)
+  const refWhere: Record<string, unknown> = {
+    crossReferences: { has: page.slug },
+  };
+  if (page.scope === "system") {
+    refWhere.scope = "system";
+  } else {
+    refWhere.operatorId = operatorId;
+    refWhere.scope = "operator";
+  }
+
   const referencedBy = await prisma.knowledgePage.findMany({
-    where: {
-      operatorId,
-      crossReferences: { has: page.slug },
-    },
+    where: refWhere,
     select: { slug: true, title: true, pageType: true },
     take: 20,
   });
@@ -94,34 +135,48 @@ export async function PATCH(
   }
   const { operatorId } = su;
   const { slug } = await params;
+  const isSuperadmin = su.effectiveRole === "superadmin";
 
-  const page = await prisma.knowledgePage.findUnique({
-    where: { operatorId_slug: { operatorId, slug } },
-  });
+  const page = await resolvePageBySlug(slug, operatorId, isSuperadmin);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
 
+  // System pages can only be edited by superadmin
+  if (page.scope === "system" && !isSuperadmin) {
+    return NextResponse.json({ error: "System pages can only be edited by superadmin" }, { status: 403 });
+  }
+
   const body = await req.json();
-  const { content } = body;
+  const { content, status: statusUpdate } = body;
 
   if (!content || typeof content !== "string") {
     return NextResponse.json({ error: "content is required" }, { status: 400 });
   }
 
+  const data: Record<string, unknown> = {
+    content,
+    contentTokens: Math.ceil(content.length / 4),
+    status: "verified",
+    verifiedAt: new Date(),
+    verifiedByModel: "human",
+    version: { increment: 1 },
+    synthesisPath: "human",
+    synthesizedByModel: "human",
+    lastSynthesizedAt: new Date(),
+    quarantineReason: null,
+    staleReason: null,
+  };
+
+  // Allow superadmin to set status explicitly (verify/quarantine system pages)
+  if (statusUpdate && isSuperadmin && ["verified", "quarantined", "draft"].includes(statusUpdate)) {
+    data.status = statusUpdate;
+    if (statusUpdate === "quarantined") {
+      data.quarantineReason = "Manually quarantined by superadmin";
+    }
+  }
+
   const updated = await prisma.knowledgePage.update({
     where: { id: page.id },
-    data: {
-      content,
-      contentTokens: Math.ceil(content.length / 4),
-      status: "verified",
-      verifiedAt: new Date(),
-      verifiedByModel: "human",
-      version: { increment: 1 },
-      synthesisPath: "human",
-      synthesizedByModel: "human",
-      lastSynthesizedAt: new Date(),
-      quarantineReason: null,
-      staleReason: null,
-    },
+    data,
   });
 
   // Re-embed edited content (fire-and-forget)
