@@ -542,13 +542,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       }
       if (chunkIds.length > 0) {
         prisma.contentChunk.updateMany({
-          where: { id: { in: chunkIds } },
+          where: { operatorId: situation.operatorId, id: { in: chunkIds } },
           data: { wikiProcessedAt: new Date() },
         }).catch(() => {});
       }
       if (signalIds.length > 0) {
         prisma.activitySignal.updateMany({
-          where: { id: { in: signalIds } },
+          where: { operatorId: situation.operatorId, id: { in: signalIds } },
           data: { wikiProcessedAt: new Date() },
         }).catch(() => {});
       }

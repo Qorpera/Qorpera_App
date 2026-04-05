@@ -148,74 +148,41 @@ async function createPage(params: {
   const embeddings = await embedChunks([params.content]).catch(() => [null]);
   const embedding = embeddings[0];
 
-  // Create page — use raw SQL for the embedding column (pgvector)
+  // Create page via Prisma (generates cuid), then set embedding via raw SQL
+  const created = await prisma.knowledgePage.create({
+    data: {
+      operatorId: params.operatorId,
+      projectId: params.projectId ?? null,
+      pageType: params.pageType,
+      subjectEntityId: params.subjectEntityId ?? null,
+      title: params.title,
+      slug,
+      content: params.content,
+      contentTokens,
+      crossReferences,
+      sources,
+      sourceCount: params.sourceCitations.length,
+      sourceTypes,
+      status: "draft",
+      confidence: 0.5,
+      version: 1,
+      synthesisPath: params.synthesisPath,
+      synthesizedByModel: params.synthesizedByModel,
+      situationId: params.situationId ?? null,
+      synthesisCostCents: params.synthesisCostCents ?? null,
+      synthesisDurationMs: params.synthesisDurationMs ?? null,
+      lastSynthesizedAt: new Date(),
+    },
+    select: { id: true },
+  });
+
   if (embedding) {
     const embeddingStr = `[${embedding.join(",")}]`;
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "KnowledgePage" (
-        "id", "operatorId", "projectId", "pageType", "subjectEntityId",
-        "title", "slug", "content", "contentTokens", "crossReferences",
-        "sources", "sourceCount", "sourceTypes", "status", "confidence",
-        "version", "synthesisPath", "synthesizedByModel", "synthesisPromptHash",
-        "synthesisCostCents", "synthesisDurationMs", "situationId",
-        "lastSynthesizedAt", "createdAt", "updatedAt", "embedding"
-      ) VALUES (
-        gen_random_uuid()::text, $1, $2, $3, $4,
-        $5, $6, $7, $8, $9::text[],
-        $10::jsonb, $11, $12::text[], $13, $14,
-        $15, $16, $17, $18,
-        $19, $20, $21,
-        NOW(), NOW(), NOW(), $22::vector
-      )`,
-      params.operatorId,
-      params.projectId ?? null,
-      params.pageType,
-      params.subjectEntityId ?? null,
-      params.title,
-      slug,
-      params.content,
-      contentTokens,
-      crossReferences,
-      JSON.stringify(sources),
-      params.sourceCitations.length,
-      sourceTypes,
-      "draft",
-      0.5,
-      1,
-      params.synthesisPath,
-      params.synthesizedByModel,
-      null, // synthesisPromptHash
-      params.synthesisCostCents ?? null,
-      params.synthesisDurationMs ?? null,
-      params.situationId ?? null,
+      `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
       embeddingStr,
+      created.id,
     );
-  } else {
-    await prisma.knowledgePage.create({
-      data: {
-        operatorId: params.operatorId,
-        projectId: params.projectId ?? null,
-        pageType: params.pageType,
-        subjectEntityId: params.subjectEntityId ?? null,
-        title: params.title,
-        slug,
-        content: params.content,
-        contentTokens,
-        crossReferences,
-        sources,
-        sourceCount: params.sourceCitations.length,
-        sourceTypes,
-        status: "draft",
-        confidence: 0.5,
-        version: 1,
-        synthesisPath: params.synthesisPath,
-        synthesizedByModel: params.synthesizedByModel,
-        situationId: params.situationId ?? null,
-        synthesisCostCents: params.synthesisCostCents ?? null,
-        synthesisDurationMs: params.synthesisDurationMs ?? null,
-        lastSynthesizedAt: new Date(),
-      },
-    });
   }
 
   // Update citedByPages counter on referenced pages
@@ -227,18 +194,12 @@ async function createPage(params: {
   }
 
   // Trigger verification
-  const created = await prisma.knowledgePage.findUnique({
-    where: { operatorId_slug: { operatorId: params.operatorId, slug } },
-    select: { id: true },
-  });
-  if (created) {
-    if (params.synthesisPath === "reasoning") {
-      verifyPage(created.id).catch((err) => {
-        console.error(`[wiki-engine] Verification failed for ${slug}:`, err);
-      });
-    } else {
-      await verifyPage(created.id);
-    }
+  if (params.synthesisPath === "reasoning") {
+    verifyPage(created.id).catch((err) => {
+      console.error(`[wiki-engine] Verification failed for ${slug}:`, err);
+    });
+  } else {
+    await verifyPage(created.id);
   }
 }
 
@@ -285,16 +246,17 @@ async function updatePage(params: {
     const embeddingStr = `[${embedding.join(",")}]`;
     await prisma.$executeRawUnsafe(
       `UPDATE "KnowledgePage"
-       SET "content" = $1, "contentTokens" = $2, "crossReferences" = $3::text[],
-           "sources" = $4::jsonb, "sourceCount" = $5, "sourceTypes" = $6::text[],
+       SET "title" = $1, "content" = $2, "contentTokens" = $3, "crossReferences" = $4::text[],
+           "sources" = $5::jsonb, "sourceCount" = $6, "sourceTypes" = $7::text[],
            "status" = 'draft', "version" = "version" + 1,
-           "synthesisPath" = $7, "synthesizedByModel" = $8,
-           "situationId" = COALESCE($9, "situationId"),
+           "synthesisPath" = $8, "synthesizedByModel" = $9,
+           "situationId" = COALESCE($10, "situationId"),
            "lastSynthesizedAt" = NOW(), "updatedAt" = NOW(),
            "verifiedAt" = NULL, "verifiedByModel" = NULL,
            "verificationLog" = NULL, "quarantineReason" = NULL, "staleReason" = NULL,
-           "embedding" = $10::vector
-       WHERE "id" = $11`,
+           "embedding" = $11::vector
+       WHERE "id" = $12`,
+      params.title,
       params.content,
       contentTokens,
       crossReferences,
@@ -311,6 +273,7 @@ async function updatePage(params: {
     await prisma.knowledgePage.update({
       where: { id: existing.id },
       data: {
+        title: params.title,
         content: params.content,
         contentTokens,
         crossReferences,
@@ -412,13 +375,14 @@ export async function getPageForEntity(
   operatorId: string,
   entityId: string,
   projectId?: string,
+  pageType: string = "entity_profile",
 ): Promise<{ content: string; status: string; confidence: number; slug: string } | null> {
   // Prefer verified > stale > draft (exclude quarantined)
   const page = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
       subjectEntityId: entityId,
-      pageType: "entity_profile",
+      pageType,
       projectId: projectId ?? null,
       status: { in: ["verified", "stale", "draft"] },
     },
@@ -595,7 +559,7 @@ export async function getRelevantPagesForSeed(
     select: { parentDepartmentId: true },
   });
   if (entity?.parentDepartmentId) {
-    const deptPage = await getPageForEntity(operatorId, entity.parentDepartmentId, projectId);
+    const deptPage = await getPageForEntity(operatorId, entity.parentDepartmentId, projectId, "department_overview");
     if (deptPage && tokensUsed + Math.ceil(deptPage.content.length / 4) < TOKEN_BUDGET) {
       pages.push({
         slug: deptPage.slug,

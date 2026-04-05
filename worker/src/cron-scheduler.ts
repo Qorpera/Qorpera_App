@@ -7,7 +7,7 @@ import { computePriorityScores } from "@/lib/prioritization-engine";
 import { processRecurringTasks } from "@/lib/recurring-tasks";
 import { processSystemJobs } from "@/lib/system-job-reasoning";
 import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
-import { runStrategicScan } from "@/lib/strategic-scan";
+import { runWikiStrategicScan } from "@/lib/wiki-strategic-scanner";
 import { checkSituationTimeouts } from "@/lib/situation-timeout-detector";
 
 const timers: ReturnType<typeof setInterval>[] = [];
@@ -204,7 +204,10 @@ export function startCronScheduler() {
     }, 24 * 60 * 60 * 1000),
   );
 
-  // ── Strategic Scan: every 2 hours ─────────────────────────────────
+  // ── Wiki Strategic Scanner: every 2 hours (replaces old strategic-scan) ──
+  // Reads synthesized wiki pages to identify patterns → routes to initiatives or situations
+  // initiative-reasoning: handles goal-driven initiative evaluation (complementary, not redundant)
+  // wiki-strategic-scanner: handles pattern-driven initiative discovery from wiki
   timers.push(
     setInterval(async () => {
       try {
@@ -214,16 +217,16 @@ export function startCronScheduler() {
         });
         for (const op of operators) {
           try {
-            const result = await runStrategicScan(op.id);
-            if (result.results.length > 0) {
-              console.log(`[cron:strategic-scan] Operator ${op.id}: approach=${result.approach}, findings=${result.results.length}, initiatives=${result.initiativesCreated}`);
+            const result = await runWikiStrategicScan(op.id);
+            if (result.patternsDetected > 0) {
+              console.log(`[cron:wiki-scanner] Operator ${op.id}: ${result.patternsDetected} patterns, ${result.initiativesCreated} initiatives, ${result.situationsCreated} situations`);
             }
           } catch (err) {
-            console.error(`[cron:strategic-scan] Operator ${op.id} failed:`, err);
+            console.error(`[cron:wiki-scanner] Operator ${op.id} failed:`, err);
           }
         }
       } catch (err) {
-        console.error("[cron:strategic-scan] Error:", err);
+        console.error("[cron:wiki-scanner] Error:", err);
       }
     }, 2 * 60 * 60 * 1000),
   );

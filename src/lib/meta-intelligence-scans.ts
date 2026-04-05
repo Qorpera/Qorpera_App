@@ -1,3 +1,10 @@
+/**
+ * DEPRECATED: Coverage gap analysis, intelligence hygiene, and data
+ * utilization audits are now handled by the wiki lint engine
+ * (wiki-verification.ts verifyDraftPages + the planned lint cron).
+ *
+ * Safe to delete after wiki lint engine (Phase 4) is built and validated.
+ */
 import { prisma } from "@/lib/db";
 import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { extractJSONAny } from "@/lib/json-helpers";

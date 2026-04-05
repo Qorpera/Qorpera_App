@@ -93,31 +93,18 @@ Your job: check each claim in the page against the cited sources provided below.
 4. CONTRADICTION CONSISTENCY: Are any contradictions between sources noted? Are there contradictions the page missed?
 5. SOURCE COVERAGE: Are the cited sources the most relevant available, or might better sources exist?
 
-Respond with ONLY a JSON object:
-{
-  "passed": boolean,
-  "checksRun": number,
-  "checksPassed": number,
-  "failures": [
-    {
-      "checkType": "citation_validity" | "claim_precision" | "inference_boundary" | "contradiction_missed" | "source_missing",
-      "claim": "the specific claim that failed",
-      "citedSource": "source ID",
-      "issue": "what's wrong",
-      "severity": "critical" | "moderate" | "minor"
-    }
-  ],
-  "confidence": number between 0 and 1,
-  "recommendation": "verify" | "quarantine" | "resynthesize"
-}
+Respond with ONLY valid JSON (no markdown fences, no commentary before or after):
+{"passed":boolean,"checksRun":number,"checksPassed":number,"failures":[{"checkType":"citation_validity"|"claim_precision"|"inference_boundary"|"contradiction_missed"|"source_missing","claim":"short claim (max 80 chars)","citedSource":"source ID","issue":"short issue (max 80 chars)","severity":"critical"|"moderate"|"minor"}],"confidence":number,"recommendation":"verify"|"quarantine"|"resynthesize"}
 
 Rules:
-- "critical" severity: the claim is factually wrong or the source says the opposite
-- "moderate" severity: the claim overstates, generalizes beyond evidence, or misses a contradiction
-- "minor" severity: imprecise wording, missing context, or a source that could be more specific
-- confidence should reflect: high source coverage + all checks pass = 0.8-1.0, moderate gaps = 0.5-0.7, significant issues = 0.2-0.4
+- Include at most 10 failures. Prioritize critical > moderate > minor.
+- Keep "claim" and "issue" fields SHORT (under 80 characters each). No full sentences — key phrases only.
+- "critical": claim is factually wrong or source says the opposite
+- "moderate": claim overstates, generalizes beyond evidence, or misses a contradiction
+- "minor": imprecise wording or missing context
+- confidence: high source coverage + all checks pass = 0.8-1.0, moderate gaps = 0.5-0.7, significant issues = 0.2-0.4
 - "quarantine" if any critical failure exists
-- "resynthesize" if moderate failures suggest the page needs rewriting with better evidence
+- "resynthesize" if moderate failures suggest rewriting needed
 - "verify" if the page is sound`;
 
   const userMessage = `## Page content to verify:
@@ -135,15 +122,32 @@ ${sourceTexts.map((s) => `### Source ${s.id} (${s.type})\n${s.content}`).join("\
     instructions: verificationPrompt,
     messages: [{ role: "user", content: userMessage }],
     model,
-    maxTokens: 2000,
+    maxTokens: 8192,
     aiFunction: "reasoning",
   });
 
-  const text = typeof response === "string" ? response : (response as { text?: string }).text ?? "";
+  const text = response.text;
 
   let result: VerificationResult;
   try {
-    const parsed = extractJSON(text);
+    // Try extractJSON first (handles complete markdown fences)
+    let parsed = extractJSON(text);
+
+    // Fallback: manually strip fences and extract the JSON object
+    if (!parsed || typeof parsed !== "object" || !("passed" in parsed)) {
+      const cleaned = text
+        .replace(/^```json\s*/m, "")
+        .replace(/```\s*$/m, "")
+        .trim();
+      const objStart = cleaned.indexOf("{");
+      const objEnd = cleaned.lastIndexOf("}");
+      if (objStart >= 0 && objEnd > objStart) {
+        parsed = JSON.parse(cleaned.slice(objStart, objEnd + 1));
+      } else {
+        throw new Error("No JSON object found");
+      }
+    }
+
     if (!parsed || typeof parsed !== "object" || !("passed" in parsed)) {
       throw new Error("Invalid structure");
     }

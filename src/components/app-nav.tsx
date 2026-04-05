@@ -51,6 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
     labelKey: "intelligence",
     items: [
       { href: "/copilot", labelKey: "copilot", icon: "sparkles" },
+      { href: "/wiki", labelKey: "wiki", icon: "scroll" },
       { href: "/learning", labelKey: "learning", icon: "trending-up" },
       { href: "/system-health", labelKey: "systemHealth", icon: "activity", badgeKey: "health", adminOnly: true },
     ],

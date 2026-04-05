@@ -1,3 +1,12 @@
+/**
+ * DEPRECATED: Replaced by wiki-strategic-scanner.ts
+ * The wiki scanner reads synthesized knowledge pages instead of
+ * re-deriving patterns from raw data. This file is retained for
+ * reference during the transition period.
+ *
+ * Cron job removed from cron-scheduler.ts.
+ * Safe to delete after wiki scanner has run successfully for 2+ weeks.
+ */
 import { prisma } from "@/lib/db";
 import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
 import { retrieveRelevantContext } from "@/lib/rag/retriever";
