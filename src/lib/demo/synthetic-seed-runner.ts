@@ -470,6 +470,10 @@ export async function runSyntheticSeed(
   });
   console.log(`[synthetic-seed] Created pending analysis ${analysis.id} — worker will pick up shortly`);
 
+  // ── Seed platform project templates (idempotent) ────────────────
+  const { seedProjectTemplates } = await import("./seed-project-templates");
+  await seedProjectTemplates();
+
   // ── Optional: seed project data ──────────────────────────────────
   let projectId: string | undefined;
   if (options?.seedProject) {

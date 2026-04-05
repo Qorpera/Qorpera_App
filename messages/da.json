@@ -735,7 +735,11 @@
       "spreadsheetTitle": "Titel",
       "presentation": "Pr\u00e6sentation",
       "presentationSlide": "Dias",
-      "presentationMoreSlides": "... og {count} flere dias"
+      "presentationMoreSlides": "... og {count} flere dias",
+      "accept": "Godkend",
+      "send": "Send",
+      "newRecord": "Ny post",
+      "willCreate": "Dette vil oprette en ny post i {connector}"
     }
   },
   "systemHealth": {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import type { PreviewProps } from "./get-preview-component";
@@ -27,14 +27,220 @@ interface EntityData {
   }>;
 }
 
+const RESERVED_KEYS = new Set(["previewType", "priorOutputs", "entityId", "_demo"]);
+
+function isCreateSlug(slug: string): boolean {
+  return slug.startsWith("create_");
+}
+
+function recordTypeFromSlug(slug: string): string {
+  return titleCase(slug.replace("create_", "").replace(/_/g, " "));
+}
+
 export function CrmUpdatePreview(props: PreviewProps) {
-  const { step, locale, inPanel } = props;
+  const { step, isEditable, onParametersUpdate, locale, inPanel } = props;
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
 
+  const slug = step.actionCapability?.slug ?? "";
+  const isCreateAction = isCreateSlug(slug);
+
+  // ── Create action: new record card ──────────────────────────────────────
+  if (isCreateAction) {
+    const fields = Object.fromEntries(
+      Object.entries(params).filter(([k]) => !RESERVED_KEYS.has(k) && !k.startsWith("_")),
+    );
+    const recordType = recordTypeFromSlug(slug);
+    const connectorName = step.actionCapability?.name?.split(" — ")[1] || "CRM";
+    // Best guess at display name from fields
+    const displayName = (
+      (fields.name as string)
+      || (fields.title as string)
+      || (fields.dealname as string)
+      || (fields.subject as string)
+      || (fields.firstname ? `${fields.firstname} ${fields.lastname || ""}`.trim() : "")
+    ) as string;
+
+    return (
+      <CrmNewRecordCard
+        fields={fields}
+        recordType={recordType}
+        displayName={displayName}
+        connectorName={connectorName}
+        isEditable={isEditable}
+        onParametersUpdate={onParametersUpdate}
+        params={params}
+        inPanel={inPanel}
+        t={t}
+      />
+    );
+  }
+
+  // ── Update action: existing diff table ──────────────────────────────────
   const entityId = params.entityId as string | undefined;
   const updates = (params.updates ?? {}) as Record<string, unknown>;
 
+  return (
+    <CrmUpdateCard
+      entityId={entityId}
+      updates={updates}
+      isEditable={isEditable}
+      locale={locale}
+      inPanel={inPanel}
+      t={t}
+      fallbackProps={props}
+    />
+  );
+}
+
+// ── New Record Card ─────────────────────────────────────────────────────────
+
+function CrmNewRecordCard({
+  fields,
+  recordType,
+  displayName,
+  connectorName,
+  isEditable,
+  onParametersUpdate,
+  params,
+  inPanel,
+  t,
+}: {
+  fields: Record<string, unknown>;
+  recordType: string;
+  displayName: string;
+  connectorName: string;
+  isEditable: boolean;
+  onParametersUpdate?: (params: Record<string, unknown>) => void;
+  params: Record<string, unknown>;
+  inPanel?: boolean;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, [editingField]);
+
+  function startEdit(key: string) {
+    if (!isEditable) return;
+    setEditingField(key);
+    setEditValue(String(fields[key] ?? ""));
+  }
+
+  function saveEdit() {
+    if (!editingField || !onParametersUpdate) return;
+    onParametersUpdate({ ...params, [editingField]: editValue });
+    setEditingField(null);
+  }
+
+  const fieldEntries = Object.entries(fields);
+
+  return (
+    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
+      {!inPanel && (
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <DatabaseIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("newRecord")}</span>
+        </div>
+      )}
+
+      <div className="px-4 py-3 space-y-3">
+        {/* Record header with NEW badge */}
+        <div className="flex items-center gap-2">
+          <span style={{
+            fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 3,
+            background: "color-mix(in srgb, var(--ok) 15%, transparent)", color: "var(--ok)",
+          }}>
+            + NEW
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>
+            {recordType}
+          </span>
+        </div>
+
+        {displayName && (
+          <p style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)", marginTop: -4 }}>
+            {displayName}
+          </p>
+        )}
+
+        {/* Field list */}
+        <div className="space-y-1.5">
+          {fieldEntries.map(([key, val]) => (
+            <div key={key} className="flex items-baseline gap-2 group">
+              <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 90 }}>
+                {titleCase(key)}
+              </span>
+              {editingField === key ? (
+                <input
+                  ref={inputRef}
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={saveEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); saveEdit(); }
+                    else if (e.key === "Escape") setEditingField(null);
+                  }}
+                  style={{
+                    fontSize: 13, color: "var(--foreground)", width: "100%",
+                    background: "color-mix(in srgb, var(--accent) 8%, transparent)",
+                    border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)",
+                    borderRadius: 3, padding: "2px 6px",
+                  }}
+                />
+              ) : (
+                <span
+                  className={isEditable ? "cursor-pointer" : ""}
+                  style={{ fontSize: 13, color: "var(--muted)" }}
+                  onClick={() => startEdit(key)}
+                >
+                  {String(val)}
+                  {isEditable && (
+                    <PencilIcon size={11} className="inline ml-1.5 opacity-0 group-hover:opacity-50 transition-opacity" />
+                  )}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer note */}
+        <p style={{ fontSize: 11, color: "var(--fg3)", marginTop: 8 }}>
+          {t("willCreate", { connector: connectorName })}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function PencilIcon({ size = 11, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  );
+}
+
+// ── Update Card (original diff table) ───────────────────────────────────────
+
+function CrmUpdateCard({
+  entityId,
+  updates,
+  isEditable,
+  locale,
+  inPanel,
+  t,
+  fallbackProps,
+}: {
+  entityId: string | undefined;
+  updates: Record<string, unknown>;
+  isEditable: boolean;
+  locale: string;
+  inPanel?: boolean;
+  t: ReturnType<typeof useTranslations>;
+  fallbackProps: PreviewProps;
+}) {
   const [entity, setEntity] = useState<EntityData | null>(null);
   const [loading, setLoading] = useState(!!entityId);
   const [error, setError] = useState(false);
@@ -52,7 +258,7 @@ export function CrmUpdatePreview(props: PreviewProps) {
 
   // No entityId or no updates — fall through to generic
   if (!entityId && Object.keys(updates).length === 0) {
-    return <GenericStepPreview {...props} />;
+    return <GenericStepPreview {...fallbackProps} />;
   }
 
   // Error or entity not found — show warning + raw values
@@ -201,4 +407,3 @@ export function CrmUpdatePreview(props: PreviewProps) {
     </div>
   );
 }
-

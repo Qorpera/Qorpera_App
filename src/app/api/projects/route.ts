@@ -69,11 +69,14 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, description, templateId, dueDate, status: projStatus } = body;
+  const { name, description, templateId, dueDate, status: projStatus, members } = body;
 
   if (!name || typeof name !== "string") {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
+
+  // Track members with restriction text for post-transaction LLM interpretation
+  const membersWithRestrictions: Array<{ userId: string; restrictionText: string }> = [];
 
   const project = await prisma.$transaction(async (tx) => {
     const p = await tx.project.create({
@@ -87,6 +90,8 @@ export async function POST(req: NextRequest) {
         createdById: effectiveUserId,
       },
     });
+
+    // Create owner member (always the creator)
     await tx.projectMember.create({
       data: {
         projectId: p.id,
@@ -95,8 +100,80 @@ export async function POST(req: NextRequest) {
         addedById: effectiveUserId,
       },
     });
+
+    // Create additional members from wizard payload
+    if (Array.isArray(members)) {
+      const VALID_ROLES = new Set(["owner", "reviewer", "analyst", "viewer"]);
+      const requestedIds = members
+        .map((m: { userId?: string }) => m.userId)
+        .filter((id: string | undefined): id is string => !!id && id !== effectiveUserId);
+
+      // Validate all userIds belong to this operator
+      const validUsers = requestedIds.length > 0
+        ? new Set(
+            (await tx.user.findMany({
+              where: { operatorId, id: { in: requestedIds } },
+              select: { id: true },
+            })).map((u) => u.id),
+          )
+        : new Set<string>();
+
+      for (const m of members) {
+        if (!m.userId || m.userId === effectiveUserId) continue; // skip creator (already added)
+        if (!validUsers.has(m.userId)) continue; // skip users from other operators
+        const role = VALID_ROLES.has(m.role) ? m.role : "analyst";
+        await tx.projectMember.create({
+          data: {
+            projectId: p.id,
+            userId: m.userId,
+            role,
+            addedById: effectiveUserId,
+          },
+        });
+        if (m.restrictionText) {
+          membersWithRestrictions.push({ userId: m.userId, restrictionText: m.restrictionText });
+        }
+      }
+    }
+
+    // Create deliverables from template analysis framework
+    if (templateId) {
+      const template = await tx.projectTemplate.findUnique({ where: { id: templateId } });
+      if (template?.analysisFramework) {
+        const framework = template.analysisFramework as {
+          sections: Array<{ id: string; title: string; generationMode: string; description: string }>;
+        };
+        if (Array.isArray(framework.sections)) {
+          for (const section of framework.sections) {
+            await tx.projectDeliverable.create({
+              data: {
+                projectId: p.id,
+                title: section.title,
+                description: section.description,
+                stage: "intelligence",
+                generationMode: section.generationMode,
+                templateSectionId: section.id,
+                riskCount: 0,
+              },
+            });
+          }
+        }
+      }
+    }
+
     return p;
   });
+
+  // Fire-and-forget: interpret natural-language restrictions via LLM
+  if (membersWithRestrictions.length > 0) {
+    import("@/lib/project-restrictions")
+      .then(({ interpretMemberRestrictions }) =>
+        interpretMemberRestrictions(project.id, membersWithRestrictions),
+      )
+      .catch((err) => {
+        console.error("[project-create] Failed to interpret restrictions:", err);
+      });
+  }
 
   return NextResponse.json(project, { status: 201 });
 }

@@ -92,7 +92,7 @@ export default function ProjectsPage() {
                 Projects
               </h1>
               <button
-                onClick={() => {/* placeholder */}}
+                onClick={() => router.push("/projects/new")}
                 style={{
                   fontSize: 11,
                   fontWeight: 500,

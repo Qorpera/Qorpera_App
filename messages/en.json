@@ -735,7 +735,11 @@
       "spreadsheetTitle": "Title",
       "presentation": "Presentation",
       "presentationSlide": "Slide",
-      "presentationMoreSlides": "... and {count} more slides"
+      "presentationMoreSlides": "... and {count} more slides",
+      "accept": "Accept",
+      "send": "Send",
+      "newRecord": "New Record",
+      "willCreate": "This will create a new record in {connector}"
     }
   },
   "systemHealth": {

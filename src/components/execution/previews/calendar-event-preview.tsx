@@ -3,7 +3,10 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { formatDate } from "@/lib/format-helpers";
+import { fetchApi } from "@/lib/fetch-api";
 import type { PreviewProps } from "./get-preview-component";
+import { CalendarWeekView } from "./calendar-week-view";
+import type { CalendarEvent } from "./calendar-week-view";
 
 function CalendarIcon({ size = 14, className = "" }: { size?: number; className?: string }) {
   return (
@@ -43,6 +46,20 @@ function toLocalDatetimeValue(iso: string): string {
   }
 }
 
+function getMonday(dateStr: string): string {
+  const d = new Date(dateStr);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Which day of the week (0=Mon..6=Sun) does the event fall on? */
+function getDayOfWeek(dateStr: string): number {
+  const d = new Date(dateStr);
+  return (d.getDay() + 6) % 7; // Convert Sun=0 to Mon=0
+}
+
 const editInputStyle = {
   fontSize: 13,
   color: "var(--foreground)",
@@ -57,11 +74,6 @@ type EditableField = "title" | "startTime" | "endTime" | "location" | "attendees
 export function CalendarEventPreview({ step, isEditable, onParametersUpdate, locale, inPanel }: PreviewProps) {
   const t = useTranslations("execution.preview");
   const params = step.parameters ?? {};
-  const [showAll, setShowAll] = useState(false);
-  const [editingField, setEditingField] = useState<EditableField | null>(null);
-  const [editValue, setEditValue] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Resolve flexible param keys
   const titleKey = params.summary !== undefined ? "summary" : "title";
@@ -73,6 +85,171 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
   const attendeesKey = params.attendeeEmails !== undefined ? "attendeeEmails" : "attendees";
   const attendees = (params.attendeeEmails ?? params.attendees ?? []) as string[];
   const location = (params.location ?? "") as string;
+
+  // ── Panel mode: week view ────────────────────────────────────────────────
+  if (inPanel && startTime) {
+    return (
+      <CalendarWeekPanel
+        weekOf={getMonday(startTime)}
+        proposedEvent={{
+          title,
+          startTime,
+          endTime: endTime || new Date(new Date(startTime).getTime() + 3600000).toISOString(),
+          attendees,
+          location,
+        }}
+        isEditable={isEditable}
+        locale={locale}
+        onProposedEventUpdate={(update) => {
+          if (!onParametersUpdate) return;
+          const next = { ...params };
+          if (update.title !== undefined) next[titleKey] = update.title;
+          if (update.startTime !== undefined) next[startKey] = update.startTime;
+          if (update.endTime !== undefined) next[endKey] = update.endTime;
+          if (update.attendees !== undefined) next[attendeesKey] = update.attendees;
+          if (update.location !== undefined) next.location = update.location;
+          onParametersUpdate(next);
+        }}
+      />
+    );
+  }
+
+  // ── Compact inline mode ──────────────────────────────────────────────────
+  return (
+    <CompactCalendarCard
+      title={title}
+      titleKey={titleKey}
+      startTime={startTime}
+      startKey={startKey}
+      endTime={endTime}
+      endKey={endKey}
+      attendees={attendees}
+      attendeesKey={attendeesKey}
+      location={location}
+      params={params}
+      isEditable={isEditable}
+      onParametersUpdate={onParametersUpdate}
+      locale={locale}
+      t={t}
+    />
+  );
+}
+
+// ── Panel wrapper: fetches events then renders CalendarWeekView ─────────────
+
+function CalendarWeekPanel({
+  weekOf,
+  proposedEvent,
+  isEditable,
+  locale,
+  onProposedEventUpdate,
+}: {
+  weekOf: string;
+  proposedEvent: { title: string; startTime: string; endTime: string; attendees: string[]; location?: string };
+  isEditable: boolean;
+  locale: string;
+  onProposedEventUpdate?: (update: {
+    title?: string; startTime?: string; endTime?: string; attendees?: string[]; location?: string;
+  }) => void;
+}) {
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(false);
+
+    fetchApi(`/api/calendar-events?weekOf=${encodeURIComponent(weekOf)}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("fetch failed");
+        return r.json();
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setEvents(data.events || []);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError(true);
+          setLoading(false);
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [weekOf]);
+
+  if (error) {
+    return (
+      <div style={{ padding: 16, fontSize: 12, color: "var(--fg3)" }}>
+        Calendar data unavailable — showing event details only.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {loading && (
+        <SkeletonGrid />
+      )}
+      <div style={{ opacity: loading ? 0.4 : 1, transition: "opacity 0.2s" }}>
+        <CalendarWeekView
+          weekOf={weekOf}
+          existingEvents={events}
+          proposedEvent={proposedEvent}
+          isEditable={isEditable}
+          onProposedEventUpdate={onProposedEventUpdate}
+          locale={locale}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Skeleton loader ─────────────────────────────────────────────────────────
+
+function SkeletonGrid() {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "52px repeat(5, 1fr)", gap: 0, padding: 0 }}>
+      <div style={{ height: 20 }} />
+      {Array.from({ length: 5 }, (_, i) => (
+        <div key={i} style={{
+          height: 20,
+          background: "color-mix(in srgb, var(--fg3) 8%, transparent)",
+          borderRadius: 2,
+          margin: "4px 2px",
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ── Compact inline card (original layout with mini week bar) ────────────────
+
+function CompactCalendarCard({
+  title, titleKey, startTime, startKey, endTime, endKey,
+  attendees, attendeesKey, location, params,
+  isEditable, onParametersUpdate, locale, t,
+}: {
+  title: string; titleKey: string;
+  startTime: string; startKey: string;
+  endTime: string; endKey: string;
+  attendees: string[]; attendeesKey: string;
+  location: string;
+  params: Record<string, unknown>;
+  isEditable: boolean;
+  onParametersUpdate?: (params: Record<string, unknown>) => void;
+  locale: string;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const [editingField, setEditingField] = useState<EditableField | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const hasTimes = startTime && endTime;
   const mins = hasTimes ? durationMinutes(startTime, endTime) : 0;
@@ -171,14 +348,42 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
     );
   }
 
+  // Mini week bar for inline card
+  const eventDayIndex = startTime ? getDayOfWeek(startTime) : -1;
+
   return (
-    <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"}>
-      {!inPanel && (
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-          <CalendarIcon size={14} className="text-accent flex-shrink-0" />
-          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("eventTitle")}</span>
-        </div>
-      )}
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <CalendarIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>{t("eventTitle")}</span>
+        {/* Mini week bar */}
+        {startTime && (
+          <div className="ml-auto flex items-center gap-0.5">
+            {["M", "T", "W", "T", "F", "S", "S"].map((label, i) => (
+              <div
+                key={i}
+                title={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i]}
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 2,
+                  fontSize: 8,
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: i === eventDayIndex
+                    ? "var(--accent)"
+                    : "color-mix(in srgb, var(--fg3) 12%, transparent)",
+                  color: i === eventDayIndex ? "white" : "var(--fg3)",
+                }}
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="px-4 py-3 space-y-2.5">
         {/* Title */}

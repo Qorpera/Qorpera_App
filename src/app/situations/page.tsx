@@ -14,6 +14,17 @@ import { SidePanel } from "@/components/execution/side-panel";
 import { InlineStepCard, getStepCardMeta } from "@/components/execution/inline-step-card";
 import { useToast } from "@/components/ui/toast";
 
+function getApproveLabelKey(step: ExecutionStepForPreview): "send" | "accept" {
+  const slug = step.actionCapability?.slug ?? "";
+  if (slug.includes("email") || slug === "reply_to_thread" || slug === "create_draft" || slug === "send_with_attachment" || slug === "forward_email") {
+    return "send";
+  }
+  if (slug.includes("slack") || slug === "send_channel_message" || slug.includes("teams")) {
+    return "send";
+  }
+  return "accept";
+}
+
 interface SidePanelData {
   step: ExecutionStepForPreview;
   index: number;
@@ -257,6 +268,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 export default function SituationsPage() {
   const t = useTranslations("situations");
   const tc = useTranslations("common");
+  const tp = useTranslations("execution.preview");
   const locale = useLocale();
   const isMobile = useIsMobile();
   const { isSuperadmin, isAdmin } = useUser();
@@ -282,6 +294,8 @@ export default function SituationsPage() {
   const [planRefetchTrigger, setPlanRefetchTrigger] = useState(0);
   const [panelEditing, setPanelEditing] = useState(false);
   const [panelWidth, setPanelWidth] = useState(55);
+  const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false);
+  const [isChatVisible, setIsChatVisible] = useState(true);
   const sidebarWasCollapsed = useRef(false);
 
   // Auto-collapse main nav sidebar when panel opens, restore on close
@@ -453,8 +467,9 @@ export default function SituationsPage() {
         <div
           className="flex-shrink-0 flex flex-col overflow-hidden"
           style={{
-            width: isMobile ? "100%" : 280,
-            borderRight: isMobile ? "none" : "1px solid var(--border)",
+            width: isPreviewFullScreen ? 0 : (isMobile ? "100%" : 280),
+            borderRight: isMobile || isPreviewFullScreen ? "none" : "1px solid var(--border)",
+            transition: "width 0.25s ease-in-out",
           }}
         >
           {/* Header */}
@@ -577,11 +592,16 @@ export default function SituationsPage() {
         {(!isMobile || selectedId) && (
         <div className="flex-1 min-h-0 overflow-hidden" style={{
           display: "grid",
-          gridTemplateColumns: sidePanelData ? `1fr ${panelWidth}%` : "1fr",
-          transition: "grid-template-columns 0.2s ease-out",
+          gridTemplateColumns: isPreviewFullScreen
+            ? "0fr 1fr"
+            : sidePanelData ? `1fr ${panelWidth}%` : "1fr",
+          transition: "grid-template-columns 0.25s ease-in-out",
         }}>
           {/* Detail column */}
-          <div className="flex flex-col min-h-0 overflow-hidden">
+          <div className="flex flex-col min-h-0 overflow-hidden" style={{
+            transition: "opacity 0.2s ease",
+            opacity: isPreviewFullScreen ? 0 : 1,
+          }}>
             {isMobile && (
               <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-[var(--fg2)] hover:text-[var(--fg2)] min-h-[44px]">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
@@ -614,21 +634,23 @@ export default function SituationsPage() {
                     planRefetchTrigger={planRefetchTrigger}
                   />
                 </div>
-                <ContextualChat
-                  contextType="situation"
-                  contextId={selectedSituation.id}
-                  placeholder={t("discuss")}
-                  hints={["What evidence supports this?", "Should I escalate?"]}
-                  uncertaintyLevel={(() => {
-                    if (!detail?.reasoning) return "none" as const;
-                    const r = safeParseReasoning(detail.reasoning);
-                    if (!r?.actionPlan) return "none" as const;
-                    const allU = r.actionPlan.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
-                    if (allU.some(u => u.impact === "high")) return "high" as const;
-                    if (allU.length > 0) return "medium" as const;
-                    return "none" as const;
-                  })()}
-                />
+                {!isPreviewFullScreen && (
+                  <ContextualChat
+                    contextType="situation"
+                    contextId={selectedSituation.id}
+                    placeholder={t("discuss")}
+                    hints={["What evidence supports this?", "Should I escalate?"]}
+                    uncertaintyLevel={(() => {
+                      if (!detail?.reasoning) return "none" as const;
+                      const r = safeParseReasoning(detail.reasoning);
+                      if (!r?.actionPlan) return "none" as const;
+                      const allU = r.actionPlan.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
+                      if (allU.some(u => u.impact === "high")) return "high" as const;
+                      if (allU.length > 0) return "medium" as const;
+                      return "none" as const;
+                    })()}
+                  />
+                )}
               </>
             ) : (
               <div className="flex items-center justify-center h-full" style={{ fontSize: 18, color: "var(--fg3)" }}>
@@ -652,7 +674,7 @@ export default function SituationsPage() {
             return (
               <SidePanel
                 isOpen={!!sidePanelData}
-                onClose={() => { setSidePanelData(null); setPanelBreadcrumbs([]); setPanelEditing(false); }}
+                onClose={() => { setSidePanelData(null); setPanelBreadcrumbs([]); setPanelEditing(false); setIsPreviewFullScreen(false); setIsChatVisible(true); }}
                 title={sidePanelData.step.title}
                 typeBadge={badge}
                 typeIcon={icon}
@@ -661,10 +683,36 @@ export default function SituationsPage() {
                 onToggleEdit={() => setPanelEditing(prev => !prev)}
                 onWidthChange={setPanelWidth}
                 onApprove={sidePanelData.isEditable ? () => patchSituation(selectedSituation!.id, { status: "approved" }) : undefined}
+                approveLabel={tp(getApproveLabelKey(sidePanelData.step))}
                 onDiscuss={() => {
-                  const chatInput = document.getElementById("situation-chat-input") as HTMLTextAreaElement;
-                  if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
+                  if (isPreviewFullScreen) {
+                    setIsChatVisible(true);
+                  } else {
+                    const chatInput = document.getElementById("situation-chat-input") as HTMLTextAreaElement;
+                    if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
+                  }
                 }}
+                isFullScreen={isPreviewFullScreen}
+                onToggleFullScreen={() => setIsPreviewFullScreen(prev => !prev)}
+                isChatVisible={isChatVisible}
+                onToggleChatVisible={() => setIsChatVisible(prev => !prev)}
+                chatElement={isPreviewFullScreen && selectedSituation ? (
+                  <ContextualChat
+                    contextType="situation"
+                    contextId={selectedSituation.id}
+                    placeholder={t("discuss")}
+                    hints={["What evidence supports this?", "Should I escalate?"]}
+                    uncertaintyLevel={(() => {
+                      if (!detail?.reasoning) return "none" as const;
+                      const r = safeParseReasoning(detail.reasoning);
+                      if (!r?.actionPlan) return "none" as const;
+                      const allU = r.actionPlan.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
+                      if (allU.some(u => u.impact === "high")) return "high" as const;
+                      if (allU.length > 0) return "medium" as const;
+                      return "none" as const;
+                    })()}
+                  />
+                ) : undefined}
               >
                 <PanelPreview
                   step={sidePanelData.step}

@@ -20,6 +20,40 @@ function ChevronRightIcon({ size = 12 }: { size?: number }) {
   );
 }
 
+function MaximizeIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3" /><path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+      <path d="M3 16v3a2 2 0 0 0 2 2h3" /><path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+
+function MinimizeIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 14h6v6" /><path d="M20 10h-6V4" />
+      <path d="M14 10l7-7" /><path d="M3 21l7-7" />
+    </svg>
+  );
+}
+
+function ChatIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function PanelRightCloseIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect width="18" height="18" x="3" y="3" rx="2" /><path d="M15 3v18" /><path d="m8 9 3 3-3 3" />
+    </svg>
+  );
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface BreadcrumbEntry {
@@ -42,6 +76,12 @@ interface SidePanelProps {
   onWidthChange?: (percent: number) => void;
   onApprove?: () => void;
   onDiscuss?: () => void;
+  approveLabel?: string;
+  isFullScreen?: boolean;
+  onToggleFullScreen?: () => void;
+  chatElement?: ReactNode;
+  isChatVisible?: boolean;
+  onToggleChatVisible?: () => void;
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -60,20 +100,32 @@ export function SidePanel({
   onWidthChange,
   onApprove,
   onDiscuss,
+  approveLabel,
+  isFullScreen,
+  onToggleFullScreen,
+  chatElement,
+  isChatVisible,
+  onToggleChatVisible,
 }: SidePanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
-  // ── Close on Escape key ──────────────────────────────────────────────────
+  // ── Escape key: exit full-screen first, then close ────────────────────
 
   useEffect(() => {
     if (!isOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (isFullScreen && onToggleFullScreen) {
+          onToggleFullScreen();
+        } else {
+          onClose();
+        }
+      }
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, isFullScreen, onToggleFullScreen, onClose]);
 
   // ── Resize drag ──────────────────────────────────────────────────────────
 
@@ -119,8 +171,8 @@ export function SidePanel({
         minWidth: 0,
       }}
     >
-      {/* Resize handle */}
-      {onWidthChange && (
+      {/* Resize handle (hidden in full-screen) */}
+      {onWidthChange && !isFullScreen && (
         <div
           onMouseDown={handleResizeMouseDown}
           style={{
@@ -196,10 +248,10 @@ export function SidePanel({
             }}
             className="hover:opacity-80 transition-opacity"
           >
-            Send
+            {approveLabel ?? "Accept"}
           </button>
         )}
-        {onDiscuss && (
+        {onDiscuss && !isFullScreen && (
           <button
             onClick={onDiscuss}
             style={{
@@ -210,9 +262,7 @@ export function SidePanel({
             }}
             className="hover:bg-[var(--hover)] transition-colors"
           >
-            <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+            <ChatIcon size={13} />
             Discuss
           </button>
         )}
@@ -231,6 +281,23 @@ export function SidePanel({
             className="hover:bg-[var(--hover)] transition-colors"
           >
             {isEditing ? "Done" : "Edit"}
+          </button>
+        )}
+
+        {/* Full-screen toggle */}
+        {onToggleFullScreen && (
+          <button
+            onClick={onToggleFullScreen}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 28, height: 28, borderRadius: 6,
+              border: "none", background: "transparent",
+              cursor: "pointer", color: "var(--fg3)", flexShrink: 0,
+            }}
+            className="hover:bg-[var(--step-hover)] transition-colors"
+            title={isFullScreen ? "Exit full screen" : "Full screen"}
+          >
+            {isFullScreen ? <MinimizeIcon size={14} /> : <MaximizeIcon size={14} />}
           </button>
         )}
 
@@ -256,10 +323,87 @@ export function SidePanel({
         </button>
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-        {children}
-      </div>
+      {/* Content area — normal or full-screen with chat sidebar */}
+      {isFullScreen && chatElement ? (
+        <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
+          {/* Preview content */}
+          <div style={{
+            flex: isChatVisible ? "0 0 80%" : "1 1 100%",
+            overflow: "auto",
+            transition: "flex 0.2s ease",
+            minHeight: 0,
+          }}>
+            {children}
+          </div>
+
+          {/* Chat sidebar */}
+          <div style={{
+            flex: isChatVisible ? "0 0 20%" : "0 0 0%",
+            minWidth: isChatVisible ? 280 : 0,
+            overflow: "hidden",
+            borderLeft: isChatVisible ? "1px solid var(--border)" : "none",
+            display: "flex",
+            flexDirection: "column",
+            transition: "flex 0.2s ease, min-width 0.2s ease",
+          }}>
+            {isChatVisible && (
+              <>
+                <div style={{
+                  padding: "8px 12px",
+                  borderBottom: "1px solid var(--border)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexShrink: 0,
+                }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fg2)" }}>Discussion</span>
+                  {onToggleChatVisible && (
+                    <button
+                      onClick={onToggleChatVisible}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        width: 24, height: 24, borderRadius: 4,
+                        border: "none", background: "transparent",
+                        cursor: "pointer", color: "var(--fg3)",
+                      }}
+                      className="hover:bg-[var(--step-hover)] transition-colors"
+                      title="Hide chat"
+                    >
+                      <PanelRightCloseIcon size={14} />
+                    </button>
+                  )}
+                </div>
+                <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+                  {chatElement}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Show chat button when hidden */}
+          {!isChatVisible && onToggleChatVisible && (
+            <button
+              onClick={onToggleChatVisible}
+              style={{
+                position: "absolute", right: 12, bottom: 12,
+                padding: "8px 16px", borderRadius: 8,
+                background: "var(--surface)", border: "1px solid var(--border)",
+                color: "var(--fg2)", fontSize: 12, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+              }}
+              className="hover:bg-[var(--hover)] transition-colors"
+            >
+              <ChatIcon size={14} />
+              Show chat
+            </button>
+          )}
+        </div>
+      ) : (
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+          {children}
+        </div>
+      )}
 
       {/* Optional footer */}
       {footer && (

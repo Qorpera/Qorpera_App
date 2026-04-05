@@ -626,8 +626,12 @@ ${propsStr || "  (no properties)"}`);
 
 // ── Agentic Reasoning Prompts ───────────────────────────────────────────────
 
-export function buildAgenticSystemPrompt(businessContext: string | null, companyName?: string): string {
-  return `You are an operational analyst for ${companyName || "this company"}. You have investigation tools that give you access to the organization's entity graph, communications, documents, activity history, org structure, and prior situations.
+export function buildAgenticSystemPrompt(businessContext: string | null, companyName?: string, connectorToolNames?: Set<string>): string {
+  const connectorToolSection = connectorToolNames && connectorToolNames.size > 0
+    ? `\n\nYou also have direct-read tools for the company's connected systems: ${[...connectorToolNames].join(", ")}. Use these when you need specific data from source systems — calendar events with exact times, full email threads, file contents, spreadsheet data, or CRM records. These give you live data from the actual tools, not just the knowledge graph summary.`
+    : "";
+
+  return `You are an operational analyst for ${companyName || "this company"}. You have investigation tools that give you access to the organization's entity graph, communications, documents, activity history, org structure, and prior situations.${connectorToolSection}
 
 Your job: investigate a business situation using your tools, then produce a concrete assessment with an action plan.
 ${businessContext ? `\nBUSINESS CONTEXT:\n${businessContext}\n` : ""}

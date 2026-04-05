@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
-import type { LLMMessage } from "@/lib/ai-provider";
+import type { LLMMessage, AITool } from "@/lib/ai-provider";
 import { loadOperationalInsights } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
 import { buildAgenticSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
@@ -14,6 +14,7 @@ import { extractJSON } from "@/lib/json-helpers";
 import { generateSituationSummaries } from "@/lib/situation-summarizer";
 import { refineUncertainties } from "@/lib/reasoning/uncertainty-refiner";
 import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
+import { getConnectorReadTools, executeConnectorReadTool } from "@/lib/connector-read-tools";
 import { logToolCall } from "@/lib/tool-call-trace";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
@@ -289,8 +290,20 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         }));
     });
 
-    // 6b. Build system prompt and seed context
-    const systemPrompt = buildAgenticSystemPrompt(businessContextStr, operator?.companyName ?? undefined);
+    // 6b. Assemble dynamic tool set (knowledge-graph + connector read tools)
+    const { tools: connectorTools, availableToolNames: connectorToolNames } =
+      await getConnectorReadTools(situation.operatorId);
+    const allTools = [...REASONING_TOOLS, ...connectorTools];
+
+    const dispatchTool = async (toolName: string, args: Record<string, unknown>): Promise<string> => {
+      if (connectorToolNames.has(toolName)) {
+        return executeConnectorReadTool(situation.operatorId, toolName, args);
+      }
+      return executeReasoningTool(situation.operatorId, toolName, args);
+    };
+
+    // 6c. Build system prompt and seed context
+    const systemPrompt = buildAgenticSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames);
 
     const seedInput: AgenticSeedInput = {
       situationType: { name: situation.situationType.name, description: situation.situationType.description },
@@ -323,6 +336,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       cycleNumber,
       systemPrompt,
       seedContext,
+      tools: allTools,
+      dispatchTool,
       editInstruction: editInstructionText,
       priorFeedbackLines,
     });
@@ -594,6 +609,8 @@ async function runAgenticLoop(params: {
   cycleNumber: number;
   systemPrompt: string;
   seedContext: string;
+  tools: AITool[];
+  dispatchTool: (toolName: string, args: Record<string, unknown>) => Promise<string>;
   editInstruction?: string | null;
   priorFeedbackLines?: string[] | null;
 }): Promise<{
@@ -637,7 +654,7 @@ async function runAgenticLoop(params: {
     const response = await callLLM({
       instructions: params.systemPrompt,
       messages,
-      tools: REASONING_TOOLS,
+      tools: params.tools,
       temperature: 0.2,
       aiFunction: "reasoning",
       model,
@@ -694,7 +711,7 @@ async function runAgenticLoop(params: {
 
     for (const toolCall of response.toolCalls) {
       const toolStart = performance.now();
-      const result = await executeReasoningTool(params.operatorId, toolCall.name, toolCall.arguments);
+      const result = await params.dispatchTool(toolCall.name, toolCall.arguments);
       const toolDurationMs = Math.round(performance.now() - toolStart);
 
       messages.push({

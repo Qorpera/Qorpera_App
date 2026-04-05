@@ -1434,9 +1434,10 @@ model ProjectMember {
   id        String   @id @default(cuid())
   projectId String
   userId    String
-  role      String   @default("analyst") // owner, reviewer, analyst, viewer
-  addedAt   DateTime @default(now())
-  addedById String
+  role         String   @default("analyst") // owner, reviewer, analyst, viewer
+  restrictions Json?    // LLM-interpreted access restrictions from natural language input
+  addedAt      DateTime @default(now())
+  addedById    String
 
   project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user     User    @relation("ProjectMemberUser", fields: [userId], references: [id])
