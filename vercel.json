@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "prisma generate && prisma migrate deploy && npm run build",
   "regions": ["fra1"],
   "crons": [
     {
