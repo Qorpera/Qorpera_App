@@ -170,13 +170,13 @@ async function main() {
       console.log(`  Resolution type: ${reasoning.resolutionType}`);
       console.log(`  Analysis: ${(reasoning.analysis || "").slice(0, 200)}...`);
       console.log(`  Evidence summary: ${(reasoning.evidenceSummary || "").slice(0, 200)}...`);
-      if (reasoning.actionPlan) {
-        console.log(`  Action plan: ${reasoning.actionPlan.length} steps`);
-        for (const step of reasoning.actionPlan) {
+      if (reasoning.actionBatch) {
+        console.log(`  Action batch: ${reasoning.actionBatch.length} steps`);
+        for (const step of reasoning.actionBatch) {
           console.log(`    - [${step.executionMode}] ${step.title}${step.actionCapabilityName ? ` → ${step.actionCapabilityName}` : ""}`);
         }
       } else {
-        console.log(`  Action plan: null (no action recommended)`);
+        console.log(`  Action batch: null (no action recommended)`);
       }
       if (reasoning.missingContext) {
         console.log(`  Missing context: ${JSON.stringify(reasoning.missingContext)}`);
@@ -214,8 +214,8 @@ async function main() {
   if (result.reasoning) {
     try {
       const reasoning = JSON.parse(result.reasoning);
-      if (reasoning.actionPlan) {
-        const violations = reasoning.actionPlan.filter(
+      if (reasoning.actionBatch) {
+        const violations = reasoning.actionBatch.filter(
           (s: { actionCapabilityName?: string }) => s.actionCapabilityName && blockedNames.has(s.actionCapabilityName),
         );
         if (violations.length > 0) {
@@ -255,7 +255,7 @@ async function main() {
       pass: (() => {
         try {
           const r = JSON.parse(result.reasoning || "{}");
-          return !r.actionPlan || r.actionPlan.every(
+          return !r.actionBatch || r.actionBatch.every(
             (s: { actionCapabilityName?: string }) => !s.actionCapabilityName || !blockedNames.has(s.actionCapabilityName),
           );
         } catch {

@@ -13,6 +13,21 @@ export async function GET(
 
   const plan = await prisma.researchPlan.findFirst({
     where: { id, operatorId },
+    select: {
+      id: true,
+      status: true,
+      investigations: true,
+      priorityOrder: true,
+      planningReasoning: true,
+      estimatedDurationMinutes: true,
+      estimatedCostCents: true,
+      actualCostCents: true,
+      completedCount: true,
+      failedCount: true,
+      totalWikiPages: true,
+      progressMessage: true,
+      createdAt: true,
+    },
   });
 
   if (!plan) return NextResponse.json({ error: "Not found" }, { status: 404 });

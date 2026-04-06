@@ -69,6 +69,8 @@ const MODEL_ROUTES = {
   onboardingChat: "claude-sonnet-4-6",
   // Wiki knowledge verification (deliberately different model than synthesis)
   verifier: "claude-sonnet-4-6",
+  // Adversarial challenge — MUST be Opus (at least as capable as best investigator)
+  adversarialChallenge: "claude-opus-4-6",
   // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
   onboardingExtraction: "claude-haiku-4-5-20251001",
 } as const;
@@ -102,6 +104,7 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   onboardingSynthesis: 16_384,
   onboardingChat: null,
   verifier: 4_096,
+  adversarialChallenge: 16_384,
   onboardingExtraction: null,
 };
 

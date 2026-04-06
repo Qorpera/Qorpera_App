@@ -30,7 +30,10 @@ export const ReasoningOutputSchema = z.object({
     entityRole: z.string().optional(),
     reasoning: z.string(),
   }).nullable().optional(),
-  actionPlan: z.array(ActionStepSchema).nullable(),
+  actionBatch: z.array(ActionStepSchema).nullable(),
+  afterBatch: z.enum(["resolve", "re_evaluate", "monitor"]).default("resolve"),
+  reEvaluationReason: z.string().optional(),
+  monitorDurationHours: z.number().optional(),
   confidence: z.number().min(0).max(1),
   missingContext: z.array(z.string()).nullable(),
   webSources: z.array(z.string()).optional(),  // URLs from web search results consulted during reasoning

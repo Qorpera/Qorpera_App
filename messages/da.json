@@ -288,6 +288,7 @@
     "consideredActions": "Overvejede handlinger",
     "missingContext": "Manglende kontekst",
     "actionPlan": "Handlingsplan",
+    "actionBatch": "Foreslåede handlinger",
     "pros": "Fordele",
     "cons": "Ulemper",
     "expectedOutcome": "Forventet resultat",

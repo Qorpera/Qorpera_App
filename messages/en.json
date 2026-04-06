@@ -288,6 +288,7 @@
     "consideredActions": "Considered actions",
     "missingContext": "Missing context",
     "actionPlan": "Action Plan",
+    "actionBatch": "Proposed Actions",
     "pros": "Pros",
     "cons": "Cons",
     "expectedOutcome": "Expected outcome",

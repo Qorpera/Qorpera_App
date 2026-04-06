@@ -325,10 +325,40 @@ export function startCronScheduler() {
     }, 2 * 60 * 60 * 1000),
   );
 
+  // ── Wiki Quality Monitor: every 12 hours ────────────────────────────
+  // Checks page effectiveness from context evaluation telemetry.
+  // Auto-rolls back pages with poor outcomes, flags challenged pages,
+  // promotes pages with strong outcomes.
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false, aiPaused: false },
+          select: { id: true },
+        });
+        for (const op of operators) {
+          try {
+            const { runQualityCheck } = await import("@/lib/wiki-quality-monitor");
+            const result = await runQualityCheck(op.id);
+            if (result.pagesRolledBack > 0 || result.pagesFlagged > 0 || result.pagesPromoted > 0) {
+              console.log(
+                `[cron:quality-monitor] Operator ${op.id}: ${result.pagesRolledBack} rolled back, ${result.pagesFlagged} flagged, ${result.pagesPromoted} promoted`,
+              );
+            }
+          } catch (err) {
+            console.error(`[cron:quality-monitor] Operator ${op.id} failed:`, err);
+          }
+        }
+      } catch (err) {
+        console.error("[cron:quality-monitor] Error:", err);
+      }
+    }, 12 * 60 * 60 * 1000),
+  );
+
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h)");
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h)");
 }
 
 export function stopCronScheduler() {

@@ -60,3 +60,57 @@ export async function getPageEffectiveness(operatorId: string): Promise<Array<{
     }))
     .sort((a, b) => b.effectivenessScore - a.effectivenessScore);
 }
+
+export interface PageStats {
+  cited: number;
+  approved: number;
+  rejected: number;
+  total: number;
+}
+
+/**
+ * Get page effectiveness grouped by situation type name.
+ * Returns the per-type Map and total eval count for routing decisions.
+ */
+export async function getPageEffectivenessPerType(operatorId: string): Promise<{
+  typePageMap: Map<string, Map<string, PageStats>>;
+  evalCount: number;
+}> {
+  const evals = await prisma.contextEvaluation.findMany({
+    where: { operatorId, outcome: { not: null } },
+    select: {
+      contextSections: true,
+      citedSections: true,
+      outcome: true,
+      situation: {
+        select: { situationType: { select: { name: true } } },
+      },
+    },
+  });
+
+  const typePageMap = new Map<string, Map<string, PageStats>>();
+
+  for (const eval_ of evals) {
+    const typeName = eval_.situation?.situationType?.name ?? "unknown";
+    if (!typePageMap.has(typeName)) typePageMap.set(typeName, new Map());
+    const pageMap = typePageMap.get(typeName)!;
+
+    const sections = eval_.contextSections as Array<{ type: string; id: string }>;
+    const cited = eval_.citedSections as Array<{ type: string; id: string; citationCount: number }>;
+    const citedIds = new Set(cited.filter(c => c.type === "wiki_page").map(c => c.id));
+
+    for (const section of sections) {
+      if (section.type !== "wiki_page") continue;
+      const stats = pageMap.get(section.id) ?? { cited: 0, approved: 0, rejected: 0, total: 0 };
+      stats.total++;
+      if (citedIds.has(section.id)) {
+        stats.cited++;
+        if (eval_.outcome === "approved") stats.approved++;
+        if (eval_.outcome === "rejected") stats.rejected++;
+      }
+      pageMap.set(section.id, stats);
+    }
+  }
+
+  return { typePageMap, evalCount: evals.length };
+}

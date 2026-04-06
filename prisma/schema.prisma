@@ -554,7 +554,9 @@ model Situation {
   investigationDepth String  @default("standard") // "standard" | "thorough"
   analysisDocument   Json? // ContentDoc JSON — thorough analysis for deep situations
   reasoning          String? // JSON - analysis, considered actions, justification
-  proposedAction     String? // JSON - what the AI wants to do
+  proposedAction     String? // JSON - { batch, afterBatch, reEvaluationReason, monitorDurationHours }
+  afterBatch         String? // "resolve" | "re_evaluate" | "monitor"
+  monitorUntil       DateTime? // for "monitor" — when to trigger re-evaluation
 
   // Outcome tracking
   actionTaken      String? // JSON - what actually happened
@@ -1760,6 +1762,10 @@ model ResearchPlan {
   completedCount           Int      @default(0)
   failedCount              Int      @default(0)
   totalWikiPages           Int      @default(0)
+  adversarialReport        Json?
+  gapAnalysisReport        Json?
+  questionsForHuman        Json?    // Array<{ question, context, importance, relatedPageSlugs }>
+  coverageScore            Float?
   createdAt                DateTime @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)

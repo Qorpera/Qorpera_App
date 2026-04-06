@@ -13,6 +13,7 @@ export async function GET() {
     select: {
       id: true,
       status: true,
+      investigations: true,
       completedCount: true,
       failedCount: true,
       totalWikiPages: true,
@@ -26,16 +27,14 @@ export async function GET() {
 
   if (!plan) return NextResponse.json({ plan: null });
 
-  // Count total investigations from JSON
-  const fullPlan = await prisma.researchPlan.findUnique({
-    where: { id: plan.id },
-    select: { investigations: true },
-  });
-  const investigationsTotal = Array.isArray(fullPlan?.investigations)
-    ? (fullPlan.investigations as unknown[]).length
+  const investigationsTotal = Array.isArray(plan.investigations)
+    ? (plan.investigations as unknown[]).length
     : 0;
 
+  // Omit the raw investigations JSON from the response
+  const { investigations: _, ...rest } = plan;
+
   return NextResponse.json({
-    plan: { ...plan, investigationsTotal },
+    plan: { ...rest, investigationsTotal },
   });
 }

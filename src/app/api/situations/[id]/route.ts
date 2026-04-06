@@ -14,12 +14,12 @@ import { updateWikiOutcomeSignals } from "@/lib/wiki-engine";
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const { id } = params;
+  const { id } = await params;
 
   const situation = await prisma.situation.findFirst({
     where: { id, operatorId },
@@ -136,12 +136,12 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const { id } = params;
+  const { id } = await params;
   const body = await req.json();
 
   const situation = await prisma.situation.findFirst({
@@ -435,7 +435,7 @@ export async function PATCH(
 
     // Context evaluation outcome (fire-and-forget)
     prisma.contextEvaluation.updateMany({
-      where: { situationId: id, outcome: null },
+      where: { situationId: id, operatorId, outcome: null },
       data: { outcome: body.status, resolvedAt: new Date() },
     }).catch(() => {});
   }

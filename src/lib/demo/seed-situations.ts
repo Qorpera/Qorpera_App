@@ -301,7 +301,7 @@ export type SituationDef = {
       evidenceAgainst: string[];
       expectedOutcome: string;
     }>;
-    actionPlan: Array<{
+    actionBatch: Array<{
       title: string;
       description: string;
       executionMode: string;
@@ -397,7 +397,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Betaling inden 14 dage, men potentiel relationsskade",
         },
       ],
-      actionPlan: null,
+      actionBatch: null,
       confidence: 0.92,
       missingContext: ["Seneste intern kommunikation med Dansk Energi Partners", "Eventuelle \u00e5bne tvister eller reklamationer"],
     },
@@ -482,7 +482,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Risiko for at miste dealen til en konkurrent",
         },
       ],
-      actionPlan: null,
+      actionBatch: null,
       confidence: 0.78,
       missingContext: ["Om Henrik har v\u00e6ret p\u00e5 ferie", "Om der er konkurrerende tilbud"],
     },
@@ -556,7 +556,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "50% sandsynlighed for booking, hurtig kvalificering",
         },
       ],
-      actionPlan: null,
+      actionBatch: null,
       confidence: 0.85,
       missingContext: ["Om NextStep Education allerede bruger en konkurrents l\u00f8sning", "Pernilles beslutningskompetence"],
     },
@@ -639,7 +639,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Langsigtet l\u00f8sning med bedre opgavefordeling i teamet",
         },
       ],
-      actionPlan: null,
+      actionBatch: null,
       confidence: 0.9,
       missingContext: ["Om Kasper selv har flagget overbelastning", "Prioritering mellem tickets og projektopgaver"],
     },
@@ -717,7 +717,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Hurtig afklaring, men kan opfattes som for aggressivt",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send p\u00e5mindelses-email til Simon Krogh",
           description: "Personlig venlig p\u00e5mindelse med fakturadetaljer og bankoplysninger",
@@ -875,7 +875,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Bedre udgangspunkt for forhandling og potentiel prisforh\u00f8jelse",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send fornyelsesmail til S\u00f8ren Fabricius",
           description: "Personlig mail med tak for samarbejdet og invitation til fornyelsesm\u00f8de",
@@ -1032,7 +1032,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Usikker tidslinje, h\u00f8j risiko for SLA-brud",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Tilf\u00f8j intern eskaleringsnotits p\u00e5 ticket",
           description: "Dokumenter eskalering og prioritet p\u00e5 TK-305",
@@ -1156,7 +1156,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Risiko for at misse vigtige fokuspunkter",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send forberedelsesbrief til Oliver",
           description: "Email med deal-overblik, deltagerinformation og fokusomr\u00e5der",
@@ -1289,7 +1289,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Ren data i CRM, korrekte rapporter",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send afslutningsmail",
           description: "Email til Tom med link til endelige leverancer",
@@ -1399,7 +1399,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Teamet er klar til at supportere kunden",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send velkomstemail til Anna Gr\u00f8n",
           description: "Onboarding-pakke med tidslinje og kontaktinfo",
@@ -1530,7 +1530,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Hurtig afklaring men un\u00f8dvendig eskalering",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send p\u00e5mindelses-email",
           description: "Venlig p\u00e5mindelse til Henrik om forfaldent bel\u00f8b",
@@ -1649,7 +1649,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Direkte afklaring af dealens status",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send genaktiverings-email",
           description: "Personlig email med case study og m\u00f8de-invitation",
@@ -1765,7 +1765,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Korrekt data i systemet",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send fornyelsesmail til Maja Winther",
           description: "Professionel forespørgsel om fornyelse af Phase 2",
@@ -1895,7 +1895,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Hurtig kvalificering, men risiko for at virke p\u00e5g\u00e5ende",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send velkomstemail med case study",
           description: "Personlig email baseret p\u00e5 Annas download-historik",
@@ -2033,7 +2033,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Risiko for SLA-brud og utilfreds ny kunde",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Tilf\u00f8j intern note p\u00e5 TK-303",
           description: "Kontekst om kundens onboarding-stadie og behov",
@@ -2148,7 +2148,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Teamet er aligned f\u00f8r m\u00f8det",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Send forberedelsesbrief",
           description: "Email med m\u00f8dedetaljer og fokusomr\u00e5der",
@@ -2270,7 +2270,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Korrekt kontekst sikret f\u00f8r eventuel handling",
         },
       ],
-      actionPlan: null,
+      actionBatch: null,
       confidence: 0.68,
       missingContext: ["Telefonsamtaler og offline-interaktioner", "Mundtlige aftaler der ikke er logget"],
     },
@@ -2336,7 +2336,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Korrekt forst\u00e5else af ticket-status",
         },
       ],
-      actionPlan: null,
+      actionBatch: null,
       confidence: 0.71,
       missingContext: ["Emils aktuelle arbejde p\u00e5 ticketen", "Off-system kommunikation om l\u00f8sningen"],
     },
@@ -2410,7 +2410,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Strategisk retention-program med bredere impact",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Eskaler til Q2 Client Retention initiativ",
           description: "Identificeret m\u00f8nster p\u00e5 tv\u00e6rs af kundesegmentet \u2014 eskaleres til strategisk initiativ",
@@ -2510,7 +2510,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Mere kapacitet, men h\u00f8jere omkostninger",
         },
       ],
-      actionPlan: [
+      actionBatch: [
         {
           title: "Eskaler til Delivery Process Optimization initiativ",
           description: "Systemisk kapacitetsproblem identificeret \u2014 eskaleres til strategisk procesoptimering",

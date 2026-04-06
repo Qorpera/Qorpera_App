@@ -179,12 +179,13 @@ Phase 1 — THINKING (use your extended thinking block, NOT the output):
 
 Phase 2 — OUTPUT (the JSON response):
 - analysis: Your verified findings from Phase 1
-- actionPlan: ONLY concrete EXTERNAL RESPONSE ACTIONS that change something in the real world (or null)
+- actionBatch: ONLY concrete EXTERNAL RESPONSE ACTIONS that change something in the real world (or null)
+- afterBatch: What should happen after this batch executes
 
-You have extended thinking enabled. Use your thinking block to do ALL verification, context-gathering, status-checking, cross-referencing, and assessment work. Your thinking block is where you reason. Your output JSON is where you present your conclusions and recommended actions. Do not put your reasoning process into the action plan.
+You have extended thinking enabled. Use your thinking block to do ALL verification, context-gathering, status-checking, cross-referencing, and assessment work. Your thinking block is where you reason. Your output JSON is where you present your conclusions and recommended actions. Do not put your reasoning process into the action batch.
 
-WHAT QUALIFIES AS AN ACTION PLAN STEP:
-Every step in actionPlan must be an EXTERNAL RESPONSE ACTION — something that changes the real world. Valid examples:
+WHAT QUALIFIES AS A BATCH STEP:
+Every step in actionBatch must be an EXTERNAL RESPONSE ACTION — something that changes the real world. Valid examples:
 - Send an email or message to someone
 - Update a record in a connected system (CRM, accounting, etc.)
 - Create a document, spreadsheet, or report
@@ -194,7 +195,7 @@ Every step in actionPlan must be an EXTERNAL RESPONSE ACTION — something that 
 - Escalate to a specific person with a specific ask
 - Share a file or grant access to a system
 
-NEVER include these as plan steps — they are YOUR job during Phase 1 thinking:
+NEVER include these as batch steps — they are YOUR job during Phase 1 thinking:
 - "Verify whether the situation is real" — that is your job during reasoning
 - "Gather more information" — you already have the context; if insufficient, say so in analysis
 - "Review records" — you have the records in the context sections; read them
@@ -203,14 +204,14 @@ NEVER include these as plan steps — they are YOUR job during Phase 1 thinking:
 - "Assess the impact" — that is analysis, not an action
 - "Determine the appropriate response" — decide that yourself, then output the response
 
-Each step in the action plan has an executionMode:
+Each step in the action batch has an executionMode:
 - "action" — The system can execute this step automatically (send email, create task, etc.). Only use this when the step matches an available automated action listed below.
 - "human_task" — The human needs to do this step. Describe clearly what they should do. This is the DEFAULT for any step that cannot be automated.
 - "generate" — The system generates content (draft email, document, summary) for human review.
 
-IMPORTANT: Do NOT let the available automated actions limit your plan. Design the ideal plan first. If the best action is "Call Martin Dall back immediately at 26 88 11 03", propose it as a human_task even though the system can't make phone calls. The human knows how to make calls — they need the AI to tell them it's the right thing to do and give them the number.
+IMPORTANT: Do NOT let the available automated actions limit your batch. Design the ideal batch first. If the best action is "Call Martin Dall back immediately at 26 88 11 03", propose it as a human_task even though the system can't make phone calls. The human knows how to make calls — they need the AI to tell them it's the right thing to do and give them the number.
 
-HOWEVER: After designing the ideal plan, you MUST map every step to an available automated action wherever possible:
+HOWEVER: After designing the ideal batch, you MUST map every step to an available automated action wherever possible:
 
 1. For EACH step in your plan, scan the AVAILABLE AUTOMATED ACTIONS list below.
 2. If ANY capability matches the step's intent — even partially — set executionMode to "action", set actionCapabilityName to the EXACT capability name string from the list, and populate params with ALL required fields.
@@ -230,10 +231,19 @@ Determine who is the natural owner of this situation. Look at:
 - Who was the communication addressed to?
 - Whose domain of responsibility does this fall under?
 - Who has the authority and context to act?
-If this is a routine operational matter within a specific team member's responsibilities (e.g., an office manager handling access requests, a project lead handling delivery questions), identify that person as the owner. The action plan should describe what THAT person should do, not what company leadership should do. Return this as "situationOwner" in your output.
+If this is a routine operational matter within a specific team member's responsibilities (e.g., an office manager handling access requests, a project lead handling delivery questions), identify that person as the owner. The action batch should describe what THAT person should do, not what company leadership should do. Return this as "situationOwner" in your output.
 
-ACTION PLAN OR NULL — BE HONEST:
-If after thorough analysis you determine this situation requires response actions, produce an actionPlan of concrete response steps. If the evidence shows this situation is not real, not actionable, or the available context is genuinely too thin to determine any specific response, return actionPlan as null and explain why in your analysis. A null plan is an honest answer. A plan full of verification steps is not.
+ACTION BATCH OR NULL — BE HONEST:
+If after thorough analysis you determine this situation requires response actions, produce an actionBatch of concrete response steps. If the evidence shows this situation is not real, not actionable, or the available context is genuinely too thin to determine any specific response, return actionBatch as null and explain why in your analysis. A null batch is an honest answer. A batch full of verification steps is not.
+
+BATCH RULES:
+- Propose ONLY actions you're confident about given what you know NOW
+- If you'd need to see the outcome of action 1 before knowing action 2, put ONLY action 1 in the batch and set afterBatch to "re_evaluate"
+- If actions are naturally linked (draft a document + send it), they belong in the same batch
+- If the situation is fully resolved after this batch, set afterBatch to "resolve"
+- If you need to wait for an external response (client reply, payment arrival), set afterBatch to "monitor" with a monitorDurationHours
+- A batch of 1 action with afterBatch "re_evaluate" is the most common pattern
+- A batch of 0 actions (null) with afterBatch "resolve" means no action is needed
 
 GOVERNANCE POLICIES ARE HARD BLOCKERS:
 - BLOCKED actions are forbidden. Do not consider them under any circumstances.
@@ -270,7 +280,7 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       "expectedOutcome": "what would happen based on prior outcomes or business context"
     }
   ],
-  "actionPlan": [
+  "actionBatch": [
     {
       "title": "Step title",
       "description": "What this step does and why — must be an EXTERNAL response action",
@@ -334,11 +344,17 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       ]
     }
   ] or null,
+  "afterBatch": "resolve" | "re_evaluate" | "monitor",
+  // "resolve" — this batch completes the situation. No more cycles needed.
+  // "re_evaluate" — after these actions execute, the system should re-evaluate with fresh context.
+  // "monitor" — wait for a specific duration, then re-evaluate. Use for external responses.
+  "reEvaluationReason": "Need to see client response before deciding next step",  // only for re_evaluate/monitor
+  "monitorDurationHours": 48,  // only for "monitor" — how long to wait
   "confidence": 0.0 to 1.0,
   "missingContext": ["specific information that would improve this decision"] or null,
   "escalation": {
     "rationale": "why this needs strategic attention beyond the immediate response",
-    "suggestedSteps": [same step format as actionPlan]
+    "suggestedSteps": [same step format as actionBatch]
   } or null,
   "resolutionType": "self_resolving" | "response_dependent" | "informational",
   "monitoringCriteria": {  // ONLY for response_dependent, null otherwise
@@ -349,8 +365,8 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
 }
 
 CRITICAL RULES:
-- "actionPlan" is an array of EXTERNAL response actions, or null if no action is warranted.
-- A single action is a one-element array. Multi-step plans have multiple elements.
+- "actionBatch" is an array of EXTERNAL response actions the system is confident about RIGHT NOW, or null if no action is warranted.
+- A single action is a one-element array. Linked actions (draft + send) can be in the same batch.
 - Each step with executionMode "action" MUST reference an available automated action via "actionCapabilityName".
 - Steps with executionMode "generate" produce LLM-generated content (drafts, analysis, summaries).
 - Steps with executionMode "human_task" assign work to a human (phone calls, meetings, physical tasks). This is the default.
@@ -554,10 +570,11 @@ ${propsStr || "  (no properties)"}`);
       `PRIOR ACTION CYCLES FOR THIS SITUATION:\n` +
       `This situation has been worked on before. Here is what was already done:\n\n` +
       `${cycleLines}\n\n` +
-      `Your action plan should build on this history. Do NOT repeat steps that were already completed successfully. ` +
+      `Based on these prior cycles, determine what the next action batch should be — or whether the situation is now resolved. ` +
+      `Do NOT repeat steps that were already completed successfully. ` +
       `Focus only on what needs to happen NEXT given the current context and any new information (e.g., a response received, a timeout elapsed). ` +
-      `Your plan should ONLY include steps that are decidable with current information. ` +
-      `If the next step depends on an external response that hasn't arrived yet, do NOT include speculative future steps — the system will create a new cycle when that response arrives.`
+      `Propose ONLY actions that are decidable with current information. ` +
+      `If the next step depends on an external response that hasn't arrived yet, set afterBatch to "monitor" instead of speculating.`
     );
   }
 
@@ -690,14 +707,14 @@ NEVER include these as plan steps — they are YOUR job during investigation:
 
 If you find yourself wanting to propose "gather information" as a step, STOP. That means you haven't finished investigating. Call the relevant tool instead.
 
-Each step in the action plan has an executionMode:
+Each step in the action batch has an executionMode:
 - "action" — The system can execute this step automatically (send email, create task, etc.). Only use this when the step matches an available automated action listed below.
 - "human_task" — The human needs to do this step. Describe clearly what they should do. This is the DEFAULT for any step that cannot be automated.
 - "generate" — The system generates content (draft email, document, summary) for human review.
 
-IMPORTANT: Do NOT let the available automated actions limit your plan. Design the ideal plan first. If the best action is "Call Martin Dall back immediately at 26 88 11 03", propose it as a human_task even though the system can't make phone calls. The human knows how to make calls — they need the AI to tell them it's the right thing to do and give them the number.
+IMPORTANT: Do NOT let the available automated actions limit your batch. Design the ideal batch first. If the best action is "Call Martin Dall back immediately at 26 88 11 03", propose it as a human_task even though the system can't make phone calls. The human knows how to make calls — they need the AI to tell them it's the right thing to do and give them the number.
 
-HOWEVER: After designing the ideal plan, you MUST map every step to an available automated action wherever possible:
+HOWEVER: After designing the ideal batch, you MUST map every step to an available automated action wherever possible:
 
 1. For EACH step in your plan, scan the AVAILABLE AUTOMATED ACTIONS list below.
 2. If ANY capability matches the step's intent — even partially — set executionMode to "action", set actionCapabilityName to the EXACT capability name string from the list, and populate params with ALL required fields.
@@ -717,10 +734,19 @@ Determine who is the natural owner of this situation. Look at:
 - Who was the communication addressed to?
 - Whose domain of responsibility does this fall under?
 - Who has the authority and context to act?
-If this is a routine operational matter within a specific team member's responsibilities (e.g., an office manager handling access requests, a project lead handling delivery questions), identify that person as the owner. The action plan should describe what THAT person should do, not what company leadership should do. Return this as "situationOwner" in your output.
+If this is a routine operational matter within a specific team member's responsibilities (e.g., an office manager handling access requests, a project lead handling delivery questions), identify that person as the owner. The action batch should describe what THAT person should do, not what company leadership should do. Return this as "situationOwner" in your output.
 
-ACTION PLAN OR NULL — BE HONEST:
-If after thorough analysis you determine this situation requires response actions, produce an actionPlan of concrete response steps. If the evidence shows this situation is not real, not actionable, or your investigation did not find sufficient evidence to determine any specific response, return actionPlan as null and explain why in your analysis. A null plan is an honest answer. A plan full of verification steps is not.
+ACTION BATCH OR NULL — BE HONEST:
+If after thorough analysis you determine this situation requires response actions, produce an actionBatch of concrete response steps. If the evidence shows this situation is not real, not actionable, or your investigation did not find sufficient evidence to determine any specific response, return actionBatch as null and explain why in your analysis. A null batch is an honest answer. A batch full of verification steps is not.
+
+BATCH RULES:
+- Propose ONLY actions you're confident about given what you know NOW
+- If you'd need to see the outcome of action 1 before knowing action 2, put ONLY action 1 in the batch and set afterBatch to "re_evaluate"
+- If actions are naturally linked (draft a document + send it), they belong in the same batch
+- If the situation is fully resolved after this batch, set afterBatch to "resolve"
+- If you need to wait for an external response (client reply, payment arrival), set afterBatch to "monitor" with a monitorDurationHours
+- A batch of 1 action with afterBatch "re_evaluate" is the most common pattern
+- A batch of 0 actions (null) with afterBatch "resolve" means no action is needed
 
 GOVERNANCE POLICIES ARE HARD BLOCKERS:
 - BLOCKED actions are forbidden. Do not consider them under any circumstances.
@@ -764,7 +790,7 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       "expectedOutcome": "what would happen based on prior outcomes or business context"
     }
   ],
-  "actionPlan": [
+  "actionBatch": [
     {
       "title": "Step title",
       "description": "What this step does and why — must be an EXTERNAL response action",
@@ -828,11 +854,17 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
       ]
     }
   ] or null,
+  "afterBatch": "resolve" | "re_evaluate" | "monitor",
+  // "resolve" — this batch completes the situation. No more cycles needed.
+  // "re_evaluate" — after these actions execute, the system should re-evaluate with fresh context.
+  // "monitor" — wait for a specific duration, then re-evaluate. Use for external responses.
+  "reEvaluationReason": "Need to see client response before deciding next step",  // only for re_evaluate/monitor
+  "monitorDurationHours": 48,  // only for "monitor" — how long to wait
   "confidence": 0.0 to 1.0,
   "missingContext": ["specific information that would improve this decision"] or null,
   "escalation": {
     "rationale": "why this needs strategic attention beyond the immediate response",
-    "suggestedSteps": [same step format as actionPlan]
+    "suggestedSteps": [same step format as actionBatch]
   } or null,
   "resolutionType": "self_resolving" | "response_dependent" | "informational",
   "monitoringCriteria": {  // ONLY for response_dependent, null otherwise
@@ -876,8 +908,8 @@ Wiki guidelines:
 - Typical investigation produces 2-5 updates. Empty array is fine if nothing worth persisting was discovered.
 
 CRITICAL RULES:
-- "actionPlan" is an array of EXTERNAL response actions, or null if no action is warranted.
-- A single action is a one-element array. Multi-step plans have multiple elements.
+- "actionBatch" is an array of EXTERNAL response actions the system is confident about RIGHT NOW, or null if no action is warranted.
+- A single action is a one-element array. Linked actions (draft + send) can be in the same batch.
 - Each step with executionMode "action" MUST reference an available automated action via "actionCapabilityName".
 - Steps with executionMode "generate" produce LLM-generated content (drafts, analysis, summaries).
 - Steps with executionMode "human_task" assign work to a human (phone calls, meetings, physical tasks). This is the default.
@@ -1031,10 +1063,11 @@ Autonomy level: ${input.autonomyLevel} — ${autonomyNote}`);
       `PRIOR ACTION CYCLES FOR THIS SITUATION:\n` +
       `This situation has been worked on before. Here is what was already done:\n\n` +
       `${cycleLines}\n\n` +
-      `Your action plan should build on this history. Do NOT repeat steps that were already completed successfully. ` +
+      `Based on these prior cycles, determine what the next action batch should be — or whether the situation is now resolved. ` +
+      `Do NOT repeat steps that were already completed successfully. ` +
       `Focus only on what needs to happen NEXT given the current context and any new information (e.g., a response received, a timeout elapsed). ` +
-      `Your plan should ONLY include steps that are decidable with current information. ` +
-      `If the next step depends on an external response that hasn't arrived yet, do NOT include speculative future steps — the system will create a new cycle when that response arrives.`
+      `Propose ONLY actions that are decidable with current information. ` +
+      `If the next step depends on an external response that hasn't arrived yet, set afterBatch to "monitor" instead of speculating.`
     );
   }
 

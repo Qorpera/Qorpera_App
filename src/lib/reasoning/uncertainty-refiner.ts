@@ -36,12 +36,12 @@ interface RefinementResult {
  * Only called when the reasoning output contains uncertainties.
  */
 export async function refineUncertainties(
-  actionPlan: ActionStep[],
+  actionBatch: ActionStep[],
   evidenceSummary: string,
   communicationContext: string | undefined,
   triggerEvidence: string | undefined,
 ): Promise<RefinementResult> {
-  const stepsToRefine = actionPlan
+  const stepsToRefine = actionBatch
     .map((s, i) => ({ index: i, ...s }))
     .filter(s => s.uncertainties && s.uncertainties.length > 0);
 

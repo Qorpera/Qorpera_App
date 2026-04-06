@@ -65,7 +65,11 @@ interface ReasoningData {
   analysis: string;
   evidenceSummary?: string;
   consideredActions: Array<string | ConsideredAction>;
-  actionPlan: ActionStep[] | null;
+  actionBatch?: ActionStep[] | null;
+  actionPlan?: ActionStep[] | null; // backward compat with old reasoning JSON
+  afterBatch?: "resolve" | "re_evaluate" | "monitor";
+  reEvaluationReason?: string;
+  monitorDurationHours?: number;
   confidence: number;
   missingContext: string[] | null;
   escalation?: { rationale: string; suggestedSteps: ActionStep[] } | null;
@@ -211,7 +215,11 @@ function safeParseReasoning(raw: unknown): ReasoningData | null {
     analysis: typeof r.analysis === "string" ? r.analysis : "",
     evidenceSummary: typeof r.evidenceSummary === "string" ? r.evidenceSummary : undefined,
     consideredActions: Array.isArray(r.consideredActions) ? r.consideredActions : [],
+    actionBatch: Array.isArray(r.actionBatch) ? r.actionBatch as ActionStep[] : null,
     actionPlan: Array.isArray(r.actionPlan) ? r.actionPlan as ActionStep[] : null,
+    afterBatch: typeof r.afterBatch === "string" ? r.afterBatch as ReasoningData["afterBatch"] : undefined,
+    reEvaluationReason: typeof r.reEvaluationReason === "string" ? r.reEvaluationReason : undefined,
+    monitorDurationHours: typeof r.monitorDurationHours === "number" ? r.monitorDurationHours : undefined,
     confidence: typeof r.confidence === "number" ? r.confidence : 0,
     missingContext: Array.isArray(r.missingContext) ? r.missingContext : null,
     escalation: r.escalation as ReasoningData["escalation"] ?? null,
@@ -649,8 +657,9 @@ export default function SituationsPage() {
                     uncertaintyLevel={(() => {
                       if (!detail?.reasoning) return "none" as const;
                       const r = safeParseReasoning(detail.reasoning);
-                      if (!r?.actionPlan) return "none" as const;
-                      const allU = r.actionPlan.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
+                      const rBatch = r?.actionBatch ?? r?.actionPlan;
+                      if (!rBatch) return "none" as const;
+                      const allU = rBatch.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
                       if (allU.some(u => u.impact === "high")) return "high" as const;
                       if (allU.length > 0) return "medium" as const;
                       return "none" as const;
@@ -711,8 +720,9 @@ export default function SituationsPage() {
                     uncertaintyLevel={(() => {
                       if (!detail?.reasoning) return "none" as const;
                       const r = safeParseReasoning(detail.reasoning);
-                      if (!r?.actionPlan) return "none" as const;
-                      const allU = r.actionPlan.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
+                      const rBatch = r?.actionBatch ?? r?.actionPlan;
+                      if (!rBatch) return "none" as const;
+                      const allU = rBatch.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
                       if (allU.some(u => u.impact === "high")) return "high" as const;
                       if (allU.length > 0) return "medium" as const;
                       return "none" as const;
@@ -1050,7 +1060,15 @@ function DetailPane({
     ? (s.status === "detected" || s.status === "proposed")
     : s.status === "proposed";
   const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
-  const actionPlan = reasoning?.actionPlan ?? (Array.isArray(detail?.proposedAction) ? detail!.proposedAction as ActionStep[] : null);
+  // Backward compat: old reasoning uses actionPlan, new uses actionBatch
+  const actionPlan = reasoning?.actionBatch ?? reasoning?.actionPlan ?? (() => {
+    // proposedAction format changed: old = ActionStep[], new = { batch, afterBatch, ... }
+    if (!detail?.proposedAction) return null;
+    if (Array.isArray(detail.proposedAction)) return detail.proposedAction as ActionStep[];
+    const pa = detail.proposedAction as Record<string, unknown>;
+    if (pa.batch && Array.isArray(pa.batch)) return pa.batch as ActionStep[];
+    return null;
+  })();
 
   const currentStepIndex = (() => {
     if (!actionPlan || !executionPlan) return 0;
@@ -1430,7 +1448,7 @@ function DetailPane({
               {/* Section header */}
               <div style={{ marginBottom: 16 }}>
                 <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.02em", color: "var(--foreground)" }}>
-                  {t("actionPlan")}
+                  {t("actionBatch")}
                 </span>
               </div>
               {/* Re-evaluating banner */}

@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { runAgenticLoop } from "@/lib/agentic-loop";
 import { loadOperationalInsights } from "@/lib/context-assembly";
@@ -334,7 +335,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         ?? "";
 
       if (searchQuery.length > 10) {
-        const keywords = `%${searchQuery.split(" ").slice(0, 3).join("%")}%`;
+        const escaped = searchQuery.replace(/[%_\\]/g, "\\$&");
+        const keywords = `%${escaped.split(" ").slice(0, 3).join("%")}%`;
         const results = await prisma.$queryRaw<Array<{
           extractions: unknown;
           sourceType: string;
@@ -429,8 +431,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       data: {
         operatorId: situation.operatorId,
         situationId,
-        contextSections: contextSections as any,
-        citedSections: [] as any,
+        contextSections: contextSections as Prisma.InputJsonValue,
+        citedSections: [] as Prisma.InputJsonValue,
       },
       select: { id: true },
     }).catch(err => {
@@ -495,7 +497,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
 
         await prisma.contextEvaluation.update({
           where: { id: contextEval.id },
-          data: { citedSections: citedSections as any },
+          data: { citedSections: citedSections as Prisma.InputJsonValue },
         });
       } catch (err) {
         console.warn("[reasoning-engine] Context citation parsing failed:", err);
@@ -517,8 +519,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }
 
     // 8. Post-reasoning policy verification — catch LLM ignoring BLOCKED instructions
-    if (reasoning.actionPlan) {
-      const actionSteps = reasoning.actionPlan.filter(s => s.executionMode === "action");
+    if (reasoning.actionBatch) {
+      const actionSteps = reasoning.actionBatch.filter(s => s.executionMode === "action");
       for (const step of actionSteps) {
         if (step.actionCapabilityName) {
           const isPermitted = policyResult.permitted.some(p => p.name === step.actionCapabilityName);
@@ -527,7 +529,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
             console.warn(`[reasoning-engine] AI proposed blocked action "${step.actionCapabilityName}" in plan for situation ${situationId}. Nullifying plan.`);
             reasoning = {
               ...reasoning,
-              actionPlan: null,
+              actionBatch: null,
               analysis: reasoning.analysis + `\n\n[SYSTEM: Plan nullified — step "${step.title}" uses blocked action "${step.actionCapabilityName}".]`,
             };
             break;
@@ -538,9 +540,9 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
 
     // 9. Resolve actionCapabilityName → actionCapabilityId for action steps
     let resolvedSteps: StepDefinition[] | null = null;
-    if (reasoning.actionPlan) {
+    if (reasoning.actionBatch) {
       resolvedSteps = [];
-      for (const step of reasoning.actionPlan) {
+      for (const step of reasoning.actionBatch) {
         let actionCapabilityId: string | undefined;
         if (step.executionMode === "action" && step.actionCapabilityName) {
           const cap = await prisma.actionCapability.findFirst({
@@ -548,7 +550,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           });
           if (!cap) {
             console.warn(`[reasoning-engine] ActionCapability "${step.actionCapabilityName}" not found. Nullifying plan.`);
-            reasoning = { ...reasoning, actionPlan: null };
+            reasoning = { ...reasoning, actionBatch: null };
             resolvedSteps = null;
             break;
           }
@@ -568,8 +570,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }
 
     // Refine uncertainties — focused pass to resolve or confirm
-    if (resolvedSteps && reasoning.actionPlan) {
-      const hasUncertainties = reasoning.actionPlan.some(s => s.uncertainties && s.uncertainties.length > 0);
+    if (resolvedSteps && reasoning.actionBatch) {
+      const hasUncertainties = reasoning.actionBatch.some(s => s.uncertainties && s.uncertainties.length > 0);
       if (hasUncertainties) {
         try {
           let triggerEvidenceStr: string | undefined;
@@ -581,7 +583,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           }
 
           const refinement = await refineUncertainties(
-            reasoning.actionPlan,
+            reasoning.actionBatch,
             reasoning.evidenceSummary ?? "",
             undefined, // agentic model already investigated communications
             triggerEvidenceStr,
@@ -608,7 +610,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
             }
           }
 
-          const totalFlagged = reasoning.actionPlan.reduce((n, s) => n + (s.uncertainties?.length ?? 0), 0);
+          const totalFlagged = reasoning.actionBatch.reduce((n, s) => n + (s.uncertainties?.length ?? 0), 0);
           const totalRemaining = refinement.refinedSteps.reduce((n, s) => n + s.remainingUncertainties.length, 0);
           if (totalFlagged > 0) {
             console.log(`[reasoning-engine] Uncertainty refinement: ${totalFlagged} flagged → ${totalRemaining} kept for situation ${situationId}`);
@@ -639,13 +641,26 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       updates.analysisDocument = reasoning.analysisDocument;
     }
 
-    // Store proposedAction as the full plan for backward-compatible UI display
-    if (reasoning.actionPlan) {
-      updates.proposedAction = JSON.stringify(reasoning.actionPlan);
+    // Store proposedAction with batch + afterBatch metadata
+    if (reasoning.actionBatch) {
+      updates.proposedAction = JSON.stringify({
+        batch: reasoning.actionBatch,
+        afterBatch: reasoning.afterBatch ?? "resolve",
+        reEvaluationReason: reasoning.reEvaluationReason,
+        monitorDurationHours: reasoning.monitorDurationHours,
+      });
+    }
+
+    // Store afterBatch on Situation for easy querying
+    if (reasoning.afterBatch === "monitor" && reasoning.monitorDurationHours) {
+      updates.afterBatch = "monitor";
+      updates.monitorUntil = new Date(Date.now() + reasoning.monitorDurationHours * 3600000);
+    } else {
+      updates.afterBatch = reasoning.afterBatch ?? "resolve";
     }
 
     // 11. Advance status
-    if (reasoning.actionPlan === null || !resolvedSteps) {
+    if (reasoning.actionBatch === null || !resolvedSteps) {
       updates.status = "proposed";
     } else if (effectiveAutonomy === "autonomous") {
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
@@ -747,7 +762,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }
 
     // Situation-level notifications
-    if (reasoning.actionPlan === null || !resolvedSteps) {
+    if (reasoning.actionBatch === null || !resolvedSteps) {
       sendNotificationToAdmins({
         operatorId: situation.operatorId,
         type: "situation_proposed",
@@ -970,7 +985,12 @@ async function createSituationCycle(
         })() : "signal"),
         triggerSummary: situation.triggerSummary ?? (cycleCount === 0 ? "Situation detected" : "Re-evaluation triggered"),
         triggerData: situation.triggerEvidence ? JSON.parse(situation.triggerEvidence) : undefined,
-        reasoning: reasoning as any,
+        reasoning: {
+          ...(reasoning as Record<string, unknown>),
+          afterBatch: (reasoning as Record<string, unknown>).afterBatch ?? "resolve",
+          reEvaluationReason: (reasoning as Record<string, unknown>).reEvaluationReason,
+          monitorDurationHours: (reasoning as Record<string, unknown>).monitorDurationHours,
+        } as any,
         executionPlanId,
         status: "active",
       },

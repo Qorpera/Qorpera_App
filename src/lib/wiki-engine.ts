@@ -33,7 +33,7 @@ export interface ProcessWikiUpdatesParams {
   projectId?: string;
   situationId?: string;
   updates: WikiUpdate[];
-  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research";
+  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research" | "adversarial";
   synthesizedByModel: string;
   synthesisCostCents?: number;
   synthesisDurationMs?: number;
@@ -788,6 +788,53 @@ export async function getRelevantPagesForSeed(
     }
   }
 
+  // 3b. Check routing map for situation-type-specific recommendations
+  if (situationTypeSlug && tokensUsed < TOKEN_BUDGET - 1000) {
+    try {
+      const indexPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug: projectId ? `index-${projectId}` : "index", pageType: "index" },
+        select: { content: true },
+      });
+
+      if (indexPage?.content.includes("## Routing Map")) {
+        const routingSection = indexPage.content.split("## Routing Map")[1] ?? "";
+        const lines = routingSection.split("\n");
+        const recommendedSlugs: string[] = [];
+        let inMatchingSection = false;
+
+        for (const line of lines) {
+          if (line.startsWith("### ") && line.toLowerCase().includes(situationTypeSlug.replace(/-/g, " "))) {
+            inMatchingSection = true;
+          } else if (line.startsWith("### ")) {
+            inMatchingSection = false;
+          }
+          if (inMatchingSection && line.includes("[[") && line.includes("]]")) {
+            const match = line.match(/\[\[([^\]]+)\]\]/);
+            if (match && !usedSlugs.has(match[1])) {
+              recommendedSlugs.push(match[1]);
+            }
+          }
+        }
+
+        if (recommendedSlugs.length > 0) {
+          const routedPages = await prisma.knowledgePage.findMany({
+            where: { operatorId, slug: { in: recommendedSlugs }, status: { not: "quarantined" } },
+            select: { slug: true, title: true, pageType: true, status: true, content: true, trustLevel: true, contentTokens: true },
+          });
+          for (const page of routedPages) {
+            if (tokensUsed + page.contentTokens > TOKEN_BUDGET) break;
+            if (usedSlugs.has(page.slug)) continue;
+            pages.push({ ...page, trustLevel: page.trustLevel ?? "provisional" });
+            tokensUsed += page.contentTokens;
+            usedSlugs.add(page.slug);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — routing map is an optimization
+    }
+  }
+
   // 4. Fallback: if semantic search didn't run or returned too few pages,
   //    use the old heuristic (department overview + high-use pages)
   if (pages.length < 3 && tokensUsed < TOKEN_BUDGET - 500) {
@@ -909,6 +956,30 @@ async function updateIndexPage(operatorId: string, projectId?: string): Promise<
       content += `- [[${p.slug}]] — ${p.title}${statusTag} (${p.sourceCount} sources, ${date})\n`;
     }
     content += "\n";
+  }
+
+  // Append routing map if available
+  try {
+    const { generateRoutingMap } = await import("@/lib/wiki-routing");
+    const routingMap = await generateRoutingMap(operatorId);
+
+    if (routingMap.entries.length > 0) {
+      content += "## Routing Map\n\n";
+      content += `_Based on ${routingMap.basedOnEvaluations} resolved situations_\n\n`;
+      for (const entry of routingMap.entries) {
+        content += `### ${entry.situationPattern}\n`;
+        content += `Recommended pages:\n`;
+        for (const page of entry.recommendedPages) {
+          content += `- [[${page.slug}]] — ${page.relevanceReason}\n`;
+        }
+        if (entry.avoidPages.length > 0) {
+          content += `Pages to skip: ${entry.avoidPages.join(", ")}\n`;
+        }
+        content += "\n";
+      }
+    }
+  } catch (err) {
+    console.warn("[wiki-engine] Routing map generation failed:", err);
   }
 
   const slug = projectId ? `index-${projectId}` : "index";

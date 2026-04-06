@@ -327,9 +327,9 @@ export async function executeResearchPlan(
   const concurrency = options?.concurrency ?? 5;
   const progress = options?.onProgress ?? (async () => {});
 
-  // Load plan
-  const plan = await prisma.researchPlan.findUniqueOrThrow({
-    where: { id: planId },
+  // Load plan — verify it belongs to this operator before proceeding
+  const plan = await prisma.researchPlan.findFirstOrThrow({
+    where: { id: planId, operatorId },
     select: { investigations: true, priorityOrder: true },
   });
 
@@ -462,6 +462,35 @@ export async function executeResearchPlan(
     `${report.totalWikiPages} wiki pages, $${(report.totalCostCents / 100).toFixed(2)} ` +
     `in ${Math.round(report.totalDurationMs / 60000)}min`,
   );
+
+  // ── Post-investigation: adversarial challenge + gap analysis ──
+  // Runs AFTER all investigations complete (sequential, not parallel with them).
+  // Non-fatal — investigation pages remain valid even if this fails.
+  if (report.investigationsCompleted > 0) {
+    try {
+      const { runAdversarialChallenge } = await import("@/lib/adversarial-challenge");
+      const adversarialReport = await runAdversarialChallenge(operatorId, {
+        onProgress: progress,
+      });
+
+      const { runGapAnalysis } = await import("@/lib/gap-analysis");
+      const gapReport = await runGapAnalysis(operatorId, adversarialReport, {
+        onProgress: progress,
+      });
+
+      await prisma.researchPlan.update({
+        where: { id: planId },
+        data: {
+          adversarialReport: adversarialReport as any,
+          gapAnalysisReport: gapReport as any,
+          questionsForHuman: gapReport.questionsForHuman as any,
+          coverageScore: gapReport.coverageScore,
+        },
+      });
+    } catch (err) {
+      console.error("[research] Adversarial/gap analysis failed:", err);
+    }
+  }
 
   return report;
 }

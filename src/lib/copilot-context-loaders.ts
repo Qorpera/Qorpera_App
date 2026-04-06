@@ -71,8 +71,9 @@ export async function loadSituationContext(
       if (reasoning.evidenceSummary) {
         analysisSection += `\n\nEvidence:\n${reasoning.evidenceSummary}`;
       }
-      if (reasoning.actionPlan && Array.isArray(reasoning.actionPlan)) {
-        const steps = reasoning.actionPlan
+      const batch = reasoning.actionBatch ?? reasoning.actionPlan; // backward compat with old reasoning JSON
+      if (batch && Array.isArray(batch)) {
+        const steps = batch
           .map((s: { title: string; description: string }, i: number) => `${i + 1}. ${s.title}: ${s.description}`)
           .join("\n");
         actionSection = `\nRecommended Action:\n${steps}`;

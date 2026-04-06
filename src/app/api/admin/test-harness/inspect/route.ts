@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
                 const r = JSON.parse(s.reasoning);
                 reasoningSummary = {
                   analysis: r.analysis?.slice(0, 200) ?? null,
-                  chosenAction: r.actionPlan?.[0]?.actionCapabilityName ?? null,
+                  chosenAction: (r.actionBatch ?? r.actionPlan)?.[0]?.actionCapabilityName ?? null,
                   confidence: r.confidence ?? null,
                   isMultiAgent: !!r._multiAgent,
                 };

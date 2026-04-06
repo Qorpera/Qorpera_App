@@ -54,7 +54,7 @@ export async function runAgenticLoop<T>(params: AgenticLoopParams<T>): Promise<A
   // Build initial user message
   let initialContent = params.seedContext;
   if (params.editInstruction) {
-    initialContent += `\n\nEDIT REQUEST:\n${params.editInstruction}\nRevise your actionPlan to incorporate this feedback. Keep the same situation analysis but adjust the plan steps and justification accordingly.`;
+    initialContent += `\n\nEDIT REQUEST:\n${params.editInstruction}\nRevise your actionBatch to incorporate this feedback. Keep the same situation analysis but adjust the batch steps and justification accordingly.`;
   }
   if (params.priorFeedbackLines) {
     initialContent += `\n\nHUMAN FEEDBACK ON SIMILAR SITUATIONS:\n${params.priorFeedbackLines.join("\n")}\nIncorporate this feedback into your reasoning.`;

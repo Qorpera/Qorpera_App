@@ -10,3 +10,6 @@ _standalone/
 uploads/
 .vercel
 vercel-env-setup.md
+worker/.env.backup
+worker.log
+worker/worker.log
