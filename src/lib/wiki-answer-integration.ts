@@ -5,11 +5,10 @@
  */
 
 import { prisma } from "@/lib/db";
-import { callLLM } from "@/lib/ai-provider";
+import { callLLM, getModel } from "@/lib/ai-provider";
 import { embedChunks } from "@/lib/rag/embedder";
-import { searchPages } from "@/lib/wiki-engine";
+import { searchPages, createVersionSnapshot } from "@/lib/wiki-engine";
 
-const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 const MAX_WIKI_UPDATES = 10;
 
 export async function updateWikiFromAnswers(
@@ -52,7 +51,7 @@ export async function updateWikiFromAnswers(
     }
 
     if (targetPage) {
-      const updated = await integrateAnswerIntoPage(targetPage, question, answer, context);
+      const updated = await integrateAnswerIntoPage(operatorId, targetPage, question, answer, context);
       if (updated) {
         stats.pagesUpdated++;
         updateCount++;
@@ -104,6 +103,7 @@ async function findPageByQuestionContext(
 }
 
 async function integrateAnswerIntoPage(
+  operatorId: string,
   page: { id: string; slug: string; title: string; content: string; pageType: string; version: number; sourceCount: number },
   question: string,
   answer: string,
@@ -143,11 +143,14 @@ Output the updated page content:`,
       temperature: 0.1,
       maxTokens: 4000,
       aiFunction: "reasoning",
-      model: HAIKU_MODEL,
+      operatorId,
+      model: getModel("wikiAnswerIntegration"),
     });
 
     const updatedContent = response.text.trim();
     if (!updatedContent || updatedContent.length < 50) return false;
+
+    await createVersionSnapshot(page.id, "answer_integration", "human");
 
     await prisma.knowledgePage.update({
       where: { id: page.id },
@@ -194,7 +197,8 @@ async function createPageFromAnswer(
       temperature: 0.1,
       maxTokens: 50,
       aiFunction: "reasoning",
-      model: HAIKU_MODEL,
+      operatorId,
+      model: getModel("wikiAnswerIntegration"),
     });
 
     const title = titleResponse.text.trim().replace(/^["']|["']$/g, "");

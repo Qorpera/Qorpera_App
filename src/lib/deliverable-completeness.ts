@@ -222,6 +222,7 @@ Assess completeness:`,
     temperature: 0.1,
     maxTokens: 2000,
     aiFunction: "reasoning",
+    operatorId: deliverable.project.operatorId,
     model,
   });
 

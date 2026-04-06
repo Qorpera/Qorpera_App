@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSON } from "@/lib/json-helpers";
 import { embedChunks } from "@/lib/rag/embedder";
+import { createVersionSnapshot } from "@/lib/wiki-engine";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -173,6 +174,8 @@ export async function reflectOnOutcome(params: {
   const contentTokens = Math.ceil(result.updatedContent.length / 4);
 
   if (existingPage) {
+    await createVersionSnapshot(existingPage.id, "reflection", getModel("reflection"));
+
     await prisma.knowledgePage.update({
       where: { id: existingPage.id },
       data: {

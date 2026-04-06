@@ -143,6 +143,61 @@ export async function createProjectFromInitiative(
       });
     }
 
+    // Create child projects if this is a portfolio
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const childProjects = (config as any).childProjects as Array<{
+      title: string;
+      description: string;
+      deliverables: Array<{
+        title: string;
+        description: string;
+        assignedToEmail: string;
+        format: string;
+        suggestedDeadline: string | null;
+      }>;
+    }> | undefined;
+
+    if (childProjects && childProjects.length > 0) {
+      for (const child of childProjects) {
+        const childProj = await tx.project.create({
+          data: {
+            operatorId,
+            parentProjectId: proj.id,
+            name: child.title,
+            description: child.description,
+            status: "active",
+            createdById: userId,
+            config: { sourceInitiativeId: initiativeId, parentProjectId: proj.id },
+          },
+        });
+
+        // Add the same owner to child project
+        await tx.projectMember.create({
+          data: {
+            projectId: childProj.id,
+            userId,
+            role: "owner",
+            addedById: userId,
+          },
+        });
+
+        // Create child deliverables
+        for (const del of child.deliverables) {
+          const assigneeId = del.assignedToEmail ? await resolveUserId(del.assignedToEmail) : null;
+          await tx.projectDeliverable.create({
+            data: {
+              projectId: childProj.id,
+              title: del.title,
+              description: del.description,
+              stage: "intelligence",
+              generationMode: "ai_generated",
+              assignedToId: assigneeId,
+            },
+          });
+        }
+      }
+    }
+
     return proj;
   });
 
@@ -168,6 +223,31 @@ export async function createProjectFromInitiative(
     }).catch((err) =>
       console.error(`[initiative-project] Failed to queue generation for deliverable ${del.id}:`, err),
     );
+  }
+
+  // Queue generation for child project deliverables too
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((config as any).childProjects?.length > 0) {
+    const childProjectRecords = await prisma.project.findMany({
+      where: { parentProjectId: project.id },
+      select: { id: true },
+    });
+
+    for (const child of childProjectRecords) {
+      const childDeliverables = await prisma.projectDeliverable.findMany({
+        where: { projectId: child.id },
+        select: { id: true },
+      });
+
+      for (const del of childDeliverables) {
+        await enqueueWorkerJob("generate_deliverable", operatorId, {
+          deliverableId: del.id,
+          projectId: child.id,
+        }).catch((err) =>
+          console.error(`[initiative-project] Failed to queue generation for child deliverable ${del.id}:`, err),
+        );
+      }
+    }
   }
 
   console.log(

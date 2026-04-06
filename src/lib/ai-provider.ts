@@ -42,6 +42,7 @@ const MODEL_ROUTES = {
   projectCompilation: "claude-opus-4-6",
   projectChat: "claude-sonnet-4-6",
   deliverableCompleteness: "claude-sonnet-4-6",
+  wikiAnswerIntegration: "claude-haiku-4-5-20251001",
 
   // ── Infrastructure ──
   embedding: "text-embedding-3-small",
@@ -59,6 +60,8 @@ const MODEL_ROUTES = {
   onboardingAgent: "claude-sonnet-4-6",
   onboardingAgentFollowup: "claude-sonnet-4-6",
   onboardingOrganizer: "claude-opus-4-6",
+  evidenceIngestion: "claude-sonnet-4-6",
+  researchPlanner: "claude-opus-4-6",
   onboardingSynthesis: "claude-sonnet-4-6",
   onboardingChat: "claude-sonnet-4-6",
   // Wiki knowledge verification (deliberately different model than synthesis)

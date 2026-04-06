@@ -52,6 +52,13 @@ interface ProjectConnector {
   syncedItemCount: number;
 }
 
+interface ChildProject {
+  id: string;
+  name: string;
+  status: string;
+  description: string | null;
+}
+
 interface ProjectDetail {
   id: string;
   name: string;
@@ -67,6 +74,8 @@ interface ProjectDetail {
   messages: ProjectMessage[];
   stageCounts: { intelligence: number; workboard: number; deliverable: number };
   daysLeft: number | null;
+  parentProject: { id: string; name: string } | null;
+  childProjects: ChildProject[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -383,6 +392,19 @@ export default function ProjectDetailPage() {
             Projects
           </button>
 
+          {project.parentProject && (
+            <>
+              <span style={{ fontSize: 12, color: "var(--fg4)" }}>/</span>
+              <button
+                onClick={() => router.push(`/projects/${project.parentProject!.id}`)}
+                className="hover:text-[var(--foreground)] transition-colors"
+                style={{ fontSize: 12, color: "var(--fg3)", flexShrink: 0, background: "none", border: "none", cursor: "pointer" }}
+              >
+                {project.parentProject.name}
+              </button>
+            </>
+          )}
+
           <div
             style={{
               width: 1,
@@ -562,6 +584,48 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* ── Workstreams (child projects) ── */}
+        {project.childProjects && project.childProjects.length > 0 && (
+          <div
+            style={{
+              padding: "12px 24px",
+              borderBottom: "0.5px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--fg4)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 8 }}>
+              Workstreams
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {project.childProjects.map((child) => {
+                const s =
+                  child.status === "completed" ? { bg: "rgba(52,211,153,0.1)", color: "rgb(52,211,153)" }
+                  : child.status === "active" ? { bg: "rgba(99,102,241,0.1)", color: "rgb(129,140,248)" }
+                  : { bg: "rgba(255,255,255,0.05)", color: "var(--fg3)" };
+                return (
+                  <button
+                    key={child.id}
+                    onClick={() => router.push(`/projects/${child.id}`)}
+                    className="hover:brightness-125 transition"
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      background: s.bg,
+                      border: "0.5px solid rgba(255,255,255,0.06)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: s.color, fontWeight: 500 }}>{child.name}</span>
+                    <span style={{ fontSize: 10, color: "var(--fg4)" }}>{child.status}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ── Quadrant grid ── */}
         <div

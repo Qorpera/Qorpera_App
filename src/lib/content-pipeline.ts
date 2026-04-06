@@ -40,7 +40,7 @@ export async function ingestContent(
   if (chunks.length === 0) return { chunksCreated: 0 };
 
   // 2. Build contextual headers for document-type content
-  const isDocument = ["drive_doc", "uploaded_doc"].includes(sourceType);
+  const isDocument = ["drive_doc", "uploaded_doc", "file_upload"].includes(sourceType);
   const fileName = (metadata?.fileName as string) || undefined;
 
   let enrichedChunks = chunks.map((chunk, i) => {

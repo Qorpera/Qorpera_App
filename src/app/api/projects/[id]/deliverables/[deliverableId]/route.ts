@@ -60,7 +60,7 @@ export async function PATCH(
   if (description !== undefined) data.description = description;
 
   const updated = await prisma.projectDeliverable.update({
-    where: { id: params.deliverableId },
+    where: { id: params.deliverableId, projectId: params.id },
     data,
   });
 

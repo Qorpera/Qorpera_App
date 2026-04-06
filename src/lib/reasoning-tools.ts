@@ -13,6 +13,7 @@ import {
 } from "@/lib/context-assembly";
 import { getWorkStreamContext } from "@/lib/workstreams";
 import { getPageForEntity, searchPages, searchSystemPages } from "@/lib/wiki-engine";
+import { findContradictions, type EvidenceContradiction } from "@/lib/evidence-registry";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -335,6 +336,92 @@ export const REASONING_TOOLS: AITool[] = [
       required: ["query"],
     },
   },
+  {
+    name: "search_evidence",
+    description:
+      "Search the evidence registry for specific claims, facts, numbers, or relationships. Returns structured extractions from raw data sources with confidence scores and source references. More precise than document search — returns individual claims, not document chunks.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query — a claim, topic, entity name, or number to find in evidence extractions",
+        },
+        sourceType: {
+          type: "string",
+          description: "Optional: filter to a specific source type (email, slack_message, drive_doc, file_upload, calendar_note)",
+        },
+        claimType: {
+          type: "string",
+          enum: ["fact", "commitment", "decision", "opinion", "question"],
+          description: "Optional: filter to a specific claim type",
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum results (default 10, max 30)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_evidence_for_entity",
+    description:
+      "Get all evidence extractions that mention a specific entity (person, company, project). Returns claims, relationships, and contradictions involving that entity. Use this to build a complete picture of what the data says about someone or something.",
+    parameters: {
+      type: "object",
+      properties: {
+        entityName: {
+          type: "string",
+          description: "Name of the entity to find evidence for",
+        },
+        claimType: {
+          type: "string",
+          enum: ["fact", "commitment", "decision", "opinion", "question"],
+          description: "Optional: filter to a specific claim type",
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum extractions to return (default 15, max 50)",
+        },
+      },
+      required: ["entityName"],
+    },
+  },
+  {
+    name: "get_contradictions",
+    description:
+      "Get all detected contradictions in the evidence registry. Contradictions are cases where two data sources make conflicting claims. Use this to identify areas that need investigation or clarification.",
+    parameters: {
+      type: "object",
+      properties: {
+        entityName: {
+          type: "string",
+          description: "Optional: filter contradictions mentioning this entity",
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum contradictions to return (default 20, max 50)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "read_full_content",
+    description:
+      "Read the complete content of a specific ContentChunk by ID. Use when evidence search returns a claim you need to see in full context — the complete email, document section, or message. Returns the full chunk content plus metadata.",
+    parameters: {
+      type: "object",
+      properties: {
+        chunkId: {
+          type: "string",
+          description: "ContentChunk ID to read in full",
+        },
+      },
+      required: ["chunkId"],
+    },
+  },
 ];
 
 // ── Dispatch ────────────────────────────────────────────────────────────────
@@ -361,6 +448,10 @@ export async function executeReasoningTool(
       case "get_workstream_context": return capResult(await executeGetWorkstreamContext(operatorId, args));
       case "read_wiki_page": return capResult(await executeReadWikiPage(operatorId, args));
       case "search_wiki": return capResult(await executeSearchWiki(operatorId, args));
+      case "search_evidence": return capResult(await executeSearchEvidence(operatorId, args));
+      case "get_evidence_for_entity": return capResult(await executeGetEvidenceForEntity(operatorId, args));
+      case "get_contradictions": return capResult(await executeGetContradictions(operatorId, args));
+      case "read_full_content": return capResult(await executeReadFullContent(operatorId, args));
       default: return `Unknown tool: "${toolName}". Available tools: ${REASONING_TOOLS.map(t => t.name).join(", ")}`;
     }
   } catch (err) {
@@ -416,7 +507,7 @@ async function executeSearchEntities(
   if (category) {
     const ids = results.map((r) => r.id);
     const withCategory = await prisma.entity.findMany({
-      where: { id: { in: ids }, category },
+      where: { id: { in: ids }, operatorId, category },
       select: { id: true },
     });
     const categoryIds = new Set(withCategory.map((e) => e.id));
@@ -509,7 +600,7 @@ async function executeGetOrgStructure(
       .filter((cid) => !homeMemberIds.has(cid));
     const crossMembers = crossIds.length > 0
       ? await prisma.entity.findMany({
-          where: { id: { in: crossIds }, status: "active" },
+          where: { id: { in: crossIds }, operatorId, status: "active" },
           include: { propertyValues: { include: { property: { select: { slug: true } } } } },
           orderBy: { displayName: "asc" },
         })
@@ -764,7 +855,7 @@ async function executeFindDepartmentsForEntity(
   if (deptIds.length === 0) return `No relevant departments found for entity ${entityId}.`;
 
   const depts = await prisma.entity.findMany({
-    where: { id: { in: deptIds } },
+    where: { id: { in: deptIds }, operatorId },
     select: { id: true, displayName: true },
   });
 
@@ -972,4 +1063,222 @@ async function executeSearchWiki(
   lines.push(`\nUse read_wiki_page with a slug to read the full page.`);
 
   return lines.join("\n");
+}
+
+// ── Group E: Evidence Registry Tools ──────────────────────────────────────────
+
+async function executeSearchEvidence(
+  operatorId: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const query = String(args.query ?? "");
+  const sourceType = args.sourceType ? String(args.sourceType) : undefined;
+  const claimType = args.claimType ? String(args.claimType) : undefined;
+  const maxResults = Math.min(typeof args.maxResults === "number" ? args.maxResults : 10, 30);
+
+  // Use separate queries for with/without sourceType to keep parameterized safely
+  const rows = sourceType
+    ? await prisma.$queryRaw<Array<{ id: string; sourceChunkId: string; sourceType: string; extractions: unknown; extractedAt: Date }>>`
+        SELECT ee.id, ee."sourceChunkId", ee."sourceType", ee.extractions, ee."extractedAt"
+        FROM "EvidenceExtraction" ee
+        WHERE ee."operatorId" = ${operatorId}
+          AND ee."sourceType" = ${sourceType}
+          AND ee.extractions::text ILIKE ${`%${query}%`}
+        ORDER BY ee."extractedAt" DESC
+        LIMIT ${maxResults}
+      `
+    : await prisma.$queryRaw<Array<{ id: string; sourceChunkId: string; sourceType: string; extractions: unknown; extractedAt: Date }>>`
+        SELECT ee.id, ee."sourceChunkId", ee."sourceType", ee.extractions, ee."extractedAt"
+        FROM "EvidenceExtraction" ee
+        WHERE ee."operatorId" = ${operatorId}
+          AND ee.extractions::text ILIKE ${`%${query}%`}
+        ORDER BY ee."extractedAt" DESC
+        LIMIT ${maxResults}
+      `;
+
+  if (rows.length === 0) return `No evidence found matching "${query}".`;
+
+  // Post-process: filter to matching claims within each extraction
+  const queryLower = query.toLowerCase();
+  const lines: string[] = [`Found evidence in ${rows.length} extractions:`];
+
+  for (const row of rows) {
+    const claims = Array.isArray(row.extractions) ? row.extractions : [];
+    const matchingClaims = claims.filter((c: any) => {
+      const textMatch =
+        c.claim?.toLowerCase().includes(queryLower) ||
+        c.entities?.some((e: string) => e.toLowerCase().includes(queryLower));
+      const typeMatch = !claimType || c.type === claimType;
+      return textMatch && typeMatch;
+    });
+
+    if (matchingClaims.length === 0) continue;
+
+    lines.push(`\n[${row.sourceType}] Chunk: ${row.sourceChunkId} (${row.extractedAt.toISOString().split("T")[0]})`);
+    for (const c of matchingClaims) {
+      const entities = c.entities?.length > 0 ? ` [${c.entities.join(", ")}]` : "";
+      const nums = c.numbers?.length > 0
+        ? ` | Numbers: ${c.numbers.map((n: any) => `${n.value} ${n.unit} (${n.context})`).join("; ")}`
+        : "";
+      lines.push(`  - [${c.type}] (${(c.confidence * 100).toFixed(0)}%) ${c.claim}${entities}${nums}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function executeGetEvidenceForEntity(
+  operatorId: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const entityName = String(args.entityName ?? "");
+  const claimType = args.claimType ? String(args.claimType) : undefined;
+  const maxResults = Math.min(typeof args.maxResults === "number" ? args.maxResults : 15, 50);
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string; sourceChunkId: string; sourceType: string;
+    extractions: unknown; relationships: unknown; extractedAt: Date;
+  }>>`
+    SELECT ee.id, ee."sourceChunkId", ee."sourceType", ee.extractions, ee.relationships, ee."extractedAt"
+    FROM "EvidenceExtraction" ee
+    WHERE ee."operatorId" = ${operatorId}
+      AND (
+        ee.extractions::text ILIKE ${`%${entityName}%`}
+        OR ee.relationships::text ILIKE ${`%${entityName}%`}
+      )
+    ORDER BY ee."extractedAt" DESC
+    LIMIT ${maxResults}
+  `;
+
+  if (rows.length === 0) return `No evidence found mentioning "${entityName}".`;
+
+  const nameLower = entityName.toLowerCase();
+  const lines: string[] = [`Evidence for "${entityName}" across ${rows.length} extractions:`];
+
+  let totalClaims = 0;
+  let totalRelationships = 0;
+
+  for (const row of rows) {
+    const claims = Array.isArray(row.extractions) ? row.extractions : [];
+    const rels = Array.isArray(row.relationships) ? row.relationships : [];
+
+    const matchingClaims = claims.filter((c: any) => {
+      const entityMatch = c.entities?.some((e: string) => e.toLowerCase().includes(nameLower));
+      const textMatch = c.claim?.toLowerCase().includes(nameLower);
+      const typeMatch = !claimType || c.type === claimType;
+      return (entityMatch || textMatch) && typeMatch;
+    });
+
+    const matchingRels = rels.filter((r: any) =>
+      r.from?.toLowerCase().includes(nameLower) || r.to?.toLowerCase().includes(nameLower),
+    );
+
+    if (matchingClaims.length === 0 && matchingRels.length === 0) continue;
+
+    lines.push(`\n[${row.sourceType}] Chunk: ${row.sourceChunkId} (${row.extractedAt.toISOString().split("T")[0]})`);
+
+    for (const c of matchingClaims) {
+      lines.push(`  Claim [${c.type}] (${(c.confidence * 100).toFixed(0)}%): ${c.claim}`);
+      totalClaims++;
+    }
+
+    for (const r of matchingRels) {
+      lines.push(`  Relationship: ${r.from} --[${r.type}]--> ${r.to} | Evidence: "${r.evidence}"`);
+      totalRelationships++;
+    }
+  }
+
+  lines.splice(1, 0, `Summary: ${totalClaims} claims, ${totalRelationships} relationships`);
+
+  return lines.join("\n");
+}
+
+async function executeGetContradictions(
+  operatorId: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const entityName = args.entityName ? String(args.entityName) : undefined;
+  const maxResults = Math.min(typeof args.maxResults === "number" ? args.maxResults : 20, 50);
+
+  let results = await findContradictions(operatorId);
+
+  if (entityName) {
+    const nameLower = entityName.toLowerCase();
+    results = results.filter((e) => {
+      const contras = e.contradictions as EvidenceContradiction[];
+      return Array.isArray(contras) && contras.some(
+        (c) =>
+          c.claim.toLowerCase().includes(nameLower) ||
+          c.counterclaim.toLowerCase().includes(nameLower),
+      );
+    });
+  }
+
+  results = results.slice(0, maxResults);
+
+  if (results.length === 0) {
+    return entityName
+      ? `No contradictions found mentioning "${entityName}".`
+      : "No contradictions detected in the evidence registry.";
+  }
+
+  const lines: string[] = [`Found contradictions in ${results.length} extractions:`];
+
+  for (const row of results) {
+    const contras = (row.contradictions as EvidenceContradiction[]) ?? [];
+    lines.push(`\n[${row.sourceType}] Extraction: ${row.id}`);
+    for (const c of contras) {
+      if (entityName) {
+        const nameLower = entityName.toLowerCase();
+        if (
+          !c.claim.toLowerCase().includes(nameLower) &&
+          !c.counterclaim.toLowerCase().includes(nameLower)
+        ) continue;
+      }
+      lines.push(`  Claim: "${c.claim}"`);
+      lines.push(`  Contradicted by: "${c.counterclaim}"`);
+      lines.push(`  Sources: ${c.claimSourceId} vs ${c.counterSourceId}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function executeReadFullContent(
+  operatorId: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const chunkId = String(args.chunkId ?? "");
+
+  const chunk = await prisma.contentChunk.findFirst({
+    where: { id: chunkId, operatorId },
+    select: {
+      id: true,
+      sourceType: true,
+      sourceId: true,
+      content: true,
+      metadata: true,
+      chunkIndex: true,
+      createdAt: true,
+    },
+  });
+
+  if (!chunk) return "Chunk not found or access denied.";
+
+  const meta =
+    chunk.metadata && typeof chunk.metadata === "string"
+      ? JSON.parse(chunk.metadata)
+      : (chunk.metadata as Record<string, unknown> | null) ?? {};
+
+  const header = [
+    `Source: ${chunk.sourceType}/${chunk.sourceId}`,
+    `Chunk index: ${chunk.chunkIndex}`,
+    `Created: ${chunk.createdAt.toISOString().split("T")[0]}`,
+    (meta as any).subject ? `Subject: ${(meta as any).subject}` : null,
+    (meta as any).from ? `From: ${(meta as any).from}` : null,
+    (meta as any).channel ? `Channel: ${(meta as any).channel}` : null,
+    (meta as any).fileName ? `File: ${(meta as any).fileName}` : null,
+  ].filter(Boolean).join(" | ");
+
+  return `${header}\n\n${chunk.content}`;
 }

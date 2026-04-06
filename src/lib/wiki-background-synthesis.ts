@@ -359,6 +359,10 @@ Respond with ONLY a JSON object:
   "reasoning": "brief explanation of coverage assessment"
 }
 
+If this is a small operation (1-3 people), adjust your evaluation:
+- Questions about departments (5) and cross-department communication (7) are less relevant
+- Instead, evaluate: Are the active deals/engagements well-documented? Are external collaborators mapped? Are deal stages and timelines clear?
+
 Be critical but practical. A wiki doesn't need to cover everything — it needs to cover enough that the reasoning engine can investigate operational situations effectively. Suggest at most 15 new pages per evaluation.`;
 
   const model = getModel("verifier"); // Sonnet
@@ -785,7 +789,23 @@ async function synthesizeBatchSafe(
     });
 
     const content = response.text;
-    if (!content || content.trim().length < 50) {
+
+    // Parse and strip bookmarks from response
+    let pageContent = content;
+    let bookmarks: Array<{ type: string; reason: string; confidence: number; subject?: string }> = [];
+
+    const bookmarkMatch = content.match(/---BOOKMARKS---\s*([\s\S]*?)\s*---END_BOOKMARKS---/);
+    if (bookmarkMatch) {
+      pageContent = content.replace(/---BOOKMARKS---[\s\S]*?---END_BOOKMARKS---/, '').trim();
+      try {
+        const parsed = JSON.parse(bookmarkMatch[1].trim());
+        bookmarks = Array.isArray(parsed) ? parsed : [parsed];
+      } catch (e) {
+        console.warn(`[background-synthesis] Failed to parse bookmarks for ${batch.targetPage.slug}:`, e);
+      }
+    }
+
+    if (!pageContent || pageContent.trim().length < 50) {
       console.warn(
         `[background-synthesis] Empty synthesis for ${batch.targetPage.slug}`,
       );
@@ -796,7 +816,7 @@ async function synthesizeBatchSafe(
 
     // Extract source citations
     const citationMatches =
-      content.match(/\[src:([a-zA-Z0-9_-]+)\]/g) ?? [];
+      pageContent.match(/\[src:([a-zA-Z0-9_-]+)\]/g) ?? [];
     const sourceCitations = citationMatches.map((match) => {
       const id = match.replace("[src:", "").replace("]", "");
       const sourceItem = batch.sourceData.find((s) => s.id === id);
@@ -822,7 +842,7 @@ async function synthesizeBatchSafe(
           title: batch.targetPage.title,
           subjectEntityId: batch.targetPage.subjectEntityId,
           updateType: isUpdate ? "update" : "create",
-          content,
+          content: pageContent,
           sourceCitations,
           reasoning: `Background synthesis from ${batch.sourceData.length} source items`,
         },
@@ -830,6 +850,35 @@ async function synthesizeBatchSafe(
       synthesisPath: "background",
       synthesizedByModel: model,
     });
+
+    // Store bookmarks if any were emitted
+    if (bookmarks.length > 0) {
+      const page = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug: batch.targetPage.slug },
+        select: { id: true },
+      });
+
+      if (page) {
+        for (const bm of bookmarks) {
+          try {
+            await prisma.wikiBookmark.create({
+              data: {
+                operatorId,
+                pageId: page.id,
+                pageSlug: batch.targetPage.slug,
+                bookmarkType: bm.type || 'notable_pattern',
+                reason: bm.reason,
+                confidence: Math.max(0, Math.min(1, bm.confidence ?? 0.5)),
+                subjectHint: bm.subject || null,
+              },
+            });
+          } catch (err) {
+            console.warn(`[background-synthesis] Failed to store bookmark:`, err);
+          }
+        }
+        console.log(`[background-synthesis] Stored ${bookmarks.length} bookmark(s) from ${batch.targetPage.slug}`);
+      }
+    }
 
     if (isUpdate) report.pagesUpdated++;
     else report.pagesCreated++;
@@ -1169,7 +1218,24 @@ Rules:
 - Note gaps: what you'd expect to know but don't have data for
 - Target 1500-2500 tokens of content
 
-Output the full page in markdown.`,
+Output the full page in markdown.
+
+## Bookmarks (optional)
+
+After writing the page content, if you noticed anything that seems significant and might warrant further attention — an active project or engagement, a risk that needs monitoring, a contradiction between sources, a strategic opportunity, an unresolved question — add a BOOKMARKS section at the very end of your response.
+
+Format:
+---BOOKMARKS---
+[{"type": "active_engagement", "reason": "Meridian Teknik acquisition appears active with multiple recent touchpoints", "confidence": 0.8, "subject": "Meridian Teknik"}]
+---END_BOOKMARKS---
+
+Bookmark types: active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
+
+Rules:
+- Only bookmark things that genuinely caught your attention. Most pages will have 0 bookmarks.
+- The threshold is LOW — if something made you think "hmm", bookmark it. Better to over-flag than miss something.
+- "subject" should be the entity name, topic, or deal name the bookmark is about (used for grouping related bookmarks across pages).
+- If nothing stands out, omit the BOOKMARKS section entirely.`,
 
   department_overview: `You are synthesizing a department overview for an organizational knowledge wiki.
 
@@ -1191,7 +1257,24 @@ Rules:
 - Note team members by name and role
 - Distinguish between what the data shows and what might be inferred
 
-Output the full page in markdown.`,
+Output the full page in markdown.
+
+## Bookmarks (optional)
+
+After writing the page content, if you noticed anything that seems significant and might warrant further attention — an active project or engagement, a risk that needs monitoring, a contradiction between sources, a strategic opportunity, an unresolved question — add a BOOKMARKS section at the very end of your response.
+
+Format:
+---BOOKMARKS---
+[{"type": "active_engagement", "reason": "Meridian Teknik acquisition appears active with multiple recent touchpoints", "confidence": 0.8, "subject": "Meridian Teknik"}]
+---END_BOOKMARKS---
+
+Bookmark types: active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
+
+Rules:
+- Only bookmark things that genuinely caught your attention. Most pages will have 0 bookmarks.
+- The threshold is LOW — if something made you think "hmm", bookmark it. Better to over-flag than miss something.
+- "subject" should be the entity name, topic, or deal name the bookmark is about (used for grouping related bookmarks across pages).
+- If nothing stands out, omit the BOOKMARKS section entirely.`,
 
   financial_pattern: `You are synthesizing financial patterns for an organizational knowledge wiki.
 
@@ -1213,7 +1296,24 @@ Rules:
 - Compare periods when data exists
 - Flag contradictions explicitly
 
-Output the full page in markdown.`,
+Output the full page in markdown.
+
+## Bookmarks (optional)
+
+After writing the page content, if you noticed anything that seems significant and might warrant further attention — an active project or engagement, a risk that needs monitoring, a contradiction between sources, a strategic opportunity, an unresolved question — add a BOOKMARKS section at the very end of your response.
+
+Format:
+---BOOKMARKS---
+[{"type": "active_engagement", "reason": "Meridian Teknik acquisition appears active with multiple recent touchpoints", "confidence": 0.8, "subject": "Meridian Teknik"}]
+---END_BOOKMARKS---
+
+Bookmark types: active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
+
+Rules:
+- Only bookmark things that genuinely caught your attention. Most pages will have 0 bookmarks.
+- The threshold is LOW — if something made you think "hmm", bookmark it. Better to over-flag than miss something.
+- "subject" should be the entity name, topic, or deal name the bookmark is about (used for grouping related bookmarks across pages).
+- If nothing stands out, omit the BOOKMARKS section entirely.`,
 
   communication_pattern: `You are synthesizing communication patterns for an organizational knowledge wiki.
 
@@ -1234,7 +1334,24 @@ Rules:
 - Every claim must cite its source as [src:{id}]
 - Quantify where possible: "responds within 4 hours on average" not "responds quickly"
 
-Output the full page in markdown.`,
+Output the full page in markdown.
+
+## Bookmarks (optional)
+
+After writing the page content, if you noticed anything that seems significant and might warrant further attention — an active project or engagement, a risk that needs monitoring, a contradiction between sources, a strategic opportunity, an unresolved question — add a BOOKMARKS section at the very end of your response.
+
+Format:
+---BOOKMARKS---
+[{"type": "active_engagement", "reason": "Meridian Teknik acquisition appears active with multiple recent touchpoints", "confidence": 0.8, "subject": "Meridian Teknik"}]
+---END_BOOKMARKS---
+
+Bookmark types: active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
+
+Rules:
+- Only bookmark things that genuinely caught your attention. Most pages will have 0 bookmarks.
+- The threshold is LOW — if something made you think "hmm", bookmark it. Better to over-flag than miss something.
+- "subject" should be the entity name, topic, or deal name the bookmark is about (used for grouping related bookmarks across pages).
+- If nothing stands out, omit the BOOKMARKS section entirely.`,
 
   process_description: `You are synthesizing a process description for an organizational knowledge wiki.
 
@@ -1256,7 +1373,24 @@ Rules:
 - Every claim must cite its source as [src:{id}]
 - Describe observed behavior, not prescribed behavior
 
-Output the full page in markdown.`,
+Output the full page in markdown.
+
+## Bookmarks (optional)
+
+After writing the page content, if you noticed anything that seems significant and might warrant further attention — an active project or engagement, a risk that needs monitoring, a contradiction between sources, a strategic opportunity, an unresolved question — add a BOOKMARKS section at the very end of your response.
+
+Format:
+---BOOKMARKS---
+[{"type": "active_engagement", "reason": "Meridian Teknik acquisition appears active with multiple recent touchpoints", "confidence": 0.8, "subject": "Meridian Teknik"}]
+---END_BOOKMARKS---
+
+Bookmark types: active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
+
+Rules:
+- Only bookmark things that genuinely caught your attention. Most pages will have 0 bookmarks.
+- The threshold is LOW — if something made you think "hmm", bookmark it. Better to over-flag than miss something.
+- "subject" should be the entity name, topic, or deal name the bookmark is about (used for grouping related bookmarks across pages).
+- If nothing stands out, omit the BOOKMARKS section entirely.`,
 
   topic_synthesis: `You are synthesizing a topic analysis for an organizational knowledge wiki.
 
@@ -1274,7 +1408,24 @@ Rules:
 - Be precise with numbers and dates
 - Note what's missing or unclear
 
-Output the full page in markdown.`,
+Output the full page in markdown.
+
+## Bookmarks (optional)
+
+After writing the page content, if you noticed anything that seems significant and might warrant further attention — an active project or engagement, a risk that needs monitoring, a contradiction between sources, a strategic opportunity, an unresolved question — add a BOOKMARKS section at the very end of your response.
+
+Format:
+---BOOKMARKS---
+[{"type": "active_engagement", "reason": "Meridian Teknik acquisition appears active with multiple recent touchpoints", "confidence": 0.8, "subject": "Meridian Teknik"}]
+---END_BOOKMARKS---
+
+Bookmark types: active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
+
+Rules:
+- Only bookmark things that genuinely caught your attention. Most pages will have 0 bookmarks.
+- The threshold is LOW — if something made you think "hmm", bookmark it. Better to over-flag than miss something.
+- "subject" should be the entity name, topic, or deal name the bookmark is about (used for grouping related bookmarks across pages).
+- If nothing stands out, omit the BOOKMARKS section entirely.`,
 
   relationship_map: `You are synthesizing a relationship map for an organizational knowledge wiki.
 
@@ -1291,7 +1442,24 @@ Rules:
 - Every claim must cite its source as [src:{id}]
 - Quantify interactions where possible
 
-Output the full page in markdown.`,
+Output the full page in markdown.
+
+## Bookmarks (optional)
+
+After writing the page content, if you noticed anything that seems significant and might warrant further attention — an active project or engagement, a risk that needs monitoring, a contradiction between sources, a strategic opportunity, an unresolved question — add a BOOKMARKS section at the very end of your response.
+
+Format:
+---BOOKMARKS---
+[{"type": "active_engagement", "reason": "Meridian Teknik acquisition appears active with multiple recent touchpoints", "confidence": 0.8, "subject": "Meridian Teknik"}]
+---END_BOOKMARKS---
+
+Bookmark types: active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
+
+Rules:
+- Only bookmark things that genuinely caught your attention. Most pages will have 0 bookmarks.
+- The threshold is LOW — if something made you think "hmm", bookmark it. Better to over-flag than miss something.
+- "subject" should be the entity name, topic, or deal name the bookmark is about (used for grouping related bookmarks across pages).
+- If nothing stands out, omit the BOOKMARKS section entirely.`,
 };
 
 function getSynthesisTemplate(pageType: string): string {

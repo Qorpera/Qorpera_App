@@ -156,8 +156,8 @@ export default function WikiPage() {
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Inspector
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  // Inspector (collapsed by default)
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [highlightedSource, setHighlightedSource] = useState<string | null>(null);
   const [expandedSource, setExpandedSource] = useState<string | null>(null);
   const [verLogOpen, setVerLogOpen] = useState(false);
@@ -402,10 +402,7 @@ export default function WikiPage() {
             flex: 1,
             overflow: "auto",
             borderLeft: isMobile ? "none" : "1px solid var(--border)",
-            borderRight:
-              inspectorOpen && activePage && !isMobile
-                ? "1px solid var(--border)"
-                : "none",
+            borderRight: "none",
           }}
         >
           {isMobile && (
@@ -426,6 +423,28 @@ export default function WikiPage() {
             />
           )}
 
+          {/* Search bar at top of content area */}
+          {!isMobile && (
+            <div style={{ padding: "12px 24px 0" }}>
+              <input
+                type="text"
+                placeholder="Search wiki pages..."
+                value={searchInput}
+                onChange={(e) => handleSearch(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 14px",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "0.5px solid var(--border)",
+                  borderRadius: 8,
+                  color: "var(--foreground)",
+                  fontSize: 13,
+                  outline: "none",
+                }}
+              />
+            </div>
+          )}
+
           {pageLoading ? (
             <div style={{ padding: 32, color: "var(--fg3)" }}>Loading page...</div>
           ) : activePage ? (
@@ -435,6 +454,7 @@ export default function WikiPage() {
               editContent={editContent}
               saving={saving}
               locale={locale}
+              pageIndex={pages}
               onStartEdit={() => {
                 setEditContent(activePage.content);
                 setEditing(true);
@@ -445,6 +465,7 @@ export default function WikiPage() {
               onCitationClick={handleCitationClick}
               onToggleInspector={() => setInspectorOpen((o) => !o)}
               inspectorOpen={inspectorOpen}
+              onNavigate={(slug) => setParam("page", slug)}
             />
           ) : (
             <EmptyState stats={stats} />
@@ -452,22 +473,66 @@ export default function WikiPage() {
         </div>
 
         {/* ── Inspector ── */}
+        {activePage && !isMobile && !inspectorOpen && (
+          <div
+            onClick={() => setInspectorOpen(true)}
+            style={{
+              width: 36,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "center",
+              paddingTop: 14,
+              cursor: "pointer",
+              borderLeft: "1px solid var(--border)",
+              background: "var(--sidebar)",
+            }}
+          >
+            <span style={{ fontSize: 10, color: "var(--fg3)", writingMode: "vertical-rl", textOrientation: "mixed" }}>
+              Metadata
+            </span>
+          </div>
+        )}
         {activePage && inspectorOpen && !isMobile && (
-          <InspectorPanel
-            page={activePage}
-            sourceDetails={sourceDetails}
-            referencedBy={referencedBy}
-            highlightedSource={highlightedSource}
-            expandedSource={expandedSource}
-            verLogOpen={verLogOpen}
-            sourceRefs={sourceRefs}
-            locale={locale}
-            onExpandSource={(id) =>
-              setExpandedSource((prev) => (prev === id ? null : id))
-            }
-            onToggleVerLog={() => setVerLogOpen((o) => !o)}
-            onNavigate={(slug) => setParam("page", slug)}
-          />
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              onClick={() => setInspectorOpen(false)}
+              style={{
+                position: "absolute",
+                top: 12,
+                left: -12,
+                width: 24,
+                height: 24,
+                borderRadius: "50%",
+                background: "var(--sidebar)",
+                border: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                zIndex: 1,
+                color: "var(--fg3)",
+                fontSize: 12,
+              }}
+            >
+              →
+            </button>
+            <InspectorPanel
+              page={activePage}
+              sourceDetails={sourceDetails}
+              referencedBy={referencedBy}
+              highlightedSource={highlightedSource}
+              expandedSource={expandedSource}
+              verLogOpen={verLogOpen}
+              sourceRefs={sourceRefs}
+              locale={locale}
+              onExpandSource={(id) =>
+                setExpandedSource((prev) => (prev === id ? null : id))
+              }
+              onToggleVerLog={() => setVerLogOpen((o) => !o)}
+              onNavigate={(slug) => setParam("page", slug)}
+            />
+          </div>
         )}
       </div>
 
@@ -948,12 +1013,39 @@ function MobilePageList({
 
 // ── Content Pane ─────────────────────────────────────────
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function insertCrossLinks(text: string, pageIndex: WikiPageSummary[], currentSlug: string): string {
+  // Sort by title length (longest first) to avoid partial matches
+  const entries = pageIndex
+    .filter((p) => p.slug !== currentSlug && p.title.length > 3)
+    .sort((a, b) => b.title.length - a.title.length);
+
+  let result = text;
+  const linked = new Set<string>();
+
+  for (const entry of entries) {
+    if (linked.has(entry.slug)) continue;
+    // Only link first occurrence, whole word, case-insensitive
+    // Skip matches inside markdown links, headings, or citation markers
+    const regex = new RegExp(`(?<![#\\[\\(])\\b(${escapeRegex(entry.title)})\\b(?![\\]\\)])`, "i");
+    if (regex.test(result)) {
+      result = result.replace(regex, `[$1](wiki:${entry.slug})`);
+      linked.add(entry.slug);
+    }
+  }
+  return result;
+}
+
 function ContentPane({
   page,
   editing,
   editContent,
   saving,
   locale,
+  pageIndex,
   onStartEdit,
   onCancelEdit,
   onSave,
@@ -961,12 +1053,14 @@ function ContentPane({
   onCitationClick,
   onToggleInspector,
   inspectorOpen,
+  onNavigate,
 }: {
   page: WikiPageFull;
   editing: boolean;
   editContent: string;
   saving: boolean;
   locale: string;
+  pageIndex: WikiPageSummary[];
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onSave: () => void;
@@ -974,14 +1068,17 @@ function ContentPane({
   onCitationClick: (id: string) => void;
   onToggleInspector: () => void;
   inspectorOpen: boolean;
+  onNavigate: (slug: string) => void;
 }) {
-  // Process content to replace [src:xxx] with markers for ReactMarkdown
+  // Process content: replace citations with markers, then insert cross-links
   const processedContent = useMemo(() => {
-    return page.content.replace(
+    let text = page.content.replace(
       /\[src:([a-zA-Z0-9_-]+)\]/g,
       "{{CITE:$1}}",
     );
-  }, [page.content]);
+    text = insertCrossLinks(text, pageIndex, page.slug);
+    return text;
+  }, [page.content, pageIndex, page.slug]);
 
   return (
     <div style={{ padding: "20px 28px", maxWidth: 800, margin: "0 auto" }}>
@@ -1125,16 +1222,15 @@ function ContentPane({
         </div>
       ) : (
         /* View mode — markdown */
-        <div className="wiki-content" style={{ fontSize: 14, lineHeight: "22px", color: "var(--foreground)" }}>
+        <div className="wiki-content" style={{ fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", maxWidth: 720 }}>
           <ReactMarkdown
             components={{
               p: ({ children }) => {
-                // Process citation markers in text nodes
                 return <p style={{ marginBottom: 12 }}>{processCitations(children, onCitationClick)}</p>;
               },
-              h1: ({ children }) => <h1 style={{ fontSize: 20, fontWeight: 600, marginTop: 24, marginBottom: 10, color: "var(--foreground)" }}>{children}</h1>,
-              h2: ({ children }) => <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 20, marginBottom: 8, color: "var(--foreground)" }}>{children}</h2>,
-              h3: ({ children }) => <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 16, marginBottom: 6, color: "var(--foreground)" }}>{children}</h3>,
+              h1: ({ children }) => <h1 style={{ fontSize: 20, fontWeight: 600, marginTop: 24, marginBottom: 12, color: "var(--foreground)" }}>{children}</h1>,
+              h2: ({ children }) => <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 20, marginBottom: 10, color: "var(--foreground)" }}>{children}</h2>,
+              h3: ({ children }) => <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 16, marginBottom: 8, color: "var(--foreground)" }}>{children}</h3>,
               ul: ({ children }) => <ul style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ul>,
               ol: ({ children }) => <ol style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ol>,
               li: ({ children }) => <li style={{ marginBottom: 4, color: "var(--fg2)" }}>{processCitations(children, onCitationClick)}</li>,
@@ -1142,18 +1238,45 @@ function ContentPane({
               em: ({ children }) => <em style={{ color: "var(--fg2)" }}>{children}</em>,
               hr: () => <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "16px 0" }} />,
               code: ({ children }) => (
-                <code
-                  style={{
-                    padding: "1px 5px",
-                    borderRadius: 3,
-                    background: "var(--border)",
-                    fontSize: 12,
-                    fontFamily: "monospace",
-                  }}
-                >
+                <code style={{ padding: "2px 5px", borderRadius: 3, background: "rgba(255,255,255,0.06)", fontSize: 12, fontFamily: "monospace" }}>
                   {children}
                 </code>
               ),
+              blockquote: ({ children }) => (
+                <blockquote style={{ borderLeft: "2px solid var(--border)", paddingLeft: 14, color: "var(--fg3)", margin: "12px 0" }}>
+                  {children}
+                </blockquote>
+              ),
+              table: ({ children }) => (
+                <table style={{ width: "100%", borderCollapse: "collapse", margin: "12px 0", fontSize: 12 }}>
+                  {children}
+                </table>
+              ),
+              th: ({ children }) => (
+                <th style={{ textAlign: "left", padding: "6px 10px", borderBottom: "1px solid var(--border)", color: "var(--fg3)", fontWeight: 600 }}>
+                  {children}
+                </th>
+              ),
+              td: ({ children }) => (
+                <td style={{ padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                  {processCitations(children, onCitationClick)}
+                </td>
+              ),
+              a: ({ href, children }) => {
+                if (href?.startsWith("wiki:")) {
+                  const slug = href.slice(5);
+                  return (
+                    <button
+                      onClick={() => onNavigate(slug)}
+                      className="wiki-link"
+                      style={{ color: "var(--accent)", textDecoration: "underline", textDecorationStyle: "dotted", cursor: "pointer", background: "none", border: "none", font: "inherit", padding: 0 }}
+                    >
+                      {children}
+                    </button>
+                  );
+                }
+                return <a href={href} style={{ color: "var(--accent)" }}>{children}</a>;
+              },
             }}
           >
             {processedContent}

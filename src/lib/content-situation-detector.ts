@@ -1258,8 +1258,8 @@ export async function evaluateContentForSituations(
       let departmentName: string | null = null;
       let departmentId: string | null = deptIds[0] ?? null;
       if (departmentId) {
-        const dept = await prisma.entity.findUnique({
-          where: { id: departmentId },
+        const dept = await prisma.entity.findFirst({
+          where: { id: departmentId, operatorId },
           select: { displayName: true },
         });
         departmentName = dept?.displayName ?? null;

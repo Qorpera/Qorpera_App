@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(Math.max(parseInt(params.get("limit") ?? "50", 10) || 50, 1), 200);
   const offset = Math.max(parseInt(params.get("offset") ?? "0", 10) || 0, 0);
 
-  const where: Record<string, unknown> = { operatorId };
+  const where: Record<string, unknown> = { operatorId, parentProjectId: null };
   if (status) where.status = status;
   if (effectiveRole === "member") {
     where.members = { some: { userId: effectiveUserId } };
@@ -31,10 +31,22 @@ export async function GET(req: NextRequest) {
           select: {
             members: { where: { user: { role: { not: "superadmin" } } } },
             deliverables: true,
+            childProjects: true,
           },
         },
         deliverables: {
           select: { id: true, stage: true, acceptedById: true },
+        },
+        childProjects: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            status: true,
+            createdAt: true,
+            _count: { select: { deliverables: true } },
+          },
+          orderBy: { createdAt: "asc" },
         },
       },
     }),
@@ -53,7 +65,7 @@ export async function GET(req: NextRequest) {
       : null;
 
     const { deliverables, _count, ...rest } = p;
-    return { ...rest, deliverableCount, completedCount, memberCount, daysLeft };
+    return { ...rest, parentProjectId: p.parentProjectId ?? null, deliverableCount, completedCount, memberCount, daysLeft, childProjectCount: _count.childProjects };
   });
 
   return NextResponse.json({ projects: data, total });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { embedChunks } from "@/lib/rag/embedder";
+import { createVersionSnapshot } from "@/lib/wiki-engine";
 
 /** Resolve a wiki page by slug — tries operator-scoped first, then system-scoped. */
 async function resolvePageBySlug(
@@ -173,6 +174,8 @@ export async function PATCH(
       data.quarantineReason = "Manually quarantined by superadmin";
     }
   }
+
+  await createVersionSnapshot(page.id, "human_edit", su.effectiveUserId);
 
   const updated = await prisma.knowledgePage.update({
     where: { id: page.id },

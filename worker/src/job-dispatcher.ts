@@ -173,13 +173,19 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
 
     if (mode === "onboarding") {
       try {
-        const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
-        const scanResult = await runWikiStrategicScan(operatorId);
-        console.log(`[wiki_background_synthesis] Post-synthesis scan: ${scanResult.patternsDetected} patterns, ${scanResult.initiativesCreated} initiatives`);
+        const { assembleInitiativesFromBookmarks } = await import("@/lib/wiki-bookmark-assembly");
+        const result = await assembleInitiativesFromBookmarks(operatorId);
+        console.log(`[wiki_background_synthesis] Bookmark assembly: ${result.initiativesCreated} initiatives from ${result.bookmarksReviewed} bookmarks`);
       } catch (err) {
-        console.error(`[wiki_background_synthesis] Post-synthesis scan failed:`, err);
+        console.error(`[wiki_background_synthesis] Bookmark assembly failed:`, err);
       }
     }
+  },
+
+  async process_file_upload(payload) {
+    const { fileUploadId } = payload as { fileUploadId: string };
+    const { processFileUpload } = await import("@/lib/file-processor");
+    await processFileUpload(fileUploadId);
   },
 
   async synthesize_research(payload) {
@@ -187,6 +193,176 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     const { synthesizeResearchDocument } = await import("@/lib/research-synthesizer");
     const result = await synthesizeResearchDocument({ documentContent: content, documentTitle: title, focusArea });
     console.log(`[synthesize_research] Created ${result.pagesCreated} system wiki pages from "${title}"`);
+  },
+
+  async re_evaluate_plan(payload) {
+    const { operatorId, executionPlanId, triggerStepId, humanNotes } = payload as {
+      operatorId: string;
+      executionPlanId: string;
+      triggerStepId: string;
+      humanNotes: string;
+    };
+
+    const plan = await prisma.executionPlan.findFirst({
+      where: { id: executionPlanId, operatorId },
+      include: {
+        steps: { orderBy: { sequenceOrder: "asc" } },
+      },
+    });
+
+    if (!plan) {
+      console.warn(`[re-evaluate] Plan ${executionPlanId} not found`);
+      return;
+    }
+
+    // Load the source situation for context
+    const situation = plan.sourceType === "situation"
+      ? await prisma.situation.findFirst({ where: { id: plan.sourceId, operatorId } })
+      : null;
+
+    const completedSteps = plan.steps
+      .filter((s) => s.status === "completed")
+      .map((s) => `Step ${s.sequenceOrder}: ${s.title} — ${s.executionMode === "human_task" ? "Completed by human" : "Executed by AI"}${s.outputResult ? `. Result: ${String(s.outputResult).slice(0, 300)}` : ""}`);
+
+    const remainingSteps = plan.steps.filter((s) => s.status === "pending" || s.status === "awaiting_approval");
+
+    if (remainingSteps.length === 0) {
+      await prisma.executionPlan.update({
+        where: { id: executionPlanId },
+        data: { status: "executing" },
+      });
+      return;
+    }
+
+    const { callLLM, getModel } = await import("@/lib/ai-provider");
+
+    const situationDesc = situation
+      ? (situation.description ?? situation.title ?? "Unknown situation")
+      : `Source: ${plan.sourceType} ${plan.sourceId}`;
+
+    const response = await callLLM({
+      operatorId: plan.operatorId,
+      instructions: `You are re-evaluating an action plan after receiving new information from a human completing a task.
+
+Situation: ${situationDesc}
+
+Completed steps so far:
+${completedSteps.join("\n")}
+
+Human's notes on what happened:
+"${humanNotes}"
+
+Remaining planned steps:
+${remainingSteps.map((s) => `Step ${s.sequenceOrder}: [${s.executionMode}] ${s.title} — ${s.description}`).join("\n")}
+
+Based on the human's input, evaluate:
+1. Are the remaining steps still correct and in the right order?
+2. Should any steps be modified, removed, or added?
+3. Does the human's input change the approach fundamentally?
+
+Respond with ONLY a JSON object:
+{
+  "planStillValid": true/false,
+  "reasoning": "brief explanation",
+  "modifications": [
+    {
+      "stepOrder": 3,
+      "action": "keep" | "modify" | "remove",
+      "newTitle": "only if modify",
+      "newDescription": "only if modify"
+    }
+  ],
+  "newSteps": [
+    {
+      "title": "...",
+      "description": "...",
+      "executionMode": "action" | "generate" | "human_task",
+      "insertAfterOrder": 2
+    }
+  ]
+}`,
+      messages: [{ role: "user" as const, content: "Re-evaluate the plan based on the human's input." }],
+      model: getModel("situationReasoning"),
+      maxTokens: 2000,
+    });
+
+    try {
+      const text = response.text;
+      const { extractJSON } = await import("@/lib/json-helpers");
+      const evaluation = extractJSON(text) as {
+        planStillValid: boolean;
+        reasoning: string;
+        modifications?: Array<{ stepOrder: number; action: string; newTitle?: string; newDescription?: string }>;
+        newSteps?: Array<{ title: string; description: string; executionMode: string; insertAfterOrder: number }>;
+      } | null;
+
+      if (!evaluation) {
+        console.warn(`[re-evaluate] Failed to parse evaluation, resuming plan as-is`);
+        await prisma.executionPlan.update({
+          where: { id: executionPlanId },
+          data: { status: "executing" },
+        });
+        return;
+      }
+
+      if (evaluation.planStillValid) {
+        await prisma.executionPlan.update({
+          where: { id: executionPlanId },
+          data: { status: "executing" },
+        });
+      } else {
+        // Apply modifications
+        for (const mod of evaluation.modifications ?? []) {
+          const step = remainingSteps.find((s) => s.sequenceOrder === mod.stepOrder);
+          if (!step) continue;
+
+          if (mod.action === "remove") {
+            await prisma.executionStep.update({
+              where: { id: step.id },
+              data: { status: "skipped" },
+            });
+          } else if (mod.action === "modify") {
+            await prisma.executionStep.update({
+              where: { id: step.id },
+              data: {
+                title: mod.newTitle ?? step.title,
+                description: mod.newDescription ?? step.description,
+              },
+            });
+          }
+        }
+
+        // Add new steps if any
+        const maxOrder = Math.max(...plan.steps.map((s) => s.sequenceOrder));
+        let nextOrder = maxOrder + 1;
+        for (const ns of evaluation.newSteps ?? []) {
+          await prisma.executionStep.create({
+            data: {
+              planId: executionPlanId,
+              sequenceOrder: nextOrder++,
+              title: ns.title,
+              description: ns.description,
+              executionMode: ns.executionMode,
+              status: "pending",
+            },
+          });
+        }
+
+        // Resume the plan
+        await prisma.executionPlan.update({
+          where: { id: executionPlanId },
+          data: { status: "executing" },
+        });
+      }
+
+      console.log(`[re-evaluate] Plan ${executionPlanId} re-evaluated: planStillValid=${evaluation.planStillValid}`);
+    } catch (err) {
+      console.error(`[re-evaluate] Failed to parse/apply evaluation:`, err);
+      await prisma.executionPlan.update({
+        where: { id: executionPlanId },
+        data: { status: "executing" },
+      });
+    }
   },
 };
 

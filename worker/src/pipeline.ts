@@ -88,6 +88,34 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
     // Continue without people registry — synthesis can still work with content data
   }
 
+  // ═══ PHASE 1.5: Total Ingestion — Evidence Extraction ═══════════════════════
+  await updatePhase(prisma, analysisId, "evidence_extraction");
+  await addProgressMessage(analysisId, "Reading all connected data and extracting evidence...", "evidence_extraction");
+
+  try {
+    const { runTotalIngestion } = await import("@/lib/evidence-ingestion");
+    const ingestionReport = await runTotalIngestion(operatorId, {
+      onProgress: async (msg) => {
+        await addProgressMessage(analysisId, msg, "evidence_extraction");
+      },
+      analysisId,
+    });
+    totalCostCents += ingestionReport.costCents;
+    await addProgressMessage(
+      analysisId,
+      `Evidence extraction complete: ${ingestionReport.totalClaims} claims from ${ingestionReport.extractionsCreated} chunks ($${(ingestionReport.costCents / 100).toFixed(2)})`,
+      "evidence_extraction",
+    );
+  } catch (err) {
+    console.error("[pipeline] Total ingestion failed:", err);
+    await addProgressMessage(
+      analysisId,
+      `Evidence extraction failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      "evidence_extraction",
+    );
+    // Non-fatal — structural synthesis can still work with raw data
+  }
+
   // ═══ PHASE 2: Structural Synthesis ═════════════════════════════════════════
   await updatePhase(prisma, analysisId, "synthesis");
   await addProgressMessage(analysisId, "Analyzing your data and building company model...");
@@ -106,6 +134,41 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   }));
 
   const synthesisInput = await buildRawDataSynthesisInput(operatorId, registryForSynthesis);
+
+  // Enrich synthesis input with evidence registry summary
+  let evidenceEnrichment = "";
+  try {
+    const { getExtractionStats } = await import("@/lib/evidence-registry");
+    const stats = await getExtractionStats(operatorId);
+
+    if (stats.totalExtractions > 0) {
+      const entityMentions = await prisma.$queryRaw<Array<{ entity: string; count: number }>>`
+        SELECT entity, COUNT(*)::int as count FROM (
+          SELECT jsonb_array_elements_text(
+            jsonb_path_query_array(extractions::jsonb, '$[*].entities[*]')
+          ) as entity
+          FROM "EvidenceExtraction"
+          WHERE "operatorId" = ${operatorId}
+        ) sub
+        GROUP BY entity
+        ORDER BY count DESC
+        LIMIT 50
+      `;
+
+      evidenceEnrichment =
+        `\n\n## Evidence Registry Summary\n\n` +
+        `Total extractions: ${stats.totalExtractions} from ${Object.keys(stats.bySourceType).length} source types\n` +
+        `Total claims: ${stats.totalClaims}, contradictions: ${stats.totalContradictions}\n` +
+        `Source types: ${Object.entries(stats.bySourceType).map(([t, c]) => `${t}: ${c}`).join(", ")}\n\n` +
+        `### Most-mentioned entities (use for department assignment and role inference):\n` +
+        entityMentions.map((e) => `- ${e.entity}: mentioned ${e.count} times`).join("\n");
+    }
+  } catch (err) {
+    console.error("[pipeline] Evidence enrichment failed:", err);
+    // Non-fatal
+  }
+
+  const enrichedInput = synthesisInput + evidenceEnrichment;
 
   const archetypeTaxonomy = await getArchetypeTaxonomy();
   const synthesisSystemPrompt = SYNTHESIS_PROMPT_V2 + `
@@ -132,7 +195,7 @@ ${archetypeTaxonomy}`;
         cache_control: { type: "ephemeral" as const },
       },
     ],
-    messages: [{ role: "user", content: synthesisInput }],
+    messages: [{ role: "user", content: enrichedInput }],
   }, { timeout: 20 * 60 * 1000 });
 
   const synthDurationMs = Date.now() - synthStart;

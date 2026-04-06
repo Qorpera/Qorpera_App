@@ -907,6 +907,7 @@ const PLAN_STATUS_STYLES: Record<string, { bg: string; color: string; label: str
   failed: { bg: "rgba(239,68,68,0.1)", color: "var(--danger)", label: "Failed" },
   pending: { bg: "var(--badge-bg)", color: "var(--accent)", label: "Plan pending" },
   executing: { bg: "transparent", color: "var(--fg3)", label: "Executing" },
+  re_evaluating: { bg: "rgba(245,158,11,0.12)", color: "var(--warn)", label: "Re-evaluating" },
 };
 const CheckSvg = () => (
   <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round">
@@ -983,6 +984,9 @@ function DetailPane({
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set([0]));
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [showTeachForm, setShowTeachForm] = useState(false);
+  const [notesStepId, setNotesStepId] = useState<string | null>(null);
+  const [stepNotes, setStepNotes] = useState("");
+  const [submittingNotes, setSubmittingNotes] = useState(false);
   const toggleStep = (i: number) => {
     setOpenSteps(prev => {
       const next = new Set(prev);
@@ -1118,23 +1122,31 @@ function DetailPane({
     });
   };
 
-  const handleCompleteStep = async (stepId: string) => {
+  const submitStepNotes = async (stepId: string, notes: string) => {
     if (!detail?.executionPlanId) return;
+    setSubmittingNotes(true);
     try {
-      const resp = await fetch(`/api/execution-plans/${detail.executionPlanId}/steps/${stepId}/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+      const resp = await fetch(
+        `/api/execution-plans/${detail.executionPlanId}/steps/${stepId}/complete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notes: notes.trim() || null }),
+        },
+      );
       if (!resp.ok) {
         const body = await resp.json().catch(() => null);
         toast(body?.error ?? "Failed to complete step", "error");
         return;
       }
+      setNotesStepId(null);
+      setStepNotes("");
       const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
       if (res.ok) setExecutionPlan(await res.json());
     } catch {
       toast("Failed to complete step", "error");
+    } finally {
+      setSubmittingNotes(false);
     }
   };
 
@@ -1421,6 +1433,21 @@ function DetailPane({
                   {t("actionPlan")}
                 </span>
               </div>
+              {/* Re-evaluating banner */}
+              {executionPlan?.status === "re_evaluating" && (
+                <div style={{
+                  padding: "10px 14px",
+                  background: "rgba(245,158,11,0.08)",
+                  border: "0.5px solid rgba(245,158,11,0.2)",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  color: "var(--warn)",
+                  marginBottom: 12,
+                }}>
+                  Re-evaluating next steps based on your input...
+                </div>
+              )}
+
               {/* Step list — D-style inline expand */}
               <div style={{ position: "relative", paddingLeft: 30 }}>
                 {/* Timeline rail */}
@@ -1431,10 +1458,11 @@ function DetailPane({
                   const isCompleted = planStep?.status === "completed";
                   const isCurrentStep = i === currentStepIndex;
                   const isFutureStep = i > currentStepIndex;
+                  const isReEvaluating = executionPlan?.status === "re_evaluating";
                   const isOpen = openSteps.has(i);
 
                   return (
-                    <div key={i} className="overflow-hidden min-w-0 rounded" style={{ position: "relative", padding: "14px 0", opacity: isFutureStep ? 0.65 : 1, transition: "all 0.2s" }}>
+                    <div key={i} className="overflow-hidden min-w-0 rounded" style={{ position: "relative", padding: "14px 0", opacity: (isFutureStep || (isReEvaluating && !isCompleted)) ? 0.5 : 1, transition: "all 0.2s" }}>
                       {/* Status dot */}
                       <div style={{
                         position: "absolute", left: -30 + 5, top: 4, width: 12, height: 12, borderRadius: "50%", zIndex: 1,
@@ -1554,7 +1582,7 @@ function DetailPane({
                             <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 2 }}>{planStep.errorMessage}</p>
                           )}
 
-                          {isCurrentStep && !isCompleted ? (
+                          {isCurrentStep && !isCompleted && !isReEvaluating ? (
                             (step.executionMode === "action" || step.executionMode === "generate") ? (
                               <div style={{ marginTop: 16 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1574,7 +1602,52 @@ function DetailPane({
                                 <p style={{ fontSize: 11, fontWeight: 600, color: "var(--foreground)", marginTop: 6 }}>AI will execute this step when approved</p>
                               </div>
                             ) : step.executionMode === "human_task" && planStep ? (
-                              <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); handleCompleteStep(planStep.id); }} style={{ ...STEP_BTN_PRIMARY, marginTop: 6 }}>{t("markComplete")}</button>
+                              <div style={{ marginTop: 6 }}>
+                                {notesStepId === planStep.id ? (
+                                  <div style={{ marginTop: 4 }}>
+                                    <textarea
+                                      autoFocus
+                                      placeholder="What happened? Any details that affect next steps..."
+                                      value={stepNotes}
+                                      onChange={(e) => setStepNotes(e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      style={{
+                                        width: "100%",
+                                        minHeight: 80,
+                                        padding: "10px 12px",
+                                        background: "rgba(255,255,255,0.04)",
+                                        border: "0.5px solid var(--border)",
+                                        borderRadius: 8,
+                                        color: "var(--foreground)",
+                                        fontSize: 13,
+                                        resize: "vertical",
+                                        outline: "none",
+                                        fontFamily: "inherit",
+                                      }}
+                                    />
+                                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                      <button
+                                        disabled={submittingNotes}
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          await submitStepNotes(planStep.id, stepNotes);
+                                        }}
+                                        style={{ ...STEP_BTN_PRIMARY, opacity: submittingNotes ? 0.5 : 1 }}
+                                      >
+                                        {submittingNotes ? "Submitting..." : "Complete & Submit"}
+                                      </button>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setNotesStepId(null); }}
+                                        style={STEP_BTN_SECONDARY}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); setNotesStepId(planStep.id); setStepNotes(""); }} style={STEP_BTN_PRIMARY}>{t("markComplete")}</button>
+                                )}
+                              </div>
                             ) : null
                           ) : isCompleted && step.executionMode === "human_task" && planStep ? (
                             <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); handleUndoStep(planStep.id); }} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>{tc("undo")}</button>

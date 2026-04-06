@@ -36,10 +36,38 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     // Non-fatal — detection proceeds with degraded department context
   }
 
+  // ── Research Planning ──────────────────────────────────────────────
+  // Generate investigation plan from evidence registry + entity graph.
+  // The actual investigations run in the next phase (Session 3).
+  console.log(`[post-synthesis] Generating research plan for ${operatorId}`);
+  let investigationCount = 0;
+  try {
+    const { generateResearchPlan } = await import("@/lib/research-planner");
+    const plan = await generateResearchPlan(operatorId);
+    investigationCount = plan.investigations.length;
+
+    await prisma.researchPlan.create({
+      data: {
+        operatorId,
+        investigations: plan.investigations as any,
+        priorityOrder: plan.priorityOrder as any,
+        planningReasoning: plan.planningReasoning,
+        estimatedDurationMinutes: plan.estimatedDurationMinutes,
+        estimatedCostCents: plan.estimatedCostCents,
+      },
+    });
+
+    console.log(`[post-synthesis] Research plan: ${investigationCount} investigations planned`);
+  } catch (err) {
+    console.error(`[post-synthesis] Research planning failed for ${operatorId}:`, err);
+    // Non-fatal — wiki synthesis below still produces immediate pages
+  }
+
   // ── Wiki Knowledge Synthesis ──────────────────────────────────────
   // Build wiki pages from the enriched entity graph + raw data.
   // Runs BEFORE detection so the content-situation-detector can use
   // wiki enrichment for better-informed classification.
+  // Session 3 will upgrade/replace these with deep investigation pages.
   console.log(`[post-synthesis] Running wiki background synthesis for ${operatorId}`);
   let wikiPageCount = 0;
   try {
@@ -117,18 +145,16 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     console.error("[post-synthesis] Entity reconciliation failed:", err);
   }
 
-  // ── Strategic Pattern Detection ───────────────────────────────────
-  // Scan wiki pages for cross-cutting patterns → create initiatives.
-  // Runs AFTER both wiki synthesis and detection so it sees the full picture.
-  console.log(`[post-synthesis] Running wiki strategic scan for ${operatorId}`);
+  // ── Initiative Assembly from Bookmarks ───────────────────────────
+  console.log(`[post-synthesis] Assembling initiatives from bookmarks for ${operatorId}`);
   let initiativeCount = 0;
   try {
-    const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
-    const scanResult = await runWikiStrategicScan(operatorId);
-    initiativeCount = scanResult.initiativesCreated ?? 0;
-    console.log(`[post-synthesis] Strategic scan: ${scanResult.patternsDetected} patterns, ${initiativeCount} initiatives, ${scanResult.situationsCreated} situations`);
+    const { assembleInitiativesFromBookmarks } = await import("@/lib/wiki-bookmark-assembly");
+    const assemblyResult = await assembleInitiativesFromBookmarks(operatorId);
+    initiativeCount = assemblyResult.initiativesCreated;
+    console.log(`[post-synthesis] Bookmark assembly: ${assemblyResult.bookmarksReviewed} reviewed, ${assemblyResult.groupsFormed} groups, ${initiativeCount} initiatives`);
   } catch (err) {
-    console.error(`[post-synthesis] Wiki strategic scan failed for ${operatorId}:`, err);
+    console.error(`[post-synthesis] Bookmark assembly failed for ${operatorId}:`, err);
     // Non-fatal
   }
 
@@ -137,7 +163,7 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     where: { operatorId, status: { in: ["detected", "reasoning", "proposed"] } },
   });
 
-  console.log(`[post-synthesis] Complete: ${extraction.entitiesCreated} entities, ${inference.relationshipsCreated} relationships, ${wikiPageCount} wiki pages, ${totalSituations} situations, ${initiativeCount} initiatives`);
+  console.log(`[post-synthesis] Complete: ${extraction.entitiesCreated} entities, ${inference.relationshipsCreated} relationships, ${wikiPageCount} wiki pages, ${totalSituations} situations, ${initiativeCount} initiatives, ${investigationCount} investigations planned`);
 
   return {
     entities: extraction.entitiesCreated,

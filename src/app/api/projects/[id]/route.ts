@@ -44,6 +44,13 @@ export async function GET(
         select: { id: true, fileName: true, mimeType: true, embeddingStatus: true, createdAt: true },
         orderBy: { createdAt: "desc" },
       },
+      parentProject: {
+        select: { id: true, name: true },
+      },
+      childProjects: {
+        select: { id: true, name: true, status: true, description: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 

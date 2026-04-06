@@ -7,7 +7,7 @@ import { computePriorityScores } from "@/lib/prioritization-engine";
 import { processRecurringTasks } from "@/lib/recurring-tasks";
 import { processSystemJobs } from "@/lib/system-job-reasoning";
 import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
-import { runWikiStrategicScan } from "@/lib/wiki-strategic-scanner";
+import { assembleInitiativesFromBookmarks } from "@/lib/wiki-bookmark-assembly";
 import { checkSituationTimeouts } from "@/lib/situation-timeout-detector";
 
 const timers: ReturnType<typeof setInterval>[] = [];
@@ -217,9 +217,9 @@ export function startCronScheduler() {
         });
         for (const op of operators) {
           try {
-            const result = await runWikiStrategicScan(op.id);
-            if (result.patternsDetected > 0) {
-              console.log(`[cron:wiki-scanner] Operator ${op.id}: ${result.patternsDetected} patterns, ${result.initiativesCreated} initiatives, ${result.situationsCreated} situations`);
+            const result = await assembleInitiativesFromBookmarks(op.id);
+            if (result.initiativesCreated > 0) {
+              console.log(`[cron:bookmark-assembly] Operator ${op.id}: ${result.initiativesCreated} initiatives from ${result.bookmarksReviewed} bookmarks`);
             }
           } catch (err) {
             console.error(`[cron:wiki-scanner] Operator ${op.id} failed:`, err);

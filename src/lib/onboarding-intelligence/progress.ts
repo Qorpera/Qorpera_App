@@ -22,6 +22,7 @@ export async function addProgressMessage(
 
   // Atomic JSON array append — avoids read-modify-write race when
   // multiple agents complete simultaneously.
+  // Called only from the worker pipeline — analysisId is trusted, not user-supplied.
   await prisma.$executeRaw`
     UPDATE "OnboardingAnalysis"
     SET "progressMessages" = "progressMessages" || ${JSON.stringify(entry)}::jsonb,
@@ -36,6 +37,7 @@ export async function addProgressMessage(
 export function estimateMinutesRemaining(currentPhase: string): number | undefined {
   const estimates: Record<string, number> = {
     people_discovery: 4,
+    evidence_extraction: 10,
     synthesis: 3,
   };
   return estimates[currentPhase];

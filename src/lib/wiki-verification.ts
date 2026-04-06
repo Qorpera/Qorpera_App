@@ -9,6 +9,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSON } from "@/lib/json-helpers";
+import { updateTrustLevel } from "@/lib/wiki-engine";
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -195,6 +196,10 @@ ${sourceTexts.map((s) => `### Source ${s.id} (${s.type})\n${s.content}`).join("\
   });
 
   console.log(`[wiki-verification] Page "${page.slug}" → ${finalStatus} (confidence: ${result.confidence}, checks: ${result.checksRun}, failures: ${result.failures.length})`);
+
+  if (finalStatus === "quarantined") {
+    updateTrustLevel(pageId).catch(() => {});
+  }
 
   return result;
 }

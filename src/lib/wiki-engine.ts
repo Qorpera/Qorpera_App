@@ -238,6 +238,9 @@ async function updatePage(params: {
     ...params.sourceCitations.map((c) => c.sourceType),
   ])];
 
+  // Snapshot current version before update
+  await createVersionSnapshot(existing.id, "synthesis", params.synthesizedByModel ?? "unknown");
+
   // Re-embed updated content
   const embeddings = await embedChunks([params.content]).catch(() => [null]);
   const embedding = embeddings[0];
@@ -325,6 +328,8 @@ async function flagContradiction(params: {
   const entry = `\n\n## [${timestamp}] ${params.slug}\n\n${params.content}`;
 
   if (existing) {
+    await createVersionSnapshot(existing.id, "synthesis", "system");
+
     await prisma.knowledgePage.update({
       where: { id: existing.id },
       data: {
@@ -942,10 +947,147 @@ export async function updateWikiOutcomeSignals(
 
   const field = outcome === "approved" ? "outcomeApproved" : "outcomeRejected";
 
+  const pages = await prisma.knowledgePage.findMany({
+    where: { operatorId: situation.operatorId, scope: "operator", slug: { in: [...pageSlugs] } },
+    select: { id: true, slug: true },
+  });
+  const pageIdBySlug = new Map(pages.map((p) => [p.slug, p.id]));
+
   for (const slug of pageSlugs) {
     await prisma.knowledgePage.updateMany({
       where: { operatorId: situation.operatorId, scope: "operator", slug },
       data: { [field]: { increment: 1 } },
     }).catch(() => {});
+
+    const pageId = pageIdBySlug.get(slug);
+    if (pageId) {
+      updateTrustLevel(pageId).catch(() => {});
+    }
+  }
+}
+
+// ─── Version snapshots ─────────────────────────────────
+
+/**
+ * Creates a snapshot of the current page state before any content modification.
+ * Failure is non-blocking — must never prevent the actual wiki update.
+ */
+export async function createVersionSnapshot(
+  pageId: string,
+  changeReason: string,
+  changedBy: string,
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const page = await prisma.knowledgePage.findUniqueOrThrow({
+      where: { id: pageId },
+      select: { id: true, content: true, confidence: true, status: true, sourceCount: true, version: true },
+    });
+
+    await prisma.knowledgePageVersion.create({
+      data: {
+        pageId,
+        versionNumber: page.version,
+        content: page.content,
+        confidence: page.confidence,
+        status: page.status,
+        sourceCount: page.sourceCount,
+        changeReason,
+        changedBy,
+        metadata: metadata ? (metadata as any) : undefined,
+      },
+    });
+  } catch (err) {
+    // Version snapshot failure must NOT block the actual wiki update
+    console.error(`[wiki-engine] Version snapshot failed for page ${pageId}:`, err);
+  }
+}
+
+// ─── Trust level management ────────────────────────────
+
+/**
+ * Recalculates trust level for a page based on verification status,
+ * reasoning use count, and outcome approval rate.
+ *
+ * Transitions:
+ *   provisional → established: verified + 3+ reasoning uses + more approvals than rejections
+ *   established → authoritative: verified + 10+ reasoning uses + >80% approval rate
+ *   any → challenged: 5+ outcomes with more rejections than approvals
+ *   any → quarantined: page status is quarantined
+ */
+export async function updateTrustLevel(pageId: string): Promise<void> {
+  try {
+    const page = await prisma.knowledgePage.findUniqueOrThrow({
+      where: { id: pageId },
+      select: {
+        id: true,
+        trustLevel: true,
+        status: true,
+        reasoningUseCount: true,
+        outcomeApproved: true,
+        outcomeRejected: true,
+      },
+    });
+
+    const total = page.outcomeApproved + page.outcomeRejected;
+    const approvalRate = total > 0 ? page.outcomeApproved / total : 0;
+    let newLevel = page.trustLevel ?? "provisional";
+
+    if (page.status === "quarantined") {
+      newLevel = "quarantined";
+    } else if (total >= 5 && page.outcomeRejected > page.outcomeApproved) {
+      newLevel = "challenged";
+    } else if (page.status === "verified" && page.reasoningUseCount >= 10 && approvalRate > 0.8) {
+      newLevel = "authoritative";
+    } else if (page.status === "verified" && page.reasoningUseCount >= 3 && page.outcomeApproved > page.outcomeRejected) {
+      newLevel = "established";
+    }
+    // "provisional" stays as default — no explicit transition needed
+
+    if (newLevel !== (page.trustLevel ?? "provisional")) {
+      await prisma.knowledgePage.update({
+        where: { id: pageId },
+        data: { trustLevel: newLevel },
+      });
+    }
+  } catch (err) {
+    console.error(`[wiki-engine] Trust level update failed for page ${pageId}:`, err);
+  }
+}
+
+// ─── Rollback ──────────────────────────────────────────
+
+export async function rollbackPage(pageId: string, targetVersionNumber: number): Promise<void> {
+  const targetVersion = await prisma.knowledgePageVersion.findUniqueOrThrow({
+    where: { pageId_versionNumber: { pageId, versionNumber: targetVersionNumber } },
+  });
+
+  // Snapshot current state before rollback
+  await createVersionSnapshot(pageId, "rollback", "system", {
+    rolledBackTo: targetVersionNumber,
+  });
+
+  // Restore content from target version
+  await prisma.knowledgePage.update({
+    where: { id: pageId },
+    data: {
+      content: targetVersion.content,
+      confidence: targetVersion.confidence,
+      status: targetVersion.status,
+      sourceCount: targetVersion.sourceCount,
+      trustLevel: "challenged",
+      version: { increment: 1 },
+    },
+  });
+
+  // Re-embed the restored content
+  const [embedding] = await embedChunks([targetVersion.content]).catch(() => [null]);
+  if (embedding) {
+    const embeddingStr = `[${embedding.join(",")}]`;
+    await prisma.$executeRawUnsafe(
+      `UPDATE "KnowledgePage" SET embedding = $1::vector WHERE id = $2`,
+      embeddingStr,
+      pageId,
+    );
   }
 }

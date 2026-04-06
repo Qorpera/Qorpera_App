@@ -126,7 +126,7 @@ export async function PATCH(
   if (body.status === "approved") {
     // Update initiative
     await prisma.initiative.update({
-      where: { id },
+      where: { id, operatorId },
       data: { status: "approved" },
     });
 
@@ -142,7 +142,7 @@ export async function PATCH(
 
       triggerInitiativeWorkStreamRecheck(id);
 
-      const current = await prisma.initiative.findUnique({ where: { id }, select: { status: true } });
+      const current = await prisma.initiative.findFirst({ where: { id, operatorId }, select: { status: true } });
       return NextResponse.json({ id, status: current?.status ?? "approved", projectId });
     }
 
@@ -172,7 +172,7 @@ export async function PATCH(
 
         // Advance the first step and update initiative to executing
         await prisma.initiative.update({
-          where: { id },
+          where: { id, operatorId },
           data: { status: "executing" },
         });
 
@@ -189,13 +189,13 @@ export async function PATCH(
     // Trigger WorkStream recheck
     triggerInitiativeWorkStreamRecheck(id);
 
-    const current = await prisma.initiative.findUnique({ where: { id }, select: { status: true } });
+    const current = await prisma.initiative.findFirst({ where: { id, operatorId }, select: { status: true } });
     return NextResponse.json({ id, status: current?.status ?? "approved" });
   }
 
   // Rejected
   await prisma.initiative.update({
-    where: { id },
+    where: { id, operatorId },
     data: { status: "rejected" },
   });
 
