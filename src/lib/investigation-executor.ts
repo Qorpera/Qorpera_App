@@ -333,8 +333,8 @@ export async function executeResearchPlan(
     select: { investigations: true, priorityOrder: true },
   });
 
-  await prisma.researchPlan.update({
-    where: { id: planId },
+  await prisma.researchPlan.updateMany({
+    where: { id: planId, operatorId },
     data: { status: "executing" },
   });
 
@@ -418,8 +418,8 @@ export async function executeResearchPlan(
             await progress(progressMsg);
 
             // Persist progress for UI polling
-            await prisma.researchPlan.update({
-              where: { id: planId },
+            await prisma.researchPlan.updateMany({
+              where: { id: planId, operatorId },
               data: {
                 completedCount: report.investigationsCompleted,
                 failedCount: report.investigationsFailed,
@@ -449,8 +449,8 @@ export async function executeResearchPlan(
   report.totalDurationMs = Date.now() - startTime;
 
   // Update plan status
-  await prisma.researchPlan.update({
-    where: { id: planId },
+  await prisma.researchPlan.updateMany({
+    where: { id: planId, operatorId },
     data: {
       status: report.investigationsFailed === report.investigationsTotal ? "failed" : "completed",
       actualCostCents: report.totalCostCents,
@@ -478,8 +478,8 @@ export async function executeResearchPlan(
         onProgress: progress,
       });
 
-      await prisma.researchPlan.update({
-        where: { id: planId },
+      await prisma.researchPlan.updateMany({
+        where: { id: planId, operatorId },
         data: {
           adversarialReport: adversarialReport as any,
           gapAnalysisReport: gapReport as any,

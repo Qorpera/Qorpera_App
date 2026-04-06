@@ -154,7 +154,7 @@ export async function PATCH(
   }
 
   // Scope check
-  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
   if (patchVisibleDepts !== "all") {
     const scopeDept = situation.situationType?.scopeEntityId;
     if (scopeDept && !patchVisibleDepts.includes(scopeDept)) {

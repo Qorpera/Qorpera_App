@@ -587,6 +587,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
             reasoning.evidenceSummary ?? "",
             undefined, // agentic model already investigated communications
             triggerEvidenceStr,
+            situation.operatorId,
           );
 
           for (const refined of refinement.refinedSteps) {

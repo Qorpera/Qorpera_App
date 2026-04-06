@@ -33,7 +33,7 @@ export interface ProcessWikiUpdatesParams {
   projectId?: string;
   situationId?: string;
   updates: WikiUpdate[];
-  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research" | "adversarial";
+  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research" | "adversarial" | "document_intelligence";
   synthesizedByModel: string;
   synthesisCostCents?: number;
   synthesisDurationMs?: number;
@@ -220,6 +220,11 @@ async function updatePage(params: {
 
   const existing = await prisma.knowledgePage.findUnique({
     where: { operatorId_slug: { operatorId: params.operatorId, slug } },
+    select: {
+      id: true, content: true, slug: true, sources: true, sourceTypes: true,
+      sourceCount: true, confidence: true, contentTokens: true, version: true,
+      crossReferences: true, status: true, trustLevel: true, situationId: true,
+    },
   });
 
   if (!existing) {
@@ -322,6 +327,7 @@ async function flagContradiction(params: {
 
   const existing = await prisma.knowledgePage.findUnique({
     where: { operatorId_slug: { operatorId: params.operatorId, slug: logSlug } },
+    select: { id: true, content: true, version: true },
   });
 
   const timestamp = new Date().toISOString().split("T")[0];
@@ -1023,6 +1029,7 @@ async function appendToLog(
 
   const existing = await prisma.knowledgePage.findUnique({
     where: { operatorId_slug: { operatorId, slug } },
+    select: { id: true, content: true, version: true },
   });
 
   if (existing) {

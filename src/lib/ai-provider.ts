@@ -71,6 +71,10 @@ const MODEL_ROUTES = {
   verifier: "claude-sonnet-4-6",
   // Adversarial challenge — MUST be Opus (at least as capable as best investigator)
   adversarialChallenge: "claude-opus-4-6",
+  // Document intelligence pipeline
+  documentClassification: "claude-haiku-4-5-20251001",
+  documentComprehensionDeep: "claude-opus-4-6",      // critical documents (contracts, financials, DD)
+  documentComprehensionStandard: "claude-sonnet-4-6", // significant/supporting/administrative
   // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
   onboardingExtraction: "claude-haiku-4-5-20251001",
 } as const;
@@ -105,6 +109,8 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   onboardingChat: null,
   verifier: 4_096,
   adversarialChallenge: 16_384,
+  documentComprehensionDeep: 16_000,
+  documentComprehensionStandard: null,
   onboardingExtraction: null,
 };
 
@@ -968,12 +974,18 @@ async function* streamAnthropic(
     }
   }
 
+  const effectiveMaxTokens = options.maxTokens ?? getMaxOutputTokens(model);
+  const effectiveThinkingBudget = options.thinkingBudget ?? 10_000;
+
   const stream = client.messages.stream({
     model,
     messages,
-    max_tokens: options.maxTokens ?? getMaxOutputTokens(model),
+    max_tokens: effectiveMaxTokens,
     ...(system && { system }),
-    ...(options.temperature !== undefined && { temperature: options.temperature }),
+    ...(options.thinking && effectiveThinkingBudget && {
+      thinking: { type: "enabled" as const, budget_tokens: effectiveThinkingBudget },
+    }),
+    ...(options.temperature !== undefined && !options.thinking && { temperature: options.temperature }),
   });
 
   for await (const event of stream) {

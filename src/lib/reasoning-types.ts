@@ -15,7 +15,15 @@ const ActionStepSchema = z.object({
   })).optional(),
 });
 
-export const ReasoningOutputSchema = z.object({
+/** Normalize actionPlan → actionBatch for backward compat with old stored reasoning */
+function normalizeActionBatch<T extends { actionBatch?: unknown; actionPlan?: unknown }>(data: T) {
+  return {
+    ...data,
+    actionBatch: data.actionBatch ?? data.actionPlan ?? null,
+  };
+}
+
+const ReasoningOutputBase = z.object({
   situationTitle: z.string().describe("Short, specific title identifying this situation. Use document numbers, project names, or specific subjects — not just person names. Examples: 'Invoice INV-2026-035 overdue', 'Nygade Center power outage — urgent dispatch', 'Emil cable type question (NOIKLX vs NYM)'").optional(),
   analysis: z.string().min(10),
   evidenceSummary: z.string().min(10),
@@ -30,7 +38,8 @@ export const ReasoningOutputSchema = z.object({
     entityRole: z.string().optional(),
     reasoning: z.string(),
   }).nullable().optional(),
-  actionBatch: z.array(ActionStepSchema).nullable(),
+  actionBatch: z.array(ActionStepSchema).nullable().optional(),
+  actionPlan: z.array(ActionStepSchema).nullable().optional(), // backward compat — old reasoning stored this key
   afterBatch: z.enum(["resolve", "re_evaluate", "monitor"]).default("resolve"),
   reEvaluationReason: z.string().optional(),
   monitorDurationHours: z.number().optional(),
@@ -65,7 +74,9 @@ export const ReasoningOutputSchema = z.object({
   depthUpgrade: z.boolean().optional(), // request upgrade from standard → thorough
 });
 
-export const DeepReasoningOutputSchema = ReasoningOutputSchema.extend({
+export const ReasoningOutputSchema = ReasoningOutputBase.transform(normalizeActionBatch);
+
+export const DeepReasoningOutputSchema = ReasoningOutputBase.extend({
   analysisDocument: z.object({
     sections: z.array(z.object({
       type: z.enum(["heading", "paragraph", "finding", "risk", "data_table", "recommendation", "gap"]),
@@ -79,7 +90,7 @@ export const DeepReasoningOutputSchema = ReasoningOutputSchema.extend({
     overallConfidence: z.number(),
     investigationSummary: z.string(),
   }).optional().nullable(),
-});
+}).transform(normalizeActionBatch);
 
 export type ReasoningOutput = z.infer<typeof ReasoningOutputSchema>;
 export type DeepReasoningOutput = z.infer<typeof DeepReasoningOutputSchema>;

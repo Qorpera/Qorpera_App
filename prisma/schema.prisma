@@ -130,6 +130,7 @@ model Operator {
   // v5: Wiki knowledge
   knowledgePages       KnowledgePage[]
   evidenceExtractions  EvidenceExtraction[]
+  correlationFindings  CorrelationFinding[]
   // v6: File uploads
   storageUsedBytes     BigInt                @default(0)
   storageLimitBytes    BigInt                @default(10737418240) // 10 GB
@@ -811,11 +812,57 @@ model EvidenceExtraction {
   contradictions Json // Array<EvidenceContradiction>
   extractedBy    String // model identifier that performed extraction
   extractedAt    DateTime     @default(now())
+  documentContext     Json?      // { documentType, sectionTitle, authorIntent, relevantRedFlags }
+  analyticalClaims    Json?      // Array<{ claim, type, derivedFrom, expertiseBasis, confidence, reasoning }>
+  correlationId       String?    // Links extractions to a CorrelationFinding batch
   createdAt      DateTime     @default(now())
 
   @@index([operatorId])
   @@index([sourceChunkId])
   @@index([operatorId, sourceType])
+}
+
+model CorrelationFinding {
+  id                  String   @id @default(cuid())
+  operatorId          String
+  operator            Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  type                String   // "confirmation" | "contradiction" | "gap" | "implication" | "pattern"
+  finding             String
+  significance        String   // "critical" | "significant" | "minor"
+  confidence          Float
+  primarySourceId     String   // EvidenceExtraction ID or ContentChunk ID
+  correlatedSourceIds String[] @default([])
+  implications        String?
+  resolvedInWikiSlug  String?  // Wiki page that addresses this finding
+  createdAt           DateTime @default(now())
+
+  @@index([operatorId])
+  @@index([operatorId, type])
+  @@index([operatorId, significance])
+}
+
+model AnalysisPromptVersion {
+  id              String    @id @default(cuid())
+  promptType      String    // "comprehension" | "extraction" | "correlation" | "synthesis"
+  version         Int
+  content         String    // Full prompt text
+  parentVersionId String?   // What version this mutated from
+  mutation        String?   // What was changed and why
+
+  // Quality metrics (populated asynchronously)
+  pagesProduced   Int       @default(0)
+  compositeScore  Float?
+  citationRate    Float?
+  approvalRate    Float?
+  analyticalDepth Float?    // ratio of analytical to raw claims
+
+  status          String    @default("active") // "active" | "testing" | "retired" | "reverted"
+  deployedAt      DateTime?
+  retiredAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([promptType, status])
+  @@unique([promptType, version])
 }
 
 // ─── Activity Signals ───────────────────────────────────
@@ -1501,6 +1548,16 @@ model FileUpload {
   chunkCount      Int      @default(0)
   metadata        Json? // extracted metadata: pageCount, language, etc.
   errorMessage    String? // if status = "failed"
+
+  // Document intelligence pipeline
+  extractedFullText       String?    // Complete extracted text (stored before chunking)
+  documentProfile         Json?      // Layer 2 classification output (DocumentProfile)
+  documentUnderstanding   Json?      // Layer 4 comprehension output (DocumentUnderstanding)
+  intelligenceStatus      String     @default("pending")
+  // "pending" | "classifying" | "comprehending" | "extracting" | "correlating" | "synthesizing" | "complete" | "failed"
+  intelligenceError       String?    // Error message if pipeline fails at any stage
+  intelligenceCostCents   Int        @default(0)
+
   createdAt       DateTime @default(now())
 
   // Associations

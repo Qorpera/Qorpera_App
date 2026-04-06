@@ -306,25 +306,19 @@ export async function runAdversarialChallenge(
       });
       if (page) {
         const newConfidence = Math.max(0.2, page.confidence - 0.3);
+        const shouldQuarantine = criticalChallenges.some((c) => c.suggestedAction === "quarantine");
         await prisma.knowledgePage.update({
           where: { id: page.id },
           data: {
             confidence: newConfidence,
             trustLevel: "challenged",
             staleReason: `Adversarial challenge: ${criticalChallenges.length} critical issue(s). ${criticalChallenges[0].challenge}`,
-          },
-        });
-
-        // If suggested action is quarantine, quarantine it
-        if (criticalChallenges.some((c) => c.suggestedAction === "quarantine")) {
-          await prisma.knowledgePage.update({
-            where: { id: page.id },
-            data: {
+            ...(shouldQuarantine && {
               status: "quarantined",
               quarantineReason: `Adversarial challenge: ${criticalChallenges[0].challenge}`,
-            },
-          });
-        }
+            }),
+          },
+        });
       }
     } else if (moderateChallenges.length >= 2) {
       // 2+ moderate challenges → reduce confidence slightly, mark challenged

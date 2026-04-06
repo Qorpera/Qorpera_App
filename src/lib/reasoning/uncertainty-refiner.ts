@@ -40,6 +40,7 @@ export async function refineUncertainties(
   evidenceSummary: string,
   communicationContext: string | undefined,
   triggerEvidence: string | undefined,
+  operatorId?: string,
 ): Promise<RefinementResult> {
   const stepsToRefine = actionBatch
     .map((s, i) => ({ index: i, ...s }))
@@ -68,6 +69,7 @@ ${uncertaintyLines}`;
   }).join("\n\n");
 
   const response = await callLLM({
+    operatorId,
     instructions: `You are reviewing uncertainties that were flagged during action plan reasoning. For each uncertainty, focus specifically on that aspect and try to resolve it from the evidence.
 
 For each uncertainty, do ONE of:

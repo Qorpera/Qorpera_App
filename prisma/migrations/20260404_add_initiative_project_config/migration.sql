@@ -1,0 +1,4 @@
+-- Duplicate of 20260404_02_add_initiative_project_config
+-- This stub exists because the migration was applied to the database under this name.
+-- The actual SQL lives in the _02_ variant.
+-- No-op: columns and index already exist.

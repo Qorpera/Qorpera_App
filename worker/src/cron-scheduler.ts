@@ -18,7 +18,7 @@ export function startCronScheduler() {
     setInterval(async () => {
       try {
         const operators = await prisma.operator.findMany({
-          where: { isTestOperator: false },
+          where: { aiPaused: false, isTestOperator: false },
           select: { id: true },
         });
         for (const op of operators) {
@@ -38,7 +38,7 @@ export function startCronScheduler() {
     setInterval(async () => {
       try {
         const operators = await prisma.operator.findMany({
-          where: { isTestOperator: false },
+          where: { aiPaused: false, isTestOperator: false },
           select: { id: true },
         });
         for (const op of operators) {
@@ -286,7 +286,7 @@ export function startCronScheduler() {
     setInterval(async () => {
       try {
         const operators = await prisma.operator.findMany({
-          where: { aiPaused: false },
+          where: { aiPaused: false, isTestOperator: false },
           select: { id: true },
         });
         for (const op of operators) {
@@ -302,9 +302,6 @@ export function startCronScheduler() {
             // Run bookmark assembly after living research if new bookmarks were created
             if (result.bookmarksEmitted > 0) {
               try {
-                const { assembleInitiativesFromBookmarks } = await import(
-                  "@/lib/wiki-bookmark-assembly"
-                );
                 const assembly = await assembleInitiativesFromBookmarks(op.id);
                 if (assembly.initiativesCreated > 0) {
                   console.log(
@@ -355,10 +352,42 @@ export function startCronScheduler() {
     }, 12 * 60 * 60 * 1000),
   );
 
+  // ── Document Intelligence Quality Loop: weekly ─────────────────────
+  // Calculates composite quality scores for document-intelligence wiki pages,
+  // selects few-shot examples, and proposes single prompt mutations.
+  // Mutations start in "testing" status — not auto-deployed.
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({
+          where: { aiPaused: false, isTestOperator: false },
+          select: { id: true },
+        });
+        for (const op of operators) {
+          try {
+            const { runOptimizationCycle } = await import(
+              "@/lib/document-intelligence/quality-loop"
+            );
+            const result = await runOptimizationCycle(op.id);
+            if (result.mutationProposed) {
+              console.log(
+                `[cron:quality-loop] Operator ${op.id}: proposed ${result.promptType} mutation — ${result.mutation}`,
+              );
+            }
+          } catch (err) {
+            console.error(`[cron:quality-loop] Operator ${op.id} failed:`, err);
+          }
+        }
+      } catch (err) {
+        console.error("[cron:quality-loop] Error:", err);
+      }
+    }, 7 * 24 * 60 * 60 * 1000),
+  );
+
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h)");
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d)");
 }
 
 export function stopCronScheduler() {

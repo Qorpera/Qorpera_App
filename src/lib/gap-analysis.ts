@@ -150,19 +150,28 @@ ${adversarialContext}`;
 
   // 4. Single Opus call for gap analysis
   const model = getModel("researchPlanner");
-  const response = await callLLM({
-    operatorId,
-    instructions: GAP_ANALYSIS_PROMPT,
-    messages: [{ role: "user", content: analysisContext }],
-    model,
-    maxTokens: 65_536,
-    thinking: true,
-    thinkingBudget: 8000,
-  });
+  let response;
+  try {
+    response = await callLLM({
+      operatorId,
+      instructions: GAP_ANALYSIS_PROMPT,
+      messages: [{ role: "user", content: analysisContext }],
+      model,
+      maxTokens: 65_536,
+      thinking: true,
+      thinkingBudget: 8000,
+    });
+  } catch (err) {
+    console.error("[gap-analysis] LLM call failed:", err);
+    await progress("Gap analysis LLM call failed — returning partial result");
+    return { gaps: [], questionsForHuman: [], coverageScore: 0, costCents: 0 };
+  }
 
   const parsed = extractJSON(response.text);
   if (!parsed || !parsed.gaps) {
-    throw new Error("Gap analysis produced invalid output");
+    console.warn("[gap-analysis] Could not parse LLM output");
+    await progress("Gap analysis produced unparseable output — returning partial result");
+    return { gaps: [], questionsForHuman: [], coverageScore: 0, costCents: response.apiCostCents };
   }
 
   // 5. Build questions with related page context — only ask humans about things NOT in the data
@@ -196,13 +205,13 @@ ${adversarialContext}`;
     }));
 
   await progress(
-    `Gap analysis: ${gaps.length} gaps, ${questionsForHuman.length} questions for human, coverage: ${((parsed.coverageScore as number) * 100).toFixed(0)}%`,
+    `Gap analysis: ${gaps.length} gaps, ${questionsForHuman.length} questions for human, coverage: ${((typeof parsed.coverageScore === "number" ? parsed.coverageScore : 0.5) * 100).toFixed(0)}%`,
   );
 
   return {
     gaps,
     questionsForHuman,
-    coverageScore: (parsed.coverageScore as number) ?? 0.5,
+    coverageScore: typeof parsed.coverageScore === "number" ? parsed.coverageScore : 0.5,
     costCents: response.apiCostCents,
   };
 }

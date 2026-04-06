@@ -40,8 +40,8 @@ export async function loadSituationContext(
   // Load trigger entity
   let triggerInfo = "";
   if (situation.triggerEntityId) {
-    const entity = await prisma.entity.findUnique({
-      where: { id: situation.triggerEntityId },
+    const entity = await prisma.entity.findFirst({
+      where: { id: situation.triggerEntityId, operatorId },
       select: {
         displayName: true,
         entityType: { select: { name: true } },
@@ -105,7 +105,7 @@ export async function loadSituationContext(
     });
     const followUpRecords = stepIds.length > 0
       ? await prisma.followUp.findMany({
-          where: { executionStepId: { in: stepIds.map(s => s.id) }, status: "watching" },
+          where: { operatorId, executionStepId: { in: stepIds.map(s => s.id) }, status: "watching" },
           select: { status: true, triggerAt: true },
         })
       : [];
@@ -120,7 +120,7 @@ export async function loadSituationContext(
   // WorkStream membership
   let wsSection = "";
   const wsItem = await prisma.workStreamItem.findFirst({
-    where: { itemType: "situation", itemId: situationId },
+    where: { itemType: "situation", itemId: situationId, workStream: { operatorId } },
     select: {
       workStream: {
         select: {
@@ -188,15 +188,15 @@ export async function loadInitiativeContext(
 
   // Resolve AI entity name
   let aiEntityInfo = "";
-  const aiEntity = await prisma.entity.findUnique({
-    where: { id: initiative.aiEntityId },
+  const aiEntity = await prisma.entity.findFirst({
+    where: { id: initiative.aiEntityId, operatorId },
     select: { displayName: true, parentDepartmentId: true },
   });
   if (aiEntity) {
     let deptName = "";
     if (aiEntity.parentDepartmentId) {
-      const dept = await prisma.entity.findUnique({
-        where: { id: aiEntity.parentDepartmentId },
+      const dept = await prisma.entity.findFirst({
+        where: { id: aiEntity.parentDepartmentId, operatorId },
         select: { displayName: true },
       });
       deptName = dept ? ` (${dept.displayName})` : "";
@@ -234,7 +234,7 @@ export async function loadInitiativeContext(
   // WorkStream membership
   let wsSection = "";
   const wsItem = await prisma.workStreamItem.findFirst({
-    where: { itemType: "initiative", itemId: initiativeId },
+    where: { itemType: "initiative", itemId: initiativeId, workStream: { operatorId } },
     select: { workStream: { select: { title: true } } },
   });
   if (wsItem) {
@@ -276,7 +276,7 @@ export async function loadWorkStreamContext(
 
   // Load child count
   const childCount = await prisma.workStream.count({
-    where: { parentWorkStreamId: workStreamId },
+    where: { parentWorkStreamId: workStreamId, operatorId },
   });
 
   return [

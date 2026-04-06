@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import type { AnalyticalClaim } from "@/lib/document-intelligence/types";
 
 // ─── Types matching EvidenceExtraction JSON columns ─────
 
@@ -35,6 +36,8 @@ export async function createExtraction(params: {
   relationships: EvidenceRelationship[];
   contradictions: EvidenceContradiction[];
   extractedBy: string;
+  documentContext?: Record<string, unknown>;
+  analyticalClaims?: AnalyticalClaim[];
 }) {
   return prisma.evidenceExtraction.create({
     data: {
@@ -45,6 +48,12 @@ export async function createExtraction(params: {
       relationships: params.relationships as any,
       contradictions: params.contradictions as any,
       extractedBy: params.extractedBy,
+      ...(params.documentContext
+        ? { documentContext: params.documentContext as any }
+        : {}),
+      ...(params.analyticalClaims
+        ? { analyticalClaims: params.analyticalClaims as any }
+        : {}),
     },
     select: {
       id: true,

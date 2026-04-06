@@ -81,7 +81,7 @@ describe("loadSituationContext", () => {
       },
     });
 
-    mockPrisma.entity.findUnique.mockResolvedValue({
+    mockPrisma.entity.findFirst.mockResolvedValue({
       displayName: "Meridian Corp",
       entityType: { name: "Customer" },
       propertyValues: [
@@ -183,7 +183,7 @@ describe("loadInitiativeContext", () => {
       },
     });
 
-    mockPrisma.entity.findUnique
+    mockPrisma.entity.findFirst
       .mockResolvedValueOnce({ displayName: "Finance AI", parentDepartmentId: "dept1" })
       .mockResolvedValueOnce({ displayName: "Finance" });
 
