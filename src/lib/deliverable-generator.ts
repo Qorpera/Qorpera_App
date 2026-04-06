@@ -175,6 +175,15 @@ export async function generateDeliverable(
     },
   });
 
+  // 10b. Extract completeness report from generator output
+  try {
+    const { extractCompletenessFromOutput } = await import("@/lib/deliverable-completeness");
+    await extractCompletenessFromOutput(deliverableId);
+  } catch (err) {
+    console.error(`[deliverable-generator] Completeness extraction failed:`, err);
+    // Non-fatal — content is already stored
+  }
+
   // 11. Create project notification
   const riskSummary = result.output.identifiedRisks.length > 0
     ? ` Found ${result.output.identifiedRisks.length} risk${result.output.identifiedRisks.length > 1 ? "s" : ""} (${result.output.identifiedRisks.filter((r) => r.severity === "high").length} high).`

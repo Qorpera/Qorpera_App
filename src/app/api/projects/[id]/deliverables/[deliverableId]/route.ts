@@ -64,5 +64,12 @@ export async function PATCH(
     data,
   });
 
+  // Re-assess completeness after content edit (fire-and-forget)
+  if (content !== undefined) {
+    import("@/lib/deliverable-completeness")
+      .then(({ reassessCompleteness }) => reassessCompleteness(params.deliverableId))
+      .catch(err => console.error("[deliverable-api] Completeness reassessment failed:", err));
+  }
+
   return NextResponse.json(updated);
 }

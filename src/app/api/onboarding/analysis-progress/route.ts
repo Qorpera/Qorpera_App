@@ -51,7 +51,7 @@ export async function GET() {
 
   // Include real entity/situation counts from database
   if (analysis.status === "confirming" || analysis.status === "complete") {
-    const [situationCount, entityCount, relationshipCount, pipelineJob] = await Promise.all([
+    const [situationCount, entityCount, relationshipCount, pipelineJob, wikiStatsResult, initiativeCount] = await Promise.all([
       prisma.situation.count({
         where: { operatorId: session.operatorId, status: { in: ["detected", "reasoning", "proposed"] } },
       }),
@@ -66,12 +66,40 @@ export async function GET() {
         orderBy: { createdAt: "desc" },
         select: { status: true },
       }),
+      prisma.knowledgePage.groupBy({
+        by: ["pageType", "status"],
+        where: { operatorId: session.operatorId, scope: "operator", projectId: null },
+        _count: true,
+        _avg: { confidence: true },
+      }),
+      prisma.initiative.count({
+        where: { operatorId: session.operatorId, status: { notIn: ["completed", "rejected", "failed"] } },
+      }),
     ]);
 
     response.situationCount = situationCount;
     response.entityCount = entityCount;
     response.relationshipCount = relationshipCount;
     response.postSynthesisStatus = pipelineJob?.status ?? null;
+
+    // Build wiki stats from groupBy result
+    const wikiPages = wikiStatsResult.reduce((sum, g) => sum + g._count, 0);
+    const wikiVerified = wikiStatsResult.filter(g => g.status === "verified").reduce((sum, g) => sum + g._count, 0);
+    const wikiByType: Record<string, number> = {};
+    for (const g of wikiStatsResult) {
+      wikiByType[g.pageType] = (wikiByType[g.pageType] ?? 0) + g._count;
+    }
+    const avgConfidence = wikiPages > 0
+      ? wikiStatsResult.reduce((sum, g) => sum + (g._avg?.confidence ?? 0) * g._count, 0) / wikiPages
+      : 0;
+
+    response.wikiStats = {
+      totalPages: wikiPages,
+      verifiedPages: wikiVerified,
+      byType: wikiByType,
+      avgConfidence: Math.round(avgConfidence * 100) / 100,
+    };
+    response.initiativeCount = initiativeCount;
   }
 
   // Include synthesis output when available — transform CompanyModel to UI shape

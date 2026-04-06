@@ -35,13 +35,8 @@ export async function addProgressMessage(
  */
 export function estimateMinutesRemaining(currentPhase: string): number | undefined {
   const estimates: Record<string, number> = {
-    round_0: 40,
-    round_1: 30,
-    organizer_1: 25,
-    round_2: 15,
-    organizer_2: 10,
-    round_3: 5,
-    synthesis: 2,
+    people_discovery: 4,
+    synthesis: 3,
   };
   return estimates[currentPhase];
 }

@@ -88,6 +88,8 @@ export async function GET(
     executionPlanId: initiative.executionPlanId,
     planStatus: initiative.executionPlan?.status ?? null,
     steps,
+    proposedProjectConfig: initiative.proposedProjectConfig,
+    projectId: initiative.projectId,
     createdAt: initiative.createdAt.toISOString(),
     updatedAt: initiative.updatedAt.toISOString(),
   });

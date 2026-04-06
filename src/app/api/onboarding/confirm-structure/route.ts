@@ -101,6 +101,16 @@ export async function POST(request: Request) {
         const { applyAnswersToGraph } = await import("@/lib/onboarding-intelligence/answer-applicator");
         const result = await applyAnswersToGraph(operatorId, answeredQuestions);
         console.log(`[confirm-structure] Applied answers: ${result.propertiesUpdated} properties, ${result.relationshipsCreated} relationships, ${result.contextStored} business rules`);
+
+        // Integrate answers into wiki pages
+        try {
+          const { updateWikiFromAnswers } = await import("@/lib/wiki-answer-integration");
+          const wikiResult = await updateWikiFromAnswers(operatorId, answeredQuestions);
+          console.log(`[confirm-structure] Wiki answer integration: ${wikiResult.pagesUpdated} updated, ${wikiResult.pagesCreated} created, ${wikiResult.skipped} skipped`);
+        } catch (err) {
+          console.error("[confirm-structure] Wiki answer integration failed:", err);
+          // Non-fatal — onboarding continues
+        }
       }
     }
   } catch (err) {

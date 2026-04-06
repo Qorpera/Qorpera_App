@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
+import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { DEMO_SYNTHESIS_OUTPUT, DEMO_UNCERTAINTY_LOG } from "@/lib/demo/company-model";
 
@@ -69,6 +70,13 @@ interface AnalysisProgress {
   status: string;
   synthesisOutput?: SynthesisOutput;
   uncertaintyLog?: UncertaintyQuestion[];
+  wikiStats?: {
+    totalPages: number;
+    verifiedPages: number;
+    byType: Record<string, number>;
+    avgConfidence: number;
+  };
+  initiativeCount?: number;
 }
 
 interface CompanyModelEdits {
@@ -78,6 +86,41 @@ interface CompanyModelEdits {
   deletedPeople?: string[];
   addedDepartments?: Array<{ name: string; description?: string }>;
 }
+
+interface WikiPageSummary {
+  id: string;
+  slug: string;
+  title: string;
+  pageType: string;
+  status: string;
+  confidence: number;
+  sourceCount: number;
+  contentTokens: number;
+  lastSynthesizedAt: string;
+}
+
+interface WikiPageDetail {
+  title: string;
+  pageType: string;
+  status: string;
+  confidence: number;
+  content: string;
+  sourceCount: number;
+  version: number;
+  lastSynthesizedAt: string;
+  synthesisPath: string;
+}
+
+const PAGE_TYPE_LABELS: Record<string, string> = {
+  entity_profile: "Entity Profile",
+  department_overview: "Department",
+  financial_pattern: "Financial",
+  communication_pattern: "Communication",
+  process_description: "Process",
+  topic_synthesis: "Topic",
+  relationship_map: "Relationship",
+  contradiction_log: "Contradiction",
+};
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                           */
@@ -98,7 +141,28 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
   const [edits, setEdits] = useState<CompanyModelEdits>({});
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"map" | "questions" | "preview">("map");
+  const [activeTab, setActiveTab] = useState<"map" | "questions" | "knowledge" | "preview">("map");
+
+  // Wiki browser state
+  const [wikiPages, setWikiPages] = useState<WikiPageSummary[]>([]);
+  const [wikiStats, setWikiStats] = useState<{ totalPages: number; verifiedPages: number; byType: Record<string, number>; avgConfidence: number } | null>(null);
+  const [wikiLoading, setWikiLoading] = useState(false);
+  const [selectedWikiSlug, setSelectedWikiSlug] = useState<string | null>(null);
+  const [selectedWikiPage, setSelectedWikiPage] = useState<WikiPageDetail | null>(null);
+  const [wikiPageLoading, setWikiPageLoading] = useState(false);
+  const [wikiTypeFilter, setWikiTypeFilter] = useState<string>("");
+  const [wikiInitialized, setWikiInitialized] = useState(false);
+  const [initiatives, setInitiatives] = useState<Array<{
+    id: string;
+    status: string;
+    rationale: string;
+    proposedProjectConfig: {
+      title: string;
+      description: string;
+      deliverables: Array<{ title: string; description: string }>;
+      members: Array<{ name: string; email: string; role: string }>;
+    } | null;
+  }>>([]);
 
   // Detection loading screen state
   const [detectingPhase, setDetectingPhase] = useState(false);
@@ -125,6 +189,20 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
       if (demoMode) {
         setSynthesis(DEMO_SYNTHESIS_OUTPUT as unknown as SynthesisOutput);
         setQuestions(DEMO_UNCERTAINTY_LOG as unknown as UncertaintyQuestion[]);
+        setWikiStats({ totalPages: 42, verifiedPages: 38, byType: { entity_profile: 12, department_overview: 5, financial_pattern: 8, communication_pattern: 7, process_description: 6, topic_synthesis: 4 }, avgConfidence: 0.78 });
+        setInitiatives([
+          {
+            id: "demo-1",
+            status: "proposed",
+            rationale: "[Wiki Scanner] Cash Flow Concentration Risk\n\nTop 3 clients account for 78% of revenue. Loss of any single client would create severe cash flow impact.",
+            proposedProjectConfig: {
+              title: "Revenue Diversification Assessment",
+              description: "Assess client concentration risk and develop mitigation strategies",
+              deliverables: [{ title: "Client Risk Matrix", description: "Revenue dependency analysis per client" }, { title: "Diversification Strategy", description: "12-month plan to reduce concentration" }],
+              members: [],
+            },
+          },
+        ]);
         return;
       }
       const res = await fetch("/api/onboarding/analysis-progress");
@@ -145,6 +223,16 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
       if (data.uncertaintyLog && Array.isArray(data.uncertaintyLog)) {
         setQuestions(data.uncertaintyLog);
       }
+      if (data.wikiStats) setWikiStats(data.wikiStats);
+
+      // Fetch initiatives for preview tab
+      try {
+        const initRes = await fetch("/api/initiatives?status=proposed");
+        if (initRes.ok) {
+          const initData = await initRes.json();
+          setInitiatives(initData.items ?? []);
+        }
+      } catch {}
     } finally {
       setLoading(false);
     }
@@ -230,6 +318,60 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, chatInitialized, questions]);
+
+  // Fetch wiki pages when Knowledge tab is first activated
+  useEffect(() => {
+    if (activeTab === "knowledge" && !wikiInitialized) {
+      setWikiInitialized(true);
+      fetchWikiPages();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, wikiInitialized]);
+
+  // Re-fetch when type filter changes
+  useEffect(() => {
+    if (wikiInitialized) fetchWikiPages();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wikiTypeFilter]);
+
+  // Fetch individual wiki page when selected
+  useEffect(() => {
+    if (!selectedWikiSlug) {
+      setSelectedWikiPage(null);
+      return;
+    }
+    setWikiPageLoading(true);
+    fetch(`/api/wiki/${encodeURIComponent(selectedWikiSlug)}`)
+      .then(r => r.json())
+      .then(data => setSelectedWikiPage(data.page ?? null))
+      .catch(console.error)
+      .finally(() => setWikiPageLoading(false));
+  }, [selectedWikiSlug]);
+
+  const fetchWikiPages = async () => {
+    setWikiLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (wikiTypeFilter) params.set("pageType", wikiTypeFilter);
+      const res = await fetch(`/api/wiki?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setWikiPages(data.pages ?? []);
+        if (data.stats || data.byType) {
+          setWikiStats(prev => ({
+            totalPages: data.stats?.total ?? prev?.totalPages ?? 0,
+            verifiedPages: data.stats?.verified ?? prev?.verifiedPages ?? 0,
+            byType: data.byType ?? prev?.byType ?? {},
+            avgConfidence: data.stats?.avgConfidence ?? prev?.avgConfidence ?? 0,
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load wiki pages:", err);
+    } finally {
+      setWikiLoading(false);
+    }
+  };
 
   const initializeChat = async () => {
     setChatStreaming(true);
@@ -574,7 +716,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
 
       {/* Tab navigation */}
       <div className="flex gap-1 p-1 bg-hover rounded-lg">
-        {(["map", "questions", "preview"] as const).map(tab => (
+        {(["map", "questions", "knowledge", "preview"] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -584,7 +726,10 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
                 : "text-[var(--fg2)] hover:text-foreground"
             }`}
           >
-            {tab === "map" ? t("orgMap") : tab === "questions" ? t("clarifications") : t("preview")}
+            {tab === "map" ? t("orgMap")
+              : tab === "questions" ? t("clarifications")
+              : tab === "knowledge" ? `Knowledge${wikiStats ? ` (${wikiStats.totalPages})` : ""}`
+              : t("preview")}
           </button>
         ))}
       </div>
@@ -846,9 +991,204 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
         </div>
       )}
 
-      {/* Section C — Operational Intelligence Preview */}
+      {/* Section C — Knowledge */}
+      {activeTab === "knowledge" && (
+        <div className="space-y-4">
+          {/* Wiki stats header */}
+          {wikiStats && wikiStats.totalPages > 0 && (
+            <div className="wf-soft p-4">
+              <h3 className="text-sm font-medium text-foreground mb-3">What we learned about your business</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-accent">{wikiStats.totalPages}</div>
+                  <div className="text-[10px] text-[var(--fg3)]">Knowledge pages</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-[var(--ok)]">{wikiStats.verifiedPages}</div>
+                  <div className="text-[10px] text-[var(--fg3)]">Verified</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-foreground">{Object.keys(wikiStats.byType ?? {}).length}</div>
+                  <div className="text-[10px] text-[var(--fg3)]">Categories</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-semibold text-foreground">{Math.round((wikiStats.avgConfidence ?? 0) * 100)}%</div>
+                  <div className="text-[10px] text-[var(--fg3)]">Avg confidence</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Type filter pills */}
+          {wikiStats && Object.keys(wikiStats.byType ?? {}).length > 1 && (
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                onClick={() => setWikiTypeFilter("")}
+                className={`px-2.5 py-1 rounded text-[11px] font-medium transition ${
+                  !wikiTypeFilter
+                    ? "bg-accent-light text-accent"
+                    : "bg-hover text-[var(--fg2)] hover:text-foreground"
+                }`}
+              >
+                All
+              </button>
+              {Object.entries(PAGE_TYPE_LABELS).map(([type, label]) => {
+                const count = wikiStats.byType?.[type] ?? 0;
+                if (!count) return null;
+                return (
+                  <button
+                    key={type}
+                    onClick={() => setWikiTypeFilter(wikiTypeFilter === type ? "" : type)}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition ${
+                      wikiTypeFilter === type
+                        ? "bg-accent-light text-accent"
+                        : "bg-hover text-[var(--fg2)] hover:text-foreground"
+                    }`}
+                  >
+                    {label} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Wiki page list */}
+          {wikiLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-5 h-5 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+            </div>
+          ) : wikiPages.length === 0 ? (
+            <div className="wf-soft p-6 text-center">
+              <p className="text-sm text-[var(--fg3)]">
+                No knowledge pages synthesized yet. The system will build your knowledge base as more data flows in.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {wikiPages.map(page => (
+                <button
+                  key={page.slug}
+                  onClick={() => setSelectedWikiSlug(selectedWikiSlug === page.slug ? null : page.slug)}
+                  className={`w-full text-left rounded-lg transition ${
+                    selectedWikiSlug === page.slug
+                      ? "bg-accent-light ring-1 ring-accent/20"
+                      : "wf-soft hover:bg-hover"
+                  }`}
+                >
+                  {/* Page header row — always visible */}
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      page.status === "verified" ? "bg-[var(--ok)]"
+                      : page.status === "stale" ? "bg-[var(--warn)]"
+                      : page.status === "quarantined" ? "bg-[var(--danger)]"
+                      : "bg-[var(--fg3)]"
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-foreground truncate">{page.title}</div>
+                      <div className="text-[10px] text-[var(--fg3)]">
+                        {PAGE_TYPE_LABELS[page.pageType] ?? page.pageType}
+                        {" · "}
+                        {Math.round(page.confidence * 100)}% confidence
+                        {" · "}
+                        {page.sourceCount} sources
+                      </div>
+                    </div>
+                    <svg
+                      className={`w-3.5 h-3.5 text-[var(--fg3)] transition-transform ${
+                        selectedWikiSlug === page.slug ? "rotate-180" : ""
+                      }`}
+                      viewBox="0 0 20 20" fill="currentColor"
+                    >
+                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+
+                  {/* Expanded content — wiki page body */}
+                  {selectedWikiSlug === page.slug && (
+                    <div className="px-4 pb-4 border-t border-[var(--border)]" onClick={e => e.stopPropagation()}>
+                      {wikiPageLoading ? (
+                        <div className="flex justify-center py-6">
+                          <div className="w-4 h-4 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+                        </div>
+                      ) : selectedWikiPage ? (
+                        <div className="pt-3 wiki-content text-xs text-[var(--fg2)] leading-relaxed max-h-[400px] overflow-y-auto">
+                          <ReactMarkdown
+                            components={{
+                              p: ({ children }) => <p style={{ marginBottom: 8 }}>{children}</p>,
+                              h1: ({ children }) => <h1 className="text-sm font-semibold text-foreground mt-4 mb-2">{children}</h1>,
+                              h2: ({ children }) => <h2 className="text-xs font-semibold text-foreground mt-3 mb-1.5">{children}</h2>,
+                              h3: ({ children }) => <h3 className="text-xs font-medium text-foreground mt-2 mb-1">{children}</h3>,
+                              ul: ({ children }) => <ul className="pl-4 mb-2 list-disc">{children}</ul>,
+                              ol: ({ children }) => <ol className="pl-4 mb-2 list-decimal">{children}</ol>,
+                              li: ({ children }) => <li className="mb-0.5 text-[var(--fg2)]">{children}</li>,
+                              strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                              hr: () => <hr className="border-[var(--border)] my-3" />,
+                              code: ({ children }) => (
+                                <code className="px-1 py-0.5 rounded bg-hover text-[10px] font-mono">{children}</code>
+                              ),
+                            }}
+                          >
+                            {selectedWikiPage.content.replace(/\[src:[a-zA-Z0-9_-]+\]/g, "")}
+                          </ReactMarkdown>
+                          <div className="mt-3 pt-2 border-t border-[var(--border)] flex items-center gap-4 text-[10px] text-[var(--fg3)]">
+                            <span>v{selectedWikiPage.version}</span>
+                            <span>{selectedWikiPage.synthesisPath}</span>
+                            <span>{selectedWikiPage.sourceCount} sources</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-[var(--fg3)] py-4">Failed to load page content.</p>
+                      )}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Section D — Operational Intelligence Preview */}
       {activeTab === "preview" && (
         <div className="space-y-4">
+          {/* Initiatives with proposals */}
+          {initiatives.length > 0 && (
+            <div className="wf-soft p-4 space-y-3">
+              <h3 className="text-sm font-medium text-foreground">
+                Strategic Initiatives ({initiatives.length})
+              </h3>
+              <p className="text-xs text-[var(--fg2)]">
+                The system detected patterns in your data that may warrant structured projects.
+                You can create projects from these after completing setup, or from the Initiatives page.
+              </p>
+              {initiatives.slice(0, 5).map(init => (
+                <div
+                  key={init.id}
+                  className="rounded-lg p-3"
+                  style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                >
+                  <p className="text-xs font-medium text-foreground">
+                    {init.proposedProjectConfig?.title ?? init.rationale.split(/[.!?\n]/)[0]}
+                  </p>
+                  {init.proposedProjectConfig?.description && (
+                    <p className="text-[11px] text-[var(--fg3)] mt-1">
+                      {init.proposedProjectConfig.description}
+                    </p>
+                  )}
+                  {init.proposedProjectConfig?.deliverables && init.proposedProjectConfig.deliverables.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {init.proposedProjectConfig.deliverables.map((d, i) => (
+                        <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-accent-light text-accent">
+                          {d.title}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Situations summary */}
           <div className="wf-soft p-4 space-y-3">
             <h3 className="text-sm font-medium text-[var(--fg2)]">{t("detectedIntelligence")}</h3>

@@ -37,6 +37,21 @@ interface ContentDoc {
   sections: ContentSection[];
 }
 
+interface CompletenessReport {
+  overallCompleteness: number;
+  sections: Array<{
+    templateSection: string;
+    status: "complete" | "partial" | "not_provided";
+    coverage: number;
+    gaps: string[];
+    dataAvailable: boolean;
+  }>;
+  criticalGaps: string[];
+  suggestedActions: string[];
+  assessedAt: string;
+  assessmentMethod: "extraction" | "reassessment";
+}
+
 interface ChatMessage {
   id: string;
   role: string;
@@ -289,6 +304,30 @@ export default function DeliverableDetailPage() {
               Accept deliverable
             </button>
           )}
+          {(deliverable.completenessReport as CompletenessReport | null) && (
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetchApi(`/api/projects/${projectId}/deliverables/${deliverableId}/reassess`, { method: "POST" });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setDeliverable(prev => prev ? { ...prev, completenessReport: data.completenessReport, confidenceLevel: data.confidenceLevel } : prev);
+                  }
+                } catch {}
+              }}
+              style={{
+                fontSize: 11,
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: "transparent",
+                color: "rgba(255,255,255,0.5)",
+                cursor: "pointer",
+              }}
+            >
+              Re-assess
+            </button>
+          )}
         </div>
 
         {/* ── Split layout ── */}
@@ -303,6 +342,99 @@ export default function DeliverableDetailPage() {
           {/* Left pane — Report content */}
           <div style={{ overflowY: "auto", borderRight: "0.5px solid rgba(255,255,255,0.05)" }}>
             <div style={{ padding: "28px 44px", maxWidth: 600 }}>
+              {/* Completeness Summary */}
+              {(() => {
+                const completeness = deliverable.completenessReport as CompletenessReport | null;
+                if (!completeness || !completeness.sections?.length) return null;
+                return (
+                  <div style={{ marginBottom: 24 }}>
+                    {/* Overall bar */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${Math.round(completeness.overallCompleteness * 100)}%`,
+                            borderRadius: 3,
+                            background: completeness.overallCompleteness >= 0.7
+                              ? "rgb(52,211,153)"
+                              : completeness.overallCompleteness >= 0.4
+                                ? "#facc15"
+                                : "rgb(248,113,113)",
+                            transition: "width 0.5s ease",
+                          }}
+                        />
+                      </div>
+                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", whiteSpace: "nowrap" }}>
+                        {Math.round(completeness.overallCompleteness * 100)}% complete
+                      </span>
+                    </div>
+
+                    {/* Per-section status */}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                      {completeness.sections.map((s, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            fontSize: 11,
+                            padding: "3px 10px",
+                            borderRadius: 4,
+                            background: s.status === "complete"
+                              ? "rgba(52,211,153,0.12)"
+                              : s.status === "partial"
+                                ? "rgba(250,204,21,0.12)"
+                                : "rgba(255,255,255,0.05)",
+                            color: s.status === "complete"
+                              ? "rgb(52,211,153)"
+                              : s.status === "partial"
+                                ? "#facc15"
+                                : "rgba(255,255,255,0.3)",
+                            border: `1px solid ${
+                              s.status === "complete"
+                                ? "rgba(52,211,153,0.2)"
+                                : s.status === "partial"
+                                  ? "rgba(250,204,21,0.2)"
+                                  : "rgba(255,255,255,0.08)"
+                            }`,
+                          }}
+                        >
+                          {s.status === "complete" ? "\u2713 " : s.status === "partial" ? "\u25D0 " : "\u25CB "}
+                          {s.templateSection}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Critical gaps */}
+                    {completeness.criticalGaps.length > 0 && (
+                      <div style={{ padding: "10px 14px", borderRadius: 6, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.15)", marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "rgb(248,113,113)", marginBottom: 6 }}>
+                          Critical Gaps
+                        </div>
+                        {completeness.criticalGaps.map((gap, i) => (
+                          <div key={i} style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginBottom: 2, paddingLeft: 8 }}>
+                            &bull; {gap}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Suggested actions */}
+                    {completeness.suggestedActions.length > 0 && (
+                      <div style={{ padding: "10px 14px", borderRadius: 6, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.5)", marginBottom: 6 }}>
+                          Suggested Actions
+                        </div>
+                        {completeness.suggestedActions.map((action, i) => (
+                          <div key={i} style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginBottom: 2, paddingLeft: 8 }}>
+                            &rarr; {action}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {deliverable.content ? (
                 <ReportContent sections={deliverable.content.sections} />
               ) : (

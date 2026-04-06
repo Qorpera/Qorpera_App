@@ -79,6 +79,8 @@ export async function GET(req: NextRequest) {
     planStatus: i.executionPlan?.status ?? null,
     totalSteps: i.executionPlan?._count.steps ?? 0,
     completedSteps: i.executionPlan?.steps.length ?? 0,
+    proposedProjectConfig: i.proposedProjectConfig,
+    projectId: i.projectId,
     createdAt: i.createdAt.toISOString(),
   }));
 

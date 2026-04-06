@@ -147,7 +147,7 @@ describe("People Discovery", () => {
     ]);
 
     const { buildPeopleRegistry } = await import(
-      "@/lib/onboarding-intelligence/agents/people-discovery"
+      "@/lib/onboarding-intelligence/people-discovery"
     );
 
     const registry = await buildPeopleRegistry("op1");
@@ -205,7 +205,7 @@ describe("People Discovery", () => {
     mockPrisma.activitySignal.findMany.mockResolvedValue([]);
 
     const { buildPeopleRegistry } = await import(
-      "@/lib/onboarding-intelligence/agents/people-discovery"
+      "@/lib/onboarding-intelligence/people-discovery"
     );
 
     const registry = await buildPeopleRegistry("op1");

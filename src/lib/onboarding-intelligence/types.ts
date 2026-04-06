@@ -141,4 +141,11 @@ export interface AnalysisProgressResponse {
   entityCount?: number;
   relationshipCount?: number;
   postSynthesisStatus?: string | null;
+  wikiStats?: {
+    totalPages: number;
+    verifiedPages: number;
+    byType: Record<string, number>;
+    avgConfidence: number;
+  };
+  initiativeCount?: number;
 }

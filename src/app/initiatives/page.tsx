@@ -11,6 +11,13 @@ import { getPreviewComponent } from "@/components/execution/previews/get-preview
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+interface ProposedProjectConfig {
+  title: string;
+  description: string;
+  members: Array<{ name: string; email: string; role: string }>;
+  deliverables: Array<{ title: string; description: string; assignedToEmail: string; format: string; suggestedDeadline: string | null }>;
+}
+
 interface InitiativeItem {
   id: string;
   goalId: string;
@@ -24,6 +31,8 @@ interface InitiativeItem {
   planStatus: string | null;
   totalSteps: number;
   completedSteps: number;
+  proposedProjectConfig: ProposedProjectConfig | null;
+  projectId: string | null;
   createdAt: string;
 }
 
@@ -39,6 +48,8 @@ interface InitiativeDetail {
   executionPlanId: string | null;
   planStatus: string | null;
   steps: StepData[];
+  proposedProjectConfig: ProposedProjectConfig | null;
+  projectId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -176,14 +187,23 @@ export default function InitiativesPage() {
 
   const patchInitiative = async (id: string, body: Record<string, unknown>) => {
     try {
-      await fetch(`/api/initiatives/${id}`, {
+      const res = await fetch(`/api/initiatives/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      await fetchInitiatives();
-      if (selectedId) fetchDetail(selectedId);
-    } catch {}
+      if (res.ok) {
+        const data = await res.json();
+        if (data.projectId) {
+          window.location.href = `/projects/${data.projectId}`;
+          return;
+        }
+        fetchInitiatives();
+        if (selectedId === id) fetchDetail(id);
+      }
+    } catch (err) {
+      console.error("Failed to update initiative:", err);
+    }
   };
 
   const advanceStep = async (planId: string, stepId: string, action: "approve" | "skip") => {
@@ -403,6 +423,88 @@ function DetailPane({
         </div>
       </div>
 
+      {/* ── Proposed Project ── */}
+      {d.proposedProjectConfig && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">
+            Proposed Project
+          </div>
+          <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 8 }} className="space-y-3">
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }}>
+                {d.proposedProjectConfig.title}
+              </p>
+              {d.proposedProjectConfig.description && (
+                <p style={{ fontSize: 12, color: "var(--fg2)", marginTop: 4, lineHeight: 1.5 }}>
+                  {d.proposedProjectConfig.description}
+                </p>
+              )}
+            </div>
+
+            {d.proposedProjectConfig.deliverables?.length > 0 && (
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", marginBottom: 6 }}>
+                  Deliverables ({d.proposedProjectConfig.deliverables.length})
+                </p>
+                {d.proposedProjectConfig.deliverables.map((del, i) => (
+                  <div key={i} className="flex items-start gap-2 py-1.5" style={{ borderTop: i > 0 ? "1px solid var(--border)" : "none" }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", marginTop: 5, flexShrink: 0 }} />
+                    <div>
+                      <p style={{ fontSize: 12, color: "var(--foreground)", fontWeight: 500 }}>{del.title}</p>
+                      {del.description && (
+                        <p style={{ fontSize: 11, color: "var(--fg3)", marginTop: 2 }}>{del.description}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {d.proposedProjectConfig.members?.length > 0 && (
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", marginBottom: 4 }}>
+                  Suggested team
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {d.proposedProjectConfig.members.map((m, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        fontSize: 11,
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        background: "var(--hover)",
+                        color: "var(--fg2)",
+                      }}
+                    >
+                      {m.name || m.email} · {m.role}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {d.projectId && (
+              <a
+                href={`/projects/${d.projectId}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: "var(--accent)",
+                  textDecoration: "none",
+                  marginTop: 4,
+                }}
+              >
+                View project →
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Action buttons ── */}
       {canAct && (
         <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
@@ -411,7 +513,7 @@ function DetailPane({
             style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
             onClick={() => patchInitiative(d.id, { status: "approved" })}
           >
-            {tc("approve")}
+            {d.proposedProjectConfig ? "Create Project" : tc("approve")}
           </button>
           <button
             className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"

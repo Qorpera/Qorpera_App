@@ -65,7 +65,7 @@ describe("buildPeopleRegistry — directory pre-population", () => {
     const { decryptConfig } = await import("@/lib/config-encryption");
     (decryptConfig as ReturnType<typeof vi.fn>).mockReturnValue({ users: googleUsers });
 
-    const { buildPeopleRegistry } = await import("@/lib/onboarding-intelligence/agents/people-discovery");
+    const { buildPeopleRegistry } = await import("@/lib/onboarding-intelligence/people-discovery");
     const registry = await buildPeopleRegistry("op1");
 
     const alice = registry.find(p => p.email === "alice@boltly.dk");
@@ -100,7 +100,7 @@ describe("buildPeopleRegistry — directory pre-population", () => {
       .mockReturnValueOnce({ users: googleUsers })
       .mockReturnValueOnce({ users: msUsers });
 
-    const { buildPeopleRegistry } = await import("@/lib/onboarding-intelligence/agents/people-discovery");
+    const { buildPeopleRegistry } = await import("@/lib/onboarding-intelligence/people-discovery");
     const registry = await buildPeopleRegistry("op1");
 
     const alice = registry.find(p => p.email === "alice@boltly.dk");
@@ -128,7 +128,7 @@ describe("buildPeopleRegistry — directory pre-population", () => {
     const { decryptConfig } = await import("@/lib/config-encryption");
     (decryptConfig as ReturnType<typeof vi.fn>).mockReturnValue({ users: [] });
 
-    const { buildPeopleRegistry } = await import("@/lib/onboarding-intelligence/agents/people-discovery");
+    const { buildPeopleRegistry } = await import("@/lib/onboarding-intelligence/people-discovery");
     const registry = await buildPeopleRegistry("op1");
 
     // Should still return an empty registry without errors
@@ -148,7 +148,7 @@ describe("buildPeopleRegistry — directory pre-population", () => {
 
     const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const { buildPeopleRegistry } = await import("@/lib/onboarding-intelligence/agents/people-discovery");
+    const { buildPeopleRegistry } = await import("@/lib/onboarding-intelligence/people-discovery");
     const registry = await buildPeopleRegistry("op1");
 
     // Should not throw, returns empty registry
@@ -157,63 +157,3 @@ describe("buildPeopleRegistry — directory pre-population", () => {
   });
 });
 
-describe("buildRound1Preamble — directory-verified section", () => {
-  it("includes Directory-Verified Employees when entries exist", async () => {
-    const { buildRound1Preamble } = await import("@/lib/onboarding-intelligence/orchestration");
-
-    const people = [
-      {
-        email: "alice@co.com",
-        displayName: "Alice",
-        sources: [{ system: "google-admin-sdk" }],
-        isInternal: true,
-        activityMetrics: { emailsSent: 5, emailsReceived: 10, slackMessages: 0, meetingsAttended: 2, documentsAuthored: 0 },
-        adminApiVerified: true,
-        adminDepartment: "Engineering",
-        adminTitle: "Developer",
-      },
-    ];
-
-    const preamble = buildRound1Preamble(people as any);
-    expect(preamble).toContain("Directory-Verified Employees");
-    expect(preamble).toContain("Google Workspace");
-    expect(preamble).toContain("Alice");
-    expect(preamble).toContain("dept: Engineering");
-    expect(preamble).toContain("activity: 17");
-  });
-
-  it("shows combined source label when both directories present", async () => {
-    const { buildRound1Preamble } = await import("@/lib/onboarding-intelligence/orchestration");
-
-    const people = [
-      {
-        email: "alice@co.com",
-        displayName: "Alice",
-        sources: [{ system: "google-admin-sdk" }, { system: "microsoft-graph" }],
-        isInternal: true,
-        activityMetrics: { emailsSent: 0, emailsReceived: 0, slackMessages: 0, meetingsAttended: 0, documentsAuthored: 0 },
-        adminApiVerified: true,
-      },
-    ];
-
-    const preamble = buildRound1Preamble(people as any);
-    expect(preamble).toContain("Google Workspace + Microsoft 365");
-  });
-
-  it("does not include directory section when no verified entries", async () => {
-    const { buildRound1Preamble } = await import("@/lib/onboarding-intelligence/orchestration");
-
-    const people = [
-      {
-        email: "alice@co.com",
-        displayName: "Alice",
-        sources: [{ system: "gmail" }],
-        isInternal: true,
-        activityMetrics: { emailsSent: 5, emailsReceived: 0, slackMessages: 0, meetingsAttended: 0, documentsAuthored: 0 },
-      },
-    ];
-
-    const preamble = buildRound1Preamble(people as any);
-    expect(preamble).not.toContain("Directory-Verified");
-  });
-});

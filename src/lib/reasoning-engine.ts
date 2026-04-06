@@ -34,6 +34,18 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     return;
   }
 
+  // Skip reasoning for awareness situations — they're resolved at detection time
+  if (situation.situationType?.slug?.startsWith("awareness-")) {
+    console.log(`[reasoning-engine] Skipping reasoning for awareness situation ${situationId} (type: ${situation.situationType.slug})`);
+    if (situation.status === "detected") {
+      await prisma.situation.update({
+        where: { id: situationId },
+        data: { status: "resolved", resolvedAt: new Date() },
+      });
+    }
+    return;
+  }
+
   // 2. Guard — skip if not detected (idempotent)
   if (situation.status !== "detected") {
     return;

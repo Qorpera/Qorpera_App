@@ -41,6 +41,7 @@ const MODEL_ROUTES = {
   // ── Project intelligence ──
   projectCompilation: "claude-opus-4-6",
   projectChat: "claude-sonnet-4-6",
+  deliverableCompleteness: "claude-sonnet-4-6",
 
   // ── Infrastructure ──
   embedding: "text-embedding-3-small",

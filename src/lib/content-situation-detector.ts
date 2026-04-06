@@ -1096,7 +1096,8 @@ async function handleAwareness(
         situationTypeId,
         triggerEntityId: batch.actorEntityId,
         source: "content_detected",
-        status: "detected",
+        status: "resolved",
+        resolvedAt: new Date(),
         investigationDepth: result.investigationDepth,
         confidence,
         severity: 0.3,
@@ -1135,12 +1136,35 @@ async function handleAwareness(
     }).catch(() => {});
     checkConfirmationRate(situationTypeId).catch(console.error);
 
-    // Enqueue reasoning — the reasoning engine will decide if action is warranted
-    enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }).catch((err) =>
-      console.error("[content-detection] Failed to enqueue strategic awareness reasoning:", err),
-    );
+    // Lightweight wiki signal — note the awareness in relevant entity pages
+    try {
+      const { processWikiUpdates } = await import("@/lib/wiki-engine");
+      await processWikiUpdates({
+        operatorId,
+        updates: [{
+          slug: batch.actorEntityId,
+          pageType: "entity_profile",
+          title: `Awareness: ${result.summary.slice(0, 80)}`,
+          subjectEntityId: batch.actorEntityId,
+          updateType: "update",
+          content: `## Recent Awareness Signal\n\n${result.summary}\n\n**Source:** ${item.sourceType} from ${meta.from ?? "unknown"} (${meta.date ?? "recent"})\n**Classification:** Strategic awareness\n**Evidence:** ${result.evidence ?? "N/A"}`,
+          sourceCitations: [{
+            sourceType: item.sourceType === "email" || item.sourceType === "slack" || item.sourceType === "teams" ? "chunk" : "signal",
+            sourceId: item.sourceId,
+            claim: result.summary,
+          }],
+          reasoning: `Strategic awareness signal detected during content evaluation. ${result.reasoning ?? ""}`,
+        }],
+        synthesisPath: "onboarding",
+        synthesizedByModel: "content-detector",
+      }).catch(err => {
+        console.warn("[content-detection] Wiki awareness signal failed:", err);
+      });
+    } catch {
+      // Non-fatal — wiki update is best-effort for awareness
+    }
 
-    console.log(`[content-detection] Created strategic awareness situation for ${batch.actorName}: ${result.summary}`);
+    console.log(`[content-detection] Created strategic awareness situation (resolved, no reasoning) for ${batch.actorName}: ${result.summary}`);
     return;
   }
 
