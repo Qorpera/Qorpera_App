@@ -1542,7 +1542,7 @@ model FileUpload {
   filename        String
   mimeType        String
   sizeBytes       Int
-  storageProvider String   @default("local") // "qorpera", "s3", "local"
+  storageProvider String   @default("local") // "qorpera", "s3", "local", "connector"
   storageKey      String // provider-specific key/path
   status          String   @default("uploaded") // "uploaded", "processing", "ready", "failed"
   chunkCount      Int      @default(0)
@@ -1554,7 +1554,7 @@ model FileUpload {
   documentProfile         Json?      // Layer 2 classification output (DocumentProfile)
   documentUnderstanding   Json?      // Layer 4 comprehension output (DocumentUnderstanding)
   intelligenceStatus      String     @default("pending")
-  // "pending" | "classifying" | "comprehending" | "extracting" | "correlating" | "synthesizing" | "complete" | "failed"
+  // "pending" | "classifying" | "comprehending" | "extracting" | "correlating" | "synthesizing" | "complete" | "skipped" | "failed"
   intelligenceError       String?    // Error message if pipeline fails at any stage
   intelligenceCostCents   Int        @default(0)
 
@@ -1566,6 +1566,7 @@ model FileUpload {
 
   contentChunks ContentChunk[]
 
+  @@unique([operatorId, storageProvider, storageKey])
   @@index([operatorId])
   @@index([projectId])
   @@index([operatorId, status])

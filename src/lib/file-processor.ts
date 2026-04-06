@@ -315,3 +315,78 @@ async function extractText(
       throw new Error(`Unsupported MIME type: ${mimeType}`);
   }
 }
+
+/**
+ * Run document intelligence pipeline on a FileUpload that already has
+ * extractedFullText and chunks. Used for connector-synced documents
+ * where text extraction and chunking happened during sync.
+ */
+export async function runDocumentIntelligenceOnly(
+  fileUploadId: string,
+): Promise<void> {
+  const file = await prisma.fileUpload.findUniqueOrThrow({
+    where: { id: fileUploadId },
+    select: {
+      id: true,
+      operatorId: true,
+      filename: true,
+      mimeType: true,
+      extractedFullText: true,
+      projectId: true,
+    },
+  });
+
+  if (!file.extractedFullText) {
+    console.warn(
+      `[file-processor] No extracted text for ${fileUploadId} — skipping intelligence`,
+    );
+    await prisma.fileUpload.update({
+      where: { id: fileUploadId },
+      data: { intelligenceStatus: "skipped" },
+    });
+    return;
+  }
+
+  try {
+    const { registerDocument, routeContent } = await import(
+      "@/lib/document-intelligence/router"
+    );
+    const registration = await registerDocument(
+      file.operatorId,
+      file.id,
+      file.extractedFullText,
+    );
+    const route = routeContent(registration);
+
+    if (route === "full_pipeline" || route === "large_document") {
+      await runDocumentIntelligence(registration);
+    } else if (route === "short_document") {
+      const { classifyDocument } = await import(
+        "@/lib/document-intelligence/classifier"
+      );
+      const profile = await classifyDocument(registration);
+      await prisma.fileUpload.update({
+        where: { id: file.id },
+        data: {
+          documentProfile: profile as unknown as Prisma.InputJsonValue,
+          intelligenceStatus: "complete",
+        },
+      });
+    }
+  } catch (err) {
+    console.error(
+      `[file-processor] Intelligence-only pipeline failed for ${fileUploadId}:`,
+      err,
+    );
+    await prisma.fileUpload
+      .update({
+        where: { id: fileUploadId },
+        data: {
+          intelligenceStatus: "failed",
+          intelligenceError:
+            err instanceof Error ? err.message : "Unknown error",
+        },
+      })
+      .catch(() => {});
+  }
+}

@@ -378,31 +378,8 @@ export default function WikiPage() {
           overflow: "hidden",
         }}
       >
-        {/* ── Sidebar ── */}
-        {!isMobile && (
-          <Sidebar
-            stats={stats}
-            byType={byType}
-            activeType={activeType}
-            searchInput={searchInput}
-            pages={filteredPages}
-            activeSlug={activeSlug}
-            locale={locale}
-            onTypeChange={(t) => setParam("type", t)}
-            onSearch={handleSearch}
-            onSelectPage={(slug) => setParam("page", slug)}
-          />
-        )}
-
-        {/* ── Content Pane ── */}
-        <div
-          style={{
-            flex: 1,
-            overflow: "auto",
-            borderLeft: isMobile ? "none" : "1px solid var(--border)",
-            borderRight: "none",
-          }}
-        >
+        {/* ── Main Content ── */}
+        <div style={{ flex: 1, overflow: "auto" }}>
           {isMobile && (
             <MobileFilters
               byType={byType}
@@ -421,54 +398,172 @@ export default function WikiPage() {
             />
           )}
 
-          {/* Search bar at top of content area */}
-          {!isMobile && (
-            <div style={{ padding: "16px 24px 0", display: "flex", justifyContent: "center" }}>
-              <input
-                type="text"
-                placeholder="Search wiki pages..."
-                value={searchInput}
-                onChange={(e) => handleSearch(e.target.value)}
-                style={{
-                  width: "100%",
-                  maxWidth: 640,
-                  padding: "10px 16px",
-                  background: "rgba(255,255,255,0.04)",
-                  border: "0.5px solid var(--border)",
-                  borderRadius: 8,
-                  color: "var(--foreground)",
-                  fontSize: 13,
-                  outline: "none",
-                }}
-              />
-            </div>
-          )}
-
           {pageLoading ? (
             <div style={{ padding: 32, color: "var(--fg3)" }}>Loading page...</div>
-          ) : activePage ? (
-            <ContentPane
-              page={activePage}
-              editing={editing}
-              editContent={editContent}
-              saving={saving}
-              locale={locale}
-              pageIndex={pages}
-              onStartEdit={() => {
-                setEditContent(activePage.content);
-                setEditing(true);
-              }}
-              onCancelEdit={() => setEditing(false)}
-              onSave={handleSave}
-              onEditChange={setEditContent}
-              onCitationClick={handleCitationClick}
-              onToggleInspector={() => setInspectorOpen((o) => !o)}
-              inspectorOpen={inspectorOpen}
-              onNavigate={(slug) => setParam("page", slug)}
-            />
-          ) : (
-            <EmptyState stats={stats} />
-          )}
+          ) : activeSlug && activePage ? (
+            <>
+              {/* Back bar */}
+              <div style={{ maxWidth: 800, margin: "0 auto", width: "100%" }}>
+                <div style={{ padding: "12px 24px 0", display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    onClick={() => setParam("page", "")}
+                    style={{
+                      fontSize: 12,
+                      color: "var(--fg3)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    ← Back to pages
+                  </button>
+                </div>
+              </div>
+              <ContentPane
+                page={activePage}
+                editing={editing}
+                editContent={editContent}
+                saving={saving}
+                locale={locale}
+                pageIndex={pages}
+                onStartEdit={() => {
+                  setEditContent(activePage.content);
+                  setEditing(true);
+                }}
+                onCancelEdit={() => setEditing(false)}
+                onSave={handleSave}
+                onEditChange={setEditContent}
+                onCitationClick={handleCitationClick}
+                onToggleInspector={() => setInspectorOpen((o) => !o)}
+                inspectorOpen={inspectorOpen}
+                onNavigate={(slug) => setParam("page", slug)}
+              />
+            </>
+          ) : !isMobile ? (
+            /* ── Page Index View ── */
+            <div style={{ maxWidth: 800, margin: "0 auto", padding: "24px 24px 48px" }}>
+              {/* Search */}
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+                <input
+                  type="text"
+                  placeholder="Search wiki pages..."
+                  value={searchInput}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  style={{
+                    width: "100%",
+                    maxWidth: 560,
+                    padding: "12px 16px",
+                    background: "rgba(255,255,255,0.04)",
+                    border: "0.5px solid var(--border)",
+                    borderRadius: 10,
+                    color: "var(--foreground)",
+                    fontSize: 14,
+                    outline: "none",
+                  }}
+                />
+              </div>
+
+              {/* Type filter pills */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20, justifyContent: "center" }}>
+                <button
+                  onClick={() => setParam("type", "")}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: 20,
+                    border: "0.5px solid " + (!activeType ? "var(--foreground)" : "var(--border)"),
+                    background: !activeType ? "rgba(255,255,255,0.08)" : "transparent",
+                    color: !activeType ? "var(--foreground)" : "var(--fg3)",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    fontWeight: !activeType ? 600 : 400,
+                  }}
+                >
+                  All {stats ? stats.total : ""}
+                </button>
+                {Object.entries(PAGE_TYPE_META).map(([type, meta]) => {
+                  const count = byType[type] ?? 0;
+                  if (!count) return null;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setParam("type", type === activeType ? "" : type)}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: 20,
+                        border: "0.5px solid " + (activeType === type ? "var(--foreground)" : "var(--border)"),
+                        background: activeType === type ? "rgba(255,255,255,0.08)" : "transparent",
+                        color: activeType === type ? "var(--foreground)" : "var(--fg3)",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        fontWeight: activeType === type ? 600 : 400,
+                      }}
+                    >
+                      {meta.label} {count}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Page cards */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {filteredPages.map((p) => (
+                  <button
+                    key={p.slug}
+                    onClick={() => setParam("page", p.slug)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      width: "100%",
+                      padding: "12px 16px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: "transparent",
+                      color: "var(--foreground)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    {/* Status dot */}
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: STATUS_COLOR[p.status] ?? "var(--fg3)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    {/* Title + meta */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, lineHeight: "18px" }}>
+                        {p.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--fg3)", marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <span>{(p.confidence * 100).toFixed(0)}%</span>
+                        <span>{PAGE_TYPE_META[p.pageType]?.label ?? p.pageType}</span>
+                        <span>{p.sourceCount} sources</span>
+                        <span>{formatRelativeTime(p.lastSynthesizedAt, locale)}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Footer stats */}
+              {stats && (
+                <div style={{ textAlign: "center", marginTop: 24, fontSize: 12, color: "var(--fg4)" }}>
+                  {stats.total} pages · {stats.verified} verified · {(stats.avgConfidence * 100).toFixed(0)}% avg confidence
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
 
         {/* ── Inspector ── */}
@@ -672,243 +767,6 @@ export default function WikiPage() {
         </div>
       )}
     </AppShell>
-  );
-}
-
-// ── Sidebar ──────────────────────────────────────────────
-
-function Sidebar({
-  stats,
-  byType,
-  activeType,
-  searchInput,
-  pages,
-  activeSlug,
-  locale,
-  onTypeChange,
-  onSearch,
-  onSelectPage,
-}: {
-  stats: WikiStats | null;
-  byType: Record<string, number>;
-  activeType: string;
-  searchInput: string;
-  pages: WikiPageSummary[];
-  activeSlug: string;
-  locale: string;
-  onTypeChange: (t: string) => void;
-  onSearch: (q: string) => void;
-  onSelectPage: (slug: string) => void;
-}) {
-  return (
-    <div
-      style={{
-        width: 240,
-        flexShrink: 0,
-        overflow: "auto",
-        background: "var(--sidebar)",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      {/* Stats */}
-      {stats && (
-        <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ fontSize: 11, color: "var(--fg3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            Knowledge base
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 600, color: "var(--foreground)", marginBottom: 8 }}>
-            {stats.total} <span style={{ fontSize: 12, fontWeight: 400, color: "var(--fg3)" }}>pages</span>
-          </div>
-          {/* Confidence bar */}
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, color: "var(--fg3)", marginBottom: 3 }}>
-              Avg confidence: {(stats.avgConfidence * 100).toFixed(0)}%
-            </div>
-            <div style={{ height: 3, borderRadius: 2, background: "var(--border)", overflow: "hidden" }}>
-              <div
-                style={{
-                  height: "100%",
-                  width: `${stats.avgConfidence * 100}%`,
-                  borderRadius: 2,
-                  background:
-                    stats.avgConfidence > 0.7
-                      ? "var(--ok)"
-                      : stats.avgConfidence > 0.4
-                        ? "var(--warn)"
-                        : "var(--danger)",
-                }}
-              />
-            </div>
-          </div>
-          {/* Status breakdown */}
-          <div style={{ display: "flex", gap: 10, fontSize: 11 }}>
-            {(["verified", "stale", "draft", "quarantined"] as const).map((s) => {
-              const count = stats[s];
-              if (!count) return null;
-              return (
-                <span key={s} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--fg3)" }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS_COLOR[s] }} />
-                  {count}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Type filters */}
-      <div style={{ padding: "8px 6px", borderBottom: "1px solid var(--border)" }}>
-        <button
-          onClick={() => onTypeChange("")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            width: "100%",
-            padding: "5px 8px",
-            borderRadius: 4,
-            border: "none",
-            background: !activeType ? "var(--hover)" : "transparent",
-            color: !activeType ? "var(--foreground)" : "var(--fg2)",
-            fontSize: 12,
-            cursor: "pointer",
-            textAlign: "left",
-          }}
-        >
-          All
-          <span style={{ fontSize: 10, color: "var(--fg3)" }}>
-            {Object.values(byType).reduce((a, b) => a + b, 0)}
-          </span>
-        </button>
-        {Object.entries(PAGE_TYPE_META).map(([type, meta]) => {
-          const count = byType[type] ?? 0;
-          if (!count && type !== activeType) return null;
-          return (
-            <button
-              key={type}
-              onClick={() => onTypeChange(type === activeType ? "" : type)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                width: "100%",
-                padding: "5px 8px",
-                borderRadius: 4,
-                border: "none",
-                background: activeType === type ? "var(--hover)" : "transparent",
-                color: activeType === type ? "var(--foreground)" : "var(--fg2)",
-                fontSize: 12,
-                cursor: "pointer",
-                textAlign: "left",
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span
-                  style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: 3,
-                    background: "var(--border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 9,
-                    fontWeight: 600,
-                    color: "var(--fg3)",
-                  }}
-                >
-                  {meta.icon}
-                </span>
-                {meta.label}
-              </span>
-              <span style={{ fontSize: 10, color: "var(--fg3)" }}>{count}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Search */}
-      <div style={{ padding: "8px 10px" }}>
-        <input
-          type="text"
-          value={searchInput}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search pages..."
-          style={{
-            width: "100%",
-            padding: "6px 8px",
-            borderRadius: 4,
-            border: "1px solid var(--border)",
-            background: "var(--surface)",
-            color: "var(--foreground)",
-            fontSize: 12,
-            outline: "none",
-          }}
-        />
-      </div>
-
-      {/* Page list */}
-      <div style={{ flex: 1, overflow: "auto", padding: "0 6px 8px" }}>
-        {pages.map((p) => (
-          <button
-            key={p.slug}
-            onClick={() => onSelectPage(p.slug)}
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
-              width: "100%",
-              padding: "7px 8px",
-              borderRadius: 4,
-              border: "none",
-              background: activeSlug === p.slug
-                ? "color-mix(in srgb, var(--accent) 12%, transparent)"
-                : "transparent",
-              color: "var(--foreground)",
-              cursor: "pointer",
-              textAlign: "left",
-              marginBottom: 1,
-            }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: "50%",
-                background: STATUS_COLOR[p.status] ?? "var(--fg3)",
-                flexShrink: 0,
-                marginTop: 5,
-              }}
-            />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 12,
-                  lineHeight: "16px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  color: activeSlug === p.slug ? "var(--accent)" : "var(--foreground)",
-                }}
-              >
-                {p.title}
-              </div>
-              <div style={{ fontSize: 10, color: "var(--fg3)", marginTop: 1 }}>
-                {(p.confidence * 100).toFixed(0)}%
-                {" · "}
-                {formatRelativeTime(p.lastSynthesizedAt, locale)}
-              </div>
-            </div>
-          </button>
-        ))}
-        {pages.length === 0 && (
-          <div style={{ padding: 12, fontSize: 12, color: "var(--fg3)", textAlign: "center" }}>
-            No pages match filters
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -1335,35 +1193,6 @@ function processCitations(
   return children;
 }
 
-// ── Empty State ──────────────────────────────────────────
-
-function EmptyState({ stats }: { stats: WikiStats | null }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100%",
-        padding: 32,
-        color: "var(--fg3)",
-      }}
-    >
-      <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.3 }}>
-        <svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-          <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-        </svg>
-      </div>
-      <div style={{ fontSize: 14, marginBottom: 4 }}>Select a page from the sidebar</div>
-      {stats && (
-        <div style={{ fontSize: 12, marginTop: 8 }}>
-          {stats.total} pages · {stats.verified} verified · {(stats.avgConfidence * 100).toFixed(0)}% avg confidence
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Inspector Panel ──────────────────────────────────────
 

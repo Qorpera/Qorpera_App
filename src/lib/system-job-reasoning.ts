@@ -297,7 +297,7 @@ async function callAndValidateSystemJob(
         messages: [{ role: "user", content: userContent }],
         aiFunction: "reasoning",
         temperature: 0.3,
-        maxTokens: 32768,
+        maxTokens: 65_536,
         model: getModel("systemJobReasoning"),
         thinking: true,
         thinkingBudget: getThinkingBudget("systemJobReasoning") ?? undefined,

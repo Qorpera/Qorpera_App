@@ -25,17 +25,22 @@ export async function GET(
       metadata: true,
       errorMessage: true,
       storageKey: true,
+      storageProvider: true,
       createdAt: true,
     },
   });
 
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
 
-  const storage = getStorageProvider();
-  const downloadUrl = await storage.getSignedUrl(file.storageKey);
+  // Connector documents have no file blob — content is inline in extractedFullText
+  let downloadUrl: string | null = null;
+  if (file.storageProvider !== "connector") {
+    const storage = getStorageProvider();
+    downloadUrl = await storage.getSignedUrl(file.storageKey);
+  }
 
-  // Don't expose storageKey in response
-  const { storageKey: _, ...rest } = file;
+  // Don't expose storageKey or storageProvider in response
+  const { storageKey: _sk, storageProvider: _sp, ...rest } = file;
 
   return NextResponse.json({ ...rest, downloadUrl });
 }
@@ -55,14 +60,18 @@ export async function DELETE(
 
   const file = await prisma.fileUpload.findFirst({
     where: { id, operatorId },
+    select: { id: true, storageProvider: true, storageKey: true, sizeBytes: true },
   });
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
 
   // Delete from storage (non-transactional — can't be rolled back)
-  const storage = getStorageProvider();
-  await storage.delete(file.storageKey).catch((err) => {
-    console.error(`[files-api] Storage delete failed for ${file.storageKey}:`, err);
-  });
+  // Connector documents have no blob — skip storage delete
+  if (file.storageProvider !== "connector") {
+    const storage = getStorageProvider();
+    await storage.delete(file.storageKey).catch((err) => {
+      console.error(`[files-api] Storage delete failed for ${file.storageKey}:`, err);
+    });
+  }
 
   // Atomic DB cleanup: chunks → quota decrement → record deletion
   await prisma.$transaction([

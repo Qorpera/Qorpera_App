@@ -234,12 +234,6 @@ function extractDraftPayloads(raw: unknown): DraftPayload[] {
   return Array.isArray(r.draftPayloads) ? r.draftPayloads : [];
 }
 
-function statusDotColor(s: SituationItem): string {
-  if (["proposed", "executing", "auto_executing", "detected", "reasoning"].includes(s.status)) return "var(--foreground)";
-  if (s.status === "monitoring") return "var(--fg3)";
-  return "var(--fg4)";
-}
-
 function severityBadge(s: SituationItem): { label: string; variant: "red" | "amber" | "default" } {
   if (s.severity >= 0.7) return { label: "Critical", variant: "red" };
   if (s.severity >= 0.4) return { label: "High", variant: "amber" };
@@ -382,16 +376,9 @@ export default function SituationsPage() {
 
   useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
-    let cancelled = false;
     setDetail(null);
-    setDetailLoading(true);
-    fetch(`/api/situations/${selectedId}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (!cancelled && data) setDetail(data); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setDetailLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedId]);
+    fetchDetail(selectedId);
+  }, [selectedId, fetchDetail]);
 
   // ── Reset interaction when selection changes ────────────────────────────
 
@@ -919,24 +906,6 @@ const PLAN_STATUS_STYLES: Record<string, { bg: string; color: string; label: str
   executing: { bg: "transparent", color: "var(--fg3)", label: "Executing" },
   re_evaluating: { bg: "rgba(245,158,11,0.12)", color: "var(--warn)", label: "Re-evaluating" },
 };
-const CheckSvg = () => (
-  <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="4" strokeLinecap="round">
-    <polyline points="20 6 9 17 4 12" />
-  </svg>
-);
-
-function ExecutionModeBadge({ mode }: { mode: string }) {
-  const style = EXEC_MODE_STYLES[mode] ?? EXEC_MODE_STYLES.action;
-  return (
-    <span
-      className="flex-shrink-0"
-      style={{ fontSize: 10, fontWeight: 500, padding: "1px 6px", borderRadius: 3, background: style.bg, color: style.color }}
-    >
-      {style.label}
-    </span>
-  );
-}
-
 // ── Detail Pane ──────────────────────────────────────────────────────────────
 
 function DetailPane({

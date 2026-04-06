@@ -20,10 +20,22 @@ export async function GET(
 
   const file = await prisma.fileUpload.findFirst({
     where: { id, operatorId },
-    select: { storageKey: true, filename: true, mimeType: true },
+    select: { storageKey: true, storageProvider: true, filename: true, mimeType: true, extractedFullText: true },
   });
 
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
+
+  // Connector documents: serve extractedFullText as plain text download
+  if (file.storageProvider === "connector") {
+    const text = file.extractedFullText ?? "";
+    return new NextResponse(text, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(file.filename)}.txt"`,
+        "Content-Length": String(Buffer.byteLength(text, "utf-8")),
+      },
+    });
+  }
 
   try {
     const storage = getStorageProvider();

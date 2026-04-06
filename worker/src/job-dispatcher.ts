@@ -165,23 +165,6 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     await reflectOnOutcome({ situationId, outcome, feedback });
   },
 
-  async wiki_background_synthesis(payload) {
-    const { operatorId, mode } = payload as { operatorId: string; mode: "onboarding" | "incremental" };
-    const { runBackgroundSynthesis } = await import("@/lib/wiki-background-synthesis");
-    const result = await runBackgroundSynthesis(operatorId, { mode });
-    console.log(`[wiki_background_synthesis] ${mode} for ${operatorId}: ${result.pagesCreated} pages created, ${result.pagesVerified} verified`);
-
-    if (mode === "onboarding") {
-      try {
-        const { assembleInitiativesFromBookmarks } = await import("@/lib/wiki-bookmark-assembly");
-        const result = await assembleInitiativesFromBookmarks(operatorId);
-        console.log(`[wiki_background_synthesis] Bookmark assembly: ${result.initiativesCreated} initiatives from ${result.bookmarksReviewed} bookmarks`);
-      } catch (err) {
-        console.error(`[wiki_background_synthesis] Bookmark assembly failed:`, err);
-      }
-    }
-  },
-
   async run_living_research(payload) {
     const { operatorId } = payload as { operatorId: string };
     const { runLivingResearch } = await import("@/lib/living-research");
@@ -208,6 +191,12 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     const { fileUploadId } = payload as { fileUploadId: string };
     const { processFileUpload } = await import("@/lib/file-processor");
     await processFileUpload(fileUploadId);
+  },
+
+  async process_document_intelligence(payload) {
+    const { fileUploadId } = payload as { fileUploadId: string };
+    const { runDocumentIntelligenceOnly } = await import("@/lib/file-processor");
+    await runDocumentIntelligenceOnly(fileUploadId);
   },
 
   async synthesize_research(payload) {

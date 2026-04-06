@@ -127,9 +127,29 @@ class LocalStorageProvider implements FileStorageProvider {
   }
 }
 
+// ── Connector stub (no file blob — text lives in extractedFullText) ───
+
+class ConnectorStorageStub implements FileStorageProvider {
+  async upload(): Promise<void> {
+    throw new Error("Connector documents cannot be uploaded — content synced from external provider");
+  }
+  async getBuffer(): Promise<Buffer> {
+    throw new Error("Connector documents have no file blob — use extractedFullText");
+  }
+  async getSignedUrl(): Promise<string> {
+    throw new Error("Connector documents have no file blob — use extractedFullText");
+  }
+  async delete(): Promise<void> {
+    // No-op — nothing to delete from storage
+  }
+}
+
 // ── Factory ────────────────────────────────────────────────
 
-export function getStorageProvider(): FileStorageProvider {
+export function getStorageProvider(provider?: string): FileStorageProvider {
+  if (provider === "connector") {
+    return new ConnectorStorageStub();
+  }
   const explicit = process.env.FILE_STORAGE_PROVIDER;
   if (explicit === "qorpera" || explicit === "s3") {
     return new S3CompatibleProvider();

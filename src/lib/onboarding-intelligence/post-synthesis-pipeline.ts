@@ -63,22 +63,11 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     // Non-fatal — wiki synthesis below still produces immediate pages
   }
 
-  // ── Wiki Knowledge Synthesis ──────────────────────────────────────
-  // Build wiki pages from the enriched entity graph + raw data.
-  // Runs BEFORE detection so the content-situation-detector can use
-  // wiki enrichment for better-informed classification.
-  // Session 3 will upgrade/replace these with deep investigation pages.
-  console.log(`[post-synthesis] Running wiki background synthesis for ${operatorId}`);
-  let wikiPageCount = 0;
-  try {
-    const { runBackgroundSynthesis } = await import("@/lib/wiki-background-synthesis");
-    const wikiResult = await runBackgroundSynthesis(operatorId, { mode: "onboarding" });
-    wikiPageCount = wikiResult?.pagesCreated ?? 0;
-    console.log(`[post-synthesis] Wiki synthesis complete: ${wikiPageCount} pages created`);
-  } catch (err) {
-    console.error(`[post-synthesis] Wiki synthesis failed for ${operatorId}:`, err);
-    // Non-fatal — detection proceeds without wiki pages (degraded but functional)
-  }
+  // Wiki pages are produced by:
+  // 1. Document intelligence pipeline (runs async per document — file uploads + connector docs)
+  // 2. Deep investigations (runs async via research plan execution below)
+  // 3. Living research (runs on cron every 2 hours for incremental updates)
+  // No synchronous wiki synthesis needed here.
 
   // ── Execute Research Plan (async — runs in background) ───────
   // Enqueue as a worker job so onboarding completes while deep investigations run.
@@ -182,14 +171,14 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     where: { operatorId, status: { in: ["detected", "reasoning", "proposed"] } },
   });
 
-  console.log(`[post-synthesis] Complete: ${extraction.entitiesCreated} entities, ${inference.relationshipsCreated} relationships, ${wikiPageCount} wiki pages, ${totalSituations} situations, ${initiativeCount} initiatives, ${investigationCount} investigations planned`);
+  console.log(`[post-synthesis] Complete: ${extraction.entitiesCreated} entities, ${inference.relationshipsCreated} relationships, ${totalSituations} situations, ${initiativeCount} initiatives, ${investigationCount} investigations planned`);
 
   return {
     entities: extraction.entitiesCreated,
     properties: extraction.propertiesSet,
     relationships: inference.relationshipsCreated,
     situations: totalSituations,
-    wikiPages: wikiPageCount,
+    wikiPages: 0,
     initiatives: initiativeCount,
   };
 }

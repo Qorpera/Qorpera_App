@@ -180,6 +180,66 @@ export async function runConnectorSync(
               console.warn("[connector-sync] Inline chunk classification failed:", err);
             }
 
+            // Document intelligence: route drive_doc content >3000 chars through the pipeline
+            if (item.data.sourceType === "drive_doc" && item.data.content.length > 3000) {
+              try {
+                const storageKey = `connector/${connector.id}/${item.data.sourceId}`;
+
+                // Dedup: skip if already processed for this connector document
+                const existingDoc = await prisma.fileUpload.findFirst({
+                  where: { operatorId, storageProvider: "connector", storageKey },
+                  select: { id: true },
+                });
+
+                if (!existingDoc) {
+                  const docMeta = item.data.metadata as Record<string, unknown> | undefined;
+                  const docRecord = await prisma.fileUpload.create({
+                    data: {
+                      operatorId,
+                      uploadedBy: connector.userId,
+                      filename: (docMeta?.fileName as string) ?? (docMeta?.title as string) ?? "connector-document",
+                      mimeType: (docMeta?.mimeType as string) ?? "text/plain",
+                      sizeBytes: Buffer.byteLength(item.data.content, "utf-8"),
+                      storageProvider: "connector",
+                      storageKey,
+                      status: "ready",
+                      extractedFullText: item.data.content,
+                      intelligenceStatus: "pending",
+                    },
+                    select: { id: true },
+                  });
+
+                  // Link existing ContentChunks to this FileUpload
+                  const chunkResult = await prisma.contentChunk.updateMany({
+                    where: {
+                      operatorId,
+                      sourceType: "drive_doc",
+                      sourceId: item.data.sourceId,
+                    },
+                    data: { fileUploadId: docRecord.id },
+                  });
+
+                  await prisma.fileUpload.update({
+                    where: { id: docRecord.id },
+                    data: { chunkCount: chunkResult.count },
+                  });
+
+                  // Enqueue intelligence pipeline (async — doesn't block sync)
+                  enqueueWorkerJob("process_document_intelligence", operatorId, {
+                    fileUploadId: docRecord.id,
+                  }).catch((err) =>
+                    console.warn(`[connector-sync] Intelligence enqueue failed:`, err),
+                  );
+                }
+              } catch (err) {
+                // Non-fatal — document is already chunked and searchable
+                console.warn(
+                  `[connector-sync] Document intelligence setup failed for ${item.data.sourceId}:`,
+                  err,
+                );
+              }
+            }
+
             // Collect eligible communication items for situation detection
             if (isEligibleCommunication(item.data)) {
               communicationBatch.push({

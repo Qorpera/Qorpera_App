@@ -1268,15 +1268,12 @@ export async function runDemoSeed(operatorId: string) {
 
   console.log("[demo-seed] Phase 3+4 complete.");
 
-  // ─── Wiki Synthesis ──────────────────────────────────────────────
+  // ─── Living Research (replaces background synthesis) ─────────────
   try {
-    await enqueueWorkerJob("wiki_background_synthesis", operatorId, {
-      operatorId,
-      mode: "onboarding",
-    });
-    console.log(`[seed] Wiki synthesis job enqueued for ${operatorId}`);
+    await enqueueWorkerJob("run_living_research", operatorId, { operatorId });
+    console.log(`[seed] Living research job enqueued for ${operatorId}`);
   } catch (err) {
-    console.error(`[seed] Failed to enqueue wiki synthesis:`, err);
+    console.error(`[seed] Failed to enqueue living research:`, err);
   }
 
   // ─── Return Stats ────────────────────────────────────────────────

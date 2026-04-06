@@ -11,16 +11,16 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { operatorId, mode } = body;
+  const { operatorId } = body;
 
   if (!operatorId || typeof operatorId !== "string") {
     return NextResponse.json({ error: "operatorId is required" }, { status: 400 });
   }
 
   const jobId = await enqueueWorkerJob(
-    "wiki_background_synthesis",
+    "run_living_research",
     operatorId,
-    { operatorId, mode: mode ?? "incremental" },
+    { operatorId },
   );
 
   return NextResponse.json({ jobId, status: "queued" }, { status: 202 });

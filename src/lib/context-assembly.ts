@@ -93,13 +93,6 @@ export interface ConnectorCapability {
   scope: "personal" | "company";
 }
 
-// No longer exported — retained only for type completeness within the file.
-interface ContextSectionMeta {
-  section: string;
-  itemCount: number;
-  tokenEstimate: number;
-}
-
 interface SituationContext {
   triggerEntity: {
     id: string;
@@ -151,7 +144,6 @@ interface SituationContext {
   activityTimeline: ActivityTimeline;
   communicationContext: CommunicationContext;
   crossDepartmentSignals: CrossDepartmentContext;
-  contextSections: ContextSectionMeta[];
   connectorCapabilities: ConnectorCapability[];
 
   // v3 day 4 additions
