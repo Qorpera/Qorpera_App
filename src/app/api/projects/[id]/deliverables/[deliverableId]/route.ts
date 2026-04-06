@@ -5,17 +5,18 @@ import { assertProjectAccess } from "@/lib/project-access";
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string; deliverableId: string } },
+  { params }: { params: Promise<{ id: string; deliverableId: string }> },
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId, effectiveUserId, effectiveRole } = su;
+  const { id, deliverableId } = await params;
 
-  const access = await assertProjectAccess(params.id, operatorId, effectiveUserId, effectiveRole);
+  const access = await assertProjectAccess(id, operatorId, effectiveUserId, effectiveRole);
   if (!access) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
   const deliverable = await prisma.projectDeliverable.findFirst({
-    where: { id: params.deliverableId, projectId: params.id },
+    where: { id: deliverableId, projectId: id },
     include: {
       assignedTo: { select: { id: true, name: true, email: true } },
       acceptedBy: { select: { id: true, name: true, email: true } },
@@ -31,17 +32,18 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string; deliverableId: string } },
+  { params }: { params: Promise<{ id: string; deliverableId: string }> },
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId, effectiveUserId, effectiveRole } = su;
+  const { id, deliverableId } = await params;
 
-  const access = await assertProjectAccess(params.id, operatorId, effectiveUserId, effectiveRole);
+  const access = await assertProjectAccess(id, operatorId, effectiveUserId, effectiveRole);
   if (!access) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
   const existing = await prisma.projectDeliverable.findFirst({
-    where: { id: params.deliverableId, projectId: params.id },
+    where: { id: deliverableId, projectId: id },
   });
   if (!existing) {
     return NextResponse.json({ error: "Deliverable not found" }, { status: 404 });
@@ -60,14 +62,14 @@ export async function PATCH(
   if (description !== undefined) data.description = description;
 
   const updated = await prisma.projectDeliverable.update({
-    where: { id: params.deliverableId, projectId: params.id },
+    where: { id: deliverableId, projectId: id },
     data,
   });
 
   // Re-assess completeness after content edit (fire-and-forget)
   if (content !== undefined) {
     import("@/lib/deliverable-completeness")
-      .then(({ reassessCompleteness }) => reassessCompleteness(params.deliverableId))
+      .then(({ reassessCompleteness }) => reassessCompleteness(deliverableId))
       .catch(err => console.error("[deliverable-api] Completeness reassessment failed:", err));
   }
 

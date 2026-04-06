@@ -432,6 +432,12 @@ export async function PATCH(
     }).catch((err) =>
       console.error(`[situation-patch] Failed to enqueue reflection for ${id}:`, err),
     );
+
+    // Context evaluation outcome (fire-and-forget)
+    prisma.contextEvaluation.updateMany({
+      where: { situationId: id, outcome: null },
+      data: { outcome: body.status, resolvedAt: new Date() },
+    }).catch(() => {});
   }
 
   return NextResponse.json({ id: updated.id, status: updated.status });

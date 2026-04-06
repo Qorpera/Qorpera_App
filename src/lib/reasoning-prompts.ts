@@ -939,7 +939,8 @@ export interface AgenticSeedInput {
   } | null;
   workstreamCount: number;
   connectorCapabilities: ConnectorCapability[];
-  wikiPages: Array<{ slug: string; title: string; pageType: string; status: string; content: string }>;
+  wikiPages: Array<{ slug: string; title: string; pageType: string; status: string; content: string; trustLevel?: string }>;
+  evidenceClaims?: Array<{ claim: string; type: string; confidence: number; source: string }>;
 }
 
 export function buildAgenticSeedContext(input: AgenticSeedInput): string {
@@ -1052,10 +1053,19 @@ Autonomy level: ${input.autonomyLevel} — ${autonomyNote}`);
   // ORGANIZATIONAL KNOWLEDGE (from wiki)
   if (input.wikiPages.length > 0) {
     const pageContent = input.wikiPages.map((p) => {
-      const statusNote = p.status !== "verified" ? ` [${p.status}]` : "";
-      return `### ${p.title}${statusNote}\n\n${p.content}`;
+      const trustTag = p.trustLevel && p.trustLevel !== "provisional" ? ` [trust: ${p.trustLevel}]` : "";
+      const statusTag = p.status === "stale" ? " [may be outdated]" : "";
+      return `### ${p.title} (${p.pageType})${trustTag}${statusTag}\n${p.content}`;
     }).join("\n\n---\n\n");
-    sections.push(`ORGANIZATIONAL KNOWLEDGE (from wiki):\nPre-loaded knowledge pages relevant to this situation. These contain cross-referenced, synthesized intelligence — use them as a starting point before falling back to raw data tools.\n\n${pageContent}`);
+    sections.push(`ORGANIZATIONAL KNOWLEDGE (from wiki):\nPre-loaded knowledge pages relevant to this situation. Pages marked [trust: authoritative] have strong outcome track records. Pages marked [trust: challenged] should be verified.\n\n${pageContent}`);
+  }
+
+  // RELEVANT EVIDENCE CLAIMS
+  if (input.evidenceClaims && input.evidenceClaims.length > 0) {
+    const claimLines = input.evidenceClaims.map(c =>
+      `- [${c.type}] (${Math.round(c.confidence * 100)}%, from ${c.source}) ${c.claim}`
+    ).join("\n");
+    sections.push(`RELEVANT EVIDENCE CLAIMS:\nStructured facts extracted from raw data. These are specific claims with source attribution — use them as starting points for investigation.\n\n${claimLines}`);
   }
 
   // GOVERNANCE

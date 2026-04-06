@@ -327,11 +327,8 @@ export default function WikiPage() {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 8,
-            padding: "6px 14px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--surface)",
-            flexShrink: 0,
+            gap: 4,
+            padding: "8px 16px 0",
           }}
         >
           {(["operator", "system"] as const).map((s) => (
@@ -341,12 +338,13 @@ export default function WikiPage() {
               style={{
                 fontSize: 12,
                 fontWeight: 500,
-                padding: "4px 12px",
-                borderRadius: 4,
+                padding: "6px 14px",
+                borderRadius: 6,
                 border: "none",
-                background: activeScope === s ? "var(--hover)" : "transparent",
+                background: activeScope === s ? "rgba(255,255,255,0.08)" : "transparent",
                 color: activeScope === s ? "var(--foreground)" : "var(--fg3)",
                 cursor: "pointer",
+                transition: "all 0.15s",
               }}
             >
               {s === "operator" ? "Organization Wiki" : "System Intelligence"}
@@ -425,7 +423,7 @@ export default function WikiPage() {
 
           {/* Search bar at top of content area */}
           {!isMobile && (
-            <div style={{ padding: "12px 24px 0" }}>
+            <div style={{ padding: "16px 24px 0", display: "flex", justifyContent: "center" }}>
               <input
                 type="text"
                 placeholder="Search wiki pages..."
@@ -433,7 +431,8 @@ export default function WikiPage() {
                 onChange={(e) => handleSearch(e.target.value)}
                 style={{
                   width: "100%",
-                  padding: "10px 14px",
+                  maxWidth: 640,
+                  padding: "10px 16px",
                   background: "rgba(255,255,255,0.04)",
                   border: "0.5px solid var(--border)",
                   borderRadius: 8,
@@ -1167,7 +1166,7 @@ function ContentPane({
               lineHeight: "16px",
             }}
           >
-            Editing marks this page as human-verified. The system will preserve your edits unless new contradicting evidence arrives.
+            Your edit will be reviewed for accuracy before being applied. The system preserves verified edits unless new contradicting evidence arrives.
           </div>
           <textarea
             value={editContent}
@@ -1194,15 +1193,15 @@ function ContentPane({
                 padding: "6px 16px",
                 borderRadius: 4,
                 border: "none",
-                background: "var(--accent)",
-                color: "#fff",
+                background: "rgb(34, 197, 94)",
+                color: "#000",
                 fontSize: 12,
-                fontWeight: 500,
+                fontWeight: 600,
                 cursor: saving ? "default" : "pointer",
                 opacity: saving ? 0.6 : 1,
               }}
             >
-              {saving ? "Saving..." : "Save"}
+              {saving ? "Submitting..." : "Submit for Review"}
             </button>
             <button
               onClick={onCancelEdit}

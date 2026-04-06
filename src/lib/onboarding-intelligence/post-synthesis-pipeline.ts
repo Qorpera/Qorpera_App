@@ -80,6 +80,25 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     // Non-fatal — detection proceeds without wiki pages (degraded but functional)
   }
 
+  // ── Execute Research Plan (async — runs in background) ───────
+  // Enqueue as a worker job so onboarding completes while deep investigations run.
+  if (investigationCount > 0) {
+    try {
+      const latestPlan = await prisma.researchPlan.findFirst({
+        where: { operatorId, status: "planned" },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      if (latestPlan) {
+        const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+        await enqueueWorkerJob("execute_research_plan", operatorId, { planId: latestPlan.id });
+        console.log(`[post-synthesis] Enqueued research plan execution: ${latestPlan.id}`);
+      }
+    } catch (err) {
+      console.error("[post-synthesis] Failed to enqueue research plan:", err);
+    }
+  }
+
   console.log(`[post-synthesis] Running full situation detection for ${operatorId}`);
 
   // Run entity-based detection

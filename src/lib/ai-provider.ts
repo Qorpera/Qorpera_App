@@ -62,6 +62,9 @@ const MODEL_ROUTES = {
   onboardingOrganizer: "claude-opus-4-6",
   evidenceIngestion: "claude-sonnet-4-6",
   researchPlanner: "claude-opus-4-6",
+  investigationDeep: "claude-opus-4-6",       // financial, strategic, contradiction
+  investigationStandard: "claude-sonnet-4-6",  // operational, relational, temporal, gap
+  livingResearch: "claude-sonnet-4-6",
   onboardingSynthesis: "claude-sonnet-4-6",
   onboardingChat: "claude-sonnet-4-6",
   // Wiki knowledge verification (deliberately different model than synthesis)
@@ -530,14 +533,23 @@ async function callAnthropic(
     console.warn("[ai-provider] Anthropic: webSearch not supported, proceeding without web search");
   }
 
+  const effectiveMaxTokens = options.maxTokens ?? getMaxOutputTokens(model);
+  const effectiveThinkingBudget = options.thinkingBudget ?? 10_000;
+
+  if (options.thinking && effectiveMaxTokens <= effectiveThinkingBudget) {
+    throw new Error(
+      `[ai-provider] maxTokens (${effectiveMaxTokens}) must be greater than thinkingBudget (${effectiveThinkingBudget})`,
+    );
+  }
+
   const params: Anthropic.Messages.MessageCreateParams = {
     model,
     messages,
-    max_tokens: options.maxTokens ?? getMaxOutputTokens(model),
+    max_tokens: effectiveMaxTokens,
     ...(system && { system }),
     ...(tools && { tools }),
     // Anthropic extended thinking
-    ...(options.thinking && { thinking: { type: "enabled" as const, budget_tokens: options.thinkingBudget ?? 10_000 } }),
+    ...(options.thinking && { thinking: { type: "enabled" as const, budget_tokens: effectiveThinkingBudget } }),
     // Temperature not allowed with thinking
     ...(options.temperature !== undefined && !options.thinking && { temperature: options.temperature }),
   };

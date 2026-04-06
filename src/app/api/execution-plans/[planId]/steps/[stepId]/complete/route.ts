@@ -18,8 +18,10 @@ export async function POST(
   });
   if (!plan) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
 
-  const step = await prisma.executionStep.findUnique({ where: { id: stepId } });
-  if (!step || step.planId !== planId) {
+  const step = await prisma.executionStep.findFirst({
+    where: { id: stepId, plan: { id: planId, operatorId } },
+  });
+  if (!step) {
     return NextResponse.json({ error: "Step not found" }, { status: 404 });
   }
 
@@ -88,6 +90,19 @@ export async function POST(
     }
   }
 
-  const updated = await prisma.executionStep.findUnique({ where: { id: stepId } });
+  const updated = await prisma.executionStep.findUnique({
+    where: { id: stepId },
+    select: {
+      id: true,
+      planId: true,
+      sequenceOrder: true,
+      title: true,
+      description: true,
+      executionMode: true,
+      status: true,
+      approvedAt: true,
+      executedAt: true,
+    },
+  });
   return NextResponse.json(updated);
 }

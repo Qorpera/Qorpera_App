@@ -196,7 +196,7 @@ Respond with ONLY a JSON array:
       if (decision.action === "dismiss") {
         // Mark bookmarks as resolved/dismissed
         await prisma.wikiBookmark.updateMany({
-          where: { id: { in: bookmarkIds } },
+          where: { id: { in: bookmarkIds }, operatorId },
           data: { resolved: true, resolvedAt: new Date(), resolvedAction: "dismissed" },
         });
         report.bookmarksDismissed += bookmarkIds.length;
@@ -263,7 +263,7 @@ Respond with ONLY a JSON array:
 
         // Mark bookmarks as resolved
         await prisma.wikiBookmark.updateMany({
-          where: { id: { in: bookmarkIds } },
+          where: { id: { in: bookmarkIds }, operatorId },
           data: {
             resolved: true,
             resolvedAt: new Date(),

@@ -33,7 +33,7 @@ export interface ProcessWikiUpdatesParams {
   projectId?: string;
   situationId?: string;
   updates: WikiUpdate[];
-  synthesisPath: "reasoning" | "background" | "onboarding" | "lint";
+  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research";
   synthesizedByModel: string;
   synthesisCostCents?: number;
   synthesisDurationMs?: number;
@@ -382,7 +382,7 @@ export async function getPageForEntity(
   entityId: string,
   projectId?: string,
   pageType: string = "entity_profile",
-): Promise<{ content: string; status: string; confidence: number; slug: string } | null> {
+): Promise<{ content: string; status: string; confidence: number; slug: string; trustLevel: string | null } | null> {
   // Prefer verified > stale > draft (exclude quarantined)
   const page = await prisma.knowledgePage.findFirst({
     where: {
@@ -394,7 +394,7 @@ export async function getPageForEntity(
       status: { in: ["verified", "stale", "draft"] },
     },
     orderBy: [{ lastSynthesizedAt: "desc" }],
-    select: { content: true, status: true, confidence: true, slug: true, id: true },
+    select: { content: true, status: true, confidence: true, slug: true, id: true, trustLevel: true },
   });
 
   if (!page) return null;
@@ -685,23 +685,26 @@ export async function getRelevantPagesForSeed(
   triggerEntityId: string,
   situationTypeSlug?: string,
   projectId?: string,
-): Promise<Array<{ slug: string; title: string; pageType: string; status: string; content: string }>> {
-  const pages: Array<{ slug: string; title: string; pageType: string; status: string; content: string }> = [];
-  const TOKEN_BUDGET = 6000;
+  situationDescription?: string,
+): Promise<Array<{ slug: string; title: string; pageType: string; status: string; content: string; trustLevel: string }>> {
+  const pages: Array<{ slug: string; title: string; pageType: string; status: string; content: string; trustLevel: string }> = [];
+  const TOKEN_BUDGET = 8000;
   let tokensUsed = 0;
+  const usedSlugs = new Set<string>();
 
-  // 1. Entity profile for trigger entity
+  // 1. Entity profile for trigger entity (always include if exists)
   const entityProfile = await getPageForEntity(operatorId, triggerEntityId, projectId);
   if (entityProfile && tokensUsed + Math.ceil(entityProfile.content.length / 4) < TOKEN_BUDGET) {
-    const statusTag = entityProfile.status === "verified" ? "" : ` [${entityProfile.status}]`;
     pages.push({
       slug: entityProfile.slug,
-      title: `Entity profile${statusTag}`,
+      title: "Entity profile",
       pageType: "entity_profile",
       status: entityProfile.status,
       content: entityProfile.content,
+      trustLevel: entityProfile.trustLevel ?? "provisional",
     });
     tokensUsed += Math.ceil(entityProfile.content.length / 4);
+    usedSlugs.add(entityProfile.slug);
   }
 
   // 2. Situation pattern page (if situation type known)
@@ -715,35 +718,99 @@ export async function getRelevantPagesForSeed(
         status: { in: ["verified", "stale"] },
         projectId: projectId ?? null,
       },
-      select: { slug: true, title: true, pageType: true, status: true, content: true },
+      select: { slug: true, title: true, pageType: true, status: true, content: true, trustLevel: true },
     });
-    if (pattern && tokensUsed + Math.ceil(pattern.content.length / 4) < TOKEN_BUDGET) {
-      pages.push(pattern);
+    if (pattern && !usedSlugs.has(pattern.slug) && tokensUsed + Math.ceil(pattern.content.length / 4) < TOKEN_BUDGET) {
+      pages.push({ ...pattern, trustLevel: pattern.trustLevel ?? "provisional" });
       tokensUsed += Math.ceil(pattern.content.length / 4);
+      usedSlugs.add(pattern.slug);
     }
   }
 
-  // 3. Department overview for the trigger entity's department
-  const entity = await prisma.entity.findFirst({
-    where: { id: triggerEntityId, operatorId },
-    select: { parentDepartmentId: true },
-  });
-  if (entity?.parentDepartmentId) {
-    const deptPage = await getPageForEntity(operatorId, entity.parentDepartmentId, projectId, "department_overview");
-    if (deptPage && tokensUsed + Math.ceil(deptPage.content.length / 4) < TOKEN_BUDGET) {
-      pages.push({
-        slug: deptPage.slug,
-        title: "Department overview",
-        pageType: "department_overview",
-        status: deptPage.status,
-        content: deptPage.content,
-      });
-      tokensUsed += Math.ceil(deptPage.content.length / 4);
+  // 3. Semantic retrieval — embed the situation and find relevant pages via vector similarity
+  if (situationDescription && tokensUsed < TOKEN_BUDGET - 1000) {
+    const [queryEmbedding] = await embedChunks([situationDescription]);
+
+    if (queryEmbedding) {
+      const embeddingStr = `[${queryEmbedding.join(",")}]`;
+      const excludeSlugs = [...usedSlugs];
+
+      const semanticPages = await prisma.$queryRaw<Array<{
+        slug: string;
+        title: string;
+        pageType: string;
+        status: string;
+        content: string;
+        trustLevel: string;
+        contentTokens: number;
+        similarity: number;
+      }>>`
+        SELECT slug, title, "pageType", status, content, "trustLevel", "contentTokens",
+          1 - (embedding <=> ${embeddingStr}::vector) as similarity
+        FROM "KnowledgePage"
+        WHERE "operatorId" = ${operatorId}
+          AND scope = 'operator'
+          AND status IN ('verified', 'stale')
+          AND embedding IS NOT NULL
+          AND slug NOT IN (${Prisma.join(excludeSlugs.length > 0 ? excludeSlugs : ["__none__"])})
+          ${projectId ? Prisma.sql`AND ("projectId" = ${projectId} OR "projectId" IS NULL)` : Prisma.sql`AND "projectId" IS NULL`}
+        ORDER BY embedding <=> ${embeddingStr}::vector ASC
+        LIMIT 10
+      `;
+
+      const trustPriority: Record<string, number> = {
+        authoritative: 4, established: 3, provisional: 2, challenged: 1, quarantined: 0,
+      };
+
+      // Score = similarity * trust weight (authoritative pages rank higher)
+      const scored = semanticPages
+        .filter(p => (trustPriority[p.trustLevel] ?? 0) > 0)
+        .map(p => ({
+          ...p,
+          score: p.similarity * (1 + (trustPriority[p.trustLevel] ?? 0) * 0.1),
+        }))
+        .sort((a, b) => b.score - a.score);
+
+      for (const page of scored) {
+        if (tokensUsed + page.contentTokens > TOKEN_BUDGET) continue;
+        if (usedSlugs.has(page.slug)) continue;
+        pages.push({
+          slug: page.slug,
+          title: page.title,
+          pageType: page.pageType,
+          status: page.status,
+          content: page.content,
+          trustLevel: page.trustLevel ?? "provisional",
+        });
+        tokensUsed += page.contentTokens;
+        usedSlugs.add(page.slug);
+      }
     }
   }
 
-  // 4. Fill remaining budget with high-confidence relevant pages
-  if (tokensUsed < TOKEN_BUDGET - 500) {
+  // 4. Fallback: if semantic search didn't run or returned too few pages,
+  //    use the old heuristic (department overview + high-use pages)
+  if (pages.length < 3 && tokensUsed < TOKEN_BUDGET - 500) {
+    const entity = await prisma.entity.findFirst({
+      where: { id: triggerEntityId, operatorId },
+      select: { parentDepartmentId: true },
+    });
+    if (entity?.parentDepartmentId) {
+      const deptPage = await getPageForEntity(operatorId, entity.parentDepartmentId, projectId, "department_overview");
+      if (deptPage && !usedSlugs.has(deptPage.slug) && tokensUsed + Math.ceil(deptPage.content.length / 4) < TOKEN_BUDGET) {
+        pages.push({
+          slug: deptPage.slug,
+          title: "Department overview",
+          pageType: "department_overview",
+          status: deptPage.status,
+          content: deptPage.content,
+          trustLevel: deptPage.trustLevel ?? "provisional",
+        });
+        tokensUsed += Math.ceil(deptPage.content.length / 4);
+        usedSlugs.add(deptPage.slug);
+      }
+    }
+
     const additional = await prisma.knowledgePage.findMany({
       where: {
         operatorId,
@@ -751,16 +818,17 @@ export async function getRelevantPagesForSeed(
         status: "verified",
         pageType: { in: ["process_description", "financial_pattern", "communication_pattern"] },
         projectId: projectId ?? null,
-        slug: { notIn: pages.map((p) => p.slug) },
+        slug: { notIn: [...usedSlugs] },
       },
       orderBy: [{ reasoningUseCount: "desc" }, { confidence: "desc" }],
       take: 3,
-      select: { slug: true, title: true, pageType: true, status: true, content: true, contentTokens: true },
+      select: { slug: true, title: true, pageType: true, status: true, content: true, contentTokens: true, trustLevel: true },
     });
     for (const page of additional) {
       if (tokensUsed + page.contentTokens > TOKEN_BUDGET) break;
-      pages.push(page);
+      pages.push({ ...page, trustLevel: page.trustLevel ?? "provisional" });
       tokensUsed += page.contentTokens;
+      usedSlugs.add(page.slug);
     }
   }
 

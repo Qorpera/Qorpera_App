@@ -70,16 +70,40 @@ export async function createProjectFromInitiative(
 
   const operatorId = initiative.operatorId;
 
-  // Helper: resolve email to userId
-  async function resolveUserId(email: string): Promise<string | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const childProjects = (config as any).childProjects as Array<{
+    title: string;
+    description: string;
+    deliverables: Array<{
+      title: string;
+      description: string;
+      assignedToEmail: string;
+      format: string;
+      suggestedDeadline: string | null;
+    }>;
+  }> | undefined;
+
+  // Resolve all emails to userIds BEFORE entering the transaction
+  const allEmails = new Set<string>();
+  for (const m of config.members) allEmails.add(m.email);
+  for (const d of config.deliverables) if (d.assignedToEmail) allEmails.add(d.assignedToEmail);
+  if (childProjects) {
+    for (const child of childProjects) {
+      for (const d of child.deliverables) if (d.assignedToEmail) allEmails.add(d.assignedToEmail);
+    }
+  }
+
+  const emailToUserId = new Map<string, string>();
+  for (const email of allEmails) {
     const user = await prisma.user.findFirst({
-      where: {
-        operatorId,
-        email: { equals: email, mode: "insensitive" },
-      },
+      where: { operatorId, email: { equals: email, mode: "insensitive" } },
       select: { id: true },
     });
-    return user?.id ?? null;
+    if (user) emailToUserId.set(email.toLowerCase(), user.id);
+  }
+
+  function resolvedUserId(email: string): string | null {
+    return emailToUserId.get(email.toLowerCase()) ?? null;
   }
 
   // Create project, members, and deliverables in a transaction
@@ -102,7 +126,7 @@ export async function createProjectFromInitiative(
     // Add members
     const addedUserIds = new Set<string>();
     for (const member of config.members) {
-      const memberId = await resolveUserId(member.email);
+      const memberId = resolvedUserId(member.email);
       if (memberId && !addedUserIds.has(memberId)) {
         await tx.projectMember.create({
           data: {
@@ -130,7 +154,7 @@ export async function createProjectFromInitiative(
 
     // Create deliverables
     for (const del of config.deliverables) {
-      const assigneeId = await resolveUserId(del.assignedToEmail);
+      const assigneeId = resolvedUserId(del.assignedToEmail);
       await tx.projectDeliverable.create({
         data: {
           projectId: proj.id,
@@ -142,20 +166,6 @@ export async function createProjectFromInitiative(
         },
       });
     }
-
-    // Create child projects if this is a portfolio
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childProjects = (config as any).childProjects as Array<{
-      title: string;
-      description: string;
-      deliverables: Array<{
-        title: string;
-        description: string;
-        assignedToEmail: string;
-        format: string;
-        suggestedDeadline: string | null;
-      }>;
-    }> | undefined;
 
     if (childProjects && childProjects.length > 0) {
       for (const child of childProjects) {
@@ -183,7 +193,7 @@ export async function createProjectFromInitiative(
 
         // Create child deliverables
         for (const del of child.deliverables) {
-          const assigneeId = del.assignedToEmail ? await resolveUserId(del.assignedToEmail) : null;
+          const assigneeId = del.assignedToEmail ? resolvedUserId(del.assignedToEmail) : null;
           await tx.projectDeliverable.create({
             data: {
               projectId: childProj.id,
@@ -229,7 +239,7 @@ export async function createProjectFromInitiative(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if ((config as any).childProjects?.length > 0) {
     const childProjectRecords = await prisma.project.findMany({
-      where: { parentProjectId: project.id },
+      where: { parentProjectId: project.id, operatorId },
       select: { id: true },
     });
 

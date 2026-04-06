@@ -71,7 +71,7 @@ model Operator {
   freeDetectionSituationCount Int       @default(0)
 
   // Intelligence network
-  intelligenceAccess  Boolean @default(false) // true = can read system wiki pages
+  intelligenceAccess Boolean @default(false) // true = can read system wiki pages
 
   // Emergency stop
   aiPaused       Boolean   @default(false)
@@ -131,11 +131,12 @@ model Operator {
   knowledgePages       KnowledgePage[]
   evidenceExtractions  EvidenceExtraction[]
   // v6: File uploads
-  storageUsedBytes     BigInt    @default(0)
-  storageLimitBytes    BigInt    @default(10737418240) // 10 GB
+  storageUsedBytes     BigInt                @default(0)
+  storageLimitBytes    BigInt                @default(10737418240) // 10 GB
   fileUploads          FileUpload[]
   wikiBookmarks        WikiBookmark[]
   researchPlans        ResearchPlan[]
+  contextEvaluations   ContextEvaluation[]
 
   // Deletion lifecycle (GDPR)
   deletionRequestedAt     DateTime?
@@ -161,24 +162,25 @@ model User {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  sessions                Session[]
-  scopes                  UserScope[]
-  invitesCreated          Invite[]                 @relation("InviteCreator")
-  connectors              SourceConnector[]
-  aiEntity                Entity?                  @relation("AiEntity")
-  notificationPreferences NotificationPreference[]
-  priorityOverrides       PriorityOverride[]
-  passwordResetTokens     PasswordResetToken[]
-  contentChunks           ContentChunk[]
-  situationViews          SituationView[]
+  sessions                      Session[]
+  scopes                        UserScope[]
+  invitesCreated                Invite[]                 @relation("InviteCreator")
+  connectors                    SourceConnector[]
+  aiEntity                      Entity?                  @relation("AiEntity")
+  notificationPreferences       NotificationPreference[]
+  priorityOverrides             PriorityOverride[]
+  passwordResetTokens           PasswordResetToken[]
+  contentChunks                 ContentChunk[]
+  situationViews                SituationView[]
   // v4: Projects
-  createdProjects         Project[]                @relation("ProjectCreator")
-  projectMemberships      ProjectMember[]          @relation("ProjectMemberUser")
-  projectMembersAdded     ProjectMember[]          @relation("ProjectMemberAddedBy")
-  projectMessages         ProjectMessage[]
-  projectChatMessages     ProjectChatMessage[]
-  projectDeliverableAssignments ProjectDeliverable[] @relation("DeliverableAssignee")
-  projectDeliverableAcceptances ProjectDeliverable[] @relation("DeliverableAcceptor")
+  createdProjects               Project[]                @relation("ProjectCreator")
+  projectMemberships            ProjectMember[]          @relation("ProjectMemberUser")
+  projectMembersAdded           ProjectMember[]          @relation("ProjectMemberAddedBy")
+  projectMessages               ProjectMessage[]
+  projectChatMessages           ProjectChatMessage[]
+  projectDeliverableAssignments ProjectDeliverable[]     @relation("DeliverableAssignee")
+  projectDeliverableAcceptances ProjectDeliverable[]     @relation("DeliverableAcceptor")
+  fileUploads                   FileUpload[]             @relation("UserFileUploads")
 
   // Deletion / suspension (for content privacy lifecycle)
   deletionRequestedAt  DateTime?
@@ -382,8 +384,8 @@ model SourceConnector {
 
   materializerConfig String? // JSON: dynamic materializer rules from ontology inference
 
-  projectId            String?
-  project              Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   operator             Operator              @relation(fields: [operatorId], references: [id])
   user                 User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -549,10 +551,10 @@ model Situation {
   assignedUserId  String?
 
   // AI reasoning
-  investigationDepth  String  @default("standard") // "standard" | "thorough"
-  analysisDocument    Json?   // ContentDoc JSON — thorough analysis for deep situations
-  reasoning      String? // JSON - analysis, considered actions, justification
-  proposedAction String? // JSON - what the AI wants to do
+  investigationDepth String  @default("standard") // "standard" | "thorough"
+  analysisDocument   Json? // ContentDoc JSON — thorough analysis for deep situations
+  reasoning          String? // JSON - analysis, considered actions, justification
+  proposedAction     String? // JSON - what the AI wants to do
 
   // Outcome tracking
   actionTaken      String? // JSON - what actually happened
@@ -579,14 +581,15 @@ model Situation {
   spawningStepId  String? // ExecutionStep.id that spawned this situation (not FK — avoids circular deps)
   createdAt       DateTime  @default(now())
 
-  operator      Operator         @relation(fields: [operatorId], references: [id])
-  situationType SituationType    @relation(fields: [situationTypeId], references: [id])
-  events        SituationEvent[]
-  executionPlan ExecutionPlan?   @relation(fields: [executionPlanId], references: [id])
-  delegation    Delegation?      @relation(fields: [delegationId], references: [id], onDelete: SetNull)
+  operator       Operator         @relation(fields: [operatorId], references: [id])
+  situationType  SituationType    @relation(fields: [situationTypeId], references: [id])
+  events         SituationEvent[]
+  executionPlan  ExecutionPlan?   @relation(fields: [executionPlanId], references: [id])
+  delegation     Delegation?      @relation(fields: [delegationId], references: [id], onDelete: SetNull)
   cycles         SituationCycle[]
-  views          SituationView[]
-  toolCallTraces ToolCallTrace[]
+  views              SituationView[]
+  toolCallTraces     ToolCallTrace[]
+  contextEvaluations ContextEvaluation[]
 
   @@index([operatorId, status])
   @@index([situationTypeId, createdAt(sort: Desc)])
@@ -773,15 +776,15 @@ model ContentChunk {
   projectId            String?
   createdAt            DateTime  @default(now())
 
-  wikiProcessedAt      DateTime?
+  wikiProcessedAt DateTime?
 
-  operator              Operator              @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  connector             SourceConnector?      @relation(fields: [connectorId], references: [id])
-  user                  User?                 @relation(fields: [userId], references: [id])
-  project               Project?              @relation(fields: [projectId], references: [id])
-  evidenceExtractions   EvidenceExtraction[]
-  fileUploadId          String?
-  fileUpload            FileUpload?           @relation(fields: [fileUploadId], references: [id])
+  operator            Operator             @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  connector           SourceConnector?     @relation(fields: [connectorId], references: [id])
+  user                User?                @relation(fields: [userId], references: [id])
+  project             Project?             @relation(fields: [projectId], references: [id])
+  evidenceExtractions EvidenceExtraction[]
+  fileUploadId        String?
+  fileUpload          FileUpload?          @relation(fields: [fileUploadId], references: [id])
 
   @@index([operatorId, sourceType])
   @@index([entityId])
@@ -795,18 +798,18 @@ model ContentChunk {
 // ─── Evidence Registry ──────────────────────────────────
 
 model EvidenceExtraction {
-  id              String       @id @default(cuid())
-  operatorId      String
-  operator        Operator     @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  sourceChunkId   String
-  sourceChunk     ContentChunk @relation(fields: [sourceChunkId], references: [id], onDelete: Cascade)
-  sourceType      String       // "email", "document", "financial", "calendar", "slack", "crm", "hr"
-  extractions     Json         // Array<EvidenceClaim>
-  relationships   Json         // Array<EvidenceRelationship>
-  contradictions  Json         // Array<EvidenceContradiction>
-  extractedBy     String       // model identifier that performed extraction
-  extractedAt     DateTime     @default(now())
-  createdAt       DateTime     @default(now())
+  id             String       @id @default(cuid())
+  operatorId     String
+  operator       Operator     @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  sourceChunkId  String
+  sourceChunk    ContentChunk @relation(fields: [sourceChunkId], references: [id], onDelete: Cascade)
+  sourceType     String // "email", "document", "financial", "calendar", "slack", "crm", "hr"
+  extractions    Json // Array<EvidenceClaim>
+  relationships  Json // Array<EvidenceRelationship>
+  contradictions Json // Array<EvidenceContradiction>
+  extractedBy    String // model identifier that performed extraction
+  extractedAt    DateTime     @default(now())
+  createdAt      DateTime     @default(now())
 
   @@index([operatorId])
   @@index([sourceChunkId])
@@ -816,7 +819,7 @@ model EvidenceExtraction {
 // ─── Activity Signals ───────────────────────────────────
 
 model ActivitySignal {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   operatorId      String
   connectorId     String?
   signalType      String // "email_sent" | "email_received" | "slack_message" | "doc_edit" | "meeting_held" | "doc_created" | "doc_shared"
@@ -826,7 +829,7 @@ model ActivitySignal {
   metadata        String? // JSON: { response_time_ms, thread_id, channel, file_name, attendees, etc. }
   occurredAt      DateTime // when the activity happened (not when we ingested it)
   wikiProcessedAt DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
@@ -920,7 +923,7 @@ model Initiative {
   updatedAt        DateTime @updatedAt
 
   proposedProjectConfig Json?
-  projectId             String?  @unique
+  projectId             String? @unique
 
   operator      Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   goal          Goal?          @relation(fields: [goalId], references: [id])
@@ -1094,29 +1097,29 @@ model RecurringTask {
 }
 
 model SystemJob {
-  id                    String    @id @default(cuid())
-  operatorId            String
-  aiEntityId            String
-  title                 String
-  description           String?
-  contextProfile        String    // JSON — which data loaders/entities/connectors to pull
-  reasoningProfile      String    // JSON — analytical framework, questions to answer, comparisons
-  outputProfile         String?   // JSON — expected output types, situation/initiative patterns
-  cronExpression        String
-  scope                 String    @default("department") // department | cross_department | personal | company_wide
-  scopeEntityId         String?   // Department or person entity ID
-  archetypeSlug         String?   // Links to system job archetype for cross-org learning
-  status                String    @default("proposed") // proposed | active | paused | deactivated
-  source                String    @default("manual") // initiative | strategic_scan | onboarding | manual | self_amendment
-  importanceThreshold   Float     @default(0.3)
-  autoDispatchFindings  Boolean   @default(false) // For graduated trust — auto-create situations/initiatives
-  consecutiveApprovals  Int       @default(0) // Trust gradient tracking
-  lastTriggeredAt       DateTime?
-  nextTriggerAt         DateTime?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  operatorId           String
+  aiEntityId           String
+  title                String
+  description          String?
+  contextProfile       String // JSON — which data loaders/entities/connectors to pull
+  reasoningProfile     String // JSON — analytical framework, questions to answer, comparisons
+  outputProfile        String? // JSON — expected output types, situation/initiative patterns
+  cronExpression       String
+  scope                String    @default("department") // department | cross_department | personal | company_wide
+  scopeEntityId        String? // Department or person entity ID
+  archetypeSlug        String? // Links to system job archetype for cross-org learning
+  status               String    @default("proposed") // proposed | active | paused | deactivated
+  source               String    @default("manual") // initiative | strategic_scan | onboarding | manual | self_amendment
+  importanceThreshold  Float     @default(0.3)
+  autoDispatchFindings Boolean   @default(false) // For graduated trust — auto-create situations/initiatives
+  consecutiveApprovals Int       @default(0) // Trust gradient tracking
+  lastTriggeredAt      DateTime?
+  nextTriggerAt        DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operator Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   runs     SystemJobRun[]
 
   @@index([operatorId, status])
@@ -1124,24 +1127,24 @@ model SystemJob {
 }
 
 model SystemJobRun {
-  id                        String    @id @default(cuid())
-  systemJobId               String
-  operatorId                String
-  cycleNumber               Int
-  status                    String    @default("running") // running | completed | failed | compressed
-  importanceScore           Float?
-  summary                   String?
-  analysisNarrative         String?   @db.Text
-  findings                  Json?     // Array of { title, description, category }
-  proposedSituationCount    Int       @default(0)
-  proposedInitiativeCount   Int       @default(0)
-  selfAmendments            Json?     // Array of { type, description, rationale }
-  cycleComparison           Json?     // { keyChanges[], priorRecommendationOutcomes[] }
-  rawReasoning              String?   @db.Text  // Full LLM output for debugging
-  tokenCost                 Float?
-  durationMs                Int?
-  errorMessage              String?
-  createdAt                 DateTime  @default(now())
+  id                      String   @id @default(cuid())
+  systemJobId             String
+  operatorId              String
+  cycleNumber             Int
+  status                  String   @default("running") // running | completed | failed | compressed
+  importanceScore         Float?
+  summary                 String?
+  analysisNarrative       String?  @db.Text
+  findings                Json? // Array of { title, description, category }
+  proposedSituationCount  Int      @default(0)
+  proposedInitiativeCount Int      @default(0)
+  selfAmendments          Json? // Array of { type, description, rationale }
+  cycleComparison         Json? // { keyChanges[], priorRecommendationOutcomes[] }
+  rawReasoning            String?  @db.Text // Full LLM output for debugging
+  tokenCost               Float?
+  durationMs              Int?
+  errorMessage            String?
+  createdAt               DateTime @default(now())
 
   systemJob SystemJob @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
   operator  Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
@@ -1357,18 +1360,18 @@ model SituationCycle {
 }
 
 model ToolCallTrace {
-  id              String   @id @default(cuid())
-  situationId     String
-  cycleNumber     Int      @default(1)
-  callIndex       Int      // Sequential index within this reasoning session (0-based)
-  toolName        String   // e.g., "lookup_entity", "search_communications"
-  arguments       Json     // The arguments the model passed
-  resultSummary   String?  // First 500 chars of result for quick scanning
-  resultTokens    Int      // Estimated token count of result
-  durationMs      Int      // How long the tool call took to execute
-  createdAt       DateTime @default(now())
+  id            String   @id @default(cuid())
+  situationId   String
+  cycleNumber   Int      @default(1)
+  callIndex     Int // Sequential index within this reasoning session (0-based)
+  toolName      String // e.g., "lookup_entity", "search_communications"
+  arguments     Json // The arguments the model passed
+  resultSummary String? // First 500 chars of result for quick scanning
+  resultTokens  Int // Estimated token count of result
+  durationMs    Int // How long the tool call took to execute
+  createdAt     DateTime @default(now())
 
-  situation       Situation @relation(fields: [situationId], references: [id], onDelete: Cascade)
+  situation Situation @relation(fields: [situationId], references: [id], onDelete: Cascade)
 
   @@index([situationId])
   @@index([toolName])
@@ -1418,7 +1421,7 @@ model FoundationalDocStatus {
 // ─── Projects ───────────────────────────────────────────
 
 model ProjectTemplate {
-  id                String    @id @default(cuid())
+  id                String   @id @default(cuid())
   operatorId        String?
   archetypeId       String?
   name              String
@@ -1426,48 +1429,48 @@ model ProjectTemplate {
   category          String // financial, legal, consulting, audit, compliance, etc.
   analysisFramework Json // array of section definitions
   dataExpectations  Json // expected connector types
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  operator          Operator?          @relation(fields: [operatorId], references: [id], onDelete: SetNull)
-  archetype         ProjectTemplate?   @relation("TemplateArchetype", fields: [archetypeId], references: [id])
-  customizations    ProjectTemplate[]  @relation("TemplateArchetype")
-  projects          Project[]
+  operator       Operator?         @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+  archetype      ProjectTemplate?  @relation("TemplateArchetype", fields: [archetypeId], references: [id])
+  customizations ProjectTemplate[] @relation("TemplateArchetype")
+  projects       Project[]
 
   @@index([operatorId])
   @@index([category])
 }
 
 model Project {
-  id          String    @id @default(cuid())
-  operatorId  String
-  templateId  String?
-  name        String
-  description String?
-  status      String    @default("draft") // draft, active, paused, completed, archived
-  createdById String
-  dueDate     DateTime?
-  completedAt DateTime?
-  config             Json      @default("{}")
-  knowledgeIndex     Json?
-  compilationStatus  String?   // null | "compiling" | "compiled" | "stale" | "error"
-  compiledAt         DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  operatorId        String
+  templateId        String?
+  name              String
+  description       String?
+  status            String    @default("draft") // draft, active, paused, completed, archived
+  createdById       String
+  dueDate           DateTime?
+  completedAt       DateTime?
+  config            Json      @default("{}")
+  knowledgeIndex    Json?
+  compilationStatus String? // null | "compiling" | "compiled" | "stale" | "error"
+  compiledAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  operator     Operator           @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  template     ProjectTemplate?   @relation(fields: [templateId], references: [id])
-  createdBy    User               @relation("ProjectCreator", fields: [createdById], references: [id])
-  members      ProjectMember[]
-  deliverables ProjectDeliverable[]
-  messages     ProjectMessage[]
-  notifications ProjectNotification[]
-  chatMessages ProjectChatMessage[]
-  connectors   ProjectConnector[]
+  operator         Operator              @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  template         ProjectTemplate?      @relation(fields: [templateId], references: [id])
+  createdBy        User                  @relation("ProjectCreator", fields: [createdById], references: [id])
+  members          ProjectMember[]
+  deliverables     ProjectDeliverable[]
+  messages         ProjectMessage[]
+  notifications    ProjectNotification[]
+  chatMessages     ProjectChatMessage[]
+  connectors       ProjectConnector[]
   sourceConnectors SourceConnector[]
   parentProjectId  String?
-  parentProject    Project?  @relation("ProjectHierarchy", fields: [parentProjectId], references: [id], onDelete: SetNull)
-  childProjects    Project[] @relation("ProjectHierarchy")
+  parentProject    Project?              @relation("ProjectHierarchy", fields: [parentProjectId], references: [id], onDelete: SetNull)
+  childProjects    Project[]             @relation("ProjectHierarchy")
 
   sourceInitiative Initiative?
   contentChunks    ContentChunk[]
@@ -1482,26 +1485,27 @@ model Project {
 // ─── File Uploads ───────────────────────────────────────
 
 model FileUpload {
-  id              String     @id @default(cuid())
+  id              String   @id @default(cuid())
   operatorId      String
-  operator        Operator   @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  uploadedBy      String     // userId
+  operator        Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  uploadedBy      String? // nullable: user deletion preserves the file
+  uploader        User?    @relation("UserFileUploads", fields: [uploadedBy], references: [id], onDelete: SetNull)
   filename        String
   mimeType        String
   sizeBytes       Int
-  storageProvider String     @default("local") // "qorpera", "s3", "local"
-  storageKey      String     // provider-specific key/path
-  status          String     @default("uploaded") // "uploaded", "processing", "ready", "failed"
-  chunkCount      Int        @default(0)
-  metadata        Json?      // extracted metadata: pageCount, language, etc.
-  errorMessage    String?    // if status = "failed"
-  createdAt       DateTime   @default(now())
+  storageProvider String   @default("local") // "qorpera", "s3", "local"
+  storageKey      String // provider-specific key/path
+  status          String   @default("uploaded") // "uploaded", "processing", "ready", "failed"
+  chunkCount      Int      @default(0)
+  metadata        Json? // extracted metadata: pageCount, language, etc.
+  errorMessage    String? // if status = "failed"
+  createdAt       DateTime @default(now())
 
   // Associations
-  projectId       String?
-  project         Project?   @relation(fields: [projectId], references: [id])
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
 
-  contentChunks   ContentChunk[]
+  contentChunks ContentChunk[]
 
   @@index([operatorId])
   @@index([projectId])
@@ -1509,17 +1513,17 @@ model FileUpload {
 }
 
 model ProjectMember {
-  id        String   @id @default(cuid())
-  projectId String
-  userId    String
+  id           String   @id @default(cuid())
+  projectId    String
+  userId       String
   role         String   @default("analyst") // owner, reviewer, analyst, viewer
-  restrictions Json?    // LLM-interpreted access restrictions from natural language input
+  restrictions Json? // LLM-interpreted access restrictions from natural language input
   addedAt      DateTime @default(now())
   addedById    String
 
-  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user     User    @relation("ProjectMemberUser", fields: [userId], references: [id])
-  addedBy  User    @relation("ProjectMemberAddedBy", fields: [addedById], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation("ProjectMemberUser", fields: [userId], references: [id])
+  addedBy User    @relation("ProjectMemberAddedBy", fields: [addedById], references: [id])
 
   @@unique([projectId, userId])
   @@index([userId])
@@ -1620,49 +1624,49 @@ model ProjectConnector {
 // ─── Wiki Knowledge ─────────────────────────────────────
 
 model KnowledgePage {
-  id                  String    @id @default(cuid())
-  operatorId          String?
-  projectId           String?
-  scope               String    @default("operator") // "operator" | "system"
+  id         String  @id @default(cuid())
+  operatorId String?
+  projectId  String?
+  scope      String  @default("operator") // "operator" | "system"
 
   // Identity
-  pageType            String    // entity_profile, relationship_map, process_description,
-                                // financial_pattern, communication_pattern, situation_pattern,
-                                // department_overview, topic_synthesis, contradiction_log,
-                                // index, log
-  subjectEntityId     String?
-  title               String
-  slug                String
+  pageType        String // entity_profile, relationship_map, process_description,
+  // financial_pattern, communication_pattern, situation_pattern,
+  // department_overview, topic_synthesis, contradiction_log,
+  // index, log
+  subjectEntityId String?
+  title           String
+  slug            String
 
   // Content
-  content             String
-  contentTokens       Int       @default(0)
-  crossReferences     String[]  @default([])
+  content         String
+  contentTokens   Int      @default(0)
+  crossReferences String[] @default([])
 
   // Provenance
-  sources             Json      @default("[]")
-  sourceCount         Int       @default(0)
-  sourceTypes         String[]  @default([])
+  sources     Json     @default("[]")
+  sourceCount Int      @default(0)
+  sourceTypes String[] @default([])
 
   // Verification lifecycle
-  status              String    @default("draft") // draft | verified | stale | quarantined
-  verifiedAt          DateTime?
-  verifiedByModel     String?
-  verificationLog     Json?
-  quarantineReason    String?
-  staleReason         String?
+  status           String    @default("draft") // draft | verified | stale | quarantined
+  verifiedAt       DateTime?
+  verifiedByModel  String?
+  verificationLog  Json?
+  quarantineReason String?
+  staleReason      String?
 
   // Quality signals
-  trustLevel          String    @default("provisional")  // provisional, established, authoritative, challenged, quarantined
-  confidence          Float     @default(0.5)
-  reasoningUseCount   Int       @default(0)
-  outcomeApproved     Int       @default(0)
-  outcomeRejected     Int       @default(0)
-  citedByPages        Int       @default(0)
+  trustLevel        String @default("provisional") // provisional, established, authoritative, challenged, quarantined
+  confidence        Float  @default(0.5)
+  reasoningUseCount Int    @default(0)
+  outcomeApproved   Int    @default(0)
+  outcomeRejected   Int    @default(0)
+  citedByPages      Int    @default(0)
 
   // Synthesis metadata
-  version             Int       @default(1)
-  synthesisPath       String    // "reasoning" | "background" | "onboarding" | "lint"
+  version             Int     @default(1)
+  synthesisPath       String // "reasoning" | "background" | "onboarding" | "lint"
   synthesizedByModel  String
   synthesisPromptHash String?
   synthesisCostCents  Int?
@@ -1670,12 +1674,12 @@ model KnowledgePage {
   situationId         String?
 
   // Timestamps
-  lastSynthesizedAt   DateTime
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  lastSynthesizedAt DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   // Embedding for search_wiki
-  embedding           Unsupported("vector(1536)")?
+  embedding Unsupported("vector(1536)")?
 
   operator  Operator?              @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   versions  KnowledgePageVersion[]
@@ -1693,18 +1697,18 @@ model KnowledgePage {
 // ─── Wiki Page Versioning ───────────────────────────────
 
 model KnowledgePageVersion {
-  id              String        @id @default(cuid())
-  pageId          String
-  page            KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  versionNumber   Int
-  content         String        // full content snapshot at this version
-  confidence      Float
-  status          String        // status at time of version creation
-  sourceCount     Int           // sourceCount at time of version
-  changeReason    String        // "synthesis", "human_edit", "answer_integration", "reflection", "adversarial_challenge", "rollback", "merge"
-  changedBy       String        // model name (e.g. "claude-opus-4-6") or userId
-  metadata        Json?         // optional: diff summary, evidence IDs cited, etc.
-  createdAt       DateTime      @default(now())
+  id            String        @id @default(cuid())
+  pageId        String
+  page          KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  content       String // full content snapshot at this version
+  confidence    Float
+  status        String // status at time of version creation
+  sourceCount   Int // sourceCount at time of version
+  changeReason  String // "synthesis", "human_edit", "answer_integration", "reflection", "adversarial_challenge", "rollback", "merge"
+  changedBy     String // model name (e.g. "claude-opus-4-6") or userId
+  metadata      Json? // optional: diff summary, evidence IDs cited, etc.
+  createdAt     DateTime      @default(now())
 
   @@unique([pageId, versionNumber])
   @@index([pageId])
@@ -1713,29 +1717,29 @@ model KnowledgePageVersion {
 // ─── Wiki Bookmarks ────────────────────────────────────
 
 model WikiBookmark {
-  id          String   @id @default(cuid())
-  operatorId  String
-  pageId      String   // The wiki page that triggered this bookmark
-  pageSlug    String   // Denormalized for quick grouping
+  id         String @id @default(cuid())
+  operatorId String
+  pageId     String // The wiki page that triggered this bookmark
+  pageSlug   String // Denormalized for quick grouping
 
   // What the librarian noticed
-  bookmarkType  String   // active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
-  reason        String   // Free text: why this caught the librarian's eye
-  confidence    Float    @default(0.5)
-  subjectHint   String?  // Entity name or topic the bookmark is about (for grouping)
-  metadata      Json     @default("{}")
+  bookmarkType String // active_engagement, risk, contradiction, opportunity, notable_pattern, active_project, unresolved_question
+  reason       String // Free text: why this caught the librarian's eye
+  confidence   Float   @default(0.5)
+  subjectHint  String? // Entity name or topic the bookmark is about (for grouping)
+  metadata     Json    @default("{}")
 
   // Resolution
-  resolved          Boolean   @default(false)
-  resolvedAt        DateTime?
-  resolvedAction    String?   // "initiative_created", "dismissed", "merged"
+  resolved             Boolean     @default(false)
+  resolvedAt           DateTime?
+  resolvedAction       String? // "initiative_created", "dismissed", "merged"
   resolvedInitiativeId String?
   resolvedInitiative   Initiative? @relation(fields: [resolvedInitiativeId], references: [id], onDelete: SetNull)
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  operator    Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  page        KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  operator Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  page     KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
 
   @@index([operatorId, resolved])
   @@index([operatorId, bookmarkType])
@@ -1745,16 +1749,42 @@ model WikiBookmark {
 model ResearchPlan {
   id                       String   @id @default(cuid())
   operatorId               String
-  investigations           Json     // Array<Investigation>
-  priorityOrder            Json     // string[]
+  investigations           Json // Array<Investigation>
+  priorityOrder            Json // string[]
   planningReasoning        String?
   estimatedDurationMinutes Int?
   estimatedCostCents       Int?
   actualCostCents          Int?
   status                   String   @default("planned") // planned, executing, completed, failed
+  progressMessage          String?
+  completedCount           Int      @default(0)
+  failedCount              Int      @default(0)
+  totalWikiPages           Int      @default(0)
   createdAt                DateTime @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
   @@index([operatorId])
+}
+
+// ─── Context Evaluation Telemetry ───────────────────────
+
+model ContextEvaluation {
+  id            String    @id @default(cuid())
+  operatorId    String
+  situationId   String
+
+  contextSections Json   // Array<{ type, id, slug?, pageType?, tokenCount }>
+  citedSections   Json   // Array<{ type, id, citationCount }>
+
+  outcome    String?   // "approved" | "rejected" | "dismissed"
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  operator  Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  situation Situation @relation(fields: [situationId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId])
+  @@index([situationId])
 }

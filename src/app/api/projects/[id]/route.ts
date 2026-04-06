@@ -5,17 +5,18 @@ import { assertProjectAccess } from "@/lib/project-access";
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId, effectiveUserId, effectiveRole } = su;
+  const { id } = await params;
 
-  const access = await assertProjectAccess(params.id, operatorId, effectiveUserId, effectiveRole);
+  const access = await assertProjectAccess(id, operatorId, effectiveUserId, effectiveRole);
   if (!access) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
   const project = await prisma.project.findFirst({
-    where: { id: params.id, operatorId },
+    where: { id, operatorId },
     include: {
       template: { select: { id: true, name: true, category: true, analysisFramework: true } },
       createdBy: { select: { id: true, name: true, email: true } },
@@ -78,18 +79,19 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId, effectiveRole } = su;
+  const { id } = await params;
 
   if (effectiveRole === "member") {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
   const existing = await prisma.project.findFirst({
-    where: { id: params.id, operatorId },
+    where: { id, operatorId },
   });
   if (!existing) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
@@ -109,7 +111,7 @@ export async function PATCH(
   if (config !== undefined) data.config = config;
 
   const updated = await prisma.project.update({
-    where: { id: params.id },
+    where: { id },
     data,
   });
 

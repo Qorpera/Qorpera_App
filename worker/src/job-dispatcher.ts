@@ -182,6 +182,28 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     }
   },
 
+  async run_living_research(payload) {
+    const { operatorId } = payload as { operatorId: string };
+    const { runLivingResearch } = await import("@/lib/living-research");
+    const result = await runLivingResearch(operatorId);
+    if (result.significantFindings > 0) {
+      console.log(
+        `[living-research] ${operatorId}: ${result.significantFindings} significant findings`,
+      );
+    }
+  },
+
+  async execute_research_plan(payload) {
+    const { operatorId, planId } = payload as { operatorId: string; planId: string };
+    const { executeResearchPlan } = await import("@/lib/investigation-executor");
+    await executeResearchPlan(operatorId, planId, {
+      concurrency: 5,
+      onProgress: async (msg) => {
+        console.log(`[research] ${msg}`);
+      },
+    });
+  },
+
   async process_file_upload(payload) {
     const { fileUploadId } = payload as { fileUploadId: string };
     const { processFileUpload } = await import("@/lib/file-processor");

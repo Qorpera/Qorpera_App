@@ -278,8 +278,10 @@ export function startCronScheduler() {
     }, 4 * 60 * 60 * 1000),
   );
 
-  // ── Wiki Background Synthesis: every 4 hours ───────────────────────
-  // Processes unprocessed data into wiki pages (incremental mode).
+  // ── Living Research: every 2 hours ──────────────────────────────────
+  // Extracts evidence from new data, assesses significance, updates wiki pages.
+  // Replaces incremental background synthesis with investigation-quality updates.
+  // (Background synthesis still runs via job handler for onboarding mode.)
   timers.push(
     setInterval(async () => {
       try {
@@ -289,25 +291,44 @@ export function startCronScheduler() {
         });
         for (const op of operators) {
           try {
-            const { runBackgroundSynthesis } = await import("@/lib/wiki-background-synthesis");
-            const result = await runBackgroundSynthesis(op.id, { mode: "incremental" });
-            if (result.pagesCreated > 0 || result.pagesUpdated > 0) {
-              console.log(`[cron:wiki-synthesis] Operator ${op.id}: ${result.pagesCreated} created, ${result.pagesUpdated} updated`);
+            const { runLivingResearch } = await import("@/lib/living-research");
+            const result = await runLivingResearch(op.id);
+            if (result.significantFindings > 0 || result.wikiPagesUpdated > 0) {
+              console.log(
+                `[cron:living-research] Operator ${op.id}: ${result.significantFindings} findings, ${result.wikiPagesUpdated} pages updated`,
+              );
+            }
+
+            // Run bookmark assembly after living research if new bookmarks were created
+            if (result.bookmarksEmitted > 0) {
+              try {
+                const { assembleInitiativesFromBookmarks } = await import(
+                  "@/lib/wiki-bookmark-assembly"
+                );
+                const assembly = await assembleInitiativesFromBookmarks(op.id);
+                if (assembly.initiativesCreated > 0) {
+                  console.log(
+                    `[cron:living-research] Operator ${op.id}: ${assembly.initiativesCreated} initiatives from bookmarks`,
+                  );
+                }
+              } catch (err) {
+                console.error(`[cron:living-research] Bookmark assembly failed:`, err);
+              }
             }
           } catch (err) {
-            console.error(`[cron:wiki-synthesis] Operator ${op.id} failed:`, err);
+            console.error(`[cron:living-research] Operator ${op.id} failed:`, err);
           }
         }
       } catch (err) {
-        console.error("[cron:wiki-synthesis] Error:", err);
+        console.error("[cron:living-research] Error:", err);
       }
-    }, 4 * 60 * 60 * 1000),
+    }, 2 * 60 * 60 * 1000),
   );
 
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), wiki-synthesis(4h)");
+  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h)");
 }
 
 export function stopCronScheduler() {

@@ -177,6 +177,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
 
     const priorFeedback = await prisma.situation.findMany({
       where: {
+        operatorId: situation.operatorId,
         situationTypeId: situation.situationTypeId,
         feedback: { not: null },
         id: { not: situationId },
@@ -311,6 +312,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
             situation.operatorId,
             situation.triggerEntityId,
             situation.situationType.slug,
+            undefined,
+            situation.triggerSummary ?? (situation.triggerEvidence as { summary?: string } | null)?.summary ?? "",
           )
         : Promise.resolve([]),
     ]);
@@ -322,6 +325,49 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       }
       return executeReasoningTool(situation.operatorId, toolName, args);
     };
+
+    // 6c-i. Load top relevant evidence claims for seed context
+    let evidenceClaims: Array<{ claim: string; type: string; confidence: number; source: string }> = [];
+    try {
+      const searchQuery = situation.triggerSummary
+        ?? (situation.triggerEvidence as { summary?: string } | null)?.summary
+        ?? "";
+
+      if (searchQuery.length > 10) {
+        const keywords = `%${searchQuery.split(" ").slice(0, 3).join("%")}%`;
+        const results = await prisma.$queryRaw<Array<{
+          extractions: unknown;
+          sourceType: string;
+        }>>`
+          SELECT extractions, "sourceType"
+          FROM "EvidenceExtraction"
+          WHERE "operatorId" = ${situation.operatorId}
+            AND extractions::text ILIKE ${keywords}
+          ORDER BY "extractedAt" DESC
+          LIMIT 5
+        `;
+
+        const allClaims: Array<{ claim: string; type: string; confidence: number; source: string }> = [];
+        for (const result of results) {
+          const exts = Array.isArray(result.extractions) ? result.extractions : [];
+          for (const ext of exts as Array<{ claim?: string; type?: string; confidence?: number }>) {
+            if (ext.claim && typeof ext.confidence === "number" && ext.confidence >= 0.6) {
+              allClaims.push({
+                claim: ext.claim,
+                type: ext.type ?? "fact",
+                confidence: ext.confidence,
+                source: result.sourceType,
+              });
+            }
+          }
+        }
+        evidenceClaims = allClaims
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 10);
+      }
+    } catch (err) {
+      console.warn("[reasoning-engine] Evidence claim loading failed:", err);
+    }
 
     // 6c. Build system prompt and seed context
     const depth = situation.investigationDepth ?? "standard";
@@ -351,8 +397,46 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       workstreamCount: workstreamItems.length,
       connectorCapabilities,
       wikiPages,
+      evidenceClaims,
     };
     const seedContext = buildAgenticSeedContext(seedInput);
+
+    // 6d. Record context sections for telemetry
+    const contextSections: Array<{
+      type: string;
+      id: string;
+      slug?: string;
+      pageType?: string;
+      tokenCount: number;
+    }> = [];
+    for (const page of wikiPages) {
+      contextSections.push({
+        type: "wiki_page",
+        id: page.slug,
+        slug: page.slug,
+        pageType: page.pageType,
+        tokenCount: Math.ceil(page.content.length / 4),
+      });
+    }
+    if (evidenceClaims.length > 0) {
+      contextSections.push({
+        type: "evidence_claims",
+        id: "evidence_batch",
+        tokenCount: evidenceClaims.reduce((n, c) => n + Math.ceil(c.claim.length / 4), 0),
+      });
+    }
+    const contextEval = await prisma.contextEvaluation.create({
+      data: {
+        operatorId: situation.operatorId,
+        situationId,
+        contextSections: contextSections as any,
+        citedSections: [] as any,
+      },
+      select: { id: true },
+    }).catch(err => {
+      console.warn("[reasoning-engine] Context eval creation failed:", err);
+      return null;
+    });
 
     // 7. Run agentic reasoning loop
     const agenticResult = await runAgenticLoop({
@@ -376,6 +460,47 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     const reasoningDurationMs = agenticResult.durationMs;
 
     console.log(`[reasoning-engine] Agentic reasoning complete for situation ${situationId} (${depth}): ${reasoningDurationMs}ms, $${(reasoningApiCostCents / 100).toFixed(2)}`);
+
+    // Parse which context sections were cited in reasoning output
+    if (contextEval) {
+      try {
+        const fullText = [reasoning.analysis ?? "", reasoning.evidenceSummary ?? ""].join(" ");
+        const citedSections: Array<{ type: string; id: string; citationCount: number }> = [];
+
+        for (const page of wikiPages) {
+          const slugRegex = new RegExp(page.slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+          const titleWords = page.title.split(/\s+/).filter(w => w.length > 3).slice(0, 3);
+          const titleRegex = titleWords.length > 0
+            ? new RegExp(titleWords.join(".*"), "gi")
+            : null;
+          const total = (fullText.match(slugRegex) ?? []).length
+            + (titleRegex ? (fullText.match(titleRegex) ?? []).length : 0);
+          if (total > 0) {
+            citedSections.push({ type: "wiki_page", id: page.slug, citationCount: total });
+          }
+        }
+
+        if (evidenceClaims.length > 0) {
+          let evidenceCitations = 0;
+          for (const claim of evidenceClaims) {
+            const fragment = claim.claim.split(/\s+/).slice(0, 5).join(" ");
+            if (fullText.toLowerCase().includes(fragment.toLowerCase())) {
+              evidenceCitations++;
+            }
+          }
+          if (evidenceCitations > 0) {
+            citedSections.push({ type: "evidence_claims", id: "evidence_batch", citationCount: evidenceCitations });
+          }
+        }
+
+        await prisma.contextEvaluation.update({
+          where: { id: contextEval.id },
+          data: { citedSections: citedSections as any },
+        });
+      } catch (err) {
+        console.warn("[reasoning-engine] Context citation parsing failed:", err);
+      }
+    }
 
     // Depth upgrade: if standard investigation discovers complexity, re-run as thorough
     if (reasoning.depthUpgrade && depth === "standard") {

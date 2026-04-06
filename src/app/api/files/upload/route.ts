@@ -69,27 +69,27 @@ export async function POST(request: NextRequest) {
   const storage = getStorageProvider();
   await storage.upload(storageKey, buffer, file.type);
 
-  // Create record
-  const upload = await prisma.fileUpload.create({
-    data: {
-      id: fileId,
-      operatorId,
-      uploadedBy: user.id,
-      filename: file.name,
-      mimeType: file.type,
-      sizeBytes: file.size,
-      storageProvider: process.env.FILE_STORAGE_PROVIDER || "local",
-      storageKey,
-      projectId: projectId || null,
-    },
-    select: { id: true, filename: true, status: true, mimeType: true, sizeBytes: true, createdAt: true },
-  });
-
-  // Update storage usage
-  await prisma.operator.update({
-    where: { id: operatorId },
-    data: { storageUsedBytes: { increment: file.size } },
-  });
+  // Create record + update quota atomically
+  const [upload] = await prisma.$transaction([
+    prisma.fileUpload.create({
+      data: {
+        id: fileId,
+        operatorId,
+        uploadedBy: user.id,
+        filename: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+        storageProvider: process.env.FILE_STORAGE_PROVIDER || "local",
+        storageKey,
+        projectId: projectId || null,
+      },
+      select: { id: true, filename: true, status: true, mimeType: true, sizeBytes: true, createdAt: true },
+    }),
+    prisma.operator.update({
+      where: { id: operatorId },
+      data: { storageUsedBytes: { increment: file.size } },
+    }),
+  ]);
 
   // Enqueue processing job
   await enqueueWorkerJob("process_file_upload", operatorId, {
