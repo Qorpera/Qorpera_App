@@ -11,7 +11,7 @@ export const paginationParams = z.object({
 export const daysParam = z.coerce.number().int().min(1).max(365).default(30);
 
 // Department
-export const createDepartmentSchema = z.object({
+export const createDomainSchema = z.object({
   name: nonEmptyString.max(200),
   description: nonEmptyString.max(1000),
   mapX: z.number().optional(),
@@ -45,8 +45,8 @@ export const updateEntitySchema = z.object({
   properties: z.record(z.string(), z.string().max(5000)).optional(),
 });
 
-export const assignDepartmentSchema = z.object({
-  departmentId: cuidId,
+export const assignDomainSchema = z.object({
+  domainId: cuidId,
 });
 
 // Policy

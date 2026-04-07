@@ -39,7 +39,7 @@ export const HARDCODED_TYPE_DEFS: Record<string, HardcodedTypeDef> = {
     color: "#8b5cf6",
     defaultCategory: "external",
     properties: [
-      { slug: "domain", name: "Domain", dataType: "STRING", identityRole: "domain" },
+      { slug: "department", name: "Domain", dataType: "STRING", identityRole: "domain" },
       { slug: "industry", name: "Industry", dataType: "STRING" },
       { slug: "revenue", name: "Revenue", dataType: "CURRENCY" },
       { slug: "employee-count", name: "Employee Count", dataType: "NUMBER" },

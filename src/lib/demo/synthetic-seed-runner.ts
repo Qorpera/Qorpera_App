@@ -169,7 +169,7 @@ export async function runSyntheticSeed(
     },
   });
 
-  // Slack/Teams channel mappings (need hqEntity as placeholder departmentId)
+  // Slack/Teams channel mappings (need hqEntity as placeholder domainId)
   const messagingConnectorId = connectorIds["slack"] ?? connectorIds["microsoft-365-teams"] ?? null;
   if (messagingConnectorId && company.slackChannels) {
     for (const ch of company.slackChannels) {
@@ -179,7 +179,7 @@ export async function runSyntheticSeed(
           connectorId: messagingConnectorId,
           channelId: ch.channelId,
           channelName: ch.channelName,
-          departmentId: hqEntity.id, // Placeholder — remapped after onboarding discovers departments
+          domainId: hqEntity.id, // Placeholder — remapped after onboarding discovers departments
         },
       });
     }
@@ -513,7 +513,7 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
 
   await prisma.$transaction(async (tx) => {
     // 1. Break Entity circular references
-    await tx.$executeRaw`UPDATE "Entity" SET "parentDepartmentId" = NULL, "mergedIntoId" = NULL, "ownerDepartmentId" = NULL WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`UPDATE "Entity" SET "primaryDomainId" = NULL, "mergedIntoId" = NULL, "ownerDomainId" = NULL WHERE "operatorId" = ${operatorId}`;
 
     // 2. Delete from child tables that reference operator-owned tables via FK (no operatorId column)
     await tx.$executeRaw`DELETE FROM "ToolCallTrace" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
@@ -541,7 +541,7 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     await tx.$executeRaw`DELETE FROM "Initiative" WHERE "operatorId" = ${operatorId}`;
     // Group B: reference Entity via FK — must go before Entity
     await tx.$executeRaw`DELETE FROM "SlackChannelMapping" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "DepartmentHealth" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "DomainHealth" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "PlanAutonomy" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "RecurringTask" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "FollowUp" WHERE "operatorId" = ${operatorId}`;

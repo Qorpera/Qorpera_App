@@ -184,7 +184,7 @@ describe("loadInitiativeContext", () => {
     });
 
     mockPrisma.entity.findFirst
-      .mockResolvedValueOnce({ displayName: "Finance AI", parentDepartmentId: "dept1" })
+      .mockResolvedValueOnce({ displayName: "Finance AI", primaryDomainId: "dept1" })
       .mockResolvedValueOnce({ displayName: "Finance" });
 
     mockPrisma.workStreamItem.findFirst.mockResolvedValue({

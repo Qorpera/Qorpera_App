@@ -53,13 +53,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "AI entity not found" }, { status: 400 });
   }
 
-  // Validate departmentId if provided
-  if (contextHints?.departmentId) {
+  // Validate domainId if provided
+  if (contextHints?.domainId) {
     const dept = await prisma.entity.findFirst({
-      where: { id: contextHints.departmentId, operatorId: su.operatorId, category: "foundational" },
+      where: { id: contextHints.domainId, operatorId: su.operatorId, category: "foundational" },
     });
     if (!dept) {
-      return NextResponse.json({ error: "Department not found" }, { status: 400 });
+      return NextResponse.json({ error: "Domain not found" }, { status: 400 });
     }
   }
 

@@ -3,8 +3,8 @@ import { getSessionUser } from "@/lib/auth";
 import { chat, type OrientationInfo } from "@/lib/ai-copilot";
 import { prisma } from "@/lib/db";
 import type { AIMessage } from "@/lib/ai-provider";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
-import { loadContextForCopilot, getContextRoleInstruction, loadSystemHealthContext } from "@/lib/copilot-context-loaders";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { loadContextForCopilot, getContextRoleInstruction, loadSystemHealthContext, loadSystemJobsContext } from "@/lib/copilot-context-loaders";
 import { canMemberAccessWorkStream } from "@/lib/workstreams";
 import { captureApiError } from "@/lib/api-error";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limiter";
@@ -50,16 +50,16 @@ export async function POST(req: NextRequest) {
   });
 
   // Build scope info for copilot system prompt
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
-  let scopeInfo: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" } | undefined;
-  if (visibleDepts !== "all") {
-    const scopeUser = await prisma.user.findUnique({ where: { id: su.effectiveUserId }, select: { name: true, entityId: true, entity: { select: { parentDepartmentId: true } } } });
-    let departmentName: string | undefined;
-    if (scopeUser?.entity?.parentDepartmentId) {
-      const dept = await prisma.entity.findUnique({ where: { id: scopeUser.entity.parentDepartmentId }, select: { displayName: true } });
-      departmentName = dept?.displayName ?? undefined;
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
+  let scopeInfo: { userName?: string; domainName?: string; visibleDomains: string[] | "all" } | undefined;
+  if (visibleDomains !== "all") {
+    const scopeUser = await prisma.user.findUnique({ where: { id: su.effectiveUserId }, select: { name: true, entityId: true, entity: { select: { primaryDomainId: true } } } });
+    let domainName: string | undefined;
+    if (scopeUser?.entity?.primaryDomainId) {
+      const dept = await prisma.entity.findUnique({ where: { id: scopeUser.entity.primaryDomainId }, select: { displayName: true } });
+      domainName = dept?.displayName ?? undefined;
     }
-    scopeInfo = { userName: scopeUser?.name, departmentName, visibleDepts };
+    scopeInfo = { userName: scopeUser?.name, domainName, visibleDomains };
   }
 
   // Context injection for embedded chat (situation, initiative, workstream detail panes)
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   let ctxId = typeof body.contextId === "string" ? body.contextId.trim() : null;
 
   // Scope check: verify the user has visibility into the requested context item
-  if (ctxType && ctxId && visibleDepts !== "all") {
+  if (ctxType && ctxId && visibleDomains !== "all") {
     try {
       if (ctxType === "situation") {
         const sit = await prisma.situation.findFirst({
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
         });
         if (!sit) {
           ctxType = null; ctxId = null;
-        } else if (sit.situationType.scopeEntityId && !visibleDepts.includes(sit.situationType.scopeEntityId)) {
+        } else if (sit.situationType.scopeEntityId && !visibleDomains.includes(sit.situationType.scopeEntityId)) {
           ctxType = null; ctxId = null;
         }
       } else if (ctxType === "initiative") {
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
           ctxType = null; ctxId = null;
         }
       } else if (ctxType === "workstream") {
-        const canAccess = await canMemberAccessWorkStream(su.effectiveUserId, ctxId, operatorId, visibleDepts);
+        const canAccess = await canMemberAccessWorkStream(su.effectiveUserId, ctxId, operatorId, visibleDomains);
         if (!canAccess) {
           ctxType = null; ctxId = null;
         }
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
   // System-health context: scope filtering done inside the loader
   if (ctxType === "system-health") {
     try {
-      const contextText = await loadSystemHealthContext(operatorId, visibleDepts);
+      const contextText = await loadSystemHealthContext(operatorId, visibleDomains);
       if (contextText) {
         const roleInstruction = getContextRoleInstruction(ctxType);
         contextInfo = {
@@ -113,6 +113,19 @@ export async function POST(req: NextRequest) {
       }
     } catch (err) {
       console.warn(`[copilot] System health context loading failed:`, err);
+    }
+  } else if (ctxType === "system_jobs") {
+    try {
+      const contextText = await loadSystemJobsContext(operatorId);
+      if (contextText) {
+        const roleInstruction = getContextRoleInstruction(ctxType);
+        contextInfo = {
+          contextType: ctxType,
+          contextText: `${roleInstruction}\n\n${contextText}`,
+        };
+      }
+    } catch (err) {
+      console.warn(`[copilot] System jobs context loading failed:`, err);
     }
   } else if (ctxType && ctxId) {
     try {

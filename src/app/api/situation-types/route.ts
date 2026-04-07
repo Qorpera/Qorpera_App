@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 export async function GET() {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
 
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
   const where: Record<string, unknown> = { operatorId, enabled: true };
-  if (visibleDepts !== "all") {
+  if (visibleDomains !== "all") {
     where.OR = [
       { scopeEntityId: null },
-      { scopeEntityId: { in: visibleDepts } },
+      { scopeEntityId: { in: visibleDomains } },
     ];
   }
 

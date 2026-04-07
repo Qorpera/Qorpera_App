@@ -102,7 +102,7 @@ interface WikiStats {
 
 const PAGE_TYPE_META: Record<string, { label: string; icon: string }> = {
   entity_profile: { label: "Entity profiles", icon: "U" },
-  department_overview: { label: "Departments", icon: "D" },
+  domain_overview: { label: "Domains", icon: "D" },
   financial_pattern: { label: "Financial", icon: "F" },
   communication_pattern: { label: "Communication", icon: "C" },
   process_description: { label: "Processes", icon: "P" },

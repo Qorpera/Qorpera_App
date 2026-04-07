@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
             sourceId: true,
             content: true,
             metadata: true,
-            departmentIds: true,
+            domainIds: true,
           },
           orderBy: { createdAt: "desc" },
           take: 20,

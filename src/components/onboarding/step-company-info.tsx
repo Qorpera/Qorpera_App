@@ -28,7 +28,7 @@ interface StepCompanyInfoProps {
   setIndustry: (v: string) => void;
   originalCompanyName: string;
   originalIndustry: string;
-  onContinue: (departments: Department[]) => void;
+  onContinue: (domains: Department[]) => void;
 }
 
 export function StepCompanyInfo({
@@ -74,7 +74,7 @@ export function StepCompanyInfo({
         });
       }
 
-      const res = await fetch("/api/departments");
+      const res = await fetch("/api/domains");
       const data: Department[] = res.ok ? await res.json() : [];
       onContinue(data);
     } finally {

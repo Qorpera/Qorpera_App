@@ -142,12 +142,12 @@ describe("loadOperationalInsights", () => {
       expect.arrayContaining([
         { shareScope: "operator" },
         { aiEntityId: "ai-1", shareScope: "personal" },
-        { departmentId: "dept-1", shareScope: "department" },
+        { domainId: "dept-1", shareScope: "department" },
       ]),
     );
   });
 
-  it("handles null aiEntityId and departmentId by only including operator scope", async () => {
+  it("handles null aiEntityId and domainId by only including operator scope", async () => {
     mockPrisma.operationalInsight.findMany.mockResolvedValue([]);
 
     await loadOperationalInsights("op-1", null, null);

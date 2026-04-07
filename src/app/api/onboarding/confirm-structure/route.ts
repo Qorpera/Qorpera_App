@@ -233,7 +233,7 @@ async function applyStructureEdits(operatorId: string, edits: CompanyModelEdits)
       if (personPv?.entity && targetDept) {
         await prisma.entity.update({
           where: { id: personPv.entity.id },
-          data: { parentDepartmentId: targetDept.id },
+          data: { primaryDomainId: targetDept.id },
         });
       }
     }

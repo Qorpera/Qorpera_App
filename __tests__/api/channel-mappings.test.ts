@@ -89,7 +89,7 @@ describe("GET /api/connectors/[id]/channel-mappings", () => {
     mockSession();
     mockPrisma.sourceConnector.findFirst.mockResolvedValue(slackConnector);
     mockPrisma.slackChannelMapping.findMany.mockResolvedValue([
-      { id: "m1", channelId: "C001", channelName: "general", departmentId: "dept1", department: { id: "dept1", displayName: "Sales" } },
+      { id: "m1", channelId: "C001", channelName: "general", domainId: "dept1", domain: { id: "dept1", displayName: "Sales" } },
     ]);
 
     const res = await GET(makeReq("GET"), { params: connParams });
@@ -128,12 +128,12 @@ describe("POST /api/connectors/[id]/channel-mappings", () => {
       id: "m1",
       channelId: "C001",
       channelName: "general",
-      departmentId: "dept1",
-      department: { id: "dept1", displayName: "Sales" },
+      domainId: "dept1",
+      domain: { id: "dept1", displayName: "Sales" },
     });
 
     const res = await POST(
-      makeReq("POST", { channelId: "C001", channelName: "general", departmentId: "dept1" }),
+      makeReq("POST", { channelId: "C001", channelName: "general", domainId: "dept1" }),
       { params: connParams },
     );
 
@@ -150,12 +150,12 @@ describe("POST /api/connectors/[id]/channel-mappings", () => {
       id: "m1",
       channelId: "C001",
       channelName: "general",
-      departmentId: "dept2",
-      department: { id: "dept2", displayName: "Engineering" },
+      domainId: "dept2",
+      domain: { id: "dept2", displayName: "Engineering" },
     });
 
     const res = await POST(
-      makeReq("POST", { channelId: "C001", channelName: "general", departmentId: "dept2" }),
+      makeReq("POST", { channelId: "C001", channelName: "general", domainId: "dept2" }),
       { params: connParams },
     );
 
@@ -169,7 +169,7 @@ describe("POST /api/connectors/[id]/channel-mappings", () => {
     mockPrisma.entity.findFirst.mockResolvedValue(null); // Not found
 
     const res = await POST(
-      makeReq("POST", { channelId: "C001", channelName: "general", departmentId: "bad-dept" }),
+      makeReq("POST", { channelId: "C001", channelName: "general", domainId: "bad-dept" }),
       { params: connParams },
     );
 

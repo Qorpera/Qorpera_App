@@ -27,7 +27,7 @@ export async function GET() {
     where: { userId: user.id },
     select: {
       id: true,
-      departmentEntityId: true,
+      domainEntityId: true,
       grantedById: true,
       createdAt: true,
     },

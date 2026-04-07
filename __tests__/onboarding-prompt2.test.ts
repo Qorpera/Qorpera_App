@@ -55,7 +55,7 @@ describe("i18n key completeness", () => {
 
   it("old deleted step keys are removed from en.json", () => {
     const onboarding = (en as any).onboarding;
-    expect(onboarding.departments).toBeUndefined();
+    expect(onboarding.domains).toBeUndefined();
     expect(onboarding.team).toBeUndefined();
     expect(onboarding.documents).toBeUndefined();
     expect(onboarding.connectors).toBeUndefined();
@@ -64,7 +64,7 @@ describe("i18n key completeness", () => {
 
   it("old deleted step keys are removed from da.json", () => {
     const onboarding = (da as any).onboarding;
-    expect(onboarding.departments).toBeUndefined();
+    expect(onboarding.domains).toBeUndefined();
     expect(onboarding.team).toBeUndefined();
     expect(onboarding.documents).toBeUndefined();
     expect(onboarding.connectors).toBeUndefined();

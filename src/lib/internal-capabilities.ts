@@ -23,7 +23,7 @@ export const INTERNAL_CAPABILITIES = [
       description: { type: "string", required: true },
       cronExpression: { type: "string", required: true },
       autoApproveSteps: { type: "boolean", required: false },
-      departmentId: { type: "string", required: false },
+      domainId: { type: "string", required: false },
       outputFormat: { type: "string", required: false },
       additionalInstructions: { type: "string", required: false },
     },
@@ -189,7 +189,7 @@ async function executeCreateRecurringTask(
     cronExpression,
     autoApproveSteps: params.autoApproveSteps === true,
     contextHints: {
-      departmentId: params.departmentId ? String(params.departmentId) : undefined,
+      domainId: params.domainId ? String(params.domainId) : undefined,
       outputFormat: params.outputFormat ? String(params.outputFormat) : undefined,
       additionalInstructions: params.additionalInstructions ? String(params.additionalInstructions) : undefined,
     },
@@ -264,8 +264,28 @@ async function executeCreateSystemJob(
   const aiEntityId = planOwnerAiEntityId;
   if (!aiEntityId) throw new Error("Cannot determine aiEntityId for system job");
 
-  const scope = params.scope ? String(params.scope) : (params.scopeDepartmentId ? "department" : "company_wide");
+  const scope = params.scope ? String(params.scope) : (params.scopeDepartmentId ? "domain" : "company_wide");
   const scopeEntityId = params.scopeDepartmentId ? String(params.scopeDepartmentId) : null;
+
+  // Resolve domain entity: use scopeDepartmentId, AI entity's domain, or first foundational entity
+  let domainEntityId = scopeEntityId;
+  if (!domainEntityId) {
+    const aiEnt = await prisma.entity.findFirst({
+      where: { id: aiEntityId, operatorId },
+      select: { primaryDomainId: true },
+    });
+    domainEntityId = aiEnt?.primaryDomainId ?? null;
+  }
+  if (!domainEntityId) {
+    const firstDomain = await prisma.entity.findFirst({
+      where: { operatorId, category: "foundational", status: "active" },
+      select: { id: true },
+    });
+    domainEntityId = firstDomain?.id ?? null;
+  }
+  if (!domainEntityId) {
+    throw new Error("No department found for system job. Create a department first.");
+  }
 
   // Dedup check
   const existing = await prisma.systemJob.findFirst({
@@ -292,6 +312,7 @@ async function executeCreateSystemJob(
     data: {
       operatorId,
       aiEntityId,
+      domainEntityId,
       title,
       description,
       cronExpression,

@@ -28,8 +28,8 @@ type SituationTypeGroup = {
 type ExtractionData = {
   aiEntityId: string;
   aiEntityName: string;
-  departmentId: string;
-  departmentName: string;
+  domainId: string;
+  domainName: string;
   situationTypeGroups: SituationTypeGroup[];
   timeRange: { from: string; to: string };
 };
@@ -54,7 +54,7 @@ export async function getSituationsSinceLastExtraction(
   // Resolve assignedUserId from AI entity
   const aiEntity = await prisma.entity.findUnique({
     where: { id: aiEntityId },
-    select: { ownerUserId: true, ownerDepartmentId: true, entityType: { select: { slug: true } } },
+    select: { ownerUserId: true, ownerDomainId: true, entityType: { select: { slug: true } } },
   });
 
   const where: Record<string, unknown> = {
@@ -68,9 +68,9 @@ export async function getSituationsSinceLastExtraction(
   if (aiEntity?.ownerUserId) {
     // Personal AI: count situations assigned to the owning user
     where.assignedUserId = aiEntity.ownerUserId;
-  } else if (aiEntity?.ownerDepartmentId) {
+  } else if (aiEntity?.ownerDomainId) {
     // Department AI: count situations scoped to this department
-    where.situationType = { scopeEntityId: aiEntity.ownerDepartmentId };
+    where.situationType = { scopeEntityId: aiEntity.ownerDomainId };
   }
   // HQ AI: all operator situations (no additional filter)
 
@@ -92,22 +92,22 @@ export async function assembleExtractionData(
       id: true,
       displayName: true,
       ownerUserId: true,
-      ownerDepartmentId: true,
-      parentDepartmentId: true,
+      ownerDomainId: true,
+      primaryDomainId: true,
       entityType: { select: { slug: true } },
     },
   });
   if (!aiEntity) return null;
 
   // Determine department context
-  const departmentId = aiEntity.ownerDepartmentId ?? aiEntity.parentDepartmentId ?? "";
-  let departmentName = "HQ";
-  if (departmentId) {
+  const domainId = aiEntity.ownerDomainId ?? aiEntity.primaryDomainId ?? "";
+  let domainName = "HQ";
+  if (domainId) {
     const dept = await prisma.entity.findUnique({
-      where: { id: departmentId },
+      where: { id: domainId },
       select: { displayName: true },
     });
-    departmentName = dept?.displayName ?? "Unknown";
+    domainName = dept?.displayName ?? "Unknown";
   }
 
   // Build situation filter based on AI entity type
@@ -118,8 +118,8 @@ export async function assembleExtractionData(
 
   if (aiEntity.ownerUserId) {
     baseSituationFilter.assignedUserId = aiEntity.ownerUserId;
-  } else if (aiEntity.ownerDepartmentId) {
-    baseSituationFilter.situationType = { scopeEntityId: aiEntity.ownerDepartmentId };
+  } else if (aiEntity.ownerDomainId) {
+    baseSituationFilter.situationType = { scopeEntityId: aiEntity.ownerDomainId };
   }
 
   // Load resolved + dismissed situations
@@ -162,15 +162,15 @@ export async function assembleExtractionData(
   ]);
 
   // Find peer AI entities in the same department for cross-AI analysis
-  if (departmentId) {
+  if (domainId) {
     const peerEntities = await prisma.entity.findMany({
       where: {
         operatorId,
         id: { not: aiEntityId },
         entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
         OR: [
-          { ownerDepartmentId: departmentId },
-          { parentDepartmentId: departmentId },
+          { ownerDomainId: domainId },
+          { primaryDomainId: domainId },
         ],
         status: "active",
       },
@@ -352,8 +352,8 @@ export async function assembleExtractionData(
   return {
     aiEntityId,
     aiEntityName: aiEntity.displayName,
-    departmentId,
-    departmentName,
+    domainId,
+    domainName,
     situationTypeGroups: [...typeMap.values()],
     timeRange: {
       from: ninetyDaysAgo.toISOString(),
@@ -419,7 +419,7 @@ Respond ONLY with JSON matching this schema, no other text:
 Only include insights where you have sufficient data (sampleSize >= 5, confidence >= 0.6). Quality over quantity — fewer high-confidence insights are better than many weak ones. If comparative data exists, always include the comparisons array.`;
 
 function buildUserPrompt(data: ExtractionData): string {
-  let prompt = `Operational data for AI "${data.aiEntityName}" in department "${data.departmentName}".\n`;
+  let prompt = `Operational data for AI "${data.aiEntityName}" in department "${data.domainName}".\n`;
   prompt += `Time range: ${data.timeRange.from} to ${data.timeRange.to}\n\n`;
 
   for (const group of data.situationTypeGroups) {
@@ -531,7 +531,7 @@ export async function extractInsights(
       data: {
         operatorId,
         aiEntityId,
-        departmentId: data.departmentId || null,
+        domainId: data.domainId || null,
         insightType: insight.insightType,
         description: insight.description,
         evidence: JSON.stringify(insight.evidence),

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
+import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
   const params = req.nextUrl.searchParams;
 
   const statusParam = params.get("status");
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const offset = Math.max(parseInt(params.get("offset") ?? "0", 10) || 0, 0);
 
   // Build where clause
-  const where: Record<string, unknown> = { operatorId, ...situationScopeFilter(visibleDepts) };
+  const where: Record<string, unknown> = { operatorId, ...situationScopeFilter(visibleDomains) };
 
   // Visibility filtering based on role and toggle
   const showAll = params.get("showAll");
@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
       source: s.source,
       triggerEntityId: s.triggerEntityId,
       triggerEntityName: s.triggerEntityId ? entityMap.get(s.triggerEntityId) ?? null : null,
-      departmentName: s.situationType.scopeEntityId
+      domainName: s.situationType.scopeEntityId
         ? entityMap.get(s.situationType.scopeEntityId) ?? null
         : null,
       reasoning,

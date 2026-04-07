@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import Anthropic from "@anthropic-ai/sdk";
 import { getModel } from "@/lib/ai-provider";
 import { extractJSON } from "@/lib/json-helpers";
-import { buildDepartmentContext } from "@/lib/knowledge/chunk-classifier";
+import { buildDomainContext } from "@/lib/knowledge/chunk-classifier";
 
 const MAX_TOTAL_REEVALUATIONS = 300; // Safety cap across all operators
 
@@ -39,10 +39,10 @@ export async function GET(request: NextRequest) {
         content: string;
         sourceType: string;
         metadata: string | null;
-        departmentIds: string | null;
+        domainIds: string | null;
       }>
     >`
-      SELECT id, content, "sourceType", metadata, "departmentIds"
+      SELECT id, content, "sourceType", metadata, "domainIds"
       FROM "ContentChunk"
       WHERE "operatorId" = ${operatorId}
         AND "classifiedAt" IS NOT NULL
@@ -54,8 +54,8 @@ export async function GET(request: NextRequest) {
     if (chunks.length === 0) continue;
 
     // Step 2 — Build department context (shared helper)
-    const { departments, contextString } = await buildDepartmentContext(operatorId);
-    if (departments.length === 0) continue;
+    const { domains, contextString } = await buildDomainContext(operatorId);
+    if (domains.length === 0) continue;
 
     // Step 3 — Evaluate each chunk individually via Haiku
     let reevaluated = 0;
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
           system: `You are a content classifier for a business intelligence system.
 Given the departments below, determine which department(s) this content chunk belongs to.
 If it's general/company-wide content, respond "ALL".
-Respond with ONLY a JSON object, no other text: {"departmentIds": ["id1", "id2"]} or {"departmentIds": "ALL"}
+Respond with ONLY a JSON object, no other text: {"domainIds": ["id1", "id2"]} or {"domainIds": "ALL"}
 
 Departments:
 ${contextString}`,
@@ -86,10 +86,10 @@ ${contextString}`,
         const text =
           response.content[0]?.type === "text" ? response.content[0].text : "";
         const parsed = extractJSON(text) as {
-          departmentIds: string[] | "ALL";
+          domainIds: string[] | "ALL";
         } | null;
 
-        if (!parsed?.departmentIds) {
+        if (!parsed?.domainIds) {
           // Couldn't parse — mark as reevaluated but don't change departments
           await prisma.contentChunk.update({
             where: { id: chunk.id },
@@ -100,21 +100,21 @@ ${contextString}`,
         }
 
         let newDeptIds: string[];
-        if (parsed.departmentIds === "ALL") {
-          newDeptIds = departments.map((d) => d.id);
+        if (parsed.domainIds === "ALL") {
+          newDeptIds = domains.map((d) => d.id);
         } else {
           // Filter to only valid department IDs
-          const validIds = new Set(departments.map((d) => d.id));
-          newDeptIds = parsed.departmentIds.filter((id) => validIds.has(id));
+          const validIds = new Set(domains.map((d) => d.id));
+          newDeptIds = parsed.domainIds.filter((id) => validIds.has(id));
           if (newDeptIds.length === 0) {
             // Haiku returned invalid IDs — assign to all as fallback
-            newDeptIds = departments.map((d) => d.id);
+            newDeptIds = domains.map((d) => d.id);
           }
         }
 
         // Check if departments actually changed
-        const oldDeptIds = chunk.departmentIds
-          ? (JSON.parse(chunk.departmentIds) as string[])
+        const oldDeptIds = chunk.domainIds
+          ? (JSON.parse(chunk.domainIds) as string[])
           : [];
         const oldSet = new Set(oldDeptIds);
         const newSet = new Set(newDeptIds);
@@ -126,7 +126,7 @@ ${contextString}`,
         await prisma.contentChunk.update({
           where: { id: chunk.id },
           data: {
-            departmentIds: JSON.stringify(newDeptIds),
+            domainIds: JSON.stringify(newDeptIds),
             reevaluatedAt: new Date(),
             classificationMethod: "llm",
           },

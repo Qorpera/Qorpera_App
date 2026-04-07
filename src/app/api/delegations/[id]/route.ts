@@ -31,12 +31,12 @@ export async function GET(
   const [fromEntity, toEntity, toUser, linkedSituation] = await Promise.all([
     prisma.entity.findUnique({
       where: { id: delegation.fromAiEntityId },
-      select: { id: true, displayName: true, parentDepartmentId: true },
+      select: { id: true, displayName: true, primaryDomainId: true },
     }),
     delegation.toAiEntityId
       ? prisma.entity.findUnique({
           where: { id: delegation.toAiEntityId },
-          select: { id: true, displayName: true, parentDepartmentId: true },
+          select: { id: true, displayName: true, primaryDomainId: true },
         })
       : null,
     delegation.toUserId

@@ -8,7 +8,7 @@ type InviteInfo = {
   companyName: string;
   personName: string;
   role: string;
-  departmentName: string | null;
+  domainName: string | null;
   email: string;
 };
 
@@ -106,8 +106,8 @@ export default function InviteAcceptPage() {
             <div className="wf-soft p-6 space-y-3">
               <p className="text-[var(--fg2)] text-sm">
                 as <span className="text-foreground font-medium">{invite.personName}</span>
-                {invite.departmentName && (
-                  <> in <span className="text-foreground font-medium">{invite.departmentName}</span></>
+                {invite.domainName && (
+                  <> in <span className="text-foreground font-medium">{invite.domainName}</span></>
                 )}
               </p>
 

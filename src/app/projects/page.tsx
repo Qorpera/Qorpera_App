@@ -179,6 +179,32 @@ export default function ProjectsPage() {
               >
                 + New project
               </button>
+              <button
+                onClick={() => {
+                  const name = window.prompt("Portfolio name:");
+                  if (!name?.trim()) return;
+                  fetch("/api/projects", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: name.trim(), status: "active" }),
+                  }).then(r => r.ok ? r.json() : null).then(d => {
+                    if (d) router.push(`/projects/${d.id ?? d.project?.id}`);
+                  });
+                }}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  padding: "4px 12px",
+                  borderRadius: 6,
+                  background: "transparent",
+                  border: "0.5px dashed rgba(255,255,255,0.15)",
+                  color: "var(--fg3)",
+                  cursor: "pointer",
+                }}
+                className="hover:brightness-125 transition"
+              >
+                + New portfolio
+              </button>
             </div>
             <p style={{ fontSize: 13, color: "var(--fg3)" }}>
               Active engagements and completed work

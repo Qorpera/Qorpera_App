@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppShell } from "@/components/app-shell";
-import { Badge } from "@/components/ui/badge";
 import { ContextualChat } from "@/components/contextual-chat";
-import { useIsMobile } from "@/hooks/use-media-query";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { useLocale } from "next-intl";
+import { fetchApi } from "@/lib/fetch-api";
+import { Badge } from "@/components/ui/badge";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,6 +15,10 @@ interface SystemJobItem {
   title: string;
   description: string;
   scope: string;
+  domainEntityId: string;
+  domainName: string;
+  assigneeEntityId: string | null;
+  assigneeName: string | null;
   cronExpression: string;
   status: string;
   importanceThreshold: number;
@@ -39,8 +43,6 @@ interface RunItem {
   proposedInitiativeCount: number;
   durationMs: number | null;
   createdAt: string;
-  analysisNarrative: string | null;
-  selfAmendments: unknown;
 }
 
 interface JobDetail {
@@ -48,6 +50,10 @@ interface JobDetail {
   title: string;
   description: string;
   scope: string;
+  domainEntityId: string;
+  domainName: string;
+  assigneeEntityId: string | null;
+  assigneeName: string | null;
   cronExpression: string;
   status: string;
   importanceThreshold: number;
@@ -67,7 +73,11 @@ function cronToHuman(cron: string): string {
     if (hour === "*") return `Every ${min === "0" ? "" : min + " "}minute${min === "0" ? "" : "s"}`;
     return `Daily at ${hour}:${min.padStart(2, "0")}`;
   }
-  if (dow !== "*") return `Weekly on day ${dow} at ${hour}:${min.padStart(2, "0")}`;
+  if (dow !== "*") {
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dayName = dayNames[parseInt(dow)] ?? `day ${dow}`;
+    return `Weekly on ${dayName} at ${hour}:${min.padStart(2, "0")}`;
+  }
   return cron;
 }
 
@@ -82,348 +92,313 @@ const STATUS_DOT: Record<string, string> = {
 
 export default function SystemJobsPage() {
   const locale = useLocale();
-  const isMobile = useIsMobile();
   const [jobs, setJobs] = useState<SystemJobItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [filter, setFilter] = useState<"active" | "all">("active");
 
-  // Editing state
-  const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editThreshold, setEditThreshold] = useState(0.3);
-  const [saving, setSaving] = useState(false);
-
-  // Run expansion
-  const [expandedRun, setExpandedRun] = useState<string | null>(null);
-
   const fetchJobs = useCallback(async () => {
     try {
-      const res = await fetch("/api/system-jobs");
+      const res = await fetchApi("/api/system-jobs");
       if (res.ok) {
         const data = await res.json();
         setJobs(data.items ?? []);
       }
-    } catch {}
+    } catch { /* network error */ }
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
+  // Fetch detail when a card is expanded
   useEffect(() => {
-    if (!selectedId) { setDetail(null); return; }
+    if (!expandedId) { setDetail(null); return; }
     let cancelled = false;
     setDetail(null);
     setDetailLoading(true);
-    fetch(`/api/system-jobs/${selectedId}`)
+    fetchApi(`/api/system-jobs/${expandedId}`)
       .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!cancelled && data) {
-          setDetail(data);
-          setEditTitle(data.title);
-          setEditDesc(data.description);
-          setEditThreshold(data.importanceThreshold);
-        }
-      })
+      .then(data => { if (!cancelled && data) setDetail(data); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedId]);
+  }, [expandedId]);
 
   const filtered = useMemo(() =>
     filter === "active" ? jobs.filter(j => j.status === "active") : jobs,
     [jobs, filter],
   );
 
-  const patchJob = async (updates: Record<string, unknown>) => {
-    if (!selectedId || saving) return;
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/system-jobs/${selectedId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (res.ok) {
-        fetchJobs();
-        const data = await res.json();
-        setDetail(prev => prev ? { ...prev, ...data } : prev);
-      }
-    } catch {}
-    setSaving(false);
-  };
-
-  const toggleStatus = () => {
-    if (!detail) return;
-    patchJob({ status: detail.status === "active" ? "paused" : "active" });
+  const toggleExpand = (id: string) => {
+    setExpandedId(prev => prev === id ? null : id);
   };
 
   return (
     <AppShell>
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "auto" }}>
 
-        {/* ── Left: job list ── */}
-        {(!isMobile || !selectedId) && (
-        <div className={`${isMobile ? "w-full" : "w-[300px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid var(--border)" }}>
-          <div className="px-4 py-3 flex-shrink-0 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--foreground)" }}>System Jobs</div>
-              <div style={{ fontSize: 11, color: "var(--fg3)" }} className="mt-0.5">
-                Scheduled intelligence tasks
-              </div>
-            </div>
+        {/* ── Chat bar: ~20% from top ── */}
+        <div style={{ paddingTop: "min(12vh, 80px)", paddingBottom: 32 }}>
+          <div style={{ maxWidth: 700, margin: "0 auto", padding: "0 20px" }}>
+            <ContextualChat
+              contextType="system_jobs"
+              contextId="global"
+              placeholder="Ask about system jobs, create new ones, or adjust schedules..."
+              hints={["Create a weekly sales review job", "Show me which jobs failed recently", "Pause all jobs"]}
+            />
           </div>
+        </div>
 
-          <div className="px-4 py-2 flex gap-1.5 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+        {/* ── Filter tabs ── */}
+        <div style={{ maxWidth: 900, margin: "0 auto", width: "100%", padding: "0 20px" }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
             {(["active", "all"] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className="text-[11px] font-medium px-2.5 py-1 rounded-full border transition"
                 style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  border: filter === f ? "1px solid var(--border)" : "1px solid transparent",
                   background: filter === f ? "var(--elevated)" : "transparent",
-                  borderColor: filter === f ? "var(--border)" : "transparent",
                   color: filter === f ? "var(--foreground)" : "var(--fg4)",
+                  cursor: "pointer",
                 }}
               >
                 {f === "active" ? "Active" : "All"}
               </button>
             ))}
           </div>
+        </div>
 
-          <div className="flex-1 overflow-y-auto">
-            {loading && (
-              <div className="flex justify-center py-10">
-                <div className="h-4 w-4 animate-spin rounded-full border border-border border-t-muted" />
-              </div>
-            )}
-            {filtered.map(job => (
-              <button
-                key={job.id}
-                onClick={() => setSelectedId(job.id)}
-                className="w-full text-left px-4 py-2.5 transition"
-                style={{
-                  borderBottom: "1px solid var(--border)",
-                  borderLeft: selectedId === job.id ? "2px solid var(--accent)" : "2px solid transparent",
-                  background: selectedId === job.id ? "var(--hover)" : "transparent",
-                }}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS_DOT[job.status] ?? "var(--fg4)", flexShrink: 0 }} />
-                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }} className="truncate flex-1">
-                    {job.title}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 pl-[15px]" style={{ fontSize: 11, color: "var(--fg4)" }}>
-                  <span>{cronToHuman(job.cronExpression)}</span>
-                  {job.latestRun?.importanceScore != null && (
-                    <>
-                      <span>·</span>
-                      <div style={{ width: 30, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                        <div style={{ width: `${job.latestRun.importanceScore * 100}%`, height: "100%", borderRadius: 2, background: job.latestRun.importanceScore > 0.5 ? "var(--warn)" : "var(--fg3)" }} />
-                      </div>
-                    </>
+        {/* ── Job grid ── */}
+        <div style={{ maxWidth: 900, margin: "0 auto", width: "100%", padding: "0 20px 40px" }}>
+          {loading && (
+            <div style={{ display: "flex", justifyContent: "center", padding: "40px 0" }}>
+              <div style={{ width: 20, height: 20, border: "2px solid var(--border)", borderTopColor: "var(--fg4)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            </div>
+          )}
+
+          {!loading && filtered.length === 0 && (
+            <div style={{ textAlign: "center", padding: "48px 0", color: "var(--fg4)", fontSize: 13 }}>
+              No system jobs yet. Use the chat above to create one.
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
+            {filtered.map(job => {
+              const isExpanded = expandedId === job.id;
+              return (
+                <div key={job.id} style={{ gridColumn: isExpanded ? "1 / -1" : undefined }}>
+                  {/* Card */}
+                  <button
+                    onClick={() => toggleExpand(job.id)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "14px 16px",
+                      borderRadius: isExpanded ? "8px 8px 0 0" : 8,
+                      background: isExpanded ? "var(--elevated)" : "var(--surface)",
+                      border: `1px solid ${isExpanded ? "var(--accent)" : "var(--border)"}`,
+                      borderBottom: isExpanded ? "none" : undefined,
+                      cursor: "pointer",
+                      transition: "border-color 150ms, background 150ms",
+                    }}
+                  >
+                    {/* Title row */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: STATUS_DOT[job.status] ?? "var(--fg4)",
+                        flexShrink: 0,
+                      }} />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                        {job.title}
+                      </span>
+                    </div>
+
+                    {/* Domain + assignee */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, paddingLeft: 16 }}>
+                      <span style={{ fontSize: 11, color: "var(--fg3)" }}>{job.domainName}</span>
+                      {job.assigneeName && (
+                        <>
+                          <span style={{ fontSize: 11, color: "var(--fg4)" }}>/</span>
+                          <span style={{ fontSize: 11, color: "var(--fg3)" }}>{job.assigneeName}</span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Schedule + next trigger */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 16, marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: "var(--fg4)" }}>{cronToHuman(job.cronExpression)}</span>
+                      {job.nextTriggerAt && (
+                        <>
+                          <span style={{ fontSize: 11, color: "var(--fg4)" }}>·</span>
+                          <span style={{ fontSize: 11, color: "var(--fg4)" }}>
+                            Next {formatRelativeTime(job.nextTriggerAt, locale)}
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Last run summary */}
+                    {job.latestRun?.summary && (
+                      <p style={{
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        color: "var(--fg2)",
+                        paddingLeft: 16,
+                        margin: 0,
+                        overflow: "hidden",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                      }}>
+                        {job.latestRun.summary}
+                      </p>
+                    )}
+                  </button>
+
+                  {/* Expanded detail */}
+                  {isExpanded && (
+                    <div style={{
+                      padding: "16px 20px 20px",
+                      background: "var(--elevated)",
+                      border: "1px solid var(--accent)",
+                      borderTop: "1px solid var(--border)",
+                      borderRadius: "0 0 8px 8px",
+                    }}>
+                      {detailLoading && !detail && (
+                        <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}>
+                          <div style={{ width: 16, height: 16, border: "2px solid var(--border)", borderTopColor: "var(--fg4)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                        </div>
+                      )}
+
+                      {detail && detail.id === expandedId && (
+                        <div>
+                          {/* Description */}
+                          <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", margin: "0 0 16px" }}>
+                            {detail.description}
+                          </p>
+
+                          {/* Metadata row */}
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 20 }}>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Schedule</div>
+                              <div style={{ fontSize: 13, color: "var(--foreground)" }}>{cronToHuman(detail.cronExpression)}</div>
+                              <div style={{ fontSize: 11, color: "var(--fg4)", marginTop: 2 }}>
+                                <code style={{ background: "rgba(255,255,255,0.06)", padding: "1px 4px", borderRadius: 3 }}>{detail.cronExpression}</code>
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Importance threshold</div>
+                              <div style={{ fontSize: 13, color: "var(--foreground)" }}>{(detail.importanceThreshold * 100).toFixed(0)}%</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Domain</div>
+                              <div style={{ fontSize: 13, color: "var(--foreground)" }}>{detail.domainName}</div>
+                            </div>
+                            {detail.assigneeName && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Assignee</div>
+                                <div style={{ fontSize: 13, color: "var(--foreground)" }}>{detail.assigneeName}</div>
+                              </div>
+                            )}
+                            <div>
+                              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Status</div>
+                              <Badge variant={detail.status === "active" ? "green" : detail.status === "paused" ? "default" : "red"}>
+                                {detail.status}
+                              </Badge>
+                            </div>
+                          </div>
+
+                          {/* Run History */}
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 8 }}>
+                              Run History ({detail.runs.length})
+                            </div>
+                            {detail.runs.length === 0 ? (
+                              <p style={{ fontSize: 12, color: "var(--fg4)", margin: 0 }}>No runs yet. The job will execute at its next scheduled time.</p>
+                            ) : (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                {detail.runs.map(run => (
+                                  <div
+                                    key={run.id}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "flex-start",
+                                      gap: 10,
+                                      padding: "8px 10px",
+                                      borderRadius: 6,
+                                      background: "var(--surface)",
+                                      border: "1px solid var(--border)",
+                                    }}
+                                  >
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", minWidth: 24 }}>#{run.cycleNumber}</span>
+                                    <Badge variant={run.status === "completed" ? "green" : run.status === "failed" ? "red" : "default"}>
+                                      {run.status}
+                                    </Badge>
+                                    {run.importanceScore != null && (
+                                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                        <div style={{ width: 40, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                                          <div style={{ width: `${run.importanceScore * 100}%`, height: "100%", borderRadius: 2, background: run.importanceScore > 0.5 ? "var(--warn)" : "var(--fg3)" }} />
+                                        </div>
+                                        <span style={{ fontSize: 10, color: "var(--fg4)" }}>{(run.importanceScore * 100).toFixed(0)}%</span>
+                                      </div>
+                                    )}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      {run.summary && (
+                                        <p style={{
+                                          fontSize: 12,
+                                          lineHeight: 1.4,
+                                          color: "var(--fg2)",
+                                          margin: 0,
+                                          overflow: "hidden",
+                                          display: "-webkit-box",
+                                          WebkitLineClamp: 2,
+                                          WebkitBoxOrient: "vertical",
+                                        }}>
+                                          {run.summary}
+                                        </p>
+                                      )}
+                                      {(run.proposedSituationCount > 0 || run.proposedInitiativeCount > 0) && (
+                                        <div style={{ display: "flex", gap: 10, marginTop: 2, fontSize: 11, color: "var(--fg3)" }}>
+                                          {run.proposedSituationCount > 0 && <span>{run.proposedSituationCount} situation{run.proposedSituationCount !== 1 ? "s" : ""}</span>}
+                                          {run.proposedInitiativeCount > 0 && <span>{run.proposedInitiativeCount} initiative{run.proposedInitiativeCount !== 1 ? "s" : ""}</span>}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <span style={{ fontSize: 11, color: "var(--fg4)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                                      {formatRelativeTime(run.createdAt, locale)}
+                                    </span>
+                                    {run.durationMs != null && (
+                                      <span style={{ fontSize: 10, color: "var(--fg4)", flexShrink: 0 }}>{(run.durationMs / 1000).toFixed(1)}s</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
-                  {job.nextTriggerAt && (
-                    <>
-                      <span>·</span>
-                      <span>Next: {formatRelativeTime(job.nextTriggerAt, locale)}</span>
-                    </>
-                  )}
                 </div>
-              </button>
-            ))}
-            {!loading && filtered.length === 0 && (
-              <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "var(--fg4)" }}>
-                No system jobs yet. Use the copilot to create one.
-              </div>
-            )}
+              );
+            })}
           </div>
         </div>
-        )}
-
-        {/* ── Right: detail pane ── */}
-        {(!isMobile || selectedId) && (
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {isMobile && (
-            <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-[var(--fg2)]">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-              Back
-            </button>
-          )}
-          {selectedId && detail ? (
-            <>
-              <div className="flex-1 overflow-y-auto">
-                <div className="px-6 py-5 space-y-5">
-                  {/* Header */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant={detail.status === "active" ? "green" : detail.status === "paused" ? "default" : "red"}>
-                        {detail.status}
-                      </Badge>
-                      <span style={{ fontSize: 12, color: "var(--fg3)" }}>{detail.scope}</span>
-                      <button
-                        onClick={toggleStatus}
-                        style={{ fontSize: 11, fontWeight: 500, padding: "2px 10px", borderRadius: 4, border: "1px solid var(--border)", background: "transparent", color: "var(--fg2)", cursor: "pointer", marginLeft: "auto" }}
-                      >
-                        {detail.status === "active" ? "Pause" : "Resume"}
-                      </button>
-                    </div>
-                    <input
-                      value={editTitle}
-                      onChange={e => setEditTitle(e.target.value)}
-                      onBlur={() => { if (editTitle !== detail.title) patchJob({ title: editTitle }); }}
-                      style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", background: "transparent", border: "none", outline: "none", width: "100%", padding: 0 }}
-                    />
-                  </div>
-
-                  {/* Description */}
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 6 }}>Description</div>
-                    <textarea
-                      value={editDesc}
-                      onChange={e => setEditDesc(e.target.value)}
-                      onBlur={() => { if (editDesc !== detail.description) patchJob({ description: editDesc }); }}
-                      rows={4}
-                      style={{ width: "100%", fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 6, padding: "10px 14px", resize: "vertical", outline: "none", fontFamily: "inherit" }}
-                    />
-                  </div>
-
-                  {/* Schedule + Threshold */}
-                  <div className="flex gap-6">
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Schedule</div>
-                      <div style={{ fontSize: 13, color: "var(--foreground)" }}>{cronToHuman(detail.cronExpression)}</div>
-                      <div style={{ fontSize: 11, color: "var(--fg4)", marginTop: 2 }}><code style={{ background: "rgba(255,255,255,0.06)", padding: "1px 4px", borderRadius: 3 }}>{detail.cronExpression}</code></div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Importance threshold</div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="range"
-                          min={0}
-                          max={1}
-                          step={0.05}
-                          value={editThreshold}
-                          onChange={e => setEditThreshold(parseFloat(e.target.value))}
-                          onMouseUp={() => { if (editThreshold !== detail.importanceThreshold) patchJob({ importanceThreshold: editThreshold }); }}
-                          style={{ width: 100 }}
-                        />
-                        <span style={{ fontSize: 12, color: "var(--fg2)", width: 32 }}>{(editThreshold * 100).toFixed(0)}%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Run History */}
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 8 }}>
-                      Run History ({detail.runs.length})
-                    </div>
-                    {detail.runs.length === 0 ? (
-                      <p style={{ fontSize: 12, color: "var(--fg4)" }}>No runs yet. The job will execute at its next scheduled time.</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {detail.runs.map(run => {
-                          const isExpanded = expandedRun === run.id;
-                          const findings = Array.isArray(run.findings) ? run.findings as Array<{ title: string; category: string; description: string }> : [];
-                          return (
-                            <div key={run.id}>
-                              <button
-                                onClick={() => setExpandedRun(isExpanded ? null : run.id)}
-                                className="w-full text-left transition"
-                                style={{
-                                  padding: "8px 12px",
-                                  borderRadius: 6,
-                                  background: isExpanded ? "var(--surface)" : "transparent",
-                                  border: isExpanded ? "1px solid var(--elevated)" : "1px solid transparent",
-                                  opacity: run.status === "compressed" ? 0.6 : 1,
-                                }}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", width: 24 }}>#{run.cycleNumber}</span>
-                                  <Badge variant={run.status === "completed" ? "green" : run.status === "failed" ? "red" : "default"}>
-                                    {run.status}
-                                  </Badge>
-                                  {run.importanceScore != null && (
-                                    <div style={{ width: 40, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                                      <div style={{ width: `${run.importanceScore * 100}%`, height: "100%", borderRadius: 2, background: run.importanceScore > 0.5 ? "var(--warn)" : "var(--fg3)" }} />
-                                    </div>
-                                  )}
-                                  <span style={{ fontSize: 11, color: "var(--fg4)", marginLeft: "auto" }}>
-                                    {formatRelativeTime(run.createdAt, locale)}
-                                  </span>
-                                  {run.durationMs != null && (
-                                    <span style={{ fontSize: 10, color: "var(--fg4)" }}>{(run.durationMs / 1000).toFixed(1)}s</span>
-                                  )}
-                                </div>
-                                {run.summary && (
-                                  <p style={{ fontSize: 12, color: "var(--fg2)", marginTop: 4, lineHeight: 1.4 }} className={isExpanded ? "" : "line-clamp-2"}>
-                                    {run.summary}
-                                  </p>
-                                )}
-                                {(run.proposedSituationCount > 0 || run.proposedInitiativeCount > 0) && (
-                                  <div className="flex gap-3 mt-1" style={{ fontSize: 11, color: "var(--fg3)" }}>
-                                    {run.proposedSituationCount > 0 && <span>{run.proposedSituationCount} situation{run.proposedSituationCount !== 1 ? "s" : ""}</span>}
-                                    {run.proposedInitiativeCount > 0 && <span>{run.proposedInitiativeCount} initiative{run.proposedInitiativeCount !== 1 ? "s" : ""}</span>}
-                                  </div>
-                                )}
-                              </button>
-                              {isExpanded && (
-                                <div style={{ padding: "8px 12px 12px 36px" }} className="space-y-3">
-                                  {run.analysisNarrative && (
-                                    <div>
-                                      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Analysis</div>
-                                      <p style={{ fontSize: 12, color: "var(--fg2)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{run.analysisNarrative}</p>
-                                    </div>
-                                  )}
-                                  {findings.length > 0 && (
-                                    <div>
-                                      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Findings ({findings.length})</div>
-                                      {findings.map((f, i) => (
-                                        <div key={i} style={{ fontSize: 12, marginBottom: 4 }}>
-                                          <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 5px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "var(--fg3)", textTransform: "uppercase", marginRight: 6 }}>{f.category}</span>
-                                          <span style={{ color: "var(--foreground)", fontWeight: 500 }}>{f.title}</span>
-                                          {f.description && <p style={{ color: "var(--fg3)", marginTop: 2, marginLeft: 0 }}>{f.description}</p>}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <ContextualChat
-                contextType="system_job"
-                contextId={detail.id}
-                placeholder="Ask about this job or request changes..."
-                hints={["What did the last run find?", "Change schedule to weekly"]}
-              />
-            </>
-          ) : selectedId && detailLoading ? (
-            <div className="flex justify-center py-16">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-3" style={{ color: "var(--fg4)" }}>
-              <svg width={40} height={40} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} style={{ opacity: 0.3 }}>
-                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-              <p style={{ fontSize: 13 }}>Select a job or create one via the copilot</p>
-            </div>
-          )}
-        </div>
-        )}
 
       </div>
+
+      {/* Spin keyframes for loading indicators */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </AppShell>
   );
 }

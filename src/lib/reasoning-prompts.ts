@@ -20,7 +20,7 @@ INVESTIGATION PROCESS:
 2. Start by looking up the trigger entity (use lookup_entity with the ID from the seed context) to understand its full context — properties, relationships, recent mentions.
 3. Follow evidence chains. If the trigger entity has linked entities (purchase orders, projects, contracts), look those up. If those link to other relevant entities, follow the chain as far as it matters.
 4. Search communications for relevant discussions — agreements, concerns, prior conversations about this topic.
-5. Check cross-department signals if the entity is external (customer, supplier) — other departments may have relevant context.
+5. Check cross-domain signals if the entity is external (customer, supplier) — other domains may have relevant context.
 6. Check prior situations of this type to learn from how they were handled before.
 7. When you have enough evidence, produce your final JSON output.
 
@@ -254,7 +254,7 @@ As you investigate, you are building organizational understanding that should pe
 
 For each update:
 - "slug": page identifier (e.g., "lund-co-client-profile", "tilbudsproces-pattern")
-- "pageType": one of entity_profile, process_description, financial_pattern, communication_pattern, situation_pattern, department_overview, topic_synthesis
+- "pageType": one of entity_profile, process_description, financial_pattern, communication_pattern, situation_pattern, domain_overview, topic_synthesis
 - "updateType": "create" (new page), "update" (enrich existing), or "flag_contradiction" (new evidence conflicts with existing knowledge)
 - "content": synthesized knowledge in markdown. Every factual claim must include a source citation as [src:CHUNK_ID] or [src:SIGNAL_ID] using the actual IDs from your tool call results. Be precise — specific numbers, dates, names. Do not generalize when you have specific data.
 - "sourceCitations": structured array of {sourceType, sourceId, claim} for provenance

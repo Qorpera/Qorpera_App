@@ -117,8 +117,21 @@ export async function PATCH(
       try {
         const aiEntity = await prisma.entity.findFirst({
           where: { operatorId, entityType: { slug: { in: ["ai-agent", "hq-ai"] } }, status: "active" },
-          select: { id: true },
+          select: { id: true, primaryDomainId: true },
         });
+        // Resolve domain: from proposal, AI entity's domain, or first foundational entity
+        let domainEntityId: string | undefined = (proposal.domainEntityId as string) ?? aiEntity?.primaryDomainId ?? undefined;
+        if (!domainEntityId) {
+          const firstDomain = await prisma.entity.findFirst({
+            where: { operatorId, category: "foundational", status: "active" },
+            select: { id: true },
+          });
+          domainEntityId = firstDomain?.id ?? undefined;
+        }
+        if (!domainEntityId) {
+          console.error("[initiative-api] No domain found for system job creation");
+          return NextResponse.json({ id, status: "approved" });
+        }
         const { CronExpressionParser } = await import("cron-parser");
         const cronExpr = (proposal.cronExpression as string) ?? "0 0 * * *";
         const interval = CronExpressionParser.parse(cronExpr);
@@ -126,6 +139,7 @@ export async function PATCH(
           data: {
             operatorId,
             aiEntityId: aiEntity?.id ?? initiative.aiEntityId,
+            domainEntityId,
             title: (proposal.title as string) ?? "New System Job",
             description: (proposal.description as string) ?? "",
             cronExpression: cronExpr,

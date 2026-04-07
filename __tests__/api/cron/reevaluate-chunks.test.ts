@@ -20,15 +20,15 @@ vi.mock("@/lib/json-helpers", () => ({
 }));
 
 vi.mock("@/lib/knowledge/chunk-classifier", () => ({
-  buildDepartmentContext: vi.fn(),
+  buildDomainContext: vi.fn(),
 }));
 
 import { prisma } from "@/lib/db";
 import { extractJSON } from "@/lib/json-helpers";
-import { buildDepartmentContext } from "@/lib/knowledge/chunk-classifier";
+import { buildDomainContext } from "@/lib/knowledge/chunk-classifier";
 import { GET } from "@/app/api/cron/reevaluate-chunks/route";
 
-const mockBuildDepartmentContext = buildDepartmentContext as ReturnType<typeof vi.fn>;
+const mockBuildDomainContext = buildDomainContext as ReturnType<typeof vi.fn>;
 
 const mockPrisma = prisma as unknown as {
   operator: {
@@ -60,11 +60,11 @@ beforeEach(() => {
   };
   mockPrisma.$queryRaw = vi.fn().mockResolvedValue([]);
   mockAnthropicCreate.mockResolvedValue({
-    content: [{ type: "text", text: '{"departmentIds": ["dept-a"]}' }],
+    content: [{ type: "text", text: '{"domainIds": ["dept-a"]}' }],
   });
   mockExtractJSON.mockReturnValue(null);
-  mockBuildDepartmentContext.mockResolvedValue({
-    departments: [],
+  mockBuildDomainContext.mockResolvedValue({
+    domains: [],
     contextString: "",
   });
 });
@@ -101,16 +101,16 @@ describe("/api/cron/reevaluate-chunks", () => {
         content: "Test content",
         sourceType: "email",
         metadata: null,
-        departmentIds: '["dept-a"]',
+        domainIds: '["dept-a"]',
       },
     ]);
 
-    mockBuildDepartmentContext.mockResolvedValue({
-      departments: [{ id: "dept-a", displayName: "Sales", description: "Sales team" }],
+    mockBuildDomainContext.mockResolvedValue({
+      domains: [{ id: "dept-a", displayName: "Sales", description: "Sales team" }],
       contextString: "- Sales (ID: dept-a): Sales team. Key members: none listed",
     });
 
-    mockExtractJSON.mockReturnValue({ departmentIds: ["dept-a"] });
+    mockExtractJSON.mockReturnValue({ domainIds: ["dept-a"] });
 
     const res = await GET(makeRequest("test-secret"));
     const body = await res.json();
@@ -139,7 +139,7 @@ describe("/api/cron/reevaluate-chunks", () => {
     expect(mockAnthropicCreate).not.toHaveBeenCalled();
   });
 
-  it("tracks changed count when departments differ", async () => {
+  it("tracks changed count when domains differ", async () => {
     mockPrisma.operator.findMany.mockResolvedValue([{ id: "op-1" }]);
 
     mockPrisma.$queryRaw.mockResolvedValue([
@@ -148,19 +148,19 @@ describe("/api/cron/reevaluate-chunks", () => {
         content: "Finance report",
         sourceType: "email",
         metadata: null,
-        departmentIds: '["dept-a"]',
+        domainIds: '["dept-a"]',
       },
     ]);
 
-    mockBuildDepartmentContext.mockResolvedValue({
-      departments: [
+    mockBuildDomainContext.mockResolvedValue({
+      domains: [
         { id: "dept-a", displayName: "Sales", description: "" },
         { id: "dept-b", displayName: "Finance", description: "" },
       ],
       contextString: "- Sales (ID: dept-a): . Key members: none\n- Finance (ID: dept-b): . Key members: none",
     });
 
-    mockExtractJSON.mockReturnValue({ departmentIds: ["dept-b"] });
+    mockExtractJSON.mockReturnValue({ domainIds: ["dept-b"] });
 
     const res = await GET(makeRequest("test-secret"));
     const body = await res.json();
@@ -170,7 +170,7 @@ describe("/api/cron/reevaluate-chunks", () => {
     expect(body.totalReevaluated).toBe(1);
 
     const updateCall = mockPrisma.contentChunk.update.mock.calls[0][0];
-    const deptIds = JSON.parse(updateCall.data.departmentIds);
+    const deptIds = JSON.parse(updateCall.data.domainIds);
     expect(deptIds).toEqual(["dept-b"]);
     expect(updateCall.data.classificationMethod).toBe("llm");
   });

@@ -18,23 +18,23 @@ export async function GET(
   const operator = await prisma.operator.findUnique({ where: { id: invite.operatorId } });
   const entity = await prisma.entity.findUnique({
     where: { id: invite.entityId },
-    select: { displayName: true, parentDepartmentId: true },
+    select: { displayName: true, primaryDomainId: true },
   });
 
-  let departmentName: string | null = null;
-  if (entity?.parentDepartmentId) {
+  let domainName: string | null = null;
+  if (entity?.primaryDomainId) {
     const dept = await prisma.entity.findUnique({
-      where: { id: entity.parentDepartmentId },
+      where: { id: entity.primaryDomainId },
       select: { displayName: true },
     });
-    departmentName = dept?.displayName ?? null;
+    domainName = dept?.displayName ?? null;
   }
 
   return NextResponse.json({
     companyName: operator?.companyName || operator?.displayName || "Unknown",
     personName: entity?.displayName ?? "Unknown",
     role: invite.role,
-    departmentName,
+    domainName,
     email: invite.email,
   });
 }

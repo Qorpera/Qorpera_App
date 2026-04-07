@@ -166,7 +166,7 @@ export async function canMemberAccessWorkStream(
   userId: string,
   workStreamId: string,
   operatorId: string,
-  visibleDepts: string[],
+  visibleDomains: string[],
 ): Promise<boolean> {
   // Check if workstream contains a situation assigned to this user
   const assignedSituations = await prisma.situation.findMany({

@@ -15,12 +15,12 @@ export async function sendPeerSignal(params: PeerSignalParams): Promise<void> {
   // Find target AI's department
   const targetAi = await prisma.entity.findUnique({
     where: { id: params.toAiEntityId },
-    select: { ownerDepartmentId: true },
+    select: { ownerDomainId: true },
   });
 
   // Find an admin user in the target department to attach the data record to
   let targetUserId: string | null = null;
-  if (targetAi?.ownerDepartmentId) {
+  if (targetAi?.ownerDomainId) {
     const adminUser = await prisma.user.findFirst({
       where: {
         operatorId: params.operatorId,
@@ -59,7 +59,7 @@ export async function sendPeerSignal(params: PeerSignalParams): Promise<void> {
       operatorId: params.operatorId,
       userId: admin.id,
       type: "peer_signal",
-      title: "Cross-department AI signal",
+      title: "Cross-domain AI signal",
       body: params.content.slice(0, 300),
       sourceType: "peer_signal",
       sourceId: params.fromAiEntityId,
@@ -76,16 +76,16 @@ export async function getPeerSignalsForAi(
   // Find the department this AI belongs to
   const aiEntity = await prisma.entity.findUnique({
     where: { id: aiEntityId },
-    select: { operatorId: true, ownerDepartmentId: true, parentDepartmentId: true },
+    select: { operatorId: true, ownerDomainId: true, primaryDomainId: true },
   });
   if (!aiEntity) return [];
 
-  const departmentId = aiEntity.ownerDepartmentId ?? aiEntity.parentDepartmentId;
-  if (!departmentId) return [];
+  const domainId = aiEntity.ownerDomainId ?? aiEntity.primaryDomainId;
+  if (!domainId) return [];
 
   // Find users in this department
   const deptUsers = await prisma.userScope.findMany({
-    where: { departmentEntityId: departmentId },
+    where: { domainEntityId: domainId },
     select: { userId: true },
   });
   // Also include admins (they see all departments)

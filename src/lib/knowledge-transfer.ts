@@ -39,8 +39,8 @@ export async function evaluateInsightPromotion(insightId: string): Promise<Promo
     where: { id: insight.aiEntityId },
     select: {
       ownerUserId: true,
-      ownerDepartmentId: true,
-      parentDepartmentId: true,
+      ownerDomainId: true,
+      primaryDomainId: true,
       entityType: { select: { slug: true } },
     },
   });
@@ -51,19 +51,19 @@ export async function evaluateInsightPromotion(insightId: string): Promise<Promo
     return { promoted: false, reason: "no_promotion" };
   }
 
-  let departmentId: string | null = null;
+  let domainId: string | null = null;
   if (aiEntity.entityType.slug === "department-ai") {
-    departmentId = aiEntity.ownerDepartmentId;
+    domainId = aiEntity.ownerDomainId;
   } else if (aiEntity.ownerUserId) {
     // Personal AI: find user's department
     const scope = await prisma.userScope.findFirst({
       where: { userId: aiEntity.ownerUserId },
-      select: { departmentEntityId: true },
+      select: { domainEntityId: true },
     });
-    departmentId = scope?.departmentEntityId ?? aiEntity.parentDepartmentId;
+    domainId = scope?.domainEntityId ?? aiEntity.primaryDomainId;
   }
 
-  if (!departmentId) return { promoted: false, reason: "no_promotion" };
+  if (!domainId) return { promoted: false, reason: "no_promotion" };
 
   // 3. Find peer AI entities in the same department
   const peerAiEntities = await prisma.entity.findMany({
@@ -72,8 +72,8 @@ export async function evaluateInsightPromotion(insightId: string): Promise<Promo
       id: { not: insight.aiEntityId },
       entityType: { slug: { in: ["ai-agent", "department-ai"] } },
       OR: [
-        { ownerDepartmentId: departmentId },
-        { parentDepartmentId: departmentId },
+        { ownerDomainId: domainId },
+        { primaryDomainId: domainId },
       ],
       status: "active",
     },
@@ -164,7 +164,7 @@ export async function evaluateInsightPromotion(insightId: string): Promise<Promo
 
 export async function promoteInsight(
   insightId: string,
-  targetScope: "department" | "operator",
+  targetScope: "domain" | "operator",
   promotedById: string,
 ): Promise<void> {
   const insight = await prisma.operationalInsight.findUnique({
@@ -178,7 +178,7 @@ export async function promoteInsight(
   if (insight.shareScope === "personal" && targetScope === "operator") {
     throw new Error("Cannot promote directly from personal to operator. Must go personal → department → operator.");
   }
-  if (insight.shareScope === "department" && targetScope === "department") {
+  if (insight.shareScope === "domain" && targetScope === "domain") {
     throw new Error("Insight is already department-scoped");
   }
   if (insight.shareScope === "operator") {

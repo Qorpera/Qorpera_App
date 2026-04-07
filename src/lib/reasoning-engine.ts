@@ -102,12 +102,12 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     if (situation.triggerEntityId) {
       const triggerEntity = await prisma.entity.findFirst({
         where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
-        select: { parentDepartmentId: true },
+        select: { primaryDomainId: true },
       });
 
-      if (triggerEntity?.parentDepartmentId) {
+      if (triggerEntity?.primaryDomainId) {
         const scopedUsers = await prisma.userScope.findMany({
-          where: { departmentEntityId: triggerEntity.parentDepartmentId },
+          where: { domainEntityId: triggerEntity.primaryDomainId },
           select: { userId: true },
         });
         const adminUsers = await prisma.user.findMany({
@@ -210,12 +210,12 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     if (situation.triggerEntityId) {
       const te = await prisma.entity.findFirst({
         where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
-        select: { parentDepartmentId: true },
+        select: { primaryDomainId: true },
       });
-      triggerDepartmentId = te?.parentDepartmentId ?? null;
+      triggerDepartmentId = te?.primaryDomainId ?? null;
       if (triggerDepartmentId) {
         const deptAi = await prisma.entity.findFirst({
-          where: { ownerDepartmentId: triggerDepartmentId, operatorId: situation.operatorId, status: "active" },
+          where: { ownerDomainId: triggerDepartmentId, operatorId: situation.operatorId, status: "active" },
           select: { id: true },
         });
         aiEntityId = deptAi?.id ?? null;
@@ -787,12 +787,12 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     // Handle escalation
     if (reasoning.escalation) {
       const triggerEntity = situation.triggerEntityId
-        ? await prisma.entity.findFirst({ where: { id: situation.triggerEntityId, operatorId: situation.operatorId }, select: { parentDepartmentId: true } })
+        ? await prisma.entity.findFirst({ where: { id: situation.triggerEntityId, operatorId: situation.operatorId }, select: { primaryDomainId: true } })
         : null;
 
-      if (triggerEntity?.parentDepartmentId) {
+      if (triggerEntity?.primaryDomainId) {
         const deptAi = await prisma.entity.findFirst({
-          where: { ownerDepartmentId: triggerEntity.parentDepartmentId, operatorId: situation.operatorId },
+          where: { ownerDomainId: triggerEntity.primaryDomainId, operatorId: situation.operatorId },
           select: { id: true },
         });
 
@@ -898,12 +898,12 @@ async function checkPlanAutonomyAutoApprove(
     // Resolve department AI entity
     const entity = await prisma.entity.findUnique({
       where: { id: triggerEntityId },
-      select: { parentDepartmentId: true },
+      select: { primaryDomainId: true },
     });
-    if (!entity?.parentDepartmentId) return;
+    if (!entity?.primaryDomainId) return;
 
     const deptAi = await prisma.entity.findFirst({
-      where: { ownerDepartmentId: entity.parentDepartmentId, operatorId, status: "active" },
+      where: { ownerDomainId: entity.primaryDomainId, operatorId, status: "active" },
       select: { id: true },
     });
     if (!deptAi) return;

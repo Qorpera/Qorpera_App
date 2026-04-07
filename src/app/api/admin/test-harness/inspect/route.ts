@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
             sourceType: true,
             sourceId: true,
             entityId: true,
-            departmentIds: true,
+            domainIds: true,
             metadata: true,
             content: true,
             chunkIndex: true,
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
             sourceType: c.sourceType,
             sourceId: c.sourceId,
             entityId: c.entityId,
-            departmentIds: c.departmentIds ? safeParseJSON(c.departmentIds) : null,
+            domainIds: c.domainIds ? safeParseJSON(c.domainIds) : null,
             metadata: c.metadata ? safeParseJSON(c.metadata) : null,
             contentPreview: c.content.slice(0, 200),
             chunkIndex: c.chunkIndex,
@@ -121,7 +121,7 @@ export async function GET(req: NextRequest) {
               targets: Array.isArray(targetIds)
                 ? targetIds.map((id: string) => ({ id, name: targetMap.get(id) ?? null }))
                 : [],
-              departmentIds: s.departmentIds ? safeParseJSON(s.departmentIds) : null,
+              domainIds: s.domainIds ? safeParseJSON(s.domainIds) : null,
               metadata: s.metadata ? safeParseJSON(s.metadata) : null,
               occurredAt: formatTimestamp(s.occurredAt),
             };
@@ -218,7 +218,7 @@ export async function GET(req: NextRequest) {
             status: true,
             sourceSystem: true,
             mergedIntoId: true,
-            parentDepartmentId: true,
+            primaryDomainId: true,
             entityType: { select: { slug: true } },
             _count: { select: { propertyValues: true, fromRelations: true, toRelations: true } },
           },
@@ -239,7 +239,7 @@ export async function GET(req: NextRequest) {
         const embeddingMap = new Map(embeddingStatus.map((e) => [e.id, e.hasEmbedding]));
 
         // Resolve department names
-        const deptIds = [...new Set(entities.map((e) => e.parentDepartmentId).filter(Boolean))] as string[];
+        const deptIds = [...new Set(entities.map((e) => e.primaryDomainId).filter(Boolean))] as string[];
         const depts = deptIds.length > 0
           ? await prisma.entity.findMany({
               where: { id: { in: deptIds } },
@@ -260,8 +260,8 @@ export async function GET(req: NextRequest) {
             status: e.status,
             sourceSystem: e.sourceSystem,
             mergedIntoId: e.mergedIntoId,
-            parentDepartment: e.parentDepartmentId
-              ? { id: e.parentDepartmentId, name: deptNameMap.get(e.parentDepartmentId) ?? null }
+            primaryDomain: e.primaryDomainId
+              ? { id: e.primaryDomainId, name: deptNameMap.get(e.primaryDomainId) ?? null }
               : null,
             propertyCount: e._count.propertyValues,
             relationshipCount: e._count.fromRelations + e._count.toRelations,

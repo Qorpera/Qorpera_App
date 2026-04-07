@@ -5,30 +5,30 @@ import { Button } from "./components/Button";
 import { Section } from "./components/Section";
 
 interface PeerSignalEmailProps {
-  fromDepartment: string;
-  toDepartment: string;
+  fromDomain: string;
+  toDomain: string;
   signalSummary: string;
   viewUrl: string;
 }
 
 export function PeerSignalEmail({
-  fromDepartment,
-  toDepartment,
+  fromDomain,
+  toDomain,
   signalSummary,
   viewUrl,
 }: PeerSignalEmailProps) {
   return (
     <BaseLayout
-      previewText={`Signal from ${fromDepartment} to ${toDepartment}`}
+      previewText={`Signal from ${fromDomain} to ${toDomain}`}
     >
       <Section>
         <Text style={heading}>
-          Cross-department signal from {fromDepartment}
+          Cross-domain signal from {fromDomain}
         </Text>
         <Text style={label}>From</Text>
-        <Text style={value}>{fromDepartment}</Text>
+        <Text style={value}>{fromDomain}</Text>
         <Text style={label}>To</Text>
-        <Text style={value}>{toDepartment}</Text>
+        <Text style={value}>{toDomain}</Text>
         <Text style={label}>Summary</Text>
         <Text style={value}>{signalSummary}</Text>
       </Section>

@@ -252,7 +252,7 @@ describe("GET /api/onboarding/analysis-progress", () => {
 
   it("includes synthesisOutput and uncertaintyLog when confirming", async () => {
     const synthesisOutput = {
-      departments: [{ name: "Engineering", headCount: 12, keyPeople: ["Alice"], functions: ["Development"] }],
+      domains: [{ name: "Engineering", headCount: 12, keyPeople: ["Alice"], functions: ["Development"] }],
       people: [{ name: "Alice", email: "alice@test.com", department: "Engineering", role: "Lead", relationships: [] }],
       processes: [],
       relationships: [],
@@ -278,7 +278,7 @@ describe("GET /api/onboarding/analysis-progress", () => {
 
     expect(data.status).toBe("confirming");
     expect(data.synthesisOutput).toBeDefined();
-    expect(data.synthesisOutput.departments).toHaveLength(1);
+    expect(data.synthesisOutput.domains).toHaveLength(1);
     expect(data.uncertaintyLog).toHaveLength(1);
   });
 
@@ -288,7 +288,7 @@ describe("GET /api/onboarding/analysis-progress", () => {
       status: "analyzing",
       currentPhase: "round_0",
       progressMessages: [],
-      synthesisOutput: { departments: [] },
+      synthesisOutput: { domains: [] },
       uncertaintyLog: null,
     });
 
@@ -354,7 +354,7 @@ describe("POST /api/onboarding/confirm-structure", () => {
     );
   });
 
-  it("archives deleted departments", async () => {
+  it("archives deleted domains", async () => {
     mockEntityFindFirst.mockResolvedValue({
       id: "dept2",
       operatorId: "op1",
@@ -377,7 +377,7 @@ describe("POST /api/onboarding/confirm-structure", () => {
     );
   });
 
-  it("moves people between departments", async () => {
+  it("moves people between domains", async () => {
     mockPropertyValueFindFirst.mockResolvedValue({
       entity: { id: "person1", operatorId: "op1" },
     });
@@ -401,7 +401,7 @@ describe("POST /api/onboarding/confirm-structure", () => {
     expect(mockEntityUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "person1" },
-        data: { parentDepartmentId: "dept3" },
+        data: { primaryDomainId: "dept3" },
       }),
     );
   });
@@ -426,7 +426,7 @@ describe("POST /api/onboarding/confirm-structure", () => {
     );
   });
 
-  it("creates new departments", async () => {
+  it("creates new domains", async () => {
     mockEntityTypeFindFirst.mockResolvedValue({ id: "type-dept" });
     mockEntityFindFirst.mockResolvedValue(null); // no existing dept
     mockEntityCreate.mockResolvedValue({ id: "new-dept" });

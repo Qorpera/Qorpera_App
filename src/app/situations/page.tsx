@@ -45,7 +45,7 @@ interface SituationItem {
   triggerEntityId: string | null;
   triggerEntityName: string | null;
   triggerSummary: string | null;
-  departmentName: string | null;
+  domainName: string | null;
   editInstruction: string | null;
   createdAt: string;
   resolvedAt: string | null;
@@ -575,7 +575,7 @@ export default function SituationsPage() {
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: "var(--fg3)" }} className="pl-[15px] truncate">
-                    {s.situationType.name}{s.departmentName ? ` \u00b7 ${s.departmentName}` : ""}
+                    {s.situationType.name}{s.domainName ? ` \u00b7 ${s.domainName}` : ""}
                   </div>
                 </button>
               );
@@ -1305,7 +1305,7 @@ function DetailPane({
           </div>
         </div>
         <div className="flex items-center gap-2 mt-2 flex-wrap">
-          {s.departmentName && <Badge>{s.departmentName}</Badge>}
+          {s.domainName && <Badge>{s.domainName}</Badge>}
           <span style={{ fontSize: 12, color: "var(--fg3)" }}>{(s.confidence * 100).toFixed(0)}%</span>
           <span style={{ fontSize: 12, color: "var(--fg4)" }}>{formatRelativeTime(s.createdAt, locale)}</span>
         </div>

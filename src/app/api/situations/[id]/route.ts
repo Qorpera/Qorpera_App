@@ -6,7 +6,7 @@ import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalD
 import { resumeAfterSituationResolution } from "@/lib/execution-engine";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { handleMeetingRequestResolution } from "@/lib/meeting-coordination";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { completeDelegation } from "@/lib/delegations";
 import { checkInsightExtractionTrigger } from "@/lib/operational-knowledge";
@@ -33,10 +33,10 @@ export async function GET(
   }
 
   // Scope check: deny if situation's type is scoped to a department the user can't see
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
-  if (visibleDepts !== "all") {
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
+  if (visibleDomains !== "all") {
     const scopeDept = situation.situationType?.scopeEntityId;
-    if (scopeDept && !visibleDepts.includes(scopeDept)) {
+    if (scopeDept && !visibleDomains.includes(scopeDept)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
   }
@@ -154,7 +154,7 @@ export async function PATCH(
   }
 
   // Scope check
-  const patchVisibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
+  const patchVisibleDepts = await getVisibleDomainIds(operatorId, su.effectiveUserId);
   if (patchVisibleDepts !== "all") {
     const scopeDept = situation.situationType?.scopeEntityId;
     if (scopeDept && !patchVisibleDepts.includes(scopeDept)) {

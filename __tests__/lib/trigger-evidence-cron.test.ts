@@ -109,14 +109,14 @@ const FAKE_CONTEXT: SituationContext = {
     category: "external",
     properties: { status: "overdue", amount: "5000", industry: "tech", secret_field: "sensitive" },
   },
-  departments: [],
-  departmentKnowledge: [],
+  domains: [],
+  domainKnowledge: [],
   relatedEntities: { base: [], digital: [], external: [] },
   recentEvents: [],
   priorSituations: [],
   activityTimeline: [],
   communicationContext: [],
-  crossDepartmentSignals: [],
+  crossDomainSignals: [],
 };
 
 function setupStructuredDetection() {

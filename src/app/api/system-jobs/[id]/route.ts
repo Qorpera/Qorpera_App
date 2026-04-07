@@ -15,6 +15,8 @@ export async function GET(
   const job = await prisma.systemJob.findFirst({
     where: { id, operatorId },
     include: {
+      domain: { select: { id: true, displayName: true } },
+      assignee: { select: { id: true, displayName: true } },
       runs: {
         orderBy: { createdAt: "desc" },
         take: 10,
@@ -41,7 +43,10 @@ export async function GET(
     title: job.title,
     description: job.description,
     scope: job.scope,
-    scopeEntityId: job.scopeEntityId,
+    domainEntityId: job.domainEntityId,
+    domainName: job.domain.displayName,
+    assigneeEntityId: job.assigneeEntityId,
+    assigneeName: job.assignee?.displayName ?? null,
     cronExpression: job.cronExpression,
     status: job.status,
     importanceThreshold: job.importanceThreshold,
@@ -85,6 +90,8 @@ export async function PATCH(
   if (body.title !== undefined) data.title = body.title;
   if (body.description !== undefined) data.description = body.description;
   if (body.importanceThreshold !== undefined) data.importanceThreshold = body.importanceThreshold;
+  if (body.domainEntityId !== undefined) data.domainEntityId = body.domainEntityId;
+  if (body.assigneeEntityId !== undefined) data.assigneeEntityId = body.assigneeEntityId || null;
   if (body.status !== undefined && ["active", "paused", "deactivated"].includes(body.status)) {
     data.status = body.status;
   }
@@ -98,7 +105,14 @@ export async function PATCH(
     }
   }
 
-  const updated = await prisma.systemJob.update({ where: { id }, data });
+  const updated = await prisma.systemJob.update({
+    where: { id },
+    data,
+    include: {
+      domain: { select: { id: true, displayName: true } },
+      assignee: { select: { id: true, displayName: true } },
+    },
+  });
   return NextResponse.json(updated);
 }
 

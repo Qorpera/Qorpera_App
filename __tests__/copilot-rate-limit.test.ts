@@ -33,8 +33,8 @@ vi.mock("@/lib/ai-copilot", () => ({
   chat: vi.fn().mockResolvedValue(new ReadableStream()),
 }));
 
-vi.mock("@/lib/user-scope", () => ({
-  getVisibleDepartmentIds: vi.fn().mockResolvedValue("all"),
+vi.mock("@/lib/domain-scope", () => ({
+  getVisibleDomainIds: vi.fn().mockResolvedValue("all"),
 }));
 
 vi.mock("@/lib/copilot-context-loaders", () => ({

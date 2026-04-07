@@ -71,8 +71,8 @@ export type DetectionHealth = {
 };
 
 export type DepartmentSnapshot = {
-  departmentId: string;
-  departmentName: string;
+  domainId: string;
+  domainName: string;
   dataPipeline: DataPipelineHealth;
   knowledge: KnowledgeHealth;
   detection: DetectionHealth;
@@ -82,7 +82,7 @@ export type DepartmentSnapshot = {
 
 export type OperatorSnapshot = {
   operatorId: string;
-  departments: DepartmentSnapshot[];
+  domains: DepartmentSnapshot[];
   overallStatus: "healthy" | "attention" | "critical";
   criticalIssueCount: number;
   staleJobCount: number;
@@ -108,8 +108,8 @@ export type DepartmentSnapshotWithLive = Omit<DepartmentSnapshot, "detection"> &
   detection: DetectionHealthWithLive;
 };
 
-export type OperatorSnapshotWithLive = Omit<OperatorSnapshot, "departments"> & {
-  departments: DepartmentSnapshotWithLive[];
+export type OperatorSnapshotWithLive = Omit<OperatorSnapshot, "domains"> & {
+  domains: DepartmentSnapshotWithLive[];
 };
 
 // ─── Detection logic types (mirrors situation-detector.ts) ───
@@ -138,7 +138,7 @@ function getTargetEntityType(detection: DetectionLogic): string | null {
 
 async function computeDataPipeline(
   operatorId: string,
-  departmentEntityId: string,
+  domainEntityId: string,
 ): Promise<DataPipelineHealth> {
   const connectors = await prisma.sourceConnector.findMany({
     where: { operatorId, deletedAt: null },
@@ -156,7 +156,7 @@ async function computeDataPipeline(
   const totalEntities = await prisma.entity.count({
     where: {
       operatorId,
-      parentDepartmentId: departmentEntityId,
+      primaryDomainId: domainEntityId,
       status: "active",
       category: { in: ["digital", "external"] },
     },
@@ -177,7 +177,7 @@ async function computeDataPipeline(
 
   // Slack channel bindings to this department
   const slackBindings = await prisma.slackChannelMapping.findMany({
-    where: { operatorId, departmentId: departmentEntityId },
+    where: { operatorId, domainId: domainEntityId },
     select: { connectorId: true },
   });
   const boundConnectorIds = new Set(slackBindings.map((b) => b.connectorId));
@@ -273,13 +273,13 @@ async function computeDataPipeline(
 
 async function computeKnowledge(
   operatorId: string,
-  departmentEntityId: string,
+  domainEntityId: string,
 ): Promise<KnowledgeHealth> {
   // People: base entities in this department
   const peopleCount = await prisma.entity.count({
     where: {
       operatorId,
-      parentDepartmentId: departmentEntityId,
+      primaryDomainId: domainEntityId,
       category: "base",
       status: "active",
     },
@@ -305,7 +305,7 @@ async function computeKnowledge(
         propertyId: { in: rolePropertyIds },
         entity: {
           operatorId,
-          parentDepartmentId: departmentEntityId,
+          primaryDomainId: domainEntityId,
           category: "base",
           status: "active",
         },
@@ -329,7 +329,7 @@ async function computeKnowledge(
         relationshipTypeId: reportsToType.id,
         fromEntity: {
           operatorId,
-          parentDepartmentId: departmentEntityId,
+          primaryDomainId: domainEntityId,
           category: "base",
           status: "active",
         },
@@ -354,18 +354,18 @@ async function computeKnowledge(
 
   // Documents
   const docCount = await prisma.internalDocument.count({
-    where: { operatorId, departmentId: departmentEntityId },
+    where: { operatorId, domainId: domainEntityId },
   });
 
   // RAG chunks — ALL ContentChunks linked to this department (documents, emails, messages, etc.)
-  // departmentIds is a JSON string array — use raw SQL jsonb ? operator
+  // domainIds is a JSON string array — use raw SQL jsonb ? operator
   const ragChunkResult = await prisma.$queryRaw<[{ count: bigint }]>`
     SELECT COUNT(*) as count FROM "ContentChunk"
     WHERE "operatorId" = ${operatorId}
-      AND "departmentIds" IS NOT NULL
-      AND "departmentIds" != 'null'
-      AND "departmentIds" != '[]'
-      AND "departmentIds"::jsonb ? ${departmentEntityId}
+      AND "domainIds" IS NOT NULL
+      AND "domainIds" != 'null'
+      AND "domainIds" != '[]'
+      AND "domainIds"::jsonb ? ${domainEntityId}
   `;
   const ragChunks = Number(ragChunkResult[0]?.count ?? 0);
 
@@ -374,10 +374,10 @@ async function computeKnowledge(
     SELECT COUNT(*) as count FROM "ContentChunk"
     WHERE "operatorId" = ${operatorId}
       AND "sourceType" IN ('email', 'calendar_note', 'calendar_event')
-      AND "departmentIds" IS NOT NULL
-      AND "departmentIds" != 'null'
-      AND "departmentIds" != '[]'
-      AND "departmentIds"::jsonb ? ${departmentEntityId}
+      AND "domainIds" IS NOT NULL
+      AND "domainIds" != 'null'
+      AND "domainIds" != '[]'
+      AND "domainIds"::jsonb ? ${domainEntityId}
   `;
   const operationalChunks = Number(operationalChunkResult[0]?.count ?? 0);
 
@@ -387,7 +387,7 @@ async function computeKnowledge(
   const staleCount = await prisma.internalDocument.count({
     where: {
       operatorId,
-      departmentId: departmentEntityId,
+      domainId: domainEntityId,
       updatedAt: { lt: ninetyDaysAgo },
     },
   });
@@ -398,7 +398,7 @@ async function computeKnowledge(
       operatorId,
       status: "active",
       OR: [
-        { shareScope: "department", departmentId: departmentEntityId },
+        { shareScope: "department", domainId: domainEntityId },
         { shareScope: "operator" },
       ],
     },
@@ -409,7 +409,7 @@ async function computeKnowledge(
 
   // Situation type coverage
   const deptSituationTypes = await prisma.situationType.findMany({
-    where: { operatorId, scopeEntityId: departmentEntityId },
+    where: { operatorId, scopeEntityId: domainEntityId },
     select: { id: true, name: true },
   });
 
@@ -446,10 +446,10 @@ async function computeKnowledge(
 
 async function computeDetection(
   operatorId: string,
-  departmentEntityId: string,
+  domainEntityId: string,
 ): Promise<DetectionHealth> {
   const situationTypes = await prisma.situationType.findMany({
-    where: { operatorId, scopeEntityId: departmentEntityId },
+    where: { operatorId, scopeEntityId: domainEntityId },
     select: {
       id: true,
       name: true,
@@ -546,7 +546,7 @@ async function computeDetection(
         const entityCount = await prisma.entity.count({
           where: {
             operatorId,
-            parentDepartmentId: departmentEntityId,
+            primaryDomainId: domainEntityId,
             status: "active",
             entityType: { slug: targetSlug },
           },
@@ -660,19 +660,19 @@ async function computeDetection(
 
 export async function computeDepartmentSnapshot(
   operatorId: string,
-  departmentEntityId: string,
+  domainEntityId: string,
 ): Promise<DepartmentSnapshot> {
   const department = await prisma.entity.findFirst({
-    where: { id: departmentEntityId, operatorId, category: "foundational" },
+    where: { id: domainEntityId, operatorId, category: "foundational" },
     select: { displayName: true },
   });
 
-  const departmentName = department?.displayName ?? "Unknown Department";
+  const domainName = department?.displayName ?? "Unknown Department";
 
   const [dataPipeline, knowledge, detection] = await Promise.all([
-    computeDataPipeline(operatorId, departmentEntityId),
-    computeKnowledge(operatorId, departmentEntityId),
-    computeDetection(operatorId, departmentEntityId),
+    computeDataPipeline(operatorId, domainEntityId),
+    computeKnowledge(operatorId, domainEntityId),
+    computeDetection(operatorId, domainEntityId),
   ]);
 
   // criticalIssueCount = disconnected connectors + knowledge "empty" + detection types with "no_data"
@@ -707,8 +707,8 @@ export async function computeDepartmentSnapshot(
   }
 
   return {
-    departmentId: departmentEntityId,
-    departmentName,
+    domainId: domainEntityId,
+    domainName,
     dataPipeline,
     knowledge,
     detection,
@@ -759,7 +759,7 @@ export async function computeOperatorSnapshot(
 
   return {
     operatorId,
-    departments: departmentSnapshots,
+    domains: departmentSnapshots,
     overallStatus,
     criticalIssueCount,
     staleJobCount,
@@ -775,21 +775,21 @@ async function persistSnapshot(
 ): Promise<void> {
   const now = new Date();
   const snapshotJson = JSON.stringify(snapshot);
-  const activeDepartmentIds = snapshot.departments.map((d) => d.departmentId);
+  const activeDepartmentIds = snapshot.domains.map((d) => d.domainId);
 
   await prisma.$transaction([
     // Per-department snapshots
-    ...snapshot.departments.map((dept) =>
-      prisma.departmentHealth.upsert({
+    ...snapshot.domains.map((dept) =>
+      prisma.domainHealth.upsert({
         where: {
-          operatorId_departmentEntityId: {
+          operatorId_domainEntityId: {
             operatorId,
-            departmentEntityId: dept.departmentId,
+            domainEntityId: dept.domainId,
           },
         },
         create: {
           operatorId,
-          departmentEntityId: dept.departmentId,
+          domainEntityId: dept.domainId,
           snapshot: dept as unknown as Prisma.InputJsonValue,
           computedAt: now,
         },
@@ -799,28 +799,28 @@ async function persistSnapshot(
         },
       }),
     ),
-    // Operator-level aggregate (departmentEntityId = null)
+    // Operator-level aggregate (domainEntityId = null)
     // Postgres NULL != NULL so @@unique can't back a Prisma upsert —
     // use raw INSERT ON CONFLICT with partial unique index
     prisma.$executeRaw`
-      INSERT INTO "DepartmentHealth" ("id", "operatorId", "departmentEntityId", "snapshot", "computedAt")
+      INSERT INTO "DomainHealth" ("id", "operatorId", "domainEntityId", "snapshot", "computedAt")
       VALUES (${randomUUID()}, ${operatorId}, NULL, ${snapshotJson}::jsonb, ${now})
-      ON CONFLICT ("operatorId") WHERE "departmentEntityId" IS NULL
+      ON CONFLICT ("operatorId") WHERE "domainEntityId" IS NULL
       DO UPDATE SET "snapshot" = EXCLUDED."snapshot", "computedAt" = EXCLUDED."computedAt"
     `,
     // Remove rows for departments that no longer exist
     ...(activeDepartmentIds.length > 0
       ? [
-          prisma.departmentHealth.deleteMany({
+          prisma.domainHealth.deleteMany({
             where: {
               operatorId,
-              departmentEntityId: { notIn: activeDepartmentIds, not: null },
+              domainEntityId: { notIn: activeDepartmentIds, not: null },
             },
           }),
         ]
       : [
-          prisma.departmentHealth.deleteMany({
-            where: { operatorId, departmentEntityId: { not: null } },
+          prisma.domainHealth.deleteMany({
+            where: { operatorId, domainEntityId: { not: null } },
           }),
         ]),
   ]);
@@ -830,33 +830,33 @@ async function persistSnapshot(
  * Public entry point called by sync/reconnection triggers.
  * Fire-and-forget safe — never throws.
  *
- * If departmentEntityId provided: recompute just that department + operator aggregate.
+ * If domainEntityId provided: recompute just that department + operator aggregate.
  * If not provided: recompute all departments + operator aggregate.
  */
 export async function recomputeHealthSnapshots(
   operatorId: string,
-  departmentEntityId?: string,
+  domainEntityId?: string,
 ): Promise<void> {
   try {
-    if (departmentEntityId) {
+    if (domainEntityId) {
       // Single-department recompute
       const deptSnapshot = await computeDepartmentSnapshot(
         operatorId,
-        departmentEntityId,
+        domainEntityId,
       );
       const now = new Date();
 
       // Upsert the single department row
-      await prisma.departmentHealth.upsert({
+      await prisma.domainHealth.upsert({
         where: {
-          operatorId_departmentEntityId: {
+          operatorId_domainEntityId: {
             operatorId,
-            departmentEntityId,
+            domainEntityId,
           },
         },
         create: {
           operatorId,
-          departmentEntityId,
+          domainEntityId,
           snapshot: deptSnapshot as unknown as Prisma.InputJsonValue,
           computedAt: now,
         },
@@ -868,8 +868,8 @@ export async function recomputeHealthSnapshots(
 
       // Rebuild operator aggregate from persisted department snapshots
       // instead of recomputing every department
-      const allRows = await prisma.departmentHealth.findMany({
-        where: { operatorId, departmentEntityId: { not: null } },
+      const allRows = await prisma.domainHealth.findMany({
+        where: { operatorId, domainEntityId: { not: null } },
         select: { snapshot: true },
       });
       const departmentSnapshots = allRows.map(
@@ -903,7 +903,7 @@ export async function recomputeHealthSnapshots(
 
       const operatorSnapshot: OperatorSnapshot = {
         operatorId,
-        departments: departmentSnapshots,
+        domains: departmentSnapshots,
         overallStatus,
         criticalIssueCount,
         staleJobCount,
@@ -911,9 +911,9 @@ export async function recomputeHealthSnapshots(
       };
       const snapshotJson = JSON.stringify(operatorSnapshot);
       await prisma.$executeRaw`
-        INSERT INTO "DepartmentHealth" ("id", "operatorId", "departmentEntityId", "snapshot", "computedAt")
+        INSERT INTO "DomainHealth" ("id", "operatorId", "domainEntityId", "snapshot", "computedAt")
         VALUES (${randomUUID()}, ${operatorId}, NULL, ${snapshotJson}::jsonb, ${now})
-        ON CONFLICT ("operatorId") WHERE "departmentEntityId" IS NULL
+        ON CONFLICT ("operatorId") WHERE "domainEntityId" IS NULL
         DO UPDATE SET "snapshot" = EXCLUDED."snapshot", "computedAt" = EXCLUDED."computedAt"
       `;
     } else {

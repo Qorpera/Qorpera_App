@@ -56,10 +56,10 @@ async function resolveDepartmentIds(
   if (subjectEntityId) {
     const entity = await prisma.entity.findFirst({
       where: { id: subjectEntityId, operatorId },
-      select: { parentDepartmentId: true, entityType: { select: { slug: true } } },
+      select: { primaryDomainId: true, entityType: { select: { slug: true } } },
     });
-    if (entity?.parentDepartmentId) {
-      deptIds.add(entity.parentDepartmentId);
+    if (entity?.primaryDomainId) {
+      deptIds.add(entity.primaryDomainId);
     }
     // If the subject IS a department, add itself
     if (entity?.entityType?.slug === "department") {
@@ -76,13 +76,13 @@ async function resolveDepartmentIds(
     if (chunkIds.length > 0) {
       const chunks = await prisma.contentChunk.findMany({
         where: { id: { in: chunkIds.slice(0, 50) }, operatorId },
-        select: { departmentIds: true },
+        select: { domainIds: true },
       });
       for (const chunk of chunks) {
-        // ContentChunk.departmentIds is String? (JSON array), not String[]
-        if (chunk.departmentIds) {
+        // ContentChunk.domainIds is String? (JSON array), not String[]
+        if (chunk.domainIds) {
           try {
-            const ids = JSON.parse(chunk.departmentIds) as string[];
+            const ids = JSON.parse(chunk.domainIds) as string[];
             for (const id of ids) deptIds.add(id);
           } catch { /* malformed JSON, skip */ }
         }
@@ -197,7 +197,7 @@ async function createPage(params: {
   const contentTokens = Math.ceil(params.content.length / 4);
   const crossReferences = extractCrossReferences(params.content);
   const sourceTypes = [...new Set(params.sourceCitations.map((c) => c.sourceType))];
-  const departmentIds = await resolveDepartmentIds(
+  const domainIds = await resolveDepartmentIds(
     params.operatorId,
     params.subjectEntityId,
     params.sourceCitations,
@@ -214,7 +214,7 @@ async function createPage(params: {
       projectId: params.projectId ?? null,
       pageType: params.pageType,
       subjectEntityId: params.subjectEntityId ?? null,
-      departmentIds,
+      domainIds,
       title: params.title,
       slug,
       content: params.content,
@@ -302,7 +302,7 @@ async function updatePage(params: {
     ...existing.sourceTypes,
     ...params.sourceCitations.map((c) => c.sourceType),
   ])];
-  const departmentIds = await resolveDepartmentIds(
+  const domainIds = await resolveDepartmentIds(
     params.operatorId,
     params.subjectEntityId,
     params.sourceCitations,
@@ -328,7 +328,7 @@ async function updatePage(params: {
            "verifiedAt" = NULL, "verifiedByModel" = NULL,
            "verificationLog" = NULL, "quarantineReason" = NULL, "staleReason" = NULL,
            "embedding" = $11::vector,
-           "departmentIds" = $12::text[]
+           "domainIds" = $12::text[]
        WHERE "id" = $13`,
       params.title,
       params.content,
@@ -341,7 +341,7 @@ async function updatePage(params: {
       params.synthesizedByModel,
       params.situationId ?? null,
       embeddingStr,
-      departmentIds,
+      domainIds,
       existing.id,
     );
   } else {
@@ -355,7 +355,7 @@ async function updatePage(params: {
         sources: mergedSources as unknown as Prisma.InputJsonValue,
         sourceCount: mergedSources.length,
         sourceTypes,
-        departmentIds,
+        domainIds,
         status: "draft",
         version: { increment: 1 },
         synthesisPath: params.synthesisPath,
@@ -914,15 +914,15 @@ export async function getRelevantPagesForSeed(
   if (pages.length < 3 && tokensUsed < TOKEN_BUDGET - 500) {
     const entity = await prisma.entity.findFirst({
       where: { id: triggerEntityId, operatorId },
-      select: { parentDepartmentId: true },
+      select: { primaryDomainId: true },
     });
-    if (entity?.parentDepartmentId) {
-      const deptPage = await getPageForEntity(operatorId, entity.parentDepartmentId, projectId, "department_overview");
+    if (entity?.primaryDomainId) {
+      const deptPage = await getPageForEntity(operatorId, entity.primaryDomainId, projectId, "domain_overview");
       if (deptPage && !usedSlugs.has(deptPage.slug) && tokensUsed + Math.ceil(deptPage.content.length / 4) < TOKEN_BUDGET) {
         pages.push({
           slug: deptPage.slug,
-          title: "Department overview",
-          pageType: "department_overview",
+          title: "Domain overview",
+          pageType: "domain_overview",
           status: deptPage.status,
           content: deptPage.content,
           trustLevel: deptPage.trustLevel ?? "provisional",

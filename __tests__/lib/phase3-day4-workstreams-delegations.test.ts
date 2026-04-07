@@ -201,7 +201,7 @@ describe("getWorkStreamContext", () => {
 describe("createDelegation", () => {
   it("AI to AI — status is pending, admin notification sent", async () => {
     const { createDelegation } = await import("@/lib/delegations");
-    mockPrisma.entity.findFirst.mockResolvedValue({ id: "from-ai", parentDepartmentId: "dept-1" });
+    mockPrisma.entity.findFirst.mockResolvedValue({ id: "from-ai", primaryDomainId: "dept-1" });
     // toAiEntityId validation
     mockPrisma.entity.findFirst.mockResolvedValueOnce({ id: "from-ai" }); // from
     mockPrisma.entity.findFirst.mockResolvedValueOnce({ id: "to-ai" }); // to
@@ -223,7 +223,7 @@ describe("createDelegation", () => {
 
   it("AI to human — status is accepted, user notification sent", async () => {
     const { createDelegation } = await import("@/lib/delegations");
-    mockPrisma.entity.findFirst.mockResolvedValue({ id: "from-ai", parentDepartmentId: "dept-1" });
+    mockPrisma.entity.findFirst.mockResolvedValue({ id: "from-ai", primaryDomainId: "dept-1" });
     mockPrisma.user.findFirst.mockResolvedValue({ id: "user-1" });
     mockPrisma.delegation.create.mockResolvedValue({
       id: "del-2", operatorId: "op-1", fromAiEntityId: "from-ai", toAiEntityId: null,
@@ -303,7 +303,7 @@ describe("completeDelegation", () => {
       id: "del-1", operatorId: "op-1", fromAiEntityId: "from-ai", status: "accepted",
     });
     mockPrisma.delegation.update.mockResolvedValue({});
-    mockPrisma.entity.findUnique.mockResolvedValue({ displayName: "Sales AI", parentDepartmentId: "dept-1" });
+    mockPrisma.entity.findUnique.mockResolvedValue({ displayName: "Sales AI", primaryDomainId: "dept-1" });
 
     await completeDelegation("del-1", "user-1", "Done!", "op-1");
 
@@ -338,7 +338,7 @@ describe("returnDelegation", () => {
 describe("sendPeerSignal", () => {
   it("creates notification with sourceAiEntityId", async () => {
     const { sendPeerSignal } = await import("@/lib/peer-signals");
-    mockPrisma.entity.findUnique.mockResolvedValue({ ownerDepartmentId: "dept-1" });
+    mockPrisma.entity.findUnique.mockResolvedValue({ ownerDomainId: "dept-1" });
     mockPrisma.user.findFirst.mockResolvedValue({ id: "admin-1" });
     mockPrisma.user.findMany.mockResolvedValue([{ id: "admin-1" }, { id: "admin-2" }]);
     mockPrisma.notification.create.mockResolvedValue({});
@@ -363,7 +363,7 @@ describe("getPeerSignalsForAi", () => {
   it("returns signals and excludes own", async () => {
     const { getPeerSignalsForAi } = await import("@/lib/peer-signals");
     mockPrisma.entity.findUnique.mockResolvedValue({
-      operatorId: "op-1", ownerDepartmentId: "dept-1", parentDepartmentId: null,
+      operatorId: "op-1", ownerDomainId: "dept-1", primaryDomainId: null,
     });
     mockPrisma.userScope.findMany.mockResolvedValue([{ userId: "user-1" }]);
     mockPrisma.user.findMany.mockResolvedValue([{ id: "admin-1" }]);
@@ -388,7 +388,7 @@ describe("getPeerSignalsForAi", () => {
   it("respects time filter", async () => {
     const { getPeerSignalsForAi } = await import("@/lib/peer-signals");
     mockPrisma.entity.findUnique.mockResolvedValue({
-      operatorId: "op-1", ownerDepartmentId: "dept-1", parentDepartmentId: null,
+      operatorId: "op-1", ownerDomainId: "dept-1", primaryDomainId: null,
     });
     mockPrisma.userScope.findMany.mockResolvedValue([]);
     mockPrisma.user.findMany.mockResolvedValue([{ id: "admin-1" }]);

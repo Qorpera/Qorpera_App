@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ prisma: {} }));
 vi.mock("@/lib/auth", () => ({ getSessionUser: vi.fn() }));
-vi.mock("@/lib/user-scope", () => ({
-  getVisibleDepartmentIds: vi.fn(),
+vi.mock("@/lib/domain-scope", () => ({
+  getVisibleDomainIds: vi.fn(),
 }));
 vi.mock("@/lib/knowledge-transfer", () => ({
   promoteInsight: vi.fn(),
@@ -15,11 +15,11 @@ vi.mock("@/lib/operational-knowledge", () => ({
 
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 import { promoteInsight, invalidateInsight } from "@/lib/knowledge-transfer";
 
 const mockGetSessionUser = getSessionUser as ReturnType<typeof vi.fn>;
-const mockGetVisibleDepartmentIds = getVisibleDepartmentIds as ReturnType<typeof vi.fn>;
+const mockGetVisibleDepartmentIds = getVisibleDomainIds as ReturnType<typeof vi.fn>;
 const mockPromoteInsight = promoteInsight as ReturnType<typeof vi.fn>;
 const mockInvalidateInsight = invalidateInsight as ReturnType<typeof vi.fn>;
 
@@ -77,7 +77,7 @@ describe("GET /api/insights", () => {
       {
         id: "ins-1",
         aiEntityId: "ai-2",
-        departmentId: "dept-1",
+        domainId: "dept-1",
         insightType: "approach_effectiveness",
         description: "Test insight",
         evidence: '{"sampleSize": 10}',

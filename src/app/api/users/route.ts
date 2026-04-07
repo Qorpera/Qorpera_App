@@ -12,8 +12,8 @@ export async function GET() {
   const users = await prisma.user.findMany({
     where: { operatorId: su.operatorId, ...excludeSuperadmin() },
     include: {
-      entity: { select: { displayName: true, parentDepartmentId: true } },
-      scopes: { select: { id: true, departmentEntityId: true } },
+      entity: { select: { displayName: true, primaryDomainId: true } },
+      scopes: { select: { id: true, domainEntityId: true } },
       sessions: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
     },
     orderBy: { createdAt: "asc" },
@@ -22,8 +22,8 @@ export async function GET() {
   // Get department names for scopes and entity parents
   const deptIds = new Set<string>();
   for (const u of users) {
-    for (const s of u.scopes) deptIds.add(s.departmentEntityId);
-    if (u.entity?.parentDepartmentId) deptIds.add(u.entity.parentDepartmentId);
+    for (const s of u.scopes) deptIds.add(s.domainEntityId);
+    if (u.entity?.primaryDomainId) deptIds.add(u.entity.primaryDomainId);
   }
   const depts = deptIds.size > 0
     ? await prisma.entity.findMany({
@@ -41,11 +41,11 @@ export async function GET() {
       role: u.role,
       entityId: u.entityId,
       entityName: u.entity?.displayName ?? null,
-      departmentName: u.entity?.parentDepartmentId ? deptMap.get(u.entity.parentDepartmentId) ?? null : null,
+      domainName: u.entity?.primaryDomainId ? deptMap.get(u.entity.primaryDomainId) ?? null : null,
       scopes: u.scopes.map((s) => ({
         id: s.id,
-        departmentEntityId: s.departmentEntityId,
-        departmentName: deptMap.get(s.departmentEntityId) ?? "Unknown",
+        domainEntityId: s.domainEntityId,
+        domainName: deptMap.get(s.domainEntityId) ?? "Unknown",
       })),
       lastActive: u.sessions[0]?.createdAt ?? null,
       createdAt: u.createdAt,

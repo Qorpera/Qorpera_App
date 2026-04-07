@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
  * Check if an entity is in scope for a department-scoped situation type.
  *
  * Replaces the old BFS traversal with direct department checks:
- * - base/internal: check parentDepartmentId
+ * - base/internal: check primaryDomainId
  * - digital: check department-member relationship
  * - external: check if any related entity is in scope (1 hop)
  * - foundational: check if entity IS the scope department
@@ -18,10 +18,10 @@ export async function isEntityInScope(
   // Same entity = always in scope
   if (scopeEntityId === targetEntityId) return true;
 
-  // Load target entity's category and parentDepartmentId
+  // Load target entity's category and primaryDomainId
   const target = await prisma.entity.findUnique({
     where: { id: targetEntityId },
-    select: { category: true, parentDepartmentId: true },
+    select: { category: true, primaryDomainId: true },
   });
   if (!target) return false;
 
@@ -30,9 +30,9 @@ export async function isEntityInScope(
     return false; // Already checked equality above
   }
 
-  // Base or Internal: direct parentDepartmentId check
+  // Base or Internal: direct primaryDomainId check
   if (target.category === "base" || target.category === "internal") {
-    return target.parentDepartmentId === scopeEntityId;
+    return target.primaryDomainId === scopeEntityId;
   }
 
   // Digital: check department-member relationship to scope department
@@ -72,11 +72,11 @@ export async function isEntityInScope(
 
     if (relatedIds.length === 0) return false;
 
-    // Check if any related entity has parentDepartmentId = scope
+    // Check if any related entity has primaryDomainId = scope
     const withParent = await prisma.entity.findFirst({
       where: {
         id: { in: relatedIds },
-        parentDepartmentId: scopeEntityId,
+        primaryDomainId: scopeEntityId,
         status: "active",
       },
     });

@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { embedChunks } from "@/lib/rag/embedder";
 import { createVersionSnapshot } from "@/lib/wiki-engine";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 /** Resolve a wiki page by slug — tries operator-scoped first, then system-scoped. */
 async function resolvePageBySlug(
@@ -42,10 +42,10 @@ export async function GET(
 
   // Department scope check for operator pages
   if (page.scope === "operator") {
-    const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
-    if (visibleDepts !== "all") {
-      const pageDepts = (page.departmentIds ?? []) as string[];
-      if (pageDepts.length > 0 && !pageDepts.some(d => (visibleDepts as string[]).includes(d))) {
+    const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
+    if (visibleDomains !== "all") {
+      const pageDepts = (page.domainIds ?? []) as string[];
+      if (pageDepts.length > 0 && !pageDepts.some(d => (visibleDomains as string[]).includes(d))) {
         return NextResponse.json({ error: "Page not found" }, { status: 404 });
       }
     }
@@ -145,10 +145,10 @@ export async function PATCH(
 
   // Department scope check for operator pages
   if (page.scope === "operator") {
-    const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
-    if (visibleDepts !== "all") {
-      const pageDepts = (page.departmentIds ?? []) as string[];
-      if (pageDepts.length > 0 && !pageDepts.some(d => (visibleDepts as string[]).includes(d))) {
+    const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
+    if (visibleDomains !== "all") {
+      const pageDepts = (page.domainIds ?? []) as string[];
+      if (pageDepts.length > 0 && !pageDepts.some(d => (visibleDomains as string[]).includes(d))) {
         return NextResponse.json({ error: "Page not found" }, { status: 404 });
       }
     }

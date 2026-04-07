@@ -129,11 +129,11 @@ async function resolveAiEntityId(plan: {
       if (!situation?.triggerEntityId) return null;
       const entity = await prisma.entity.findUnique({
         where: { id: situation.triggerEntityId },
-        select: { parentDepartmentId: true },
+        select: { primaryDomainId: true },
       });
-      if (!entity?.parentDepartmentId) return null;
+      if (!entity?.primaryDomainId) return null;
       const deptAi = await prisma.entity.findFirst({
-        where: { ownerDepartmentId: entity.parentDepartmentId, operatorId: situation.operatorId, status: "active" },
+        where: { ownerDomainId: entity.primaryDomainId, operatorId: situation.operatorId, status: "active" },
         select: { id: true },
       });
       return deptAi?.id ?? null;

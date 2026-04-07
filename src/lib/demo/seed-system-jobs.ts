@@ -11,6 +11,13 @@ export async function seedDefaultSystemJobs(operatorId: string): Promise<number>
   });
   if (!hqAi) return 0;
 
+  // Find first department for domainEntityId (required field)
+  const firstDomain = await prisma.entity.findFirst({
+    where: { operatorId, category: "foundational", status: "active" },
+    select: { id: true },
+  });
+  if (!firstDomain) return 0;
+
   const defaults: Array<{
     title: string;
     description: string;
@@ -100,6 +107,7 @@ This job should have a higher bar — only propose when something genuinely warr
       data: {
         operatorId,
         aiEntityId: hqAi.id,
+        domainEntityId: firstDomain.id,
         title: job.title,
         description: job.description,
         cronExpression: job.cronExpression,

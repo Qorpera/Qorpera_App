@@ -117,7 +117,7 @@ For each entity, determine if it currently matches the situation pattern.
 Respond with ONLY valid JSON (no markdown): an array with one object per entity in order:
 [{ "matches": true/false, "confidence": 0.0-1.0, "reasoning": "brief explanation" }]`,
       }],
-      maxTokens: 2500,
+      maxTokens: 65_536,
       aiFunction: "reasoning",
       model: getModel("situationAudit"),
       thinking: true,

@@ -191,7 +191,7 @@ async function findReassignmentTarget(
   // 2. Find first admin in user's department
   const userScopes = await prisma.userScope.findMany({
     where: { userId },
-    select: { departmentEntityId: true },
+    select: { domainEntityId: true },
   });
   if (userScopes.length > 0) {
     const deptAdmin = await prisma.user.findFirst({
@@ -199,7 +199,7 @@ async function findReassignmentTarget(
         operatorId,
         role: "admin",
         id: { not: userId },
-        scopes: { some: { departmentEntityId: { in: userScopes.map((s) => s.departmentEntityId) } } },
+        scopes: { some: { domainEntityId: { in: userScopes.map((s) => s.domainEntityId) } } },
       },
       select: { id: true },
     });
@@ -226,7 +226,7 @@ async function deleteOperator(operatorId: string) {
   // Break entity self-references
   await prisma.entity.updateMany({
     where: { operatorId },
-    data: { parentDepartmentId: null, mergedIntoId: null },
+    data: { primaryDomainId: null, mergedIntoId: null },
   });
 
   // Delete in reverse dependency order (mirrors admin operator delete)

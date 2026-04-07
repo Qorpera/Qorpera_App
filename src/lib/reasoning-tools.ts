@@ -7,8 +7,8 @@ import { embedChunks } from "@/lib/rag/embedder";
 import {
   loadActivityTimeline,
   loadCommunicationContext,
-  loadCrossDepartmentSignals,
-  loadDepartmentContext,
+  loadCrossDomainSignals,
+  loadDomainContext,
   findRelevantDepartments,
 } from "@/lib/context-assembly";
 import { getWorkStreamContext } from "@/lib/workstreams";
@@ -131,7 +131,7 @@ export const REASONING_TOOLS: AITool[] = [
           type: "string",
           description: "Optional entity ID to scope search to communications involving this entity",
         },
-        departmentIds: {
+        domainIds: {
           type: "array",
           items: { type: "string" },
           description: "Optional department IDs to scope search",
@@ -155,7 +155,7 @@ export const REASONING_TOOLS: AITool[] = [
           type: "string",
           description: "Search query for semantic matching against document content",
         },
-        departmentIds: {
+        domainIds: {
           type: "array",
           items: { type: "string" },
           description: "Optional department IDs to scope search",
@@ -217,12 +217,12 @@ export const REASONING_TOOLS: AITool[] = [
     parameters: {
       type: "object",
       properties: {
-        departmentId: {
+        domainId: {
           type: "string",
           description: "Department entity ID",
         },
       },
-      required: ["departmentId"],
+      required: ["domainId"],
     },
   },
   {
@@ -302,7 +302,7 @@ export const REASONING_TOOLS: AITool[] = [
         },
         pageType: {
           type: "string",
-          description: "Optional: filter by page type (entity_profile, process_description, financial_pattern, communication_pattern, situation_pattern, department_overview, topic_synthesis)",
+          description: "Optional: filter by page type (entity_profile, process_description, financial_pattern, communication_pattern, situation_pattern, domain_overview, topic_synthesis)",
         },
       },
       required: [],
@@ -454,7 +454,7 @@ export async function executeReasoningTool(
       case "search_documents": return capResult(await executeSearchDocuments(operatorId, args));
       case "get_cross_department_signals": return capResult(await executeGetCrossDepartmentSignals(operatorId, args));
       case "get_prior_situations": return capResult(await executeGetPriorSituations(operatorId, args));
-      case "get_department_context": return capResult(await executeGetDepartmentContext(operatorId, args));
+      case "get_department_context": return capResult(await executeGetDomainContext(operatorId, args));
       case "find_departments_for_entity": return capResult(await executeFindDepartmentsForEntity(operatorId, args));
       case "get_org_structure": return capResult(await executeGetOrgStructure(operatorId, args));
       case "get_available_actions": return capResult(await executeGetAvailableActions(operatorId, args));
@@ -599,7 +599,7 @@ async function executeGetOrgStructure(
     lines.push(`${prefix}${dept.displayName}${desc}`);
 
     const homeMembers = await prisma.entity.findMany({
-      where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
+      where: { operatorId, primaryDomainId: dept.id, category: "base", status: "active" },
       include: {
         propertyValues: { include: { property: { select: { slug: true } } } },
       },
@@ -689,14 +689,14 @@ async function executeSearchCommunications(
 ): Promise<string> {
   const query = String(args.query ?? "");
   const entityId = args.entityId ? String(args.entityId) : undefined;
-  const departmentIds = Array.isArray(args.departmentIds) ? args.departmentIds.map(String) : [];
+  const domainIds = Array.isArray(args.domainIds) ? args.domainIds.map(String) : [];
   const limit = typeof args.limit === "number" ? args.limit : 8;
 
   // Pre-validate that embedding works before calling the heavier loader
   const [embedding] = await embedChunks([query]);
   if (!embedding) return "Could not process search query.";
 
-  const comms = await loadCommunicationContext(operatorId, entityId ?? "", query, departmentIds, limit);
+  const comms = await loadCommunicationContext(operatorId, entityId ?? "", query, domainIds, limit);
 
   if (comms.excerpts.length === 0) return `No communications found matching "${query}".`;
 
@@ -724,7 +724,7 @@ async function executeSearchDocuments(
   args: Record<string, unknown>,
 ): Promise<string> {
   const query = String(args.query ?? "");
-  const departmentIds = Array.isArray(args.departmentIds) ? args.departmentIds.map(String) : undefined;
+  const domainIds = Array.isArray(args.domainIds) ? args.domainIds.map(String) : undefined;
   const limit = typeof args.limit === "number" ? args.limit : 8;
 
   const [embedding] = await embedChunks([query]);
@@ -733,7 +733,7 @@ async function executeSearchDocuments(
   const chunks = await retrieveRelevantChunks(operatorId, embedding, {
     limit,
     sourceTypes: ["document", "drive_file", "spreadsheet", "slide_presentation"],
-    departmentIds,
+    domainIds,
     skipUserFilter: true,
   });
 
@@ -764,7 +764,7 @@ async function executeGetCrossDepartmentSignals(
     select: { category: true },
   });
 
-  const signals = await loadCrossDepartmentSignals(
+  const signals = await loadCrossDomainSignals(
     operatorId, entityId, entity?.category ?? null, [], days,
   );
 
@@ -778,7 +778,7 @@ async function executeGetCrossDepartmentSignals(
     if (signal.meetingCount > 0) parts.push(`${signal.meetingCount} meetings`);
     if (signal.slackMentions > 0) parts.push(`${signal.slackMentions} slack mentions`);
     const lastActive = signal.lastActivityDate ? ` (last: ${signal.lastActivityDate})` : "";
-    lines.push(`- ${signal.departmentName}: ${parts.join(", ")}${lastActive}`);
+    lines.push(`- ${signal.domainName}: ${parts.join(", ")}${lastActive}`);
   }
 
   return lines.join("\n");
@@ -841,12 +841,12 @@ async function executeGetPriorSituations(
   return lines.join("\n");
 }
 
-async function executeGetDepartmentContext(
+async function executeGetDomainContext(
   operatorId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const departmentId = String(args.departmentId ?? "");
-  const dept = await loadDepartmentContext(operatorId, departmentId);
+  const domainId = String(args.domainId ?? "");
+  const dept = await loadDomainContext(operatorId, domainId);
 
   const lines: string[] = [
     `Department: ${dept.name}`,
@@ -866,11 +866,11 @@ async function executeFindDepartmentsForEntity(
 
   const entity = await prisma.entity.findFirst({
     where: { id: entityId, operatorId },
-    select: { category: true, parentDepartmentId: true },
+    select: { category: true, primaryDomainId: true },
   });
 
   const deptIds = await findRelevantDepartments(
-    operatorId, entityId, entity?.category ?? null, entity?.parentDepartmentId ?? null,
+    operatorId, entityId, entity?.category ?? null, entity?.primaryDomainId ?? null,
   );
 
   if (deptIds.length === 0) return `No relevant departments found for entity ${entityId}.`;

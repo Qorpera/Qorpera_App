@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
@@ -9,21 +9,21 @@ export async function GET(req: NextRequest) {
   const { user, operatorId } = su;
 
   const params = req.nextUrl.searchParams;
-  const departmentId = params.get("departmentId");
+  const domainId = params.get("domainId");
   const scope = params.get("scope");
   const insightType = params.get("insightType");
   const status = params.get("status") ?? "active";
 
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
 
   const where: Record<string, unknown> = { operatorId, status };
 
   if (insightType) where.insightType = insightType;
-  if (departmentId) where.departmentId = departmentId;
+  if (domainId) where.domainId = domainId;
   if (scope) where.shareScope = scope;
 
   // Member scoping: own personal + visible department + operator-scoped
-  if (visibleDepts !== "all") {
+  if (visibleDomains !== "all") {
     // Find the member's AI entity
     const aiEntity = await prisma.entity.findFirst({
       where: { operatorId, ownerUserId: user.id, entityType: { slug: "ai-agent" } },
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
       // Own personal insights
       ...(aiEntity ? [{ aiEntityId: aiEntity.id, shareScope: "personal" }] : []),
       // Department-scoped insights for visible departments
-      { departmentId: { in: visibleDepts }, shareScope: "department" },
+      { domainId: { in: visibleDomains }, shareScope: "department" },
       // Operator-scoped insights
       { shareScope: "operator" },
     ];
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
       id: i.id,
       aiEntityId: i.aiEntityId,
       aiEntityName: entityNameMap.get(i.aiEntityId) ?? null,
-      departmentId: i.departmentId,
+      domainId: i.domainId,
       insightType: i.insightType,
       description: i.description,
       evidence,

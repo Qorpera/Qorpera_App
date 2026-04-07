@@ -27,7 +27,7 @@ interface SynthesisPerson {
 }
 
 interface SynthesisOutput {
-  departments: SynthesisDepartment[];
+  domains: SynthesisDepartment[];
   people: SynthesisPerson[];
   processes: Array<{
     name: string;
@@ -113,7 +113,7 @@ interface WikiPageDetail {
 
 const PAGE_TYPE_LABELS: Record<string, string> = {
   entity_profile: "Entity Profile",
-  department_overview: "Department",
+  domain_overview: "Domain",
   financial_pattern: "Financial",
   communication_pattern: "Communication",
   process_description: "Process",
@@ -189,7 +189,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
       if (demoMode) {
         setSynthesis(DEMO_SYNTHESIS_OUTPUT as unknown as SynthesisOutput);
         setQuestions(DEMO_UNCERTAINTY_LOG as unknown as UncertaintyQuestion[]);
-        setWikiStats({ totalPages: 42, verifiedPages: 38, byType: { entity_profile: 12, department_overview: 5, financial_pattern: 8, communication_pattern: 7, process_description: 6, topic_synthesis: 4 }, avgConfidence: 0.78 });
+        setWikiStats({ totalPages: 42, verifiedPages: 38, byType: { entity_profile: 12, domain_overview: 5, financial_pattern: 8, communication_pattern: 7, process_description: 6, topic_synthesis: 4 }, avgConfidence: 0.78 });
         setInitiatives([
           {
             id: "demo-1",
@@ -212,7 +212,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
         const s = data.synthesisOutput;
         setSynthesis({
           ...s,
-          departments: s.departments ?? [],
+          domains: s.domains ?? [],
           people: s.people ?? [],
           processes: s.processes ?? [],
           relationships: s.relationships ?? [],
@@ -256,7 +256,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
     setRenamingDept(null);
   }
 
-  function deleteDepartment(name: string) {
+  function deleteDomain(name: string) {
     setEdits(prev => ({
       ...prev,
       deletedDepartments: [...new Set([...(prev.deletedDepartments || []), name])],
@@ -700,7 +700,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
     );
   }
 
-  const departments = synthesis.departments;
+  const departments = synthesis.domains;
   const people = synthesis.people;
   const unassignedPeople = people.filter(p => !p.department);
   const situationCount = (synthesis.situationRecommendations ?? []).length;
@@ -791,7 +791,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
                     </button>
                   ) : (
                     <button
-                      onClick={() => deleteDepartment(dept.name)}
+                      onClick={() => deleteDomain(dept.name)}
                       className="text-xs text-[var(--fg3)] hover:text-danger transition min-h-[44px] px-2"
                     >
                       {t("remove")}
@@ -1194,7 +1194,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
             <h3 className="text-sm font-medium text-[var(--fg2)]">{t("detectedIntelligence")}</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <StatCard
-                label={t("situationsDetected", { count: situationCount, departments: departments.length })}
+                label={t("situationsDetected", { count: situationCount, domains: departments.length })}
                 value={String(situationCount)}
                 color="purple"
               />

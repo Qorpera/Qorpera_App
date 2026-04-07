@@ -18,7 +18,7 @@ type LookupTables = {
   emailToDeptIds: Map<string, Set<string>>;
   entityIdToDeptIds: Map<string, string[]>;
   slackChannelToDept: Map<string, string>;
-  departments: Array<{ id: string; displayName: string; description: string | null }>;
+  domains: Array<{ id: string; displayName: string; description: string | null }>;
 };
 
 type ClassifiableChunk = {
@@ -26,7 +26,7 @@ type ClassifiableChunk = {
   entityId: string | null;
   sourceType: string;
   metadata: string | null;
-  departmentIds: string | null;
+  domainIds: string | null;
   content?: string;
 };
 
@@ -53,7 +53,7 @@ export async function classifyOperatorChunks(
       entityId: true,
       sourceType: true,
       metadata: true,
-      departmentIds: true,
+      domainIds: true,
       content: true,
     },
   });
@@ -69,7 +69,7 @@ export async function classifyOperatorChunks(
       await prisma.contentChunk.update({
         where: { id: chunk.id },
         data: {
-          departmentIds: JSON.stringify([...deptIds]),
+          domainIds: JSON.stringify([...deptIds]),
           classifiedAt: new Date(),
           classificationMethod: "algorithmic",
         },
@@ -85,9 +85,9 @@ export async function classifyOperatorChunks(
 
   let llmCount = 0;
 
-  if (unresolvedChunks.length > 0 && lookups.departments.length > 0) {
-    const { contextString } = await buildDepartmentContext(operatorId);
-    const allDeptIds = lookups.departments.map((d) => d.id);
+  if (unresolvedChunks.length > 0 && lookups.domains.length > 0) {
+    const { contextString } = await buildDomainContext(operatorId);
+    const allDeptIds = lookups.domains.map((d) => d.id);
 
     const BATCH_SIZE = 10;
     const client = new Anthropic();
@@ -104,7 +104,7 @@ export async function classifyOperatorChunks(
           system: `You are a content classifier for a business intelligence system. Given a list of company departments and content chunks, assign each chunk to one or more departments based on the content's relevance. If a chunk is general/company-wide, respond with "ALL" as the department ID.
 
 Respond with ONLY a JSON array, no other text:
-[{"chunkIndex": 0, "departmentIds": ["dept-id-1"]}, {"chunkIndex": 1, "departmentIds": ["ALL"]}, ...]
+[{"chunkIndex": 0, "domainIds": ["dept-id-1"]}, {"chunkIndex": 1, "domainIds": ["ALL"]}, ...]
 
 Departments:
 ${contextString}`,
@@ -124,7 +124,7 @@ ${contextString}`,
         const text =
           response.content[0]?.type === "text" ? response.content[0].text : "";
         const results = extractJSONArray(text) as
-          | { chunkIndex: number; departmentIds: string[] }[]
+          | { chunkIndex: number; domainIds: string[] }[]
           | null;
 
         if (results) {
@@ -132,7 +132,7 @@ ${contextString}`,
             const chunk = batch[result.chunkIndex];
             if (!chunk) continue;
 
-            let deptIds = result.departmentIds;
+            let deptIds = result.domainIds;
             if (deptIds.includes("ALL")) {
               deptIds = allDeptIds;
             }
@@ -141,7 +141,7 @@ ${contextString}`,
               await prisma.contentChunk.update({
                 where: { id: chunk.id },
                 data: {
-                  departmentIds: JSON.stringify(deptIds),
+                  domainIds: JSON.stringify(deptIds),
                   classifiedAt: new Date(),
                   classificationMethod: "llm",
                 },
@@ -161,12 +161,12 @@ ${contextString}`,
 
   // ── Operator-wide fallback ──────────────────────────────
 
-  const allDeptIds = lookups.departments.map((d) => d.id);
+  const allDeptIds = lookups.domains.map((d) => d.id);
 
   const fallbackResult = await prisma.contentChunk.updateMany({
     where: { operatorId, classifiedAt: null },
     data: {
-      departmentIds: JSON.stringify(allDeptIds),
+      domainIds: JSON.stringify(allDeptIds),
       classifiedAt: new Date(),
       classificationMethod: "operator_wide",
     },
@@ -201,7 +201,7 @@ export async function classifyNewChunks(
       entityId: true,
       sourceType: true,
       metadata: true,
-      departmentIds: true,
+      domainIds: true,
     },
   });
 
@@ -217,7 +217,7 @@ export async function classifyNewChunks(
       await prisma.contentChunk.update({
         where: { id: chunk.id },
         data: {
-          departmentIds: JSON.stringify([...deptIds]),
+          domainIds: JSON.stringify([...deptIds]),
           classifiedAt: new Date(),
           classificationMethod: "algorithmic",
         },
@@ -238,7 +238,7 @@ async function buildLookupTables(operatorId: string): Promise<LookupTables> {
       operatorId,
       entityType: { slug: "team-member" },
       status: "active",
-      parentDepartmentId: { not: null },
+      primaryDomainId: { not: null },
     },
     include: {
       propertyValues: { include: { property: true } },
@@ -249,7 +249,7 @@ async function buildLookupTables(operatorId: string): Promise<LookupTables> {
   const entityIdToDeptIds = new Map<string, string[]>();
 
   for (const member of teamMembers) {
-    const deptIds = await getDepartmentIdsForEntity(member.id, member.parentDepartmentId!);
+    const deptIds = await getDepartmentIdsForEntity(member.id, member.primaryDomainId!);
     entityIdToDeptIds.set(member.id, deptIds);
 
     const emailPv = member.propertyValues.find(
@@ -263,21 +263,21 @@ async function buildLookupTables(operatorId: string): Promise<LookupTables> {
     }
   }
 
-  const departments = await prisma.entity.findMany({
+  const domains = await prisma.entity.findMany({
     where: { operatorId, category: "foundational", status: "active" },
     select: { id: true, displayName: true, description: true },
   });
 
   const slackMappings = await prisma.slackChannelMapping.findMany({
     where: { operatorId },
-    select: { channelId: true, departmentId: true },
+    select: { channelId: true, domainId: true },
   });
   const slackChannelToDept = new Map<string, string>();
   for (const m of slackMappings) {
-    slackChannelToDept.set(m.channelId, m.departmentId);
+    slackChannelToDept.set(m.channelId, m.domainId);
   }
 
-  return { emailToDeptIds, entityIdToDeptIds, slackChannelToDept, departments };
+  return { emailToDeptIds, entityIdToDeptIds, slackChannelToDept, domains };
 }
 
 async function classifyChunkAlgorithmically(
@@ -327,10 +327,10 @@ async function classifyChunkAlgorithmically(
     if (deptId) allDeptIds.add(deptId);
   }
 
-  // Strategy 4: Merge with existing departmentIds
-  if (chunk.departmentIds && chunk.departmentIds !== "null" && chunk.departmentIds !== "[]") {
+  // Strategy 4: Merge with existing domainIds
+  if (chunk.domainIds && chunk.domainIds !== "null" && chunk.domainIds !== "[]") {
     try {
-      const existing = JSON.parse(chunk.departmentIds) as string[];
+      const existing = JSON.parse(chunk.domainIds) as string[];
       for (const d of existing) allDeptIds.add(d);
     } catch {
       // ignore malformed
@@ -340,17 +340,17 @@ async function classifyChunkAlgorithmically(
   return allDeptIds;
 }
 
-export async function buildDepartmentContext(operatorId: string): Promise<{
-  departments: Array<{ id: string; displayName: string; description: string | null }>;
+export async function buildDomainContext(operatorId: string): Promise<{
+  domains: Array<{ id: string; displayName: string; description: string | null }>;
   contextString: string;
 }> {
-  const departments = await prisma.entity.findMany({
+  const domains = await prisma.entity.findMany({
     where: { operatorId, category: "foundational", status: "active" },
     select: { id: true, displayName: true, description: true },
   });
 
-  if (departments.length === 0) {
-    return { departments, contextString: "" };
+  if (domains.length === 0) {
+    return { domains, contextString: "" };
   }
 
   // Single query: all base members across all departments
@@ -359,21 +359,21 @@ export async function buildDepartmentContext(operatorId: string): Promise<{
       operatorId,
       category: "base",
       status: "active",
-      parentDepartmentId: { in: departments.map((d) => d.id) },
+      primaryDomainId: { in: domains.map((d) => d.id) },
     },
-    select: { displayName: true, parentDepartmentId: true },
+    select: { displayName: true, primaryDomainId: true },
   });
 
   // Group by department, take first 5 per department
   const deptMembers = new Map<string, string[]>();
   for (const member of allMembers) {
-    if (!member.parentDepartmentId) continue;
-    const list = deptMembers.get(member.parentDepartmentId) || [];
+    if (!member.primaryDomainId) continue;
+    const list = deptMembers.get(member.primaryDomainId) || [];
     if (list.length < 5) list.push(member.displayName);
-    deptMembers.set(member.parentDepartmentId, list);
+    deptMembers.set(member.primaryDomainId, list);
   }
 
-  const contextString = departments
+  const contextString = domains
     .map((d) => {
       const members = deptMembers.get(d.id) || [];
       const memberStr = members.join(", ");
@@ -381,7 +381,7 @@ export async function buildDepartmentContext(operatorId: string): Promise<{
     })
     .join("\n");
 
-  return { departments, contextString };
+  return { domains, contextString };
 }
 
 // ─── Private Helpers ─────────────────────────────────────
@@ -397,10 +397,10 @@ async function getDepartmentIdsForEntity(
   } else {
     const entity = await prisma.entity.findUnique({
       where: { id: entityId },
-      select: { parentDepartmentId: true },
+      select: { primaryDomainId: true },
     });
-    if (entity?.parentDepartmentId) {
-      deptIds.push(entity.parentDepartmentId);
+    if (entity?.primaryDomainId) {
+      deptIds.push(entity.primaryDomainId);
     }
   }
 

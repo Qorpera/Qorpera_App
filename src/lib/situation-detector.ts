@@ -527,24 +527,24 @@ async function getNaturalModeCandidates(
 
 async function getDepartmentMemberIds(
   operatorId: string,
-  departmentId: string,
+  domainId: string,
 ): Promise<string[]> {
   const homeMembers = await prisma.entity.findMany({
-    where: { operatorId, parentDepartmentId: departmentId, category: "base", status: "active" },
+    where: { operatorId, primaryDomainId: domainId, category: "base", status: "active" },
     select: { id: true },
   });
 
   const crossRels = await prisma.relationship.findMany({
     where: {
       OR: [
-        { fromEntityId: departmentId, relationshipType: { slug: "department-member" } },
-        { toEntityId: departmentId, relationshipType: { slug: "department-member" } },
+        { fromEntityId: domainId, relationshipType: { slug: "department-member" } },
+        { toEntityId: domainId, relationshipType: { slug: "department-member" } },
       ],
     },
     select: { fromEntityId: true, toEntityId: true },
   });
   const crossIds = crossRels
-    .map((r) => (r.fromEntityId === departmentId ? r.toEntityId : r.fromEntityId));
+    .map((r) => (r.fromEntityId === domainId ? r.toEntityId : r.fromEntityId));
 
   return [...new Set([...homeMembers.map((m) => m.id), ...crossIds])];
 }

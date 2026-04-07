@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
+import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
 
 export async function GET(
   req: NextRequest,
@@ -12,7 +12,7 @@ export async function GET(
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
   const { id } = await params;
   const daysSchema = z.object({ days: daysParam });
   const parsed = parseQuery(daysSchema, req.nextUrl.searchParams);
@@ -45,7 +45,7 @@ export async function GET(
   }
 
   // Scope check: deny if situation type is scoped to a department the user can't see
-  if (visibleDepts !== "all" && situationType.scopeEntityId && !visibleDepts.includes(situationType.scopeEntityId)) {
+  if (visibleDomains !== "all" && situationType.scopeEntityId && !visibleDomains.includes(situationType.scopeEntityId)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 

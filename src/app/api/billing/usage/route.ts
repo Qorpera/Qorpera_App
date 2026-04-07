@@ -78,13 +78,13 @@ export async function GET(request: NextRequest) {
   const triggerEntities = triggerEntityIds.length > 0
     ? await prisma.entity.findMany({
         where: { id: { in: triggerEntityIds } },
-        select: { id: true, parentDepartmentId: true },
+        select: { id: true, primaryDomainId: true },
       })
     : [];
-  const entityDeptMap = new Map(triggerEntities.map((e) => [e.id, e.parentDepartmentId]));
+  const entityDeptMap = new Map(triggerEntities.map((e) => [e.id, e.primaryDomainId]));
 
   // Resolve department names
-  const deptIds = [...new Set(triggerEntities.map((e) => e.parentDepartmentId).filter(Boolean))] as string[];
+  const deptIds = [...new Set(triggerEntities.map((e) => e.primaryDomainId).filter(Boolean))] as string[];
   const departments = deptIds.length > 0
     ? await prisma.entity.findMany({
         where: { id: { in: deptIds } },
@@ -311,7 +311,7 @@ export async function GET(request: NextRequest) {
       totalBilledCents: currentTotalCents,
       projectedMonthEndCents,
     },
-    departments: Array.from(departmentUsage.values()).sort((a, b) => b.totalCents - a.totalCents),
+    domains: Array.from(departmentUsage.values()).sort((a, b) => b.totalCents - a.totalCents),
     historicalMonths,
     // New fields
     ...(dailyBreakdown && { dailyBreakdown }),

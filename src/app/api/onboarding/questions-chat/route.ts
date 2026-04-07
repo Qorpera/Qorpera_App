@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
   const allQuestions = Array.isArray(analysis.uncertaintyLog) ? analysis.uncertaintyLog as any[] : [];
   const adminQuestions = allQuestions.filter((q: any) => (q.scope ?? "admin") === "admin");
-  const departmentQuestions = allQuestions.filter((q: any) => q.scope === "department");
+  const departmentQuestions = allQuestions.filter((q: any) => q.scope === "domain" || q.scope === "department");
 
   // Build the system prompt
   const systemPrompt = buildQuestionsSystemPrompt(

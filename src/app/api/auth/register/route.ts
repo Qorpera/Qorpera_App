@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Department type
-    const deptDef = HARDCODED_TYPE_DEFS["department"];
+    const deptDef = HARDCODED_TYPE_DEFS["domain"];
     const deptType = await tx.entityType.create({
       data: {
         operatorId: operator.id,

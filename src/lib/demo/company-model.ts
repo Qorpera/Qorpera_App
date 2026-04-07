@@ -5,7 +5,7 @@
 // ── SynthesisOutput ─────────────────────────────────────────────────────
 
 export interface SynthesisOutput {
-  departments: Array<{
+  domains: Array<{
     name: string;
     headCount: number;
     keyPeople: string[];
@@ -57,7 +57,7 @@ export interface UncertaintyQuestion {
 // ── Pre-built synthesis output ──────────────────────────────────────────
 
 export const DEMO_SYNTHESIS_OUTPUT: SynthesisOutput = {
-  departments: [
+  domains: [
     {
       name: "Salg",
       headCount: 5,

@@ -6,7 +6,7 @@
  *
  * Strategies (in priority order):
  * 1. Email match: orphan shares email with an already-assigned entity
- * 2. Relationship match: orphan has a department-member relationship but no parentDepartmentId
+ * 2. Relationship match: orphan has a department-member relationship but no primaryDomainId
  * 3. Domain pattern: orphan's email domain maps to a single department (small companies only)
  */
 
@@ -21,7 +21,7 @@ export async function reconcileOrphanedEntities(operatorId: string): Promise<{
       operatorId,
       category: "base",
       status: "active",
-      parentDepartmentId: null,
+      primaryDomainId: null,
     },
     include: {
       propertyValues: {
@@ -69,19 +69,19 @@ export async function reconcileOrphanedEntities(operatorId: string): Promise<{
             operatorId,
             category: "base",
             status: "active",
-            parentDepartmentId: { not: null },
+            primaryDomainId: { not: null },
             id: { not: orphan.id },
           },
         },
         include: {
-          entity: { select: { id: true, parentDepartmentId: true, displayName: true } },
+          entity: { select: { id: true, primaryDomainId: true, displayName: true } },
         },
       });
 
-      if (duplicate?.entity.parentDepartmentId) {
+      if (duplicate?.entity.primaryDomainId) {
         await prisma.entity.update({
           where: { id: orphan.id },
-          data: { parentDepartmentId: duplicate.entity.parentDepartmentId },
+          data: { primaryDomainId: duplicate.entity.primaryDomainId },
         });
         reconciled++;
         console.log(`[entity-reconciliation] Assigned "${orphan.displayName}" to department via email match with "${duplicate.entity.displayName}"`);
@@ -109,7 +109,7 @@ export async function reconcileOrphanedEntities(operatorId: string): Promise<{
       if (deptIds.has(deptId)) {
         await prisma.entity.update({
           where: { id: orphan.id },
-          data: { parentDepartmentId: deptId },
+          data: { primaryDomainId: deptId },
         });
         reconciled++;
         console.log(`[entity-reconciliation] Assigned "${orphan.displayName}" to department via existing relationship`);
@@ -121,18 +121,18 @@ export async function reconcileOrphanedEntities(operatorId: string): Promise<{
     if (emailPv?.value && departments.length === 1) {
       const emailDomain = emailPv.value.toLowerCase().trim().split("@")[1];
       if (emailDomain) {
-        const domainEntities = await prisma.$queryRaw<Array<{ parentDepartmentId: string; count: bigint }>>`
-          SELECT e."parentDepartmentId", COUNT(*) as count
+        const domainEntities = await prisma.$queryRaw<Array<{ primaryDomainId: string; count: bigint }>>`
+          SELECT e."primaryDomainId", COUNT(*) as count
           FROM "Entity" e
           JOIN "PropertyValue" pv ON pv."entityId" = e.id
           JOIN "EntityProperty" ep ON ep.id = pv."propertyId"
           WHERE e."operatorId" = ${operatorId}
           AND e."category" = 'base'
           AND e."status" = 'active'
-          AND e."parentDepartmentId" IS NOT NULL
+          AND e."primaryDomainId" IS NOT NULL
           AND (ep."identityRole" = 'email' OR ep."slug" = 'email')
           AND pv."value" LIKE ${"%" + "@" + emailDomain}
-          GROUP BY e."parentDepartmentId"
+          GROUP BY e."primaryDomainId"
           ORDER BY count DESC
           LIMIT 1
         `;
@@ -140,7 +140,7 @@ export async function reconcileOrphanedEntities(operatorId: string): Promise<{
         if (domainEntities.length > 0) {
           await prisma.entity.update({
             where: { id: orphan.id },
-            data: { parentDepartmentId: domainEntities[0].parentDepartmentId },
+            data: { primaryDomainId: domainEntities[0].primaryDomainId },
           });
           reconciled++;
           console.log(`[entity-reconciliation] Assigned "${orphan.displayName}" to department via email domain pattern`);

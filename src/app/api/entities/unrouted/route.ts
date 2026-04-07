@@ -35,7 +35,7 @@ export async function GET() {
       operatorId,
       category: "base",
       status: "active",
-      parentDepartmentId: null,
+      primaryDomainId: null,
       ...(routedEntityIds.length > 0 ? { id: { notIn: routedEntityIds } } : {}),
     },
     include: {

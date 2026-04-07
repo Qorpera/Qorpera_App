@@ -106,7 +106,7 @@ export async function GET() {
   if (analysis.status === "confirming" || analysis.status === "complete") {
     const raw = analysis.synthesisOutput as Record<string, unknown> | null;
     if (raw) {
-      const departments = (raw.departments as Array<Record<string, unknown>> ?? []).map((d) => ({
+      const domains = (raw.departments as Array<Record<string, unknown>> ?? []).map((d) => ({
         name: d.name as string,
         headCount: ((raw.people as Array<Record<string, unknown>> ?? []).filter((p) => p.primaryDepartment === d.name)).length,
         keyPeople: ((raw.people as Array<Record<string, unknown>> ?? []).filter((p) => p.primaryDepartment === d.name && (p.roleLevel === "c_level" || p.roleLevel === "manager" || p.roleLevel === "lead" || p.roleLevel === "director"))).map((p) => p.displayName as string),
@@ -138,7 +138,7 @@ export async function GET() {
         description: proc.description as string,
         tools: [],
       }));
-      response.synthesisOutput = { departments, people, processes, relationships, knowledgeInventory, situationRecommendations } as any;
+      response.synthesisOutput = { domains, people, processes, relationships, knowledgeInventory, situationRecommendations } as any;
     }
     response.uncertaintyLog = (raw?.uncertaintyLog ?? analysis.uncertaintyLog) as any;
   }

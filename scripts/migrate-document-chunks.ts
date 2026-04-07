@@ -28,7 +28,7 @@ interface RawDocInfo {
   docId: string;
   fileName: string;
   documentType: string;
-  departmentId: string | null;
+  domainId: string | null;
 }
 
 async function main() {
@@ -59,25 +59,25 @@ async function main() {
   // Build a map of entityId → InternalDocument info
   const entityIds = [...new Set(chunks.map((c) => c.entityId))];
   const docs = await prisma.$queryRaw<RawDocInfo[]>`
-    SELECT "entityId", id as "docId", "fileName", "documentType", "departmentId"
+    SELECT "entityId", id as "docId", "fileName", "documentType", "domainId"
     FROM "InternalDocument"
     WHERE "entityId" = ANY(${entityIds})
   `;
   const docMap = new Map(docs.map((d) => [d.entityId, d]));
 
-  // Also get parentDepartmentId from Entity as fallback
-  const entities = await prisma.$queryRaw<Array<{ id: string; parentDepartmentId: string | null }>>`
-    SELECT id, "parentDepartmentId" FROM "Entity" WHERE id = ANY(${entityIds})
+  // Also get primaryDomainId from Entity as fallback
+  const entities = await prisma.$queryRaw<Array<{ id: string; primaryDomainId: string | null }>>`
+    SELECT id, "primaryDomainId" FROM "Entity" WHERE id = ANY(${entityIds})
   `;
-  const entityDeptMap = new Map(entities.map((e) => [e.id, e.parentDepartmentId]));
+  const entityDeptMap = new Map(entities.map((e) => [e.id, e.primaryDomainId]));
 
   let migrated = 0;
 
   for (const chunk of chunks) {
     const doc = docMap.get(chunk.entityId);
     const sourceId = doc?.docId ?? chunk.entityId;
-    const deptId = doc?.departmentId ?? entityDeptMap.get(chunk.entityId) ?? null;
-    const departmentIds = deptId ? JSON.stringify([deptId]) : null;
+    const deptId = doc?.domainId ?? entityDeptMap.get(chunk.entityId) ?? null;
+    const domainIds = deptId ? JSON.stringify([deptId]) : null;
     const metadata = doc
       ? JSON.stringify({ fileName: doc.fileName, documentType: doc.documentType })
       : null;
@@ -89,7 +89,7 @@ async function main() {
         sourceType: "uploaded_doc",
         sourceId,
         entityId: chunk.entityId,
-        departmentIds,
+        domainIds,
         chunkIndex: chunk.chunkIndex,
         content: chunk.content,
         tokenCount: chunk.tokenCount,

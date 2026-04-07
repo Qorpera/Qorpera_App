@@ -45,7 +45,7 @@ async function migrateUserAiEntities() {
     // Resolve department via UserScope (first scope entry)
     const scope = await prisma.userScope.findFirst({
       where: { userId: user.id },
-      select: { departmentEntityId: true },
+      select: { domainEntityId: true },
     });
 
     if (!scope) {
@@ -79,7 +79,7 @@ async function migrateUserAiEntities() {
         entityTypeId: aiAgentType.id,
         displayName: `${user.name}'s Assistant`,
         category: "base",
-        parentDepartmentId: scope.departmentEntityId,
+        primaryDomainId: scope.domainEntityId,
         ownerUserId: user.id,
       },
     });

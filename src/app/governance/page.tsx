@@ -711,7 +711,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
   useEffect(() => { loadInsights(); }, [loadInsights]);
 
   const handlePromote = async (id: string, currentScope: string) => {
-    const targetScope = currentScope === "personal" ? "department" : "operator";
+    const targetScope = currentScope === "personal" ? "domain" : "operator";
     try {
       await fetch(`/api/insights/${id}`, {
         method: "PATCH",

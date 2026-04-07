@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
  */
 
 describe("saveDeptField body construction", () => {
-  // Replicates the fixed logic from saveDeptField in map/[departmentId]/page.tsx
+  // Replicates the fixed logic from saveDeptField in map/[domainId]/page.tsx
   function buildDeptBody(field: "name" | "description", value: string) {
     return { [field === "name" ? "displayName" : field]: value };
   }
@@ -24,7 +24,7 @@ describe("saveDeptField body construction", () => {
 });
 
 describe("saveEdit body construction", () => {
-  // Replicates the fixed logic from saveEdit in map/[departmentId]/page.tsx
+  // Replicates the fixed logic from saveEdit in map/[domainId]/page.tsx
   function buildEditBody(editName: string, editRole: string, editEmail: string) {
     return { displayName: editName.trim(), role: editRole.trim(), email: editEmail.trim() };
   }

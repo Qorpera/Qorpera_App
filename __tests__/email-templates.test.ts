@@ -78,7 +78,7 @@ const templates = [
     name: "InitiativeProposedEmail",
     element: React.createElement(InitiativeProposedEmail, {
       initiativeTitle: "Improve response time",
-      departmentName: "Customer Support",
+      domainName: "Customer Support",
       rationale: "Average response time has increased by 40%.",
       viewUrl: "https://app.qorpera.com/initiatives/1",
     }),

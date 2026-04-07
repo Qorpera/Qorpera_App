@@ -55,8 +55,8 @@ function makeInsight(overrides: Record<string, unknown> = {}) {
 function makeAiEntity(overrides: Record<string, unknown> = {}) {
   return {
     ownerUserId: null,
-    ownerDepartmentId: "dept-1",
-    parentDepartmentId: "dept-1",
+    ownerDomainId: "dept-1",
+    primaryDomainId: "dept-1",
     entityType: { slug: "department-ai" },
     ...overrides,
   };

@@ -57,7 +57,7 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   // Break entity self-references to avoid circular FK issues
   await prisma.entity.updateMany({
     where: { operatorId },
-    data: { parentDepartmentId: null, mergedIntoId: null, ownerDepartmentId: null },
+    data: { primaryDomainId: null, mergedIntoId: null, ownerDomainId: null },
   });
 
   // Phase 3 models
@@ -71,7 +71,7 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   await prisma.initiative.deleteMany({ where: { operatorId } });
   await prisma.planAutonomy.deleteMany({ where: { operatorId } });
   await prisma.operationalInsight.deleteMany({ where: { operatorId } });
-  await prisma.departmentHealth.deleteMany({ where: { operatorId } });
+  await prisma.domainHealth.deleteMany({ where: { operatorId } });
   await prisma.priorityOverride.deleteMany({ where: { operatorId } });
   await prisma.onboardingAgentRun.deleteMany({ where: { analysis: { operatorId } } });
   await prisma.onboardingAnalysis.deleteMany({ where: { operatorId } });
@@ -214,7 +214,7 @@ export async function runDemoSeed(operatorId: string) {
         entityTypeId: types["team-member"].typeId,
         displayName: m.name,
         category: "base",
-        parentDepartmentId: deptIds[m.department],
+        primaryDomainId: deptIds[m.department],
       },
     });
     memberIds[m.name] = entity.id;
@@ -245,7 +245,7 @@ export async function runDemoSeed(operatorId: string) {
         relationshipTypeId: deptMemberRelId,
         fromEntityId: memberIds[cd.member],
         toEntityId: deptIds[cd.department],
-        metadata: JSON.stringify({ role: cd.role, crossDepartment: true }),
+        metadata: JSON.stringify({ role: cd.role, crossDomain: true }),
       },
     });
   }
@@ -318,7 +318,7 @@ export async function runDemoSeed(operatorId: string) {
 
   // UserScope for member: grant access to Salg department
   await prisma.userScope.create({
-    data: { userId: memberUser.id, departmentEntityId: deptIds["Salg"] },
+    data: { userId: memberUser.id, domainEntityId: deptIds["Salg"] },
   });
 
   // Orientation session (completed — onboarding done)
@@ -352,7 +352,7 @@ export async function runDemoSeed(operatorId: string) {
       entityTypeId: types["ai-agent"].typeId,
       displayName: `${ADMIN_USER.name}'s Assistant`,
       category: "base",
-      parentDepartmentId: deptIds["Økonomi & Admin"],
+      primaryDomainId: deptIds["Økonomi & Admin"],
       ownerUserId: adminUser.id,
     },
   });
@@ -364,7 +364,7 @@ export async function runDemoSeed(operatorId: string) {
       entityTypeId: types["ai-agent"].typeId,
       displayName: `${MEMBER_USER.name}'s Assistant`,
       category: "base",
-      parentDepartmentId: deptIds["Salg"],
+      primaryDomainId: deptIds["Salg"],
       ownerUserId: memberUser.id,
     },
   });
@@ -386,7 +386,7 @@ export async function runDemoSeed(operatorId: string) {
         entityTypeId: types["ai-agent"].typeId,
         displayName: `${personName}'s Assistant`,
         category: "base",
-        parentDepartmentId: deptIds[member.department],
+        primaryDomainId: deptIds[member.department],
       },
     });
     personalAiIds[personName] = ai.id;
@@ -485,7 +485,7 @@ export async function runDemoSeed(operatorId: string) {
           connectorId: connectorIds["slack"],
           channelId: m.channelId,
           channelName: m.channelName,
-          departmentId: deptIds[m.department],
+          domainId: deptIds[m.department],
         },
       });
     }
@@ -792,7 +792,7 @@ export async function runDemoSeed(operatorId: string) {
         userId: c.personal ? adminUser.id : null,
         sourceType: c.sourceType,
         sourceId: `demo-${c.sourceType}-${i}`,
-        departmentIds: deptId ? JSON.stringify([deptId]) : null,
+        domainIds: deptId ? JSON.stringify([deptId]) : null,
         chunkIndex: 0,
         content: c.content,
         tokenCount: Math.round(c.content.length / 4),
@@ -837,7 +837,7 @@ export async function runDemoSeed(operatorId: string) {
         signalType: s.signalType,
         actorEntityId,
         targetEntityIds: targetEntityIds.length > 0 ? JSON.stringify(targetEntityIds) : null,
-        departmentIds: deptId ? JSON.stringify([deptId]) : null,
+        domainIds: deptId ? JSON.stringify([deptId]) : null,
         metadata: JSON.stringify(s.metadata),
         occurredAt: daysAgo(s.daysAgo),
       },
@@ -1106,7 +1106,7 @@ export async function runDemoSeed(operatorId: string) {
       data: {
         operatorId,
         aiEntityId,
-        departmentId: ins.department ? deptIds[ins.department] ?? null : null,
+        domainId: ins.department ? deptIds[ins.department] ?? null : null,
         insightType: ins.insightType,
         description: ins.description,
         evidence: JSON.stringify(ins.evidence),
@@ -1272,7 +1272,7 @@ export async function runDemoSeed(operatorId: string) {
       member: { email: MEMBER_USER.email, password: MEMBER_USER.password },
     },
     stats: {
-      departments: DEPARTMENTS.length,
+      domains: DEPARTMENTS.length,
       teamMembers: TEAM_MEMBERS.length,
       users: 2,
       aiEntities: {

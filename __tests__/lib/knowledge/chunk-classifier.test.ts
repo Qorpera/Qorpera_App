@@ -72,26 +72,26 @@ beforeEach(() => {
 
 describe("classifyOperatorChunks", () => {
   it("classifies chunks via email metadata (algorithmic)", async () => {
-    // Team members with emails mapped to departments
+    // Team members with emails mapped to domains
     mockPrisma.entity.findMany
       // First call: team members
       .mockResolvedValueOnce([
         {
           id: "person-1",
-          parentDepartmentId: "dept-sales",
+          primaryDomainId: "dept-sales",
           propertyValues: [
             { value: "lars@boltly.dk", property: { identityRole: "email", slug: "email" } },
           ],
         },
         {
           id: "person-2",
-          parentDepartmentId: "dept-eng",
+          primaryDomainId: "dept-eng",
           propertyValues: [
             { value: "mikkel@boltly.dk", property: { identityRole: "email", slug: "email" } },
           ],
         },
       ])
-      // Second call: departments
+      // Second call: domains
       .mockResolvedValueOnce([
         { id: "dept-sales", displayName: "Sales", description: "Sales team" },
         { id: "dept-eng", displayName: "Engineering", description: "Eng team" },
@@ -110,7 +110,7 @@ describe("classifyOperatorChunks", () => {
         entityId: null,
         sourceType: "email",
         metadata: '{"from":"lars@boltly.dk","to":"mikkel@boltly.dk"}',
-        departmentIds: null,
+        domainIds: null,
         content: "Quarterly review notes",
       },
     ]);
@@ -131,20 +131,20 @@ describe("classifyOperatorChunks", () => {
       }),
     });
 
-    // Verify both departments were captured
+    // Verify both domains were captured
     const updateCall = mockPrisma.contentChunk.update.mock.calls[0][0];
-    const deptIds = JSON.parse(updateCall.data.departmentIds);
+    const deptIds = JSON.parse(updateCall.data.domainIds);
     expect(deptIds).toContain("dept-sales");
     expect(deptIds).toContain("dept-eng");
   });
 
   it("classifies chunks via entity chain resolution", async () => {
-    // Team member with parentDepartmentId
+    // Team member with primaryDomainId
     mockPrisma.entity.findMany
       .mockResolvedValueOnce([
         {
           id: "person-1",
-          parentDepartmentId: "dept-ops",
+          primaryDomainId: "dept-ops",
           propertyValues: [
             { value: "anna@boltly.dk", property: { identityRole: "email", slug: "email" } },
           ],
@@ -164,7 +164,7 @@ describe("classifyOperatorChunks", () => {
         entityId: "person-1",
         sourceType: "drive_doc",
         metadata: null,
-        departmentIds: null,
+        domainIds: null,
         content: "Operations manual",
       },
     ]);
@@ -176,23 +176,23 @@ describe("classifyOperatorChunks", () => {
 
     expect(result.algorithmicCount).toBe(1);
     const updateCall = mockPrisma.contentChunk.update.mock.calls[0][0];
-    const deptIds = JSON.parse(updateCall.data.departmentIds);
+    const deptIds = JSON.parse(updateCall.data.domainIds);
     expect(deptIds).toContain("dept-ops");
   });
 
-  it("assigns multiple departments when emails span departments", async () => {
+  it("assigns multiple domains when emails span domains", async () => {
     mockPrisma.entity.findMany
       .mockResolvedValueOnce([
         {
           id: "p1",
-          parentDepartmentId: "dept-a",
+          primaryDomainId: "dept-a",
           propertyValues: [
             { value: "alice@co.dk", property: { identityRole: "email", slug: "email" } },
           ],
         },
         {
           id: "p2",
-          parentDepartmentId: "dept-b",
+          primaryDomainId: "dept-b",
           propertyValues: [
             { value: "bob@co.dk", property: { identityRole: "email", slug: "email" } },
           ],
@@ -212,7 +212,7 @@ describe("classifyOperatorChunks", () => {
         entityId: null,
         sourceType: "email",
         metadata: '{"from":"alice@co.dk","cc":"bob@co.dk"}',
-        departmentIds: null,
+        domainIds: null,
         content: "Cross-team sync",
       },
     ]);
@@ -224,7 +224,7 @@ describe("classifyOperatorChunks", () => {
 
     expect(result.algorithmicCount).toBe(1);
     const updateCall = mockPrisma.contentChunk.update.mock.calls[0][0];
-    const deptIds = JSON.parse(updateCall.data.departmentIds);
+    const deptIds = JSON.parse(updateCall.data.domainIds);
     expect(deptIds).toHaveLength(2);
     expect(deptIds).toContain("dept-a");
     expect(deptIds).toContain("dept-b");
@@ -249,12 +249,12 @@ describe("classifyOperatorChunks", () => {
     expect(result.totalChunks).toBe(0);
   });
 
-  it("merges with existing departmentIds", async () => {
+  it("merges with existing domainIds", async () => {
     mockPrisma.entity.findMany
       .mockResolvedValueOnce([
         {
           id: "p1",
-          parentDepartmentId: "dept-b",
+          primaryDomainId: "dept-b",
           propertyValues: [
             { value: "carl@co.dk", property: { identityRole: "email", slug: "email" } },
           ],
@@ -275,7 +275,7 @@ describe("classifyOperatorChunks", () => {
         entityId: null,
         sourceType: "email",
         metadata: '{"from":"carl@co.dk"}',
-        departmentIds: '["dept-a"]',
+        domainIds: '["dept-a"]',
         content: "Hello",
       },
     ]);
@@ -287,7 +287,7 @@ describe("classifyOperatorChunks", () => {
 
     expect(result.algorithmicCount).toBe(1);
     const updateCall = mockPrisma.contentChunk.update.mock.calls[0][0];
-    const deptIds = JSON.parse(updateCall.data.departmentIds);
+    const deptIds = JSON.parse(updateCall.data.domainIds);
     expect(deptIds).toContain("dept-a");
     expect(deptIds).toContain("dept-b");
   });
@@ -309,7 +309,7 @@ describe("classifyOperatorChunks", () => {
         entityId: null,
         sourceType: "uploaded_doc",
         metadata: null,
-        departmentIds: null,
+        domainIds: null,
         content: "Some uploaded content",
       },
     ]);
@@ -332,14 +332,14 @@ describe("classifyOperatorChunks", () => {
 
     // Verify all department IDs are in the fallback
     const updateManyCall = mockPrisma.contentChunk.updateMany.mock.calls[0][0];
-    const deptIds = JSON.parse(updateManyCall.data.departmentIds);
+    const deptIds = JSON.parse(updateManyCall.data.domainIds);
     expect(deptIds).toContain("dept-x");
     expect(deptIds).toContain("dept-y");
   });
 });
 
 describe("classifyNewChunks", () => {
-  it("merges with existing departmentIds from sync pipeline", async () => {
+  it("merges with existing domainIds from sync pipeline", async () => {
     // Chunk already has dept-a from resolveDepartmentsFromEmails
     mockPrisma.contentChunk.findMany.mockResolvedValue([
       {
@@ -347,14 +347,14 @@ describe("classifyNewChunks", () => {
         entityId: null,
         sourceType: "email",
         metadata: '{"from":"carl@co.dk"}',
-        departmentIds: '["dept-a"]',
+        domainIds: '["dept-a"]',
       },
     ]);
 
     mockPrisma.entity.findMany.mockResolvedValueOnce([
       {
         id: "p1",
-        parentDepartmentId: "dept-b",
+        primaryDomainId: "dept-b",
         propertyValues: [
           { value: "carl@co.dk", property: { identityRole: "email", slug: "email" } },
         ],
@@ -368,7 +368,7 @@ describe("classifyNewChunks", () => {
 
     expect(count).toBe(1);
     const updateCall = mockPrisma.contentChunk.update.mock.calls[0][0];
-    const deptIds = JSON.parse(updateCall.data.departmentIds);
+    const deptIds = JSON.parse(updateCall.data.domainIds);
     expect(deptIds).toContain("dept-a");
     expect(deptIds).toContain("dept-b");
   });
@@ -399,14 +399,14 @@ describe("classifyNewChunks", () => {
         entityId: "person-1",
         sourceType: "email",
         metadata: null,
-        departmentIds: null,
+        domainIds: null,
       },
     ]);
 
     mockPrisma.entity.findMany.mockResolvedValueOnce([
       {
         id: "person-1",
-        parentDepartmentId: "dept-x",
+        primaryDomainId: "dept-x",
         propertyValues: [],
       },
     ]);

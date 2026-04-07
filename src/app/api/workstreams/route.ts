@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 import { createWorkStream } from "@/lib/workstreams";
 
 export async function GET(req: NextRequest) {
@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
   if (ownerAiEntityId) where.ownerAiEntityId = ownerAiEntityId;
 
   // Members: only WorkStreams containing their assigned situations or linked to their department goals
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
-  if (visibleDepts !== "all") {
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
+  if (visibleDomains !== "all") {
     // Get situations assigned to this user
     const assignedSituations = await prisma.situation.findMany({
       where: { operatorId, assignedUserId: user.id },

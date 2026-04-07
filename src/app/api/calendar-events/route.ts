@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 interface CalendarEvent {
   id: string;
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
 
   const weekOf = request.nextUrl.searchParams.get("weekOf");
   if (!weekOf) {
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
         actorEntityId: true,
         metadata: true,
         occurredAt: true,
-        departmentIds: true,
+        domainIds: true,
       },
     }),
     prisma.contentChunk.findMany({
@@ -60,20 +60,20 @@ export async function GET(request: NextRequest) {
         content: true,
         metadata: true,
         createdAt: true,
-        departmentIds: true,
+        domainIds: true,
       },
     }),
   ]);
 
   // Scope filter: members only see events in their visible departments
-  const isScoped = visibleDepts !== "all";
-  const visibleSet = isScoped ? new Set(visibleDepts) : null;
+  const isScoped = visibleDomains !== "all";
+  const visibleSet = isScoped ? new Set(visibleDomains) : null;
 
-  function passesScope(departmentIds: string | null): boolean {
+  function passesScope(domainIds: string | null): boolean {
     if (!isScoped || !visibleSet) return true;
-    if (!departmentIds) return true; // unrouted events visible to all
+    if (!domainIds) return true; // unrouted events visible to all
     try {
-      const ids: string[] = JSON.parse(departmentIds);
+      const ids: string[] = JSON.parse(domainIds);
       return ids.some((id) => visibleSet.has(id));
     } catch {
       return true;
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
 
   // 1. ActivitySignals (preferred source)
   for (const sig of activitySignals) {
-    if (!passesScope(sig.departmentIds)) continue;
+    if (!passesScope(sig.domainIds)) continue;
     const meta = parseJson(sig.metadata);
     const eventId = (meta.eventId as string) || sig.id;
     const duration = (meta.durationMinutes as number) || null;
@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
 
   // 2. ContentChunks (fill gaps)
   for (const chunk of contentChunks) {
-    if (!passesScope(chunk.departmentIds)) continue;
+    if (!passesScope(chunk.domainIds)) continue;
     const meta = parseJson(chunk.metadata);
     const eventId = (meta.eventId as string) || (meta.sourceId as string) || chunk.id;
 

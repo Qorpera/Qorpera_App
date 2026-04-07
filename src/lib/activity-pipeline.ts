@@ -31,12 +31,12 @@ async function resolveEmailToEntity(
 async function getDepartmentIdsForEntity(entityId: string): Promise<string[]> {
   const entity = await prisma.entity.findUnique({
     where: { id: entityId },
-    select: { parentDepartmentId: true },
+    select: { primaryDomainId: true },
   });
 
   const deptIds: string[] = [];
-  if (entity?.parentDepartmentId) {
-    deptIds.push(entity.parentDepartmentId);
+  if (entity?.primaryDomainId) {
+    deptIds.push(entity.primaryDomainId);
   }
 
   // Also check department-member relationships
@@ -77,15 +77,15 @@ export async function ingestActivity(
   }
 
   // 3. Derive department routing
-  const departmentIds: string[] = [];
+  const domainIds: string[] = [];
   if (actorEntityId) {
     const depts = await getDepartmentIdsForEntity(actorEntityId);
-    departmentIds.push(...depts);
+    domainIds.push(...depts);
   }
   for (const targetId of resolvedTargetIds) {
     const depts = await getDepartmentIdsForEntity(targetId);
     for (const d of depts) {
-      if (!departmentIds.includes(d)) departmentIds.push(d);
+      if (!domainIds.includes(d)) domainIds.push(d);
     }
   }
 
@@ -109,7 +109,7 @@ export async function ingestActivity(
       signalType,
       actorEntityId,
       targetEntityIds: resolvedTargetIds.length > 0 ? JSON.stringify(resolvedTargetIds) : null,
-      departmentIds: departmentIds.length > 0 ? JSON.stringify(departmentIds) : null,
+      domainIds: domainIds.length > 0 ? JSON.stringify(domainIds) : null,
       metadata: JSON.stringify(metadata || {}),
       occurredAt,
     },
@@ -128,7 +128,7 @@ export async function resolveDepartmentsFromEmails(
 ): Promise<string[]> {
   if (!emails?.length) return [];
 
-  const departmentIds: string[] = [];
+  const domainIds: string[] = [];
 
   for (const email of emails) {
     const entityId = await resolveEmailToEntity(operatorId, email);
@@ -136,9 +136,9 @@ export async function resolveDepartmentsFromEmails(
 
     const depts = await getDepartmentIdsForEntity(entityId);
     for (const d of depts) {
-      if (!departmentIds.includes(d)) departmentIds.push(d);
+      if (!domainIds.includes(d)) domainIds.push(d);
     }
   }
 
-  return departmentIds;
+  return domainIds;
 }

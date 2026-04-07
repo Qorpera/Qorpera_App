@@ -19,9 +19,9 @@ export async function GET(req: NextRequest) {
   if (scopeRole !== "admin" && scopeRole !== "superadmin") {
     const userScopes = await prisma.userScope.findMany({
       where: { userId: scopeUserId },
-      select: { departmentEntityId: true },
+      select: { domainEntityId: true },
     });
-    scopes = userScopes.map((s) => s.departmentEntityId);
+    scopes = userScopes.map((s) => s.domainEntityId);
   }
 
   // When acting as another operator, fetch that operator's details

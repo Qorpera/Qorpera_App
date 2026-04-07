@@ -4,8 +4,8 @@ vi.mock("@/lib/auth", () => ({
   getSessionUser: vi.fn(),
 }));
 
-vi.mock("@/lib/user-scope", () => ({
-  getVisibleDepartmentIds: vi.fn().mockResolvedValue("all"),
+vi.mock("@/lib/domain-scope", () => ({
+  getVisibleDomainIds: vi.fn().mockResolvedValue("all"),
   situationScopeFilter: vi.fn().mockReturnValue({}),
 }));
 

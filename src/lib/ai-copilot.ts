@@ -4,12 +4,12 @@ import { getEntityContext, searchEntities } from "@/lib/entity-resolution";
 import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
 import { listEntityTypes } from "@/lib/entity-model-store";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
-import { buildOrientationSystemPrompt, buildDepartmentDataContext } from "@/lib/orientation-prompts";
+import { buildOrientationSystemPrompt, buildDomainDataContext } from "@/lib/orientation-prompts";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
-import { canAccessEntity } from "@/lib/user-scope";
+import { canAccessEntity } from "@/lib/domain-scope";
 import { getWorkStreamContext, canMemberAccessWorkStream } from "@/lib/workstreams";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ const COPILOT_TOOLS: AITool[] = [
     parameters: {
       type: "object",
       properties: {
-        departmentName: {
+        domainName: {
           type: "string",
           description: "Optional: focus on a specific department by name. If omitted, briefing covers all visible departments.",
         },
@@ -144,14 +144,14 @@ const COPILOT_TOOLS: AITool[] = [
       type: "object",
       properties: {
         query: { type: "string", description: "What to search for" },
-        departmentName: { type: "string", description: "Optional: limit search to a specific department" },
+        domainName: { type: "string", description: "Optional: limit search to a specific department" },
       },
       required: ["query"],
     },
   },
   {
     name: "create_situation_type",
-    description: "Create a new situation type that the system will watch for. When creating a situation type, always specify which department it applies to using scopeDepartmentName. For example, if the user says 'overdue invoices are a problem in Finance', set scopeDepartmentName to 'Finance'.",
+    description: "Create a new situation type that the system will watch for. When creating a situation type, always specify which department it applies to using scopeDomainName. For example, if the user says 'overdue invoices are a problem in Finance', set scopeDomainName to 'Finance'.",
     parameters: {
       type: "object",
       properties: {
@@ -172,7 +172,7 @@ const COPILOT_TOOLS: AITool[] = [
           description: "Default response steps when this situation is detected",
         },
         scopeEntityId: { type: "string", description: "ID of the department entity to scope this situation type to" },
-        scopeDepartmentName: { type: "string", description: "Name of the department to scope this situation type to. If provided without scopeEntityId, the department will be resolved by name." },
+        scopeDomainName: { type: "string", description: "Name of the department to scope this situation type to. If provided without scopeEntityId, the department will be resolved by name." },
       },
       required: ["name", "slug", "description", "detectionLogic"],
     },
@@ -191,9 +191,9 @@ const COPILOT_TOOLS: AITool[] = [
     parameters: {
       type: "object",
       properties: {
-        departmentName: { type: "string", description: "Name of the department" },
+        domainName: { type: "string", description: "Name of the department" },
       },
-      required: ["departmentName"],
+      required: ["domainName"],
     },
   },
   {
@@ -272,7 +272,7 @@ const COPILOT_TOOLS: AITool[] = [
     parameters: {
       type: "object",
       properties: {
-        departmentId: { type: "string", description: "Filter to a specific department." },
+        domainId: { type: "string", description: "Filter to a specific department." },
         status: { type: "string", enum: ["proposed", "approved", "executing", "completed", "rejected"], description: "Initiative status filter." },
       },
     },
@@ -308,7 +308,8 @@ const COPILOT_TOOLS: AITool[] = [
         title: { type: "string", description: "Short title for the job" },
         description: { type: "string", description: "Detailed description of what this job monitors and investigates" },
         cronExpression: { type: "string", description: "Cron expression for schedule (e.g., '0 8 * * 1' for every Monday at 8am)" },
-        scope: { type: "string", enum: ["department", "company_wide"], description: "Scope of the job. Default: company_wide" },
+        scope: { type: "string", enum: ["domain", "company_wide"], description: "Scope of the job. Default: company_wide" },
+        domainEntityId: { type: "string", description: "ID of the department (foundational entity) this job is scoped to. If not provided, uses the first available department." },
       },
       required: ["title", "description", "cronExpression"],
     },
@@ -319,7 +320,7 @@ const COPILOT_TOOLS: AITool[] = [
     parameters: {
       type: "object",
       properties: {
-        departmentId: { type: "string", description: "Filter to a specific department." },
+        domainId: { type: "string", description: "Filter to a specific department." },
         activeOnly: { type: "boolean", description: "Only show active tasks. Default: true." },
       },
     },
@@ -331,7 +332,7 @@ const COPILOT_TOOLS: AITool[] = [
       type: "object",
       properties: {
         query: { type: "string", description: "Search against insight descriptions (substring match)." },
-        departmentId: { type: "string", description: "Filter by department." },
+        domainId: { type: "string", description: "Filter by department." },
         insightType: { type: "string", enum: ["approach_effectiveness", "timing_pattern", "entity_preference", "escalation_pattern", "resolution_pattern"], description: "Filter by insight type." },
       },
     },
@@ -383,13 +384,13 @@ export function getToolsForContext(contextType: string | null): typeof COPILOT_T
 
 // ── System Prompt Builder ────────────────────────────────────────────────────
 
-async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" }, injectedContext?: string): Promise<string> {
-  const visibleDepts = scopeInfo?.visibleDepts;
-  const situationScopeWhere = visibleDepts && visibleDepts !== "all"
-    ? { OR: [{ situationType: { scopeEntityId: { in: visibleDepts } } }, { situationType: { scopeEntityId: null } }] }
+async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInfo?: { userName?: string; domainName?: string; visibleDomains: string[] | "all" }, injectedContext?: string): Promise<string> {
+  const visibleDomains = scopeInfo?.visibleDomains;
+  const situationScopeWhere = visibleDomains && visibleDomains !== "all"
+    ? { OR: [{ situationType: { scopeEntityId: { in: visibleDomains } } }, { situationType: { scopeEntityId: null } }] }
     : {};
-  const situationTypeScopeWhere = visibleDepts && visibleDepts !== "all"
-    ? { OR: [{ scopeEntityId: { in: visibleDepts } }, { scopeEntityId: null }] }
+  const situationTypeScopeWhere = visibleDomains && visibleDomains !== "all"
+    ? { OR: [{ scopeEntityId: { in: visibleDomains } }, { scopeEntityId: null }] }
     : {};
 
   const [entityTypes, businessCtx, situationTypes, unreadNotifCount, pendingSituations, deptContext] = await Promise.all([
@@ -406,7 +407,7 @@ async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInf
       orderBy: { severity: "desc" },
       take: 5,
     }),
-    buildDepartmentDataContext(operatorId, visibleDepts),
+    buildDomainDataContext(operatorId, visibleDomains),
   ]);
 
   const typesSummary = entityTypes
@@ -431,7 +432,7 @@ async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInf
     ? `\nACTIVE SITUATION TYPES (${situationTypes.length} watching):\n${situationTypes.map((s) => `- ${s.name} (${s.slug}): ${s.description} [${s.autonomyLevel}]`).join("\n")}\n`
     : "";
 
-  const scopeNote = visibleDepts && visibleDepts !== "all"
+  const scopeNote = visibleDomains && visibleDomains !== "all"
     ? "\nIMPORTANT: You have limited visibility. Only discuss departments and data you can see. If asked about other departments, say you don't have visibility into that area."
     : "";
 
@@ -441,8 +442,8 @@ async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInf
 
   // Scoped user framing
   let scopeFraming = "- Visibility: Full access across all departments.";
-  if (scopeInfo && scopeInfo.visibleDepts !== "all" && scopeInfo.departmentName) {
-    scopeFraming = `- Department: ${scopeInfo.departmentName}\n- Visibility: You are assisting ${scopeInfo.userName || "a user"} who works in the ${scopeInfo.departmentName} department. Focus your responses on matters relevant to their department.`;
+  if (scopeInfo && scopeInfo.visibleDomains !== "all" && scopeInfo.domainName) {
+    scopeFraming = `- Department: ${scopeInfo.domainName}\n- Visibility: You are assisting ${scopeInfo.userName || "a user"} who works in the ${scopeInfo.domainName} department. Focus your responses on matters relevant to their department.`;
   }
 
   const contextSection = injectedContext ? `\n${injectedContext}\n` : "";
@@ -514,7 +515,7 @@ GUIDELINES:
 // ── Scope Helper ──────────────────────────────────────────────────────────
 
 async function getVisibleAiEntityIds(
-  visibleDepts: string[],
+  visibleDomains: string[],
   operatorId: string,
 ): Promise<string[]> {
   const entities = await prisma.entity.findMany({
@@ -522,8 +523,8 @@ async function getVisibleAiEntityIds(
       operatorId,
       entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
       OR: [
-        { parentDepartmentId: { in: visibleDepts } },
-        { ownerDepartmentId: { in: visibleDepts } },
+        { primaryDomainId: { in: visibleDomains } },
+        { ownerDomainId: { in: visibleDomains } },
       ],
     },
     select: { id: true },
@@ -536,10 +537,10 @@ export async function executeTool(
   toolName: string,
   args: Record<string, unknown>,
   orientationSessionId?: string,
-  visibleDepts?: string[] | "all",
+  visibleDomains?: string[] | "all",
   userId?: string,
 ): Promise<string> {
-  const deptVisFilter = visibleDepts && visibleDepts !== "all" ? { id: { in: visibleDepts } } : {};
+  const domainVisFilter = visibleDomains && visibleDomains !== "all" ? { id: { in: visibleDomains } } : {};
   switch (toolName) {
     case "lookup_entity": {
       const query = String(args.query ?? "");
@@ -548,8 +549,8 @@ export async function executeTool(
       if (!context) return `No entity found matching "${query}".`;
 
       // Scope check
-      if (visibleDepts && visibleDepts !== "all") {
-        const allowed = await canAccessEntity(context.id, visibleDepts, operatorId);
+      if (visibleDomains && visibleDomains !== "all") {
+        const allowed = await canAccessEntity(context.id, visibleDomains, operatorId);
         if (!allowed) return `I don't have visibility into that entity's department.`;
       }
 
@@ -581,12 +582,12 @@ export async function executeTool(
       let results = await searchEntities(operatorId, query, typeSlug, limit);
 
       // Post-filter by department scope
-      if (visibleDepts && visibleDepts !== "all") {
-        const visibleSet = new Set(visibleDepts);
-        results = results.filter((e: { parentDepartmentId?: string | null; category?: string; id?: string }) => {
+      if (visibleDomains && visibleDomains !== "all") {
+        const visibleSet = new Set(visibleDomains);
+        results = results.filter((e: { primaryDomainId?: string | null; category?: string; id?: string }) => {
           if (e.category === "foundational") return visibleSet.has(e.id || "");
           if (e.category === "external") return true;
-          if (e.parentDepartmentId) return visibleSet.has(e.parentDepartmentId);
+          if (e.primaryDomainId) return visibleSet.has(e.primaryDomainId);
           return false;
         });
       }
@@ -605,20 +606,20 @@ export async function executeTool(
       const maxHops = typeof args.maxHops === "number" ? args.maxHops : 2;
 
       // Scope check on the starting entity
-      if (visibleDepts && visibleDepts !== "all") {
-        const allowed = await canAccessEntity(entityId, visibleDepts, operatorId);
+      if (visibleDomains && visibleDomains !== "all") {
+        const allowed = await canAccessEntity(entityId, visibleDomains, operatorId);
         if (!allowed) return `I don't have visibility into that entity's department.`;
       }
 
       const result = await searchAround(operatorId, entityId, maxHops);
 
       // Post-filter traversal results by department scope
-      if (visibleDepts && visibleDepts !== "all" && result.nodes.length > 0) {
-        const visibleSet = new Set(visibleDepts);
+      if (visibleDomains && visibleDomains !== "all" && result.nodes.length > 0) {
+        const visibleSet = new Set(visibleDomains);
         const nodeIds = result.nodes.map((n) => n.id);
         const entities = await prisma.entity.findMany({
           where: { id: { in: nodeIds } },
-          select: { id: true, parentDepartmentId: true, category: true },
+          select: { id: true, primaryDomainId: true, category: true },
         });
         const entityMap = new Map(entities.map((e) => [e.id, e]));
         const allowedIds = new Set(
@@ -628,7 +629,7 @@ export async function executeTool(
               if (!e) return false;
               if (e.category === "foundational") return visibleSet.has(e.id);
               if (e.category === "external") return true;
-              if (e.parentDepartmentId) return visibleSet.has(e.parentDepartmentId);
+              if (e.primaryDomainId) return visibleSet.has(e.primaryDomainId);
               return false;
             })
             .map((n) => n.id),
@@ -788,7 +789,7 @@ export async function executeTool(
 
       // Load departments (filtered by visibility)
       const departments = await prisma.entity.findMany({
-        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active", ...deptVisFilter },
+        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active", ...domainVisFilter },
         select: { id: true, displayName: true, description: true },
         orderBy: { displayName: "asc" },
       });
@@ -810,7 +811,7 @@ export async function executeTool(
 
         // Load home members
         const homeMembers = await prisma.entity.findMany({
-          where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
+          where: { operatorId, primaryDomainId: dept.id, category: "base", status: "active" },
           include: {
             propertyValues: { include: { property: { select: { slug: true } } } },
           },
@@ -865,15 +866,15 @@ export async function executeTool(
       const detectionLogic = args.detectionLogic ?? { mode: "natural", naturalLanguage: description };
       const responseStrategy = args.responseStrategy ?? null;
       let scopeEntityId = args.scopeEntityId ? String(args.scopeEntityId) : null;
-      const scopeDepartmentName = args.scopeDepartmentName ? String(args.scopeDepartmentName) : null;
+      const scopeDomainName = args.scopeDomainName ? String(args.scopeDomainName) : null;
 
       // Resolve department name to entity ID if needed
-      if (scopeDepartmentName && !scopeEntityId) {
+      if (scopeDomainName && !scopeEntityId) {
         const dept = await prisma.entity.findFirst({
           where: {
             operatorId,
             category: "foundational",
-            displayName: { contains: scopeDepartmentName },
+            displayName: { contains: scopeDomainName },
             entityType: { slug: "department" },
             status: "active",
           },
@@ -882,7 +883,7 @@ export async function executeTool(
       }
 
       // Verify visibility
-      if (scopeEntityId && visibleDepts !== "all" && visibleDepts && !visibleDepts.includes(scopeEntityId)) {
+      if (scopeEntityId && visibleDomains !== "all" && visibleDomains && !visibleDomains.includes(scopeEntityId)) {
         return "You don't have visibility into that department.";
       }
 
@@ -933,7 +934,7 @@ export async function executeTool(
       }
 
       const scopeNote = scopeEntityId
-        ? ` Scoped to ${scopeDepartmentName || "department"} (${scopeEntityId}).`
+        ? ` Scoped to ${scopeDomainName || "domain"} (${scopeEntityId}).`
         : "";
       return `Created situation type "${name}" (${slug}, ID: ${situationType.id}).${scopeNote} It will run in supervised mode — I'll always ask before taking any action.`;
     }
@@ -965,7 +966,7 @@ export async function executeTool(
 
     case "list_departments": {
       const departments = await prisma.entity.findMany({
-        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active", ...deptVisFilter },
+        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active", ...domainVisFilter },
         select: { id: true, displayName: true, description: true },
         orderBy: { displayName: "asc" },
       });
@@ -975,9 +976,9 @@ export async function executeTool(
       const results: string[] = [];
       for (const dept of departments) {
         const [memberCount, digitalCount, docCount] = await Promise.all([
-          prisma.entity.count({ where: { parentDepartmentId: dept.id, category: "base", status: "active" } }),
-          prisma.entity.count({ where: { parentDepartmentId: dept.id, category: "digital", status: "active" } }),
-          prisma.internalDocument.count({ where: { departmentId: dept.id, operatorId, status: { not: "replaced" } } }),
+          prisma.entity.count({ where: { primaryDomainId: dept.id, category: "base", status: "active" } }),
+          prisma.entity.count({ where: { primaryDomainId: dept.id, category: "digital", status: "active" } }),
+          prisma.internalDocument.count({ where: { domainId: dept.id, operatorId, status: { not: "replaced" } } }),
         ]);
 
         let line = `- ${dept.displayName} (ID: ${dept.id})`;
@@ -990,14 +991,14 @@ export async function executeTool(
     }
 
     case "get_department_context": {
-      const name = String(args.departmentName ?? args.department_name ?? "");
+      const name = String(args.domainName ?? args.department_name ?? "");
       const dept = await prisma.entity.findFirst({
         where: {
           operatorId,
           category: "foundational",
           displayName: { contains: name },
           status: "active",
-          ...deptVisFilter,
+          ...domainVisFilter,
         },
         select: { id: true, displayName: true, description: true },
       });
@@ -1006,7 +1007,7 @@ export async function executeTool(
 
       // Home members
       const homeMembers = await prisma.entity.findMany({
-        where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
+        where: { operatorId, primaryDomainId: dept.id, category: "base", status: "active" },
         include: { propertyValues: { include: { property: { select: { slug: true } } } } },
         orderBy: { displayName: "asc" },
       });
@@ -1035,7 +1036,7 @@ export async function executeTool(
 
       // Documents
       const docs = await prisma.internalDocument.findMany({
-        where: { departmentId: dept.id, operatorId, status: { not: "replaced" } },
+        where: { domainId: dept.id, operatorId, status: { not: "replaced" } },
         select: { fileName: true, documentType: true, embeddingStatus: true },
       });
 
@@ -1097,7 +1098,7 @@ export async function executeTool(
     }
 
     case "get_operational_briefing": {
-      const deptName = args.departmentName ? String(args.departmentName) : null;
+      const deptName = args.domainName ? String(args.domainName) : null;
       const period = String(args.period || "week");
 
       const now = new Date();
@@ -1117,7 +1118,7 @@ export async function executeTool(
             operatorId, category: "foundational", entityType: { slug: "department" },
             displayName: { contains: deptName },
             status: "active",
-            ...deptVisFilter,
+            ...domainVisFilter,
           },
           select: { id: true, displayName: true, description: true },
         });
@@ -1127,7 +1128,7 @@ export async function executeTool(
         targetDepts = await prisma.entity.findMany({
           where: {
             operatorId, category: "foundational", entityType: { slug: "department" },
-            status: "active", ...deptVisFilter,
+            status: "active", ...domainVisFilter,
           },
           select: { id: true, displayName: true, description: true },
           orderBy: { displayName: "asc" },
@@ -1141,13 +1142,13 @@ export async function executeTool(
         operatorId,
         status: { in: ["pending", "approved", "executing"] },
       };
-      if (visibleDepts && visibleDepts !== "all") {
+      if (visibleDomains && visibleDomains !== "all") {
         planScopeFilter.OR = [
           {
             sourceType: "situation",
             situation: {
               OR: [
-                { situationType: { scopeEntityId: { in: visibleDepts } } },
+                { situationType: { scopeEntityId: { in: visibleDomains } } },
                 { situationType: { scopeEntityId: null } },
               ],
             },
@@ -1163,8 +1164,8 @@ export async function executeTool(
       // Resolve visible AI entity IDs (used by delegation, insight, recurring scopes)
       let briefingAiIds: string[] | null = null;
       let briefingDelegationScoped = false;
-      if (visibleDepts && visibleDepts !== "all") {
-        briefingAiIds = await getVisibleAiEntityIds(visibleDepts as string[], operatorId);
+      if (visibleDomains && visibleDomains !== "all") {
+        briefingAiIds = await getVisibleAiEntityIds(visibleDomains as string[], operatorId);
         briefingDelegationScoped = true;
       }
 
@@ -1183,7 +1184,7 @@ export async function executeTool(
         status: "active",
         createdAt: { gte: sevenDaysAgo },
       };
-      if (visibleDepts && visibleDepts !== "all") {
+      if (visibleDomains && visibleDomains !== "all") {
         const insightOrClauses: Record<string, unknown>[] = [
           { shareScope: "operator" },
         ];
@@ -1209,7 +1210,7 @@ export async function executeTool(
         status: "active",
         nextTriggerAt: { lte: twentyFourHoursFromNow, gte: now },
       };
-      if (visibleDepts && visibleDepts !== "all") {
+      if (visibleDomains && visibleDomains !== "all") {
         if (briefingAiIds && briefingAiIds.length > 0) {
           recurringScope.aiEntityId = { in: briefingAiIds };
         } else {
@@ -1404,22 +1405,22 @@ export async function executeTool(
 
       let searchDeptIds: string[] = [];
 
-      if (args.departmentName) {
+      if (args.domainName) {
         const dept = await prisma.entity.findFirst({
           where: {
             operatorId, category: "foundational", entityType: { slug: "department" },
-            displayName: { contains: String(args.departmentName) },
-            ...deptVisFilter,
+            displayName: { contains: String(args.domainName) },
+            ...domainVisFilter,
           },
           select: { id: true },
         });
         if (dept) searchDeptIds = [dept.id];
-        else return `Department "${args.departmentName}" not found or not accessible.`;
+        else return `Department "${args.domainName}" not found or not accessible.`;
       } else {
         const depts = await prisma.entity.findMany({
           where: {
             operatorId, category: "foundational", entityType: { slug: "department" },
-            ...deptVisFilter,
+            ...domainVisFilter,
           },
           select: { id: true },
         });
@@ -1436,7 +1437,7 @@ export async function executeTool(
         if (results.length === 0) return "No relevant documents found for this query.";
 
         return results
-          .map(r => `From "${r.documentName}" (${r.departmentName}, relevance: ${r.score.toFixed(2)}):\n${r.content.slice(0, 500)}`)
+          .map(r => `From "${r.documentName}" (${r.domainName}, relevance: ${r.score.toFixed(2)}):\n${r.content.slice(0, 500)}`)
           .join("\n\n---\n\n");
       } catch {
         return "Document search is not available — embeddings may not be configured.";
@@ -1453,7 +1454,7 @@ export async function executeTool(
       const depts = await prisma.entity.findMany({
         where: {
           operatorId, category: "foundational", entityType: { slug: "department" },
-          ...deptVisFilter,
+          ...domainVisFilter,
         },
         select: { id: true },
       });
@@ -1470,7 +1471,7 @@ export async function executeTool(
         const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
           sourceTypes: ["email"],
           limit,
-          departmentIds: searchDeptIds.length > 0 ? searchDeptIds : undefined,
+          domainIds: searchDeptIds.length > 0 ? searchDeptIds : undefined,
           userId: userId ?? undefined,
           skipUserFilter: false,
         });
@@ -1502,7 +1503,7 @@ export async function executeTool(
       const docDepts = await prisma.entity.findMany({
         where: {
           operatorId, category: "foundational", entityType: { slug: "department" },
-          ...deptVisFilter,
+          ...domainVisFilter,
         },
         select: { id: true },
       });
@@ -1519,7 +1520,7 @@ export async function executeTool(
         const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
           sourceTypes: ["drive_doc", "uploaded_doc"],
           limit,
-          departmentIds: docDeptIds.length > 0 ? docDeptIds : undefined,
+          domainIds: docDeptIds.length > 0 ? docDeptIds : undefined,
           includeParentContext: true,
           userId: userId ?? undefined,
           skipUserFilter: false,
@@ -1559,7 +1560,7 @@ export async function executeTool(
       const msgDepts = await prisma.entity.findMany({
         where: {
           operatorId, category: "foundational", entityType: { slug: "department" },
-          ...deptVisFilter,
+          ...domainVisFilter,
         },
         select: { id: true },
       });
@@ -1576,7 +1577,7 @@ export async function executeTool(
         const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
           sourceTypes: ["slack_message", "teams_message"],
           limit,
-          departmentIds: msgDeptIds.length > 0 ? msgDeptIds : undefined,
+          domainIds: msgDeptIds.length > 0 ? msgDeptIds : undefined,
           userId: userId ?? undefined,
           skipUserFilter: false,
         });
@@ -1616,7 +1617,7 @@ export async function executeTool(
       const msgThreadDepts = await prisma.entity.findMany({
         where: {
           operatorId, category: "foundational", entityType: { slug: "department" },
-          ...deptVisFilter,
+          ...domainVisFilter,
         },
         select: { id: true },
       });
@@ -1634,7 +1635,7 @@ export async function executeTool(
             sourceType,
             metadata: metadataFilter,
           },
-          select: { content: true, metadata: true, sourceId: true, departmentIds: true },
+          select: { content: true, metadata: true, sourceId: true, domainIds: true },
           orderBy: { createdAt: "asc" },
           take: 20,
         });
@@ -1647,7 +1648,7 @@ export async function executeTool(
               sourceType,
               sourceId: threadId,
             },
-            select: { content: true, metadata: true, sourceId: true, departmentIds: true },
+            select: { content: true, metadata: true, sourceId: true, domainIds: true },
             orderBy: { createdAt: "asc" },
             take: 20,
           });
@@ -1656,10 +1657,10 @@ export async function executeTool(
         if (chunks.length === 0) return "No messages found for this thread ID.";
 
         // Department scope check on chunks
-        if (visibleDepts && visibleDepts !== "all" && msgThreadDeptIds.size > 0) {
+        if (visibleDomains && visibleDomains !== "all" && msgThreadDeptIds.size > 0) {
           const beforeCount = chunks.length;
           chunks = chunks.filter((c) => {
-            const dIds: string[] = c.departmentIds ? JSON.parse(c.departmentIds) : [];
+            const dIds: string[] = c.domainIds ? JSON.parse(c.domainIds) : [];
             return dIds.length === 0 || dIds.some((d) => msgThreadDeptIds.has(d));
           });
           if (chunks.length === 0 && beforeCount > 0) {
@@ -1697,11 +1698,11 @@ export async function executeTool(
 
       // Resolve visible department IDs for scope filtering
       let scopeDeptIds: Set<string> | null = null;
-      if (visibleDepts && visibleDepts !== "all") {
+      if (visibleDomains && visibleDomains !== "all") {
         const actDepts = await prisma.entity.findMany({
           where: {
             operatorId, category: "foundational", entityType: { slug: "department" },
-            ...deptVisFilter,
+            ...domainVisFilter,
           },
           select: { id: true },
         });
@@ -1709,14 +1710,14 @@ export async function executeTool(
         if (scopeDeptIds.size === 0) return "No departments available for activity summary.";
       }
 
-      // Fetch raw signals (departmentIds is JSON, can't groupBy with scope filter)
+      // Fetch raw signals (domainIds is JSON, can't groupBy with scope filter)
       const rawCurrent = await prisma.activitySignal.findMany({
         where: { operatorId, occurredAt: { gte: since }, ...entityFilter },
-        select: { signalType: true, departmentIds: true, metadata: true },
+        select: { signalType: true, domainIds: true, metadata: true },
       });
       const rawPrior = await prisma.activitySignal.findMany({
         where: { operatorId, occurredAt: { gte: priorStart, lt: since }, ...entityFilter },
-        select: { signalType: true, departmentIds: true },
+        select: { signalType: true, domainIds: true },
       });
 
       // Department scope filter helper
@@ -1729,8 +1730,8 @@ export async function executeTool(
         } catch { return true; }
       }
 
-      const scopedCurrent = rawCurrent.filter(s => inScope(s.departmentIds));
-      const scopedPrior = rawPrior.filter(s => inScope(s.departmentIds));
+      const scopedCurrent = rawCurrent.filter(s => inScope(s.domainIds));
+      const scopedPrior = rawPrior.filter(s => inScope(s.domainIds));
 
       // Aggregate by signalType
       const currentMap = new Map<string, number>();
@@ -1797,16 +1798,16 @@ export async function executeTool(
     // ── Phase 3 Tools ──────────────────────────────────────────────────────
 
     case "get_initiatives": {
-      const departmentId = args.departmentId ? String(args.departmentId) : undefined;
+      const domainId = args.domainId ? String(args.domainId) : undefined;
       const status = args.status ? String(args.status) : undefined;
 
       const where: Record<string, unknown> = { operatorId };
       if (status) where.status = status;
 
-      // If departmentId filter, find AI entities in that department
-      if (departmentId) {
+      // If domainId filter, find AI entities in that department
+      if (domainId) {
         const deptAiEntities = await prisma.entity.findMany({
-          where: { operatorId, parentDepartmentId: departmentId, entityType: { slug: { in: ["department-ai", "ai-agent"] } } },
+          where: { operatorId, primaryDomainId: domainId, entityType: { slug: { in: ["department-ai", "ai-agent"] } } },
           select: { id: true },
         });
         where.aiEntityId = { in: deptAiEntities.map(e => e.id) };
@@ -1849,8 +1850,8 @@ export async function executeTool(
         if (!ctx) return "Work stream not found.";
 
         // Scope check using canMemberAccessWorkStream
-        if (visibleDepts && visibleDepts !== "all" && userId) {
-          const canAccess = await canMemberAccessWorkStream(userId, workStreamId, operatorId, visibleDepts as string[]);
+        if (visibleDomains && visibleDomains !== "all" && userId) {
+          const canAccess = await canMemberAccessWorkStream(userId, workStreamId, operatorId, visibleDomains as string[]);
           if (!canAccess) return "You don't have access to this project.";
         }
 
@@ -1888,10 +1889,10 @@ export async function executeTool(
 
         // Scope filter: workstream must contain an item linked to a visible department
         let filtered = workstreams;
-        if (visibleDepts && visibleDepts !== "all" && userId) {
+        if (visibleDomains && visibleDomains !== "all" && userId) {
           const accessible: typeof workstreams = [];
           for (const ws of workstreams) {
-            const canAccess = await canMemberAccessWorkStream(userId, ws.id, operatorId, visibleDepts as string[]);
+            const canAccess = await canMemberAccessWorkStream(userId, ws.id, operatorId, visibleDomains as string[]);
             if (canAccess) accessible.push(ws);
           }
           filtered = accessible;
@@ -1938,8 +1939,8 @@ export async function executeTool(
       }
 
       // Scope filter (only when not assignedToMe — that path is already scoped to the user)
-      if (visibleDepts && visibleDepts !== "all" && !assignedToMe) {
-        const aiIds = await getVisibleAiEntityIds(visibleDepts as string[], operatorId);
+      if (visibleDomains && visibleDomains !== "all" && !assignedToMe) {
+        const aiIds = await getVisibleAiEntityIds(visibleDomains as string[], operatorId);
         if (aiIds.length === 0) {
           return "No delegations found for your departments.";
         }
@@ -2032,10 +2033,22 @@ export async function executeTool(
         });
         if (!hqAi) return "No AI entity found. Complete onboarding first.";
 
+        // Resolve domain entity
+        let domainEntityId = args.domainEntityId ? String(args.domainEntityId) : undefined;
+        if (!domainEntityId) {
+          const firstDomain = await prisma.entity.findFirst({
+            where: { operatorId, category: "foundational", status: "active" },
+            select: { id: true },
+          });
+          domainEntityId = firstDomain?.id;
+        }
+        if (!domainEntityId) return "No department found. Create a department first before setting up system jobs.";
+
         const job = await prisma.systemJob.create({
           data: {
             operatorId,
             aiEntityId: hqAi.id,
+            domainEntityId,
             title,
             description,
             cronExpression,
@@ -2053,7 +2066,7 @@ export async function executeTool(
     }
 
     case "get_recurring_tasks": {
-      const departmentId = args.departmentId ? String(args.departmentId) : undefined;
+      const domainId = args.domainId ? String(args.domainId) : undefined;
       const activeOnly = args.activeOnly !== false; // default true
 
       const where: Record<string, unknown> = { operatorId };
@@ -2061,20 +2074,20 @@ export async function executeTool(
 
       // Scope by department via aiEntity
       let scopedAiIds: string[] | null = null;
-      if (visibleDepts && visibleDepts !== "all") {
-        scopedAiIds = await getVisibleAiEntityIds(visibleDepts as string[], operatorId);
+      if (visibleDomains && visibleDomains !== "all") {
+        scopedAiIds = await getVisibleAiEntityIds(visibleDomains as string[], operatorId);
         if (scopedAiIds.length === 0) return "No recurring tasks found.";
         where.aiEntityId = { in: scopedAiIds };
       }
 
-      if (departmentId) {
+      if (domainId) {
         const deptAis = await prisma.entity.findMany({
           where: {
             operatorId,
             entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
             OR: [
-              { parentDepartmentId: departmentId },
-              { ownerDepartmentId: departmentId },
+              { primaryDomainId: domainId },
+              { ownerDomainId: domainId },
             ],
           },
           select: { id: true },
@@ -2087,7 +2100,7 @@ export async function executeTool(
           if (intersection.length === 0) return "No recurring tasks found for that department.";
           where.aiEntityId = { in: intersection };
         } else {
-          // Admin: just use the departmentId filter
+          // Admin: just use the domainId filter
           where.aiEntityId = { in: deptAiIds };
         }
       }
@@ -2105,10 +2118,10 @@ export async function executeTool(
       const aiEntities = aiEntityIds.length > 0
         ? await prisma.entity.findMany({
             where: { id: { in: aiEntityIds } },
-            select: { id: true, parentDepartmentId: true, ownerDepartmentId: true },
+            select: { id: true, primaryDomainId: true, ownerDomainId: true },
           })
         : [];
-      const deptIds = [...new Set(aiEntities.flatMap(e => [e.parentDepartmentId, e.ownerDepartmentId].filter(Boolean) as string[]))];
+      const deptIds = [...new Set(aiEntities.flatMap(e => [e.primaryDomainId, e.ownerDomainId].filter(Boolean) as string[]))];
       const depts = deptIds.length > 0
         ? await prisma.entity.findMany({
             where: { id: { in: deptIds } },
@@ -2116,7 +2129,7 @@ export async function executeTool(
           })
         : [];
       const deptNameMap = new Map(depts.map(d => [d.id, d.displayName]));
-      const aiToDept = new Map(aiEntities.map(e => [e.id, deptNameMap.get(e.ownerDepartmentId ?? e.parentDepartmentId ?? "") ?? "HQ"]));
+      const aiToDept = new Map(aiEntities.map(e => [e.id, deptNameMap.get(e.ownerDomainId ?? e.primaryDomainId ?? "") ?? "HQ"]));
 
       // Get last execution for each task
       const taskIds = tasks.map(t => t.id);
@@ -2141,28 +2154,28 @@ export async function executeTool(
           autoApproveSteps: t.autoApproveSteps,
           lastExecutionStatus: lastPlan?.status ?? null,
           lastExecutionAt: lastPlan?.createdAt.toISOString() ?? null,
-          departmentName: aiToDept.get(t.aiEntityId) ?? "HQ",
+          domainName: aiToDept.get(t.aiEntityId) ?? "HQ",
         };
       }));
     }
 
     case "get_insights": {
       const query = args.query ? String(args.query) : undefined;
-      const departmentId = args.departmentId ? String(args.departmentId) : undefined;
+      const domainId = args.domainId ? String(args.domainId) : undefined;
       const insightType = args.insightType ? String(args.insightType) : undefined;
 
       const where: Record<string, unknown> = { operatorId, status: "active" };
       if (insightType) where.insightType = insightType;
-      if (departmentId) where.departmentId = departmentId;
+      if (domainId) where.domainId = domainId;
 
       // Scope by shareScope
-      if (visibleDepts && visibleDepts !== "all") {
+      if (visibleDomains && visibleDomains !== "all") {
         // Find user's AI entity
         const userAiEntities = await prisma.entity.findMany({
           where: {
             operatorId,
             entityType: { slug: "ai-agent" },
-            parentDepartmentId: { in: visibleDepts },
+            primaryDomainId: { in: visibleDomains },
           },
           select: { id: true },
         });
@@ -2174,8 +2187,8 @@ export async function executeTool(
             operatorId,
             entityType: { slug: { in: ["department-ai", "hq-ai"] } },
             OR: [
-              { parentDepartmentId: { in: visibleDepts } },
-              { ownerDepartmentId: { in: visibleDepts } },
+              { primaryDomainId: { in: visibleDomains } },
+              { ownerDomainId: { in: visibleDomains } },
             ],
           },
           select: { id: true },
@@ -2221,13 +2234,13 @@ export async function executeTool(
       };
 
       // Scope filter
-      if (visibleDepts && visibleDepts !== "all") {
+      if (visibleDomains && visibleDomains !== "all") {
         where.OR = [
           {
             sourceType: "situation",
             situation: {
               OR: [
-                { situationType: { scopeEntityId: { in: visibleDepts } } },
+                { situationType: { scopeEntityId: { in: visibleDomains } } },
                 { situationType: { scopeEntityId: null } },
               ],
             },
@@ -2316,7 +2329,7 @@ export async function executeTool(
       const threadDepts = await prisma.entity.findMany({
         where: {
           operatorId, category: "foundational", entityType: { slug: "department" },
-          ...deptVisFilter,
+          ...domainVisFilter,
         },
         select: { id: true },
       });
@@ -2326,7 +2339,7 @@ export async function executeTool(
       // Use chunks to identify which message IDs belong to this thread
       const chunks = await prisma.contentChunk.findMany({
         where: { operatorId, sourceType: "email" },
-        select: { sourceId: true, content: true, metadata: true, chunkIndex: true, departmentIds: true },
+        select: { sourceId: true, content: true, metadata: true, chunkIndex: true, domainIds: true },
       });
 
       const threadChunks = chunks.filter((c) => {
@@ -2337,10 +2350,10 @@ export async function executeTool(
       });
 
       // Department scope check on chunks
-      if (visibleDepts && visibleDepts !== "all" && threadDeptIds.size > 0) {
+      if (visibleDomains && visibleDomains !== "all" && threadDeptIds.size > 0) {
         const beforeCount = threadChunks.length;
         const filtered = threadChunks.filter((c) => {
-          const dIds: string[] = c.departmentIds ? JSON.parse(c.departmentIds) : [];
+          const dIds: string[] = c.domainIds ? JSON.parse(c.domainIds) : [];
           return dIds.length === 0 || dIds.some((d) => threadDeptIds.has(d));
         });
         if (filtered.length === 0 && beforeCount > 0) {
@@ -2422,7 +2435,7 @@ export async function chat(
   history: AIMessage[],
   userRole?: string,
   orientation?: OrientationInfo,
-  scopeInfo?: { userName?: string; departmentName?: string; visibleDepts: string[] | "all" },
+  scopeInfo?: { userName?: string; domainName?: string; visibleDomains: string[] | "all" },
   userId?: string,
   contextInfo?: { contextType: string; contextText: string } | null,
   locale?: string,
@@ -2542,7 +2555,7 @@ export async function chat(
               toolCall.name,
               toolCall.arguments,
               orientation?.sessionId,
-              scopeInfo?.visibleDepts ?? "all",
+              scopeInfo?.visibleDomains ?? "all",
               userId,
             );
             currentMessages.push({

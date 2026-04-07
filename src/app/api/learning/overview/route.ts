@@ -3,13 +3,13 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
+import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
   const daysSchema = z.object({ days: daysParam });
   const parsed = parseQuery(daysSchema, req.nextUrl.searchParams);
   if (!parsed.success) {
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   // Load all situations in the period
   const situations = await prisma.situation.findMany({
-    where: { operatorId, createdAt: { gte: since }, ...situationScopeFilter(visibleDepts) },
+    where: { operatorId, createdAt: { gte: since }, ...situationScopeFilter(visibleDomains) },
     select: {
       id: true,
       status: true,

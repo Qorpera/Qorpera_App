@@ -10,7 +10,7 @@ import { extractJSONAny } from "@/lib/json-helpers";
 type RecurringTaskConfig = {
   description: string;
   contextHints: {
-    departmentId?: string;
+    domainId?: string;
     targetEntityIds?: string[];
     outputFormat?: string;
     additionalInstructions?: string;
@@ -94,9 +94,9 @@ async function executeRecurringTask(task: {
 
   // Load department context if scoped
   let departmentContext = "";
-  if (config.contextHints.departmentId) {
+  if (config.contextHints.domainId) {
     const dept = await prisma.entity.findFirst({
-      where: { id: config.contextHints.departmentId, operatorId: task.operatorId },
+      where: { id: config.contextHints.domainId, operatorId: task.operatorId },
       select: { displayName: true, description: true },
     });
     if (dept) {
@@ -109,9 +109,9 @@ async function executeRecurringTask(task: {
     where: {
       operatorId: task.operatorId,
       status: "active",
-      ...(config.contextHints.departmentId
-        ? { OR: [{ departmentId: config.contextHints.departmentId }, { shareScope: "operator" }] }
-        : { shareScope: { in: ["department", "operator"] } }),
+      ...(config.contextHints.domainId
+        ? { OR: [{ domainId: config.contextHints.domainId }, { shareScope: "operator" }] }
+        : { shareScope: { in: ["domain", "operator"] } }),
     },
     select: { description: true, insightType: true, confidence: true },
     take: 10,
@@ -256,7 +256,7 @@ export async function createRecurringTask(params: {
   cronExpression: string;
   autoApproveSteps?: boolean;
   contextHints?: {
-    departmentId?: string;
+    domainId?: string;
     targetEntityIds?: string[];
     outputFormat?: string;
     additionalInstructions?: string;

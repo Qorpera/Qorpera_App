@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 export async function POST(
   _req: NextRequest,
@@ -23,10 +23,10 @@ export async function POST(
   }
 
   // Scope check
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
-  if (visibleDepts !== "all") {
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
+  if (visibleDomains !== "all") {
     const scopeDept = situation.situationType?.scopeEntityId;
-    if (scopeDept && !visibleDepts.includes(scopeDept)) {
+    if (scopeDept && !visibleDomains.includes(scopeDept)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
   }

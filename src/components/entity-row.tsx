@@ -26,7 +26,7 @@ interface EntityRowProps {
     sourceSystem?: string | null;
   };
   editMode: boolean;
-  departmentId: string;
+  domainId: string;
   onRemoved?: () => void;
   onUpdated?: () => void;
 }
@@ -43,7 +43,7 @@ function prettifySlug(slug: string): string {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-export function EntityRow({ entity, editMode, departmentId, onRemoved, onUpdated }: EntityRowProps) {
+export function EntityRow({ entity, editMode, domainId, onRemoved, onUpdated }: EntityRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [editingProps, setEditingProps] = useState<Record<string, string>>({});
   const [relationships, setRelationships] = useState<Relationship[]>([]);
@@ -114,7 +114,7 @@ export function EntityRow({ entity, editMode, departmentId, onRemoved, onUpdated
     const deptMemberRel = relationships.find(
       (r) =>
         r.relationshipType?.slug === "department-member" &&
-        (r.toEntityId === departmentId || r.fromEntityId === departmentId),
+        (r.toEntityId === domainId || r.fromEntityId === domainId),
     );
     if (deptMemberRel) {
       await fetchApi(`/api/relationships/${deptMemberRel.id}`, { method: "DELETE" });

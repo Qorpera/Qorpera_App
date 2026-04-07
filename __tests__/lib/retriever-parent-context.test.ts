@@ -11,7 +11,7 @@ interface ChunkResult {
   sourceType: string;
   sourceId: string;
   entityId: string | null;
-  departmentIds: string[];
+  domainIds: string[];
   metadata: Record<string, unknown> | null;
   chunkIndex: number;
   score: number;
@@ -23,7 +23,7 @@ interface RawSummaryChunk {
   sourceType: string;
   sourceId: string;
   entityId: string | null;
-  departmentIds: string | null;
+  domainIds: string | null;
   metadata: string | null;
   chunkIndex: number;
 }
@@ -49,7 +49,7 @@ function enrichWithParentContext(
         sourceType: summary.sourceType,
         sourceId: summary.sourceId,
         entityId: summary.entityId,
-        departmentIds: summary.departmentIds ? JSON.parse(summary.departmentIds) : [],
+        domainIds: summary.domainIds ? JSON.parse(summary.domainIds) : [],
         metadata: summary.metadata ? JSON.parse(summary.metadata) : null,
         chunkIndex: summary.chunkIndex,
         score: 1.0,
@@ -76,7 +76,7 @@ describe("parent context enrichment", () => {
     sourceType: "drive_doc",
     sourceId,
     entityId: null,
-    departmentIds: [],
+    domainIds: [],
     metadata: { fileName: `doc-${sourceId}.pdf` },
     chunkIndex,
     score,
@@ -88,7 +88,7 @@ describe("parent context enrichment", () => {
     sourceType: "drive_doc",
     sourceId,
     entityId: null,
-    departmentIds: null,
+    domainIds: null,
     metadata: JSON.stringify({ fileName: `doc-${sourceId}.pdf`, isDocumentSummary: true }),
     chunkIndex: 0,
   });

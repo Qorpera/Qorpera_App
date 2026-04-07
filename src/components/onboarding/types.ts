@@ -17,9 +17,9 @@ export interface Member {
     property: { slug: string; name: string; dataType: string };
     value: string;
   }>;
-  crossDepartment?: boolean;
-  homeDepartment?: string | null;
-  homeDepartmentId?: string | null;
+  crossDomain?: boolean;
+  homeDomain?: string | null;
+  homeDomainId?: string | null;
   departmentRole?: string | null;
   relationshipId?: string | null;
 }

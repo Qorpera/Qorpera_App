@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds, situationScopeFilter } from "@/lib/user-scope";
+import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
@@ -32,8 +32,8 @@ export async function GET(req: NextRequest) {
   ]);
 
   // Filter out situation notifications from invisible departments
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
-  if (visibleDepts !== "all") {
+  const visibleDomains = await getVisibleDomainIds(operatorId, userId);
+  if (visibleDomains !== "all") {
     const situationNotifIds = notifications
       .filter(n => n.sourceType === "situation" && n.sourceId)
       .map(n => n.sourceId!);
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       const visibleSituations = await prisma.situation.findMany({
         where: {
           id: { in: situationNotifIds },
-          ...situationScopeFilter(visibleDepts),
+          ...situationScopeFilter(visibleDomains),
         },
         select: { id: true },
       });

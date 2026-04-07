@@ -109,7 +109,7 @@ describe("POST /api/projects/[id]/upload", () => {
     expect(body.error).toMatch(/unsupported/i);
   });
 
-  it("creates InternalDocument with projectId and no departmentId", async () => {
+  it("creates InternalDocument with projectId and no domainId", async () => {
     const file = new File(["hello world"], "test.txt", { type: "text/plain" });
     const res = await POST(makeRequest(file), { params: paramsPromise });
     expect(res.status).toBe(201);
@@ -122,9 +122,9 @@ describe("POST /api/projects/[id]/upload", () => {
       }),
     });
 
-    // Verify no departmentId or entityId set
+    // Verify no domainId or entityId set
     const createArg = mockPrisma.internalDocument.create.mock.calls[0][0];
-    expect(createArg.data.departmentId).toBeUndefined();
+    expect(createArg.data.domainId).toBeUndefined();
     expect(createArg.data.entityId).toBeUndefined();
   });
 

@@ -35,8 +35,8 @@ export const notificationStrings: Record<string, NotificationTemplates> = {
       body: ctx.summary || "An execution plan encountered an error.",
     }),
     peer_signal: (ctx) => ({
-      title: `Cross-department signal from ${ctx.department || "another department"}`,
-      body: ctx.summary || "A signal was detected across departments.",
+      title: `Cross-domain signal from ${ctx.domain || "another domain"}`,
+      body: ctx.summary || "A signal was detected across domains.",
     }),
     insight_discovered: (ctx) => ({
       title: `New insight: ${ctx.name || ""}`,
@@ -85,8 +85,8 @@ export const notificationStrings: Record<string, NotificationTemplates> = {
       body: ctx.summary || "En udførelsesplan stødte på en fejl.",
     }),
     peer_signal: (ctx) => ({
-      title: `Signal fra ${ctx.department || "en anden afdeling"}`,
-      body: ctx.summary || "Et signal er opdaget på tværs af afdelinger.",
+      title: `Signal fra ${ctx.domain || "et andet domæne"}`,
+      body: ctx.summary || "Et signal er opdaget på tværs af domæner.",
     }),
     insight_discovered: (ctx) => ({
       title: `Ny indsigt: ${ctx.name || ""}`,

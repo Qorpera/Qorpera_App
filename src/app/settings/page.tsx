@@ -13,6 +13,7 @@ import { formatRelativeTime } from "@/lib/format-helpers";
 import { NotificationPreferences } from "@/components/settings/notification-preferences";
 import { ConnectorLogo } from "@/components/connector-logo";
 import { ConnectorConfigModal, type ConfigField } from "@/components/connector-config-modal";
+import { Modal } from "@/components/ui/modal";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing" | "usage" | "limits";
@@ -164,21 +165,21 @@ function SettingsPageInner() {
   const [manualSheetUrl, setManualSheetUrl] = useState("");
 
   // Slack channel mapping
-  type ChannelMapping = { id: string; channelId: string; channelName: string; departmentId: string; department: { id: string; displayName: string } };
+  type ChannelMapping = { id: string; channelId: string; channelName: string; domainId: string; department: { id: string; displayName: string } };
   type SlackChannel = { id: string; name: string; is_private: boolean };
   const [slackMappingExpanded, setSlackMappingExpanded] = useState<string | null>(null);
   const [slackMappings, setSlackMappings] = useState<Record<string, ChannelMapping[]>>({});
   const [slackChannels, setSlackChannels] = useState<Record<string, SlackChannel[]>>({});
-  const [addingMapping, setAddingMapping] = useState<{ connectorId: string; channelId: string; channelName: string; departmentId: string } | null>(null);
+  const [addingMapping, setAddingMapping] = useState<{ connectorId: string; channelId: string; channelName: string; domainId: string } | null>(null);
 
   // Team state
-  type TeamUserScope = { id: string; departmentEntityId: string; departmentName: string };
-  type TeamUser = { id: string; name: string; email: string; role: string; entityId: string | null; entityName: string | null; departmentName: string | null; scopes: TeamUserScope[]; lastActive: string | null; createdAt: string };
-  type TeamInvite = { id: string; email: string; role: string; entityName: string; departmentName: string | null; link: string; expiresAt: string; createdAt: string };
+  type TeamUserScope = { id: string; domainEntityId: string; domainName: string };
+  type TeamUser = { id: string; name: string; email: string; role: string; entityId: string | null; entityName: string | null; domainName: string | null; scopes: TeamUserScope[]; lastActive: string | null; createdAt: string };
+  type TeamInvite = { id: string; email: string; role: string; entityName: string; domainName: string | null; link: string; expiresAt: string; createdAt: string };
   type TeamDept = { id: string; displayName: string };
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
   const [teamInvites, setTeamInvites] = useState<TeamInvite[]>([]);
-  const [teamDepts, setTeamDepts] = useState<TeamDept[]>([]);
+  const [teamDomains, setTeamDomains] = useState<TeamDept[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -186,6 +187,20 @@ function SettingsPageInner() {
   const [bulkSource, setBulkSource] = useState("");
   const [bulkTarget, setBulkTarget] = useState("");
   const [bulkRunning, setBulkRunning] = useState(false);
+
+  // Invite link state
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteCreatedAt, setInviteCreatedAt] = useState<string | null>(null);
+  const [inviteLinkLoading, setInviteLinkLoading] = useState(false);
+  const [inviteLinkSaving, setInviteLinkSaving] = useState(false);
+
+  // Deletion state
+  const [deleteStep, setDeleteStep] = useState(0); // 0=hidden, 1=first confirm, 2=type confirm
+  const [deleteTyped, setDeleteTyped] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<{ success: boolean; scheduledFor?: string } | null>(null);
+  const [operatorInfo, setOperatorInfo] = useState<{ id: string; displayName: string; deletionRequestedAt: string | null; deletionScheduledFor: string | null } | null>(null);
+  const [cancellingDeletion, setCancellingDeletion] = useState(false);
 
   // Merge state
   type MergeLogEntry = {
@@ -248,21 +263,34 @@ function SettingsPageInner() {
   const [emergencyStopReason, setEmergencyStopReason] = useState("");
   const [emergencyStopSaving, setEmergencyStopSaving] = useState(false);
 
+  // Load invite link
+  const loadInviteLink = useCallback(async () => {
+    setInviteLinkLoading(true);
+    try {
+      const res = await fetch("/api/operator/invite-link");
+      const data = await res.json();
+      setInviteUrl(data.inviteUrl ?? null);
+      setInviteCreatedAt(data.createdAt ?? null);
+    } catch {}
+    setInviteLinkLoading(false);
+  }, []);
+
   // Load team data
   const loadTeamData = useCallback(async () => {
     setTeamLoading(true);
     try {
-      const [usersRes, invitesRes, deptRes] = await Promise.all([
+      const [usersRes, invitesRes, domainRes] = await Promise.all([
         fetch("/api/users").then((r) => r.json()),
         fetch("/api/users/invite").then((r) => r.json()),
-        fetch("/api/departments").then((r) => r.json()),
+        fetch("/api/domains").then((r) => r.json()),
       ]);
       setTeamUsers(Array.isArray(usersRes) ? usersRes : []);
       setTeamInvites(Array.isArray(invitesRes) ? invitesRes : []);
-      setTeamDepts((deptRes || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
+      setTeamDomains((domainRes || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
     } catch {}
     setTeamLoading(false);
-  }, []);
+    loadInviteLink();
+  }, [loadInviteLink]);
 
   useEffect(() => {
     if (activeTab === "team") loadTeamData();
@@ -497,6 +525,14 @@ function SettingsPageInner() {
       loadConnectors();
     }
   }, [reconnectedParam]);
+
+  // Load operator info for danger zone
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch("/api/operator").then(r => r.json()).then(data => {
+      if (data.id) setOperatorInfo(data);
+    }).catch(() => {});
+  }, [isAdmin]);
 
   // Helper to update a single function config
   const updateFnConfig = (fn: AIFn, patch: Partial<FnConfig>) => {
@@ -979,8 +1015,8 @@ function SettingsPageInner() {
             setSlackChannels={setSlackChannels}
             addingMapping={addingMapping}
             setAddingMapping={setAddingMapping}
-            teamDepts={teamDepts}
-            setTeamDepts={setTeamDepts}
+            teamDomains={teamDomains}
+            setTeamDomains={setTeamDomains}
           />
         )}
 
@@ -1019,6 +1055,120 @@ function SettingsPageInner() {
               </div>
             )}
 
+            {/* Invite Link */}
+            {(isAdmin || isSuperadmin) && (
+              <div className="wf-soft p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-medium text-foreground">Invite Link</h2>
+                    <p className="text-xs text-[var(--fg3)] mt-0.5">Share this link to let anyone join your organisation as a member.</p>
+                  </div>
+                </div>
+
+                {inviteLinkLoading ? (
+                  <p className="text-sm text-[var(--fg3)]">Loading...</p>
+                ) : inviteUrl ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={inviteUrl}
+                        className="flex-1 px-3 py-2 rounded-md bg-hover border border-border text-sm text-foreground font-mono select-all"
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                      />
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => {
+                          navigator.clipboard.writeText(inviteUrl);
+                          toast("Link copied to clipboard", "success");
+                        }}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                    {inviteCreatedAt && (
+                      <p className="text-xs text-[var(--fg3)]">
+                        Created {formatRelativeTime(inviteCreatedAt)}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled={inviteLinkSaving}
+                        onClick={async () => {
+                          if (!window.confirm("This will invalidate the current invite link. Anyone with the old link will no longer be able to join. Continue?")) return;
+                          setInviteLinkSaving(true);
+                          try {
+                            const res = await fetch("/api/operator/invite-link", { method: "POST" });
+                            const data = await res.json();
+                            if (res.ok) {
+                              setInviteUrl(data.inviteUrl);
+                              setInviteCreatedAt(data.createdAt);
+                              toast("Invite link regenerated", "success");
+                            } else {
+                              toast(data.error || "Failed to regenerate link", "error");
+                            }
+                          } catch { toast("Failed to regenerate link", "error"); }
+                          setInviteLinkSaving(false);
+                        }}
+                      >
+                        {inviteLinkSaving ? "..." : "Regenerate Link"}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        disabled={inviteLinkSaving}
+                        onClick={async () => {
+                          if (!window.confirm("Revoke the invite link? Anyone with this link will no longer be able to join.")) return;
+                          setInviteLinkSaving(true);
+                          try {
+                            const res = await fetch("/api/operator/invite-link", { method: "DELETE" });
+                            if (res.ok) {
+                              setInviteUrl(null);
+                              setInviteCreatedAt(null);
+                              toast("Invite link revoked", "success");
+                            } else {
+                              const data = await res.json();
+                              toast(data.error || "Failed to revoke link", "error");
+                            }
+                          } catch { toast("Failed to revoke link", "error"); }
+                          setInviteLinkSaving(false);
+                        }}
+                      >
+                        Revoke
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={inviteLinkSaving}
+                    onClick={async () => {
+                      setInviteLinkSaving(true);
+                      try {
+                        const res = await fetch("/api/operator/invite-link", { method: "POST" });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setInviteUrl(data.inviteUrl);
+                          setInviteCreatedAt(data.createdAt);
+                          toast("Invite link created", "success");
+                        } else {
+                          toast(data.error || "Failed to create link", "error");
+                        }
+                      } catch { toast("Failed to create link", "error"); }
+                      setInviteLinkSaving(false);
+                    }}
+                  >
+                    {inviteLinkSaving ? "..." : "Generate Invite Link"}
+                  </Button>
+                )}
+              </div>
+            )}
+
             {/* Active Users */}
             <div className="wf-soft p-6 space-y-4">
               <div className="flex items-center justify-between">
@@ -1035,14 +1185,14 @@ function SettingsPageInner() {
                   <div className="flex items-end gap-3">
                     <Select
                       label="Source Department"
-                      options={[{ value: "", label: "Select..." }, ...teamDepts.map((d) => ({ value: d.id, label: d.displayName }))]}
+                      options={[{ value: "", label: "Select..." }, ...teamDomains.map((d) => ({ value: d.id, label: d.displayName }))]}
                       value={bulkSource}
                       onChange={(e) => setBulkSource(e.target.value)}
                     />
                     <span className="text-[var(--fg3)] pb-2">→</span>
                     <Select
                       label="Target Department"
-                      options={[{ value: "", label: "Select..." }, ...teamDepts.map((d) => ({ value: d.id, label: d.displayName }))]}
+                      options={[{ value: "", label: "Select..." }, ...teamDomains.map((d) => ({ value: d.id, label: d.displayName }))]}
                       value={bulkTarget}
                       onChange={(e) => setBulkTarget(e.target.value)}
                     />
@@ -1095,8 +1245,8 @@ function SettingsPageInner() {
                       {teamUsers.map((u) => {
                         const isEditing = editingUserId === u.id;
                         // Home dept scope = scope matching entity's department
-                        const homeDeptScopes = u.scopes.filter((s) => s.departmentName === u.departmentName);
-                        const extraScopes = u.scopes.filter((s) => s.departmentName !== u.departmentName);
+                        const homeDeptScopes = u.scopes.filter((s) => s.domainName === u.domainName);
+                        const extraScopes = u.scopes.filter((s) => s.domainName !== u.domainName);
 
                         return (
                           <tr key={u.id} className="border-b border-border align-top">
@@ -1149,8 +1299,8 @@ function SettingsPageInner() {
                               )}
                             </td>
                             <td className="py-2.5 text-xs">
-                              {u.departmentName ? (
-                                <span className="text-[var(--fg2)]">{u.departmentName}</span>
+                              {u.domainName ? (
+                                <span className="text-[var(--fg2)]">{u.domainName}</span>
                               ) : u.role === "admin" ? (
                                 <span className="text-[var(--fg2)]">All</span>
                               ) : u.scopes.length === 0 ? (
@@ -1166,7 +1316,7 @@ function SettingsPageInner() {
                                 <div className="flex flex-wrap gap-1">
                                   {extraScopes.map((s) => (
                                     <span key={s.id} className="inline-flex items-center gap-1 text-[10px] bg-skeleton rounded px-1.5 py-0.5 text-[var(--fg2)]">
-                                      {s.departmentName}
+                                      {s.domainName}
                                       <button
                                         className="text-danger hover:text-danger"
                                         title="Remove access"
@@ -1183,7 +1333,7 @@ function SettingsPageInner() {
                                     </span>
                                   ))}
                                   {homeDeptScopes.length > 0 && (
-                                    <span className="text-[10px] bg-skeleton rounded px-1.5 py-0.5 text-[var(--fg3)]">{u.departmentName} (home)</span>
+                                    <span className="text-[10px] bg-skeleton rounded px-1.5 py-0.5 text-[var(--fg3)]">{u.domainName} (home)</span>
                                   )}
                                 </div>
                               )}
@@ -1205,7 +1355,7 @@ function SettingsPageInner() {
                                       const res = await fetch(`/api/users/${u.id}/scopes`, {
                                         method: "POST",
                                         headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ departmentEntityId: deptId }),
+                                        body: JSON.stringify({ domainEntityId: deptId }),
                                       });
                                       if (res.ok) { toast("Access granted", "success"); loadTeamData(); }
                                       else { const d = await res.json(); toast(d.error || "Failed", "error"); }
@@ -1213,8 +1363,8 @@ function SettingsPageInner() {
                                   }}
                                 >
                                   <option value="">+ Add dept</option>
-                                  {teamDepts
-                                    .filter((d) => !u.scopes.some((s) => s.departmentEntityId === d.id))
+                                  {teamDomains
+                                    .filter((d) => !u.scopes.some((s) => s.domainEntityId === d.id))
                                     .map((d) => <option key={d.id} value={d.id}>{d.displayName}</option>)}
                                 </select>
                               )}
@@ -1261,7 +1411,7 @@ function SettingsPageInner() {
                           <td className="py-2.5 text-[var(--fg2)]">{inv.entityName}</td>
                           <td className="py-2.5 text-[var(--fg2)]">{inv.email}</td>
                           <td className="py-2.5 text-[var(--fg2)] capitalize">{inv.role}</td>
-                          <td className="py-2.5 text-[var(--fg2)]">{inv.departmentName || "—"}</td>
+                          <td className="py-2.5 text-[var(--fg2)]">{inv.domainName || "—"}</td>
                           <td className="py-2.5">
                             <button
                               className="text-xs text-accent hover:text-accent"
@@ -1701,6 +1851,168 @@ function SettingsPageInner() {
           </div>
         )}
 
+        {/* Danger Zone — only visible to admins */}
+        {isAdmin && operatorInfo && (
+          <div style={{
+            marginTop: 48,
+            padding: 24,
+            borderRadius: 12,
+            border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
+            background: "color-mix(in srgb, var(--danger) 4%, transparent)",
+          }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: "var(--danger)", marginBottom: 8 }}>
+              Danger Zone
+            </h3>
+
+            {operatorInfo.deletionRequestedAt ? (
+              <>
+                <p style={{ fontSize: 13, color: "var(--fg2)", marginBottom: 8, lineHeight: 1.6 }}>
+                  This organization is scheduled for deletion on{" "}
+                  <strong>{new Date(operatorInfo.deletionScheduledFor!).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}</strong>.
+                  All data will be permanently destroyed after this time.
+                </p>
+                <button
+                  onClick={async () => {
+                    setCancellingDeletion(true);
+                    try {
+                      const res = await fetch(`/api/operators/${operatorInfo.id}/cancel-deletion`, { method: "POST" });
+                      if (res.ok) {
+                        setOperatorInfo(prev => prev ? { ...prev, deletionRequestedAt: null, deletionScheduledFor: null } : prev);
+                        toast("Deletion cancelled", "success");
+                      } else {
+                        const data = await res.json().catch(() => null);
+                        toast(data?.error || "Failed to cancel", "error");
+                      }
+                    } catch { toast("Connection error", "error"); }
+                    finally { setCancellingDeletion(false); }
+                  }}
+                  disabled={cancellingDeletion}
+                  style={{
+                    padding: "8px 20px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    color: "var(--foreground)",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  {cancellingDeletion ? "Cancelling..." : "Cancel Deletion"}
+                </button>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: "var(--fg2)", marginBottom: 16, lineHeight: 1.6 }}>
+                  Permanently delete this organization and all associated data. This action cannot be undone.
+                  All connected systems will be disconnected, all wiki knowledge will be destroyed, and all
+                  team member accounts will be deactivated.
+                </p>
+                <button
+                  onClick={() => setDeleteStep(1)}
+                  style={{
+                    padding: "8px 20px",
+                    borderRadius: 6,
+                    border: "1px solid var(--danger)",
+                    background: "transparent",
+                    color: "var(--danger)",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  Delete Organization
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Delete — First Confirmation Modal */}
+        <Modal open={deleteStep === 1} onClose={() => { setDeleteStep(0); setDeleteResult(null); }} title={`Delete ${operatorInfo?.displayName ?? "Organization"}?`}>
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--fg2)] leading-relaxed">
+              This will permanently delete:
+            </p>
+            <ul className="text-sm text-[var(--fg2)] list-disc pl-5 space-y-1">
+              <li>All organizational data and wiki knowledge</li>
+              <li>All connected system integrations</li>
+              <li>All team member accounts ({teamUsers.length} members)</li>
+              <li>All situations, projects, and initiatives</li>
+              <li>All AI learning and system intelligence</li>
+            </ul>
+            <p className="text-sm text-[var(--fg3)]">
+              Deletion will be scheduled with a 48-hour grace period.
+              During this period, any admin can cancel the deletion.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="default" size="sm" onClick={() => setDeleteStep(0)}>Cancel</Button>
+              <Button variant="danger" size="sm" onClick={() => { setDeleteStep(2); setDeleteTyped(""); }}>
+                Continue to Final Confirmation
+              </Button>
+            </div>
+          </div>
+        </Modal>
+
+        {/* Delete — Type to Confirm Modal */}
+        <Modal open={deleteStep === 2} onClose={() => { setDeleteStep(0); setDeleteResult(null); }} title="Final Confirmation">
+          {deleteResult?.success ? (
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--fg2)]">
+                Deletion scheduled for{" "}
+                <strong>{deleteResult.scheduledFor ? new Date(deleteResult.scheduledFor).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "48 hours from now"}</strong>.
+                All admins have been notified. You can cancel this in Settings within 48 hours.
+              </p>
+              <div className="flex justify-end pt-2">
+                <Button variant="default" size="sm" onClick={() => { setDeleteStep(0); setDeleteResult(null); }}>Close</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-[var(--fg2)]">
+                Type the organization name to confirm deletion:
+              </p>
+              <Input
+                value={deleteTyped}
+                onChange={e => setDeleteTyped(e.target.value)}
+                placeholder={operatorInfo?.displayName ?? ""}
+                autoFocus
+              />
+              <p className="text-xs text-[var(--fg4)]">
+                The organization name is: <strong className="text-[var(--fg2)]">{operatorInfo?.displayName}</strong>
+              </p>
+              <p className="text-xs text-[var(--fg4)]">
+                This is irreversible after the 48-hour grace period expires.
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="default" size="sm" onClick={() => setDeleteStep(0)}>Cancel</Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={deleteLoading || deleteTyped.toLowerCase() !== (operatorInfo?.displayName ?? "").toLowerCase()}
+                  onClick={async () => {
+                    if (!operatorInfo) return;
+                    setDeleteLoading(true);
+                    try {
+                      const res = await fetch(`/api/operators/${operatorInfo.id}/request-deletion`, { method: "POST" });
+                      const data = await res.json();
+                      if (res.ok) {
+                        setDeleteResult({ success: true, scheduledFor: data.deletionScheduledFor });
+                        setOperatorInfo(prev => prev ? { ...prev, deletionRequestedAt: new Date().toISOString(), deletionScheduledFor: data.deletionScheduledFor } : prev);
+                      } else {
+                        toast(data.error || "Failed to request deletion", "error");
+                      }
+                    } catch { toast("Connection error", "error"); }
+                    finally { setDeleteLoading(false); }
+                  }}
+                >
+                  {deleteLoading ? "Deleting..." : "Delete Organization"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Modal>
+
           </div>
         </div>
       </div>
@@ -1731,7 +2043,7 @@ function UsageTab() {
   const [data, setData] = useState<UsageData | null>(null);
   const [limits, setLimits] = useState<LimitsData | null>(null);
   const [dateRange, setDateRange] = useState("this_month");
-  const [attrView, setAttrView] = useState<"departments" | "people">("departments");
+  const [attrView, setAttrView] = useState<"domains" | "people">("domains");
 
   const dateParams = () => {
     const now = new Date();
@@ -1849,20 +2161,20 @@ function UsageTab() {
             <div className="flex items-center gap-4 mb-3">
               <div className="text-[14px] font-semibold text-foreground">Attribution</div>
               <div className="flex gap-1 bg-hover rounded-md p-0.5">
-                {(["departments", "people"] as const).map((v) => (
+                {(["domains", "people"] as const).map((v) => (
                   <button key={v} onClick={() => setAttrView(v)} className={`px-3 py-1 text-[12px] rounded-md transition-colors ${attrView === v ? "bg-elevated text-foreground font-medium" : "text-[var(--fg3)]"}`}>
-                    {v === "departments" ? "Departments" : "People"}
+                    {v === "domains" ? "Domains" : "People"}
                   </button>
                 ))}
               </div>
             </div>
             <div className="wf-soft overflow-hidden">
-              {attrView === "departments" ? (
+              {attrView === "domains" ? (
                 <table className="w-full text-[13px]">
-                  <thead><tr className="text-[var(--fg3)] text-left border-b border-border"><th className="px-4 py-2 font-medium">Department</th><th className="px-4 py-2 font-medium text-right">Situations</th><th className="px-4 py-2 font-medium text-right">Cost</th></tr></thead>
-                  <tbody>{(data.departments ?? []).map((d, i) => (
+                  <thead><tr className="text-[var(--fg3)] text-left border-b border-border"><th className="px-4 py-2 font-medium">Domain</th><th className="px-4 py-2 font-medium text-right">Situations</th><th className="px-4 py-2 font-medium text-right">Cost</th></tr></thead>
+                  <tbody>{(data.domains ?? []).map((d, i) => (
                     <tr key={i} className="border-b border-border last:border-0"><td className="px-4 py-2 text-[var(--fg2)]">{d.name}</td><td className="px-4 py-2 text-right text-[var(--fg3)]">{d.count}</td><td className="px-4 py-2 text-right text-[var(--fg2)]">{c(d.totalCents)}</td></tr>
-                  ))}{data.departments?.length === 0 && <tr><td colSpan={3} className="px-4 py-4 text-center text-[var(--fg3)]">No department data</td></tr>}</tbody>
+                  ))}{data.domains?.length === 0 && <tr><td colSpan={3} className="px-4 py-4 text-center text-[var(--fg3)]">No department data</td></tr>}</tbody>
                 </table>
               ) : (
                 <table className="w-full text-[13px]">
@@ -2131,7 +2443,7 @@ type UsageData = {
     totalBilledCents: number;
     projectedMonthEndCents: number;
   };
-  departments: Array<{ name: string; count: number; totalCents: number }>;
+  domains: Array<{ name: string; count: number; totalCents: number }>;
   historicalMonths: Array<{ month: string; supervised: number; notify: number; autonomous: number; situationCount: number }>;
   dailyBreakdown?: Array<{ date: string; supervised: number; notify: number; autonomous: number; copilot: number; total: number }>;
   employees: Array<{ userId: string; name: string; email: string; situationCount: number; copilotMessages: number; totalBilledCents: number }>;
@@ -2497,7 +2809,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 const TIER1_PROVIDERS = new Set(["google", "microsoft"]);
 
 type SheetEntry2 = { id: string; name: string; selected: boolean };
-type ChannelMapping2 = { id: string; channelId: string; channelName: string; departmentId: string; department: { id: string; displayName: string } };
+type ChannelMapping2 = { id: string; channelId: string; channelName: string; domainId: string; department: { id: string; displayName: string } };
 type SlackChannel2 = { id: string; name: string; is_private: boolean };
 type TeamDept2 = { id: string; displayName: string };
 
@@ -2506,7 +2818,7 @@ function ConnectionsTab({
   expandedConnector, setExpandedConnector, sheetsByConnector, setSheetsByConnector,
   savingSheets, setSavingSheets, manualSheetUrl, setManualSheetUrl,
   slackMappingExpanded, setSlackMappingExpanded, slackMappings, setSlackMappings,
-  slackChannels, setSlackChannels, addingMapping, setAddingMapping, teamDepts, setTeamDepts,
+  slackChannels, setSlackChannels, addingMapping, setAddingMapping, teamDomains, setTeamDomains,
 }: {
   connectors: ConnectorItem[];
   providers: ProviderInfo[];
@@ -2529,10 +2841,10 @@ function ConnectionsTab({
   setSlackMappings: (fn: (prev: Record<string, ChannelMapping2[]>) => Record<string, ChannelMapping2[]>) => void;
   slackChannels: Record<string, SlackChannel2[]>;
   setSlackChannels: (fn: (prev: Record<string, SlackChannel2[]>) => Record<string, SlackChannel2[]>) => void;
-  addingMapping: { connectorId: string; channelId: string; channelName: string; departmentId: string } | null;
-  setAddingMapping: (v: { connectorId: string; channelId: string; channelName: string; departmentId: string } | null) => void;
-  teamDepts: TeamDept2[];
-  setTeamDepts: (v: TeamDept2[]) => void;
+  addingMapping: { connectorId: string; channelId: string; channelName: string; domainId: string } | null;
+  setAddingMapping: (v: { connectorId: string; channelId: string; channelName: string; domainId: string } | null) => void;
+  teamDomains: TeamDept2[];
+  setTeamDomains: (v: TeamDept2[]) => void;
 }) {
   const t = useTranslations("settings");
   const locale = useLocale();
@@ -2899,8 +3211,8 @@ function ConnectionsTab({
                   setSlackChannels={setSlackChannels}
                   addingMapping={addingMapping}
                   setAddingMapping={setAddingMapping}
-                  teamDepts={teamDepts}
-                  setTeamDepts={setTeamDepts}
+                  teamDomains={teamDomains}
+                  setTeamDomains={setTeamDomains}
                 />
               )}
 
@@ -3041,7 +3353,7 @@ function ConnectionsTab({
 function SlackMappingPanel({
   connectorId, slackMappingExpanded, setSlackMappingExpanded,
   slackMappings, setSlackMappings, slackChannels, setSlackChannels,
-  addingMapping, setAddingMapping, teamDepts, setTeamDepts,
+  addingMapping, setAddingMapping, teamDomains, setTeamDomains,
 }: {
   connectorId: string;
   slackMappingExpanded: string | null;
@@ -3050,10 +3362,10 @@ function SlackMappingPanel({
   setSlackMappings: (fn: (prev: Record<string, ChannelMapping2[]>) => Record<string, ChannelMapping2[]>) => void;
   slackChannels: Record<string, SlackChannel2[]>;
   setSlackChannels: (fn: (prev: Record<string, SlackChannel2[]>) => Record<string, SlackChannel2[]>) => void;
-  addingMapping: { connectorId: string; channelId: string; channelName: string; departmentId: string } | null;
-  setAddingMapping: (v: { connectorId: string; channelId: string; channelName: string; departmentId: string } | null) => void;
-  teamDepts: TeamDept2[];
-  setTeamDepts: (v: TeamDept2[]) => void;
+  addingMapping: { connectorId: string; channelId: string; channelName: string; domainId: string } | null;
+  setAddingMapping: (v: { connectorId: string; channelId: string; channelName: string; domainId: string } | null) => void;
+  teamDomains: TeamDept2[];
+  setTeamDomains: (v: TeamDept2[]) => void;
 }) {
   const t = useTranslations("settings");
   const isExpanded = slackMappingExpanded === connectorId;
@@ -3076,12 +3388,12 @@ function SlackMappingPanel({
               }
             } catch { /* ignore */ }
           }
-          if (teamDepts.length === 0) {
+          if (teamDomains.length === 0) {
             try {
-              const dRes = await fetch("/api/departments");
+              const dRes = await fetch("/api/domains");
               if (dRes.ok) {
                 const dData = await dRes.json();
-                setTeamDepts((dData || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
+                setTeamDomains((dData || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
               }
             } catch { /* ignore */ }
           }
@@ -3143,20 +3455,20 @@ function SlackMappingPanel({
               <span className="text-xs text-[var(--fg3)]">&rarr;</span>
               <select
                 className="flex-1 bg-hover border border-border rounded px-2 py-1.5 text-sm text-foreground"
-                value={addingMapping.departmentId}
-                onChange={(e) => setAddingMapping({ ...addingMapping, departmentId: e.target.value })}
+                value={addingMapping.domainId}
+                onChange={(e) => setAddingMapping({ ...addingMapping, domainId: e.target.value })}
               >
                 <option value="">{t("connections.selectDepartment")}</option>
-                {teamDepts.map(d => (<option key={d.id} value={d.id}>{d.displayName}</option>))}
+                {teamDomains.map(d => (<option key={d.id} value={d.id}>{d.displayName}</option>))}
               </select>
               <button
                 className="text-xs font-medium px-2.5 py-1.5 rounded bg-accent text-white disabled:opacity-40"
-                disabled={!addingMapping.channelId || !addingMapping.departmentId}
+                disabled={!addingMapping.channelId || !addingMapping.domainId}
                 onClick={async () => {
                   const res = await fetch(`/api/connectors/${connectorId}/channel-mappings`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ channelId: addingMapping.channelId, channelName: addingMapping.channelName, departmentId: addingMapping.departmentId }),
+                    body: JSON.stringify({ channelId: addingMapping.channelId, channelName: addingMapping.channelName, domainId: addingMapping.domainId }),
                   });
                   if (res.ok) {
                     const created = await res.json();
@@ -3172,7 +3484,7 @@ function SlackMappingPanel({
           ) : (
             <button
               className="text-xs text-accent hover:text-accent"
-              onClick={() => setAddingMapping({ connectorId, channelId: "", channelName: "", departmentId: "" })}
+              onClick={() => setAddingMapping({ connectorId, channelId: "", channelName: "", domainId: "" })}
             >
               + {t("connections.addChannelMapping")}
             </button>

@@ -26,7 +26,7 @@ interface PersonalConnector {
 interface AiEntity {
   id: string;
   displayName: string;
-  departments: Array<{ id: string; displayName: string }>;
+  domains: Array<{ id: string; displayName: string }>;
 }
 
 interface PersonalAutonomyRow {
@@ -283,7 +283,7 @@ const NOTIFICATION_TYPES = [
   { type: "delegation_received", label: "Task delegated to you" },
   { type: "follow_up_triggered", label: "Follow-up triggered" },
   { type: "plan_auto_executed", label: "Plan auto-executed" },
-  { type: "peer_signal", label: "Cross-department signal" },
+  { type: "peer_signal", label: "Cross-domain signal" },
   { type: "insight_discovered", label: "New insight discovered" },
   { type: "system_alert", label: "System alert" },
 ];

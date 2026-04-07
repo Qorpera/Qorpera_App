@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
 
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
 
   const params = req.nextUrl.searchParams;
   const statusParam = params.get("status");
@@ -24,14 +24,14 @@ export async function GET(req: NextRequest) {
   }
 
   // Scope filtering for members
-  if (visibleDepts !== "all") {
+  if (visibleDomains !== "all") {
     where.OR = [
       // Situation-sourced: scope department visible or unscoped
       {
         sourceType: "situation",
         situation: {
           OR: [
-            { situationType: { scopeEntityId: { in: visibleDepts } } },
+            { situationType: { scopeEntityId: { in: visibleDomains } } },
             { situationType: { scopeEntityId: null } },
           ],
         },
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       {
         sourceType: "initiative",
         initiative: {
-          goal: { departmentId: { in: visibleDepts } },
+          goal: { domainId: { in: visibleDomains } },
         },
       },
       // Recurring/delegation: include for all authenticated users

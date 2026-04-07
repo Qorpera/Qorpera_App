@@ -8,15 +8,15 @@ const actionRequiredTypeCache = new Map<string, string>();
 
 export async function ensureActionRequiredType(
   operatorId: string,
-  departmentId: string,
+  domainId: string,
 ): Promise<string> {
-  const cacheKey = `${operatorId}:${departmentId}`;
+  const cacheKey = `${operatorId}:${domainId}`;
   const cached = actionRequiredTypeCache.get(cacheKey);
   if (cached) return cached;
 
   // Look up department name for slug
   const dept = await prisma.entity.findUnique({
-    where: { id: departmentId },
+    where: { id: domainId },
     select: { displayName: true },
   });
   const deptSlug = (dept?.displayName ?? "general")
@@ -41,7 +41,7 @@ export async function ensureActionRequiredType(
         description: "Detected from incoming communications",
       }),
       autonomyLevel: "supervised",
-      scopeEntityId: departmentId,
+      scopeEntityId: domainId,
       enabled: true,
     },
     update: {}, // no-op if exists
@@ -55,14 +55,14 @@ const awarenessTypeCache = new Map<string, string>();
 
 export async function ensureAwarenessType(
   operatorId: string,
-  departmentId: string,
+  domainId: string,
 ): Promise<string> {
-  const cacheKey = `${operatorId}:${departmentId}`;
+  const cacheKey = `${operatorId}:${domainId}`;
   const cached = awarenessTypeCache.get(cacheKey);
   if (cached) return cached;
 
   const dept = await prisma.entity.findUnique({
-    where: { id: departmentId },
+    where: { id: domainId },
     select: { displayName: true },
   });
   const deptSlug = (dept?.displayName ?? "general")
@@ -83,7 +83,7 @@ export async function ensureAwarenessType(
         description: "Awareness items detected from incoming communications",
       }),
       autonomyLevel: "supervised",
-      scopeEntityId: departmentId,
+      scopeEntityId: domainId,
       enabled: true,
     },
     update: {},

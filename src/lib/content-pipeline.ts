@@ -21,7 +21,7 @@ type ContentInput = {
   content: string;
   connectorId?: string;
   entityId?: string;
-  departmentIds?: string[];
+  domainIds?: string[];
   projectId?: string;
   metadata?: Record<string, unknown>;
 };
@@ -29,7 +29,7 @@ type ContentInput = {
 export async function ingestContent(
   input: ContentInput,
 ): Promise<{ chunksCreated: number }> {
-  const { operatorId, userId, sourceType, sourceId, content, connectorId, entityId, departmentIds, projectId, metadata } = input;
+  const { operatorId, userId, sourceType, sourceId, content, connectorId, entityId, domainIds, projectId, metadata } = input;
 
   if (!userId && sourceType !== "uploaded_doc") {
     console.warn(`[content-pipeline] ContentChunk created without userId — sourceType: ${sourceType}, sourceId: ${sourceId}`);
@@ -96,7 +96,7 @@ export async function ingestContent(
   });
 
   // 6. Write ContentChunk rows + vector embeddings
-  const deptJson = departmentIds?.length ? JSON.stringify(departmentIds) : null;
+  const deptJson = domainIds?.length ? JSON.stringify(domainIds) : null;
 
   for (let i = 0; i < enrichedChunks.length; i++) {
     const chunk = enrichedChunks[i];
@@ -116,7 +116,7 @@ export async function ingestContent(
         sourceType,
         sourceId,
         entityId: entityId ?? null,
-        departmentIds: deptJson,
+        domainIds: deptJson,
         projectId: projectId ?? null,
         chunkIndex: chunk.chunkIndex,
         content: chunk.content,

@@ -157,7 +157,7 @@ You are looking for patterns in two categories:
 **INITIATIVES** (coordinated multi-person work -> becomes a project):
 - Financial risks requiring policy changes + client communication + process updates
 - Declining relationships that need account review across teams
-- Process bottlenecks affecting multiple departments
+- Process bottlenecks affecting multiple domains
 - Compliance gaps requiring documentation + training + system changes
 - Resource mismatches requiring hiring + redistribution + planning
 - Any pattern where 3+ people need to produce distinct deliverables toward a shared goal

@@ -11,7 +11,7 @@ describe("Route loading.tsx files", () => {
     "src/app/projects/loading.tsx",
     "src/app/copilot/loading.tsx",
     "src/app/map/loading.tsx",
-    "src/app/map/[departmentId]/loading.tsx",
+    "src/app/map/[domainId]/loading.tsx",
     "src/app/learning/loading.tsx",
     "src/app/governance/loading.tsx",
     "src/app/settings/loading.tsx",

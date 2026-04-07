@@ -219,7 +219,7 @@ async function main() {
       entity = await prisma.entity.create({
         data: {
           operatorId, entityTypeId: typeMap.get("team-member")!, displayName: name,
-          category: "base", parentDepartmentId: deptIds[deptIdx],
+          category: "base", primaryDomainId: deptIds[deptIdx],
         },
       });
       const pvData: Array<{ entityId: string; propertyId: string; value: string }> = [];
@@ -246,7 +246,7 @@ async function main() {
         entity = await prisma.entity.create({
           data: {
             operatorId, entityTypeId: docTypeId, displayName: docName,
-            category: "internal", parentDepartmentId: deptIds[di], sourceSystem: "document-upload",
+            category: "internal", primaryDomainId: deptIds[di], sourceSystem: "document-upload",
           },
         });
         await prisma.internalDocument.create({
@@ -254,13 +254,13 @@ async function main() {
             operatorId, fileName: `${docName}.txt`, mimeType: "text/plain",
             filePath: `/fake/${docName.replace(/ /g, "_")}.txt`,
             rawText: LOREM.repeat(4), documentType: "context",
-            departmentId: deptIds[di], entityId: entity.id,
+            domainId: deptIds[di], entityId: entity.id,
             status: "extracted", embeddingStatus: "complete",
           },
         });
         const chunkData = Array.from({ length: 10 }, (_, ci) => ({
           operatorId, sourceType: "uploaded_doc", sourceId: entity!.id,
-          entityId: entity!.id, departmentIds: JSON.stringify([deptIds[di]]),
+          entityId: entity!.id, domainIds: JSON.stringify([deptIds[di]]),
           chunkIndex: ci,
           content: `${docName} chunk ${ci}: ${LOREM.slice(0, 200)}`,
           tokenCount: rand(80, 150),

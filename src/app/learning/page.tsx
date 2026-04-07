@@ -33,7 +33,7 @@ interface OverviewData {
   outcomeDistribution: Record<string, number>;
 }
 
-interface DeptData {
+interface DomainData {
   id: string | null;
   name: string;
   situationCount: number;
@@ -50,7 +50,7 @@ interface DeptData {
 interface FeedbackEntry {
   id: string;
   situationTypeName: string;
-  departmentName: string | null;
+  domainName: string | null;
   feedbackCategory: string | null;
   feedback: string | null;
   createdAt: string;
@@ -133,9 +133,9 @@ export default function LearningPage() {
   const t = useTranslations("learning");
   const { isAdmin } = useUser();
   const [period, setPeriod] = useState(30);
-  const [departmentFilter, setDepartmentFilter] = useState<string | null>(null);
+  const [domainFilter, setDomainFilter] = useState<string | null>(null);
   const [overview, setOverview] = useState<OverviewData | null>(null);
-  const [departments, setDepartments] = useState<DeptData[]>([]);
+  const [departments, setDepartments] = useState<DomainData[]>([]);
   const [feedbackImpact, setFeedbackImpact] = useState<FeedbackData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedType, setExpandedType] = useState<string | null>(null);
@@ -147,11 +147,11 @@ export default function LearningPage() {
     const params = `days=${period}`;
     Promise.all([
       fetch(`/api/learning/overview?${params}`).then((r) => r.json()),
-      fetch(`/api/learning/departments?${params}`).then((r) => r.json()),
+      fetch(`/api/learning/domains?${params}`).then((r) => r.json()),
       fetch(`/api/learning/feedback-impact?${params}`).then((r) => r.json()),
     ]).then(([ov, dept, fb]) => {
       setOverview(ov);
-      setDepartments(dept.departments ?? []);
+      setDepartments(dept.domains ?? []);
       setFeedbackImpact(fb);
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -194,21 +194,21 @@ export default function LearningPage() {
   }
 
   // Client-side department filtering
-  const filteredDepts = departmentFilter
-    ? departments.filter((d) => d.id === departmentFilter)
+  const filteredDomains = domainFilter
+    ? departments.filter((d) => d.id === domainFilter)
     : departments;
 
-  const allSituationTypes = filteredDepts.flatMap((d) =>
-    d.situationTypes.map((st) => ({ ...st, departmentName: d.name, departmentId: d.id })),
+  const allSituationTypes = filteredDomains.flatMap((d) =>
+    d.situationTypes.map((st) => ({ ...st, domainName: d.name, domainId: d.id })),
   ).sort((a, b) => b.count - a.count);
 
   const filteredFeedback = feedbackImpact
-    ? departmentFilter
+    ? domainFilter
       ? {
           ...feedbackImpact,
           recentFeedback: feedbackImpact.recentFeedback.filter((f) => {
-            const dept = departments.find((d) => d.id === departmentFilter);
-            return dept && f.departmentName === dept.name;
+            const dept = departments.find((d) => d.id === domainFilter);
+            return dept && f.domainName === dept.name;
           }),
         }
       : feedbackImpact
@@ -231,8 +231,8 @@ export default function LearningPage() {
               <option value={90}>Last 90 days</option>
             </select>
             <select
-              value={departmentFilter ?? ""}
-              onChange={(e) => setDepartmentFilter(e.target.value || null)}
+              value={domainFilter ?? ""}
+              onChange={(e) => setDomainFilter(e.target.value || null)}
               className="wf-soft px-3 py-1.5 text-sm text-[var(--fg2)] bg-elevated border-0 outline-none cursor-pointer"
             >
               <option value="">All Departments</option>
@@ -264,9 +264,9 @@ export default function LearningPage() {
 
             {/* Panel 2: Department Breakdown */}
             <DepartmentTable
-              departments={filteredDepts}
-              onSelectDepartment={setDepartmentFilter}
-              activeDepartment={departmentFilter}
+              domains={filteredDomains}
+              onSelectDepartment={setDomainFilter}
+              activeDomain={domainFilter}
             />
 
             {/* Panel 3: Situation Types */}
@@ -404,20 +404,20 @@ function OverviewPanel({ overview }: { overview: OverviewData | null }) {
 // ── Panel 2: Department Breakdown ────────────────────────────────────────────
 
 function DepartmentTable({
-  departments,
+  domains,
   onSelectDepartment,
-  activeDepartment,
+  activeDomain,
 }: {
-  departments: DeptData[];
+  domains: DomainData[];
   onSelectDepartment: (id: string | null) => void;
-  activeDepartment: string | null;
+  activeDomain: string | null;
 }) {
   const t = useTranslations("learning");
-  if (departments.length === 0) {
+  if (domains.length === 0) {
     return (
       <section className="space-y-4">
         <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
-          {t("departmentPerformance")}
+          {t("domainPerformance")}
         </h2>
         <div className="wf-soft p-8 text-center text-sm text-[var(--fg3)]">
           Complete onboarding to see department breakdown
@@ -426,9 +426,9 @@ function DepartmentTable({
     );
   }
 
-  const sorted = [...departments].sort((a, b) => b.situationCount - a.situationCount);
+  const sorted = [...domains].sort((a, b) => b.situationCount - a.situationCount);
 
-  function highestAutonomy(dept: DeptData): string {
+  function highestAutonomy(dept: DomainData): string {
     const levels = dept.situationTypes.map((st) => st.autonomyLevel);
     if (levels.includes("autonomous")) return "autonomous";
     if (levels.includes("notify")) return "notify";
@@ -439,9 +439,9 @@ function DepartmentTable({
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-[var(--fg2)] uppercase tracking-wider">
-          {t("departmentPerformance")}
+          {t("domainPerformance")}
         </h2>
-        {activeDepartment && (
+        {activeDomain && (
           <button
             onClick={() => onSelectDepartment(null)}
             className="text-xs text-accent hover:text-accent"
@@ -464,7 +464,7 @@ function DepartmentTable({
           <tbody>
             {sorted.map((dept) => {
               const top = highestAutonomy(dept);
-              const isActive = activeDepartment === dept.id;
+              const isActive = activeDomain === dept.id;
               return (
                 <tr
                   key={dept.id ?? "unscoped"}
@@ -526,8 +526,8 @@ function SituationTypesPanel({
     name: string;
     autonomyLevel: string;
     count: number;
-    departmentName: string;
-    departmentId: string | null;
+    domainName: string;
+    domainId: string | null;
   }>;
   expandedType: string | null;
   typeDetail: TypeDetail | null;
@@ -581,7 +581,7 @@ function SituationTypeCard({
     name: string;
     autonomyLevel: string;
     count: number;
-    departmentName: string;
+    domainName: string;
   };
   isExpanded: boolean;
   detail: TypeDetail | null;
@@ -603,7 +603,7 @@ function SituationTypeCard({
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="text-foreground font-medium">{st.name}</span>
-            <span className="text-xs text-[var(--fg3)]">{st.departmentName}</span>
+            <span className="text-xs text-[var(--fg3)]">{st.domainName}</span>
           </div>
           <span
             className="text-xs px-2 py-0.5 rounded-full"
@@ -825,10 +825,10 @@ function FeedbackPanel({ feedback }: { feedback: FeedbackData | null }) {
             </p>
             <div className="flex items-center gap-2 text-xs text-[var(--fg2)] flex-wrap">
               <span>{f.situationTypeName}</span>
-              {f.departmentName && (
+              {f.domainName && (
                 <>
                   <span className="text-[var(--fg3)]">&#x2022;</span>
-                  <span>{f.departmentName}</span>
+                  <span>{f.domainName}</span>
                 </>
               )}
               {f.feedbackCategory && (

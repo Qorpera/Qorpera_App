@@ -129,7 +129,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
     isInternal: p.isInternal,
     adminApiVerified: p.adminApiVerified ?? false,
     title: p.adminTitle ?? p.sources?.[0]?.title,
-    department: p.adminDepartment ?? p.sources?.[0]?.role,
+    domain: p.adminDepartment ?? p.sources?.[0]?.role,
   }));
 
   const synthesisInput = await buildRawDataSynthesisInput(operatorId, registryForSynthesis);
@@ -159,7 +159,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
         `Total extractions: ${stats.totalExtractions} from ${Object.keys(stats.bySourceType).length} source types\n` +
         `Total claims: ${stats.totalClaims}, contradictions: ${stats.totalContradictions}\n` +
         `Source types: ${Object.entries(stats.bySourceType).map(([t, c]) => `${t}: ${c}`).join(", ")}\n\n` +
-        `### Most-mentioned entities (use for department assignment and role inference):\n` +
+        `### Most-mentioned entities (use for domain assignment and role inference):\n` +
         entityMentions.map((e) => `- ${e.entity}: mentioned ${e.count} times`).join("\n");
     }
   } catch (err) {

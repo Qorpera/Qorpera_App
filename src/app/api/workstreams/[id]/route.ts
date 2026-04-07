@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 import { canMemberAccessWorkStream } from "@/lib/workstreams";
 
 export async function GET(
@@ -14,9 +14,9 @@ export async function GET(
   const { id } = await params;
 
   // Member scope check
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
-  if (visibleDepts !== "all") {
-    const canAccess = await canMemberAccessWorkStream(user.id, id, operatorId, visibleDepts);
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
+  if (visibleDomains !== "all") {
+    const canAccess = await canMemberAccessWorkStream(user.id, id, operatorId, visibleDomains);
     if (!canAccess) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }

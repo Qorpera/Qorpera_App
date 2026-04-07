@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     prisma.entity.findFirst({ where: { id: targetDepartmentId, operatorId: su.operatorId, category: "foundational" } }),
   ]);
   if (!srcDept || !tgtDept) {
-    return NextResponse.json({ error: "Department not found" }, { status: 404 });
+    return NextResponse.json({ error: "Domain not found" }, { status: 404 });
   }
 
   // Find all member users whose entity is in the source department
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     where: {
       operatorId: su.operatorId,
       role: "member",
-      entity: { parentDepartmentId: sourceDepartmentId, category: "base" },
+      entity: { primaryDomainId: sourceDepartmentId, category: "base" },
     },
     select: { id: true },
   });
@@ -38,13 +38,13 @@ export async function POST(req: NextRequest) {
 
   for (const u of users) {
     const existing = await prisma.userScope.findUnique({
-      where: { userId_departmentEntityId: { userId: u.id, departmentEntityId: targetDepartmentId } },
+      where: { userId_domainEntityId: { userId: u.id, domainEntityId: targetDepartmentId } },
     });
     if (existing) {
       alreadyHad++;
     } else {
       await prisma.userScope.create({
-        data: { userId: u.id, departmentEntityId: targetDepartmentId, grantedById: su.user.id },
+        data: { userId: u.id, domainEntityId: targetDepartmentId, grantedById: su.user.id },
       });
       granted++;
     }

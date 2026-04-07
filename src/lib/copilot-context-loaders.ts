@@ -178,13 +178,13 @@ export async function loadInitiativeContext(
   let aiEntityInfo = "";
   const aiEntity = await prisma.entity.findFirst({
     where: { id: initiative.aiEntityId, operatorId },
-    select: { displayName: true, parentDepartmentId: true },
+    select: { displayName: true, primaryDomainId: true },
   });
   if (aiEntity) {
     let deptName = "";
-    if (aiEntity.parentDepartmentId) {
+    if (aiEntity.primaryDomainId) {
       const dept = await prisma.entity.findFirst({
-        where: { id: aiEntity.parentDepartmentId, operatorId },
+        where: { id: aiEntity.primaryDomainId, operatorId },
         select: { displayName: true },
       });
       deptName = dept ? ` (${dept.displayName})` : "";
@@ -263,44 +263,44 @@ export async function loadWorkStreamContext(
 
 export async function loadSystemHealthContext(
   operatorId: string,
-  visibleDepts: string[] | "all",
+  visibleDomains: string[] | "all",
 ): Promise<string | null> {
-  const healthRows = await prisma.departmentHealth.findMany({
+  const healthRows = await prisma.domainHealth.findMany({
     where: { operatorId },
-    select: { departmentEntityId: true, snapshot: true, computedAt: true },
+    select: { domainEntityId: true, snapshot: true, computedAt: true },
   });
 
   if (healthRows.length === 0) return null;
 
   // Scope filter: members only see their departments
-  const filteredRows = visibleDepts === "all"
+  const filteredRows = visibleDomains === "all"
     ? healthRows
     : healthRows.filter(
-        (r) => r.departmentEntityId === null || visibleDepts.includes(r.departmentEntityId),
+        (r) => r.domainEntityId === null || visibleDomains.includes(r.domainEntityId),
       );
 
   return formatHealthContext(filteredRows);
 }
 
 function formatHealthContext(
-  healthRows: { departmentEntityId: string | null; snapshot: unknown; computedAt: Date }[],
+  healthRows: { domainEntityId: string | null; snapshot: unknown; computedAt: Date }[],
 ): string {
   const lines: string[] = ["## Current System Health Status\n"];
 
-  const operatorRow = healthRows.find((r) => r.departmentEntityId === null);
+  const operatorRow = healthRows.find((r) => r.domainEntityId === null);
   if (operatorRow) {
     const snap = operatorRow.snapshot as OperatorSnapshot;
     lines.push(`Overall: ${snap.overallStatus} (${snap.criticalIssueCount} critical issues)`);
     lines.push(`Last computed: ${operatorRow.computedAt.toISOString()}\n`);
   }
 
-  const deptRows = healthRows.filter((r) => r.departmentEntityId !== null);
+  const deptRows = healthRows.filter((r) => r.domainEntityId !== null);
   for (const row of deptRows) {
     const dept = row.snapshot as DepartmentSnapshot;
 
     if (dept.overallStatus === "healthy") continue;
 
-    lines.push(`### ${dept.departmentName} — ${dept.overallStatus}`);
+    lines.push(`### ${dept.domainName} — ${dept.overallStatus}`);
 
     if (dept.dataPipeline.status !== "healthy") {
       lines.push(`Data Pipeline: ${dept.dataPipeline.status}`);
@@ -338,10 +338,75 @@ function formatHealthContext(
 
   const healthyDepts = deptRows
     .filter((r) => (r.snapshot as DepartmentSnapshot).overallStatus === "healthy")
-    .map((r) => (r.snapshot as DepartmentSnapshot).departmentName);
+    .map((r) => (r.snapshot as DepartmentSnapshot).domainName);
 
   if (healthyDepts.length > 0) {
     lines.push(`Healthy departments (no issues): ${healthyDepts.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+// ── System Jobs Context ─────────────────────────────────────────────────────
+
+export async function loadSystemJobsContext(
+  operatorId: string,
+): Promise<string | null> {
+  const jobs = await prisma.systemJob.findMany({
+    where: { operatorId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      domain: { select: { displayName: true } },
+      assignee: { select: { displayName: true } },
+      runs: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { summary: true, importanceScore: true, status: true, createdAt: true },
+      },
+    },
+  });
+
+  if (jobs.length === 0) return null;
+
+  // Load available domains (foundational entities) for context
+  const domains = await prisma.entity.findMany({
+    where: { operatorId, category: "foundational", status: "active" },
+    select: { id: true, displayName: true },
+    orderBy: { displayName: "asc" },
+  });
+
+  const lines: string[] = ["SYSTEM JOBS CONTEXT:\n"];
+
+  lines.push(`Total jobs: ${jobs.length} (${jobs.filter(j => j.status === "active").length} active, ${jobs.filter(j => j.status === "paused").length} paused, ${jobs.filter(j => j.status === "proposed").length} proposed)\n`);
+
+  for (const job of jobs) {
+    const latestRun = job.runs[0];
+    lines.push(`## ${job.title} [${job.status}]`);
+    lines.push(`  Domain: ${job.domain.displayName}`);
+    if (job.assignee) lines.push(`  Assignee: ${job.assignee.displayName}`);
+    lines.push(`  Schedule: ${job.cronExpression}`);
+    lines.push(`  Importance threshold: ${(job.importanceThreshold * 100).toFixed(0)}%`);
+    lines.push(`  Description: ${job.description}`);
+    if (job.lastTriggeredAt) {
+      lines.push(`  Last triggered: ${job.lastTriggeredAt.toISOString().split("T")[0]}`);
+    }
+    if (job.nextTriggerAt) {
+      lines.push(`  Next trigger: ${job.nextTriggerAt.toISOString()}`);
+    }
+    if (latestRun) {
+      lines.push(`  Latest run: ${latestRun.status}${latestRun.importanceScore != null ? ` (importance: ${(latestRun.importanceScore * 100).toFixed(0)}%)` : ""}`);
+      if (latestRun.summary) {
+        lines.push(`  Summary: ${latestRun.summary.slice(0, 300)}`);
+      }
+    }
+    lines.push("");
+  }
+
+  if (domains.length > 0) {
+    lines.push("Available domains for new jobs:");
+    for (const d of domains) {
+      lines.push(`  - ${d.displayName} (${d.id})`);
+    }
   }
 
   return lines.join("\n");
@@ -361,6 +426,8 @@ export async function loadContextForCopilot(
       return loadInitiativeContext(contextId, operatorId);
     case "workstream":
       return loadWorkStreamContext(contextId, operatorId);
+    case "system_jobs":
+      return loadSystemJobsContext(operatorId);
     default:
       return null;
   }
@@ -378,6 +445,8 @@ export function getContextRoleInstruction(contextType: string): string {
       return "You are advising on this project. You have full context about all the items grouped in this work stream and their current statuses. Help the user understand project progress, identify blockers, or plan next steps.";
     case "system-health":
       return "The user is viewing the System Health page. Help them understand and resolve any issues shown. When suggesting fixes, provide specific navigation paths (e.g., \"Go to Settings → Connections to reconnect Gmail\"). If a department has no issues, say so briefly. Focus on actionable advice — what specifically should the user do next to improve their system health.";
+    case "system_jobs":
+      return "You are helping manage system monitoring jobs. You have full context about all configured jobs, their schedules, run history, and available domains. Help the user create new jobs, adjust schedules or importance thresholds, pause/resume jobs, understand run results, or diagnose why a job might not be producing useful findings. When creating jobs, you need a title, description, cron expression, and a domain (department) to scope the job to.";
     default:
       return "";
   }

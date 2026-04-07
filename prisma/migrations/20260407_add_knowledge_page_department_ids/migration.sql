@@ -1,0 +1,1 @@
+ALTER TABLE "KnowledgePage" ADD COLUMN IF NOT EXISTS "departmentIds" TEXT[] DEFAULT ARRAY[]::TEXT[];

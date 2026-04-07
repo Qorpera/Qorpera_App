@@ -8,13 +8,13 @@ type OrientationSession = {
   context: string | null;
 };
 
-// ── Department Data Context ─────────────────────────────────────────────────
+// ── Domain Data Context ──────────────────────────────────────────────────────
 
-export async function buildDepartmentDataContext(operatorId: string, visibleDepts?: string[] | "all"): Promise<string> {
+export async function buildDomainDataContext(operatorId: string, visibleDomains?: string[] | "all"): Promise<string> {
   const departments = await prisma.entity.findMany({
     where: {
       operatorId, category: "foundational", entityType: { slug: "department" }, status: "active",
-      ...(visibleDepts && visibleDepts !== "all" ? { id: { in: visibleDepts } } : {}),
+      ...(visibleDomains && visibleDomains !== "all" ? { id: { in: visibleDomains } } : {}),
     },
     include: { entityType: { select: { slug: true } } },
   });
@@ -24,7 +24,7 @@ export async function buildDepartmentDataContext(operatorId: string, visibleDept
   for (const dept of departments) {
     // Load home members
     const homeMembers = await prisma.entity.findMany({
-      where: { operatorId, parentDepartmentId: dept.id, category: "base", status: "active" },
+      where: { operatorId, primaryDomainId: dept.id, category: "base", status: "active" },
       include: {
         propertyValues: { include: { property: { select: { slug: true } } } },
       },
@@ -53,7 +53,7 @@ export async function buildDepartmentDataContext(operatorId: string, visibleDept
 
     const members = [...homeMembers, ...crossMembers];
     const memberNames = members.map(m => {
-      // Use cross-department role if available
+      // Use cross-domain role if available
       const crossRel = crossRels.find(r => r.fromEntityId === m.id || r.toEntityId === m.id);
       const crossRole = crossRel?.metadata ? JSON.parse(crossRel.metadata).role : null;
       const role = crossRole || m.propertyValues.find(pv => pv.property.slug === "role")?.value;
@@ -98,7 +98,7 @@ export async function buildDepartmentDataContext(operatorId: string, visibleDept
       }
     }
 
-    // Count external entities linked to this department's members
+    // Count external entities linked to this domain's members
     const digitalMemberIds = linkedEntityIds.length > 0
       ? (await prisma.entity.findMany({
           where: { id: { in: linkedEntityIds }, category: "digital", status: "active" },
@@ -127,13 +127,13 @@ export async function buildDepartmentDataContext(operatorId: string, visibleDept
 
     // Load documents
     const docs = await prisma.internalDocument.findMany({
-      where: { departmentId: dept.id, operatorId, status: { not: "replaced" } },
+      where: { domainId: dept.id, operatorId, status: { not: "replaced" } },
       select: { fileName: true, documentType: true },
     });
     const docNames = docs.map(d => d.fileName);
 
     // Build section
-    let section = `DEPARTMENT: ${dept.displayName}`;
+    let section = `DOMAIN: ${dept.displayName}`;
     if (dept.description) section += ` — ${dept.description}`;
     section += `\n  People (${members.length}): ${memberNames.join(", ") || "none"}`;
     if (digitalSummary) section += `\n  Connected data: ${digitalSummary}`;
@@ -152,7 +152,7 @@ export async function buildOrientationSystemPrompt(
   operatorId: string,
   session: OrientationSession,
 ): Promise<string> {
-  const deptContext = await buildDepartmentDataContext(operatorId);
+  const deptContext = await buildDomainDataContext(operatorId);
   const existingContext = session.context ? safeParseJSON(session.context) : {};
 
   const operator = await prisma.operator.findUnique({
@@ -210,13 +210,13 @@ async function buildPostIntelligencePrompt(
     ? uncertaintyLog.map((q, i) => {
         const question = q.question || "Unknown question";
         const context = q.context || "";
-        const dept = q.department ? ` (${q.department})` : "";
+        const dept = q.domain ? ` (${q.domain})` : "";
         return `${i + 1}. ${question}${dept}${context ? `\n   Context: ${context}` : ""}`;
       }).join("\n")
     : "";
 
-  const departments = (synthesisOutput.departments || []) as Array<Record<string, unknown>>;
-  const findingsSummary = departments.map((dept) => {
+  const domains = (synthesisOutput.domains || []) as Array<Record<string, unknown>>;
+  const findingsSummary = domains.map((dept) => {
     const name = dept.name || "Unknown";
     const completeness = dept.confidence || "unknown";
     return `- ${name} (data completeness: ${completeness})`;
@@ -229,10 +229,10 @@ async function buildPostIntelligencePrompt(
   return `You are the AI operations assistant for ${companyName}. You have just completed an extensive multi-agent analysis of ${companyName}'s connected tools and data.
 
 ORGANIZATIONAL STRUCTURE (from your analysis):
-${deptContext || "No departments configured yet."}
+${deptContext || "No domains configured yet."}
 
-DEPARTMENT DATA COVERAGE:
-${findingsSummary || "No department analysis available."}
+DOMAIN DATA COVERAGE:
+${findingsSummary || "No domain analysis available."}
 
 SITUATION TYPES YOU'VE SET UP:
 ${sitTypeSummary}
@@ -240,7 +240,7 @@ All situation types start at "observe" — you will monitor and propose actions,
 
 ${uncertaintySection ? `QUESTIONS YOUR ANALYSIS COULDN'T RESOLVE:\n${uncertaintySection}\n` : ""}${learnedSoFar}
 YOUR GOALS IN THIS CONVERSATION:
-1. Present your findings: Briefly summarize what you learned about the company — departments, team structure, key relationships. Ask if it matches reality.${uncertaintySection ? `
+1. Present your findings: Briefly summarize what you learned about the company — domains, team structure, key relationships. Ask if it matches reality.${uncertaintySection ? `
 2. Resolve uncertainties: Work through the unresolved questions above one at a time. These are things your analysis flagged as ambiguous — the CEO's answers will improve your understanding.` : ""}
 3. Validate situation types: Walk through the situation types you've set up. For each, explain what it detects and why you recommended it. Ask: "Is this something you want me to watch for? Should I adjust the scope?"
 4. Discover gaps: Ask what operational challenges your analysis may have missed. "Are there problems that wouldn't show up in your emails or calendar — things that happen in hallway conversations or ad-hoc Slack threads?"
@@ -248,7 +248,7 @@ YOUR GOALS IN THIS CONVERSATION:
 
 IMPORTANT RULES:
 - Reference specific findings from your analysis when possible. "I noticed [specific pattern] in your [data source]" is better than generic questions.
-- When creating NEW situation types (beyond what the analysis recommended), ALWAYS scope them to a specific department using the scopeDepartmentName parameter.
+- When creating NEW situation types (beyond what the analysis recommended), ALWAYS scope them to a specific domain using the scopeDomainName parameter.
 - Don't repeat information the CEO has already confirmed. Build on what you know.
 - Keep the conversation practical and forward-looking — the analysis is done, now you're calibrating.
 - The user will click "Complete Orientation" when they're done. Don't try to end the conversation yourself.`;
@@ -272,20 +272,20 @@ function buildManualSetupPrompt(
   return `You are the AI operations assistant for ${companyName}. You are in orientation mode — learning how this business works so you can help manage its operations.
 
 ORGANIZATIONAL STRUCTURE:
-${deptContext || "No departments configured yet."}
+${deptContext || "No domains configured yet."}
 
 ${businessContext ? `BUSINESS CONTEXT:\n${businessContext}\n` : ""}${learnedSoFar}
 YOUR GOALS IN THIS CONVERSATION:
-1. Confirm the data looks correct: "Here's what I see in your departments — does this look right?"
-2. Understand pain points: "What operational problems keep you up at night?" Ask which department each problem mostly affects.
+1. Confirm the data looks correct: "Here's what I see in your domains — does this look right?"
+2. Understand pain points: "What operational problems keep you up at night?" Ask which domain each problem mostly affects.
 3. Understand processes: "Walk me through what happens when [situation] occurs — who handles it, what tools do they use?"
-4. Create situation types: For each pain point, create a situation type with detection logic, scoped to the relevant department.
-5. Reference documents: If a department has uploaded documents, mention them. "I've read your [document name] — I see [relevant detail]."
+4. Create situation types: For each pain point, create a situation type with detection logic, scoped to the relevant domain.
+5. Reference documents: If a domain has uploaded documents, mention them. "I've read your [document name] — I see [relevant detail]."
 
 IMPORTANT RULES:
-- When creating situation types, ALWAYS scope them to a specific department using the scopeDepartmentName parameter.
-- Ask about each department's specific challenges — don't treat the company as monolithic.
-- When the user describes a problem, ask: "Which department does this mostly affect?"
+- When creating situation types, ALWAYS scope them to a specific domain using the scopeDomainName parameter.
+- Ask about each domain's specific challenges — don't treat the company as monolithic.
+- When the user describes a problem, ask: "Which domain does this mostly affect?"
 - Keep the conversation focused and practical. You're learning how to help, not conducting an interview.
 - The user will click "Complete Orientation" when they're done. Don't try to end the conversation yourself.`;
 }

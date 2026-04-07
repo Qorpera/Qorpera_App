@@ -93,7 +93,7 @@ beforeEach(() => {
 // ── Shared test data ─────────────────────────────────────────────────────────
 
 const mockCompanyModel = {
-  departments: [
+  domains: [
     { name: "Sales", description: "Sales team", confidence: "high" },
     { name: "Engineering", description: "Product dev", confidence: "medium" },
   ],
@@ -119,10 +119,10 @@ const mockCompanyModel = {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe("Entity Creation", () => {
-  it("creates departments as foundational entities", async () => {
+  it("creates domains as foundational entities", async () => {
     mockPrisma.entityType.findFirst.mockResolvedValue({ id: "dept-type" });
     mockPrisma.entity.findFirst.mockResolvedValue(null);
-    mockPrisma.entity.create.mockImplementation(() => ({ id: "new-dept", entityTypeId: "dept-type", parentDepartmentId: null }));
+    mockPrisma.entity.create.mockImplementation(() => ({ id: "new-dept", entityTypeId: "dept-type", primaryDomainId: null }));
     mockPrisma.entityProperty.findFirst.mockResolvedValue({ id: "email-prop" });
     mockPrisma.propertyValue.findFirst.mockResolvedValue(null);
     mockPrisma.propertyValue.create.mockResolvedValue({});
@@ -135,11 +135,11 @@ describe("Entity Creation", () => {
     );
     await createEntitiesFromModel("op1", mockCompanyModel as any);
 
-    // Should create 2 departments + 3 people = 5 entity creates
+    // Should create 2 domains + 3 people = 5 entity creates
     const createCalls = mockPrisma.entity.create.mock.calls;
     expect(createCalls.length).toBe(5);
 
-    // First two should be departments
+    // First two should be domains
     expect(createCalls[0][0].data.category).toBe("foundational");
     expect(createCalls[0][0].data.displayName).toBe("Sales");
     expect(createCalls[1][0].data.category).toBe("foundational");
@@ -149,10 +149,10 @@ describe("Entity Creation", () => {
   it("idempotent: existing entities are not duplicated", async () => {
     mockPrisma.entityType.findFirst.mockResolvedValue({ id: "dept-type" });
     // Departments already exist
-    mockPrisma.entity.findFirst.mockResolvedValue({ id: "existing-dept", entityTypeId: "dept-type", parentDepartmentId: null });
+    mockPrisma.entity.findFirst.mockResolvedValue({ id: "existing-dept", entityTypeId: "dept-type", primaryDomainId: null });
     // People already exist (found by email)
     mockPrisma.propertyValue.findFirst.mockResolvedValue({
-      entity: { id: "existing-person", entityTypeId: "dept-type", parentDepartmentId: "existing-dept" },
+      entity: { id: "existing-person", entityTypeId: "dept-type", primaryDomainId: "existing-dept" },
     });
     mockPrisma.entityProperty.findFirst.mockResolvedValue({ id: "role-prop" });
     mockPrisma.propertyValue.upsert.mockResolvedValue({});
@@ -170,12 +170,12 @@ describe("Entity Creation", () => {
 
   it("creates reporting relationships", async () => {
     mockPrisma.entityType.findFirst.mockResolvedValue({ id: "dept-type" });
-    mockPrisma.entity.findFirst.mockResolvedValue({ id: "dept-e", entityTypeId: "dept-type", parentDepartmentId: null });
+    mockPrisma.entity.findFirst.mockResolvedValue({ id: "dept-e", entityTypeId: "dept-type", primaryDomainId: null });
     // findEntityByEmail returns different entities for different emails
     mockPrisma.propertyValue.findFirst.mockImplementation((args: any) => {
       const email = args.where.value;
       return {
-        entity: { id: `e-${email}`, entityTypeId: "dept-type", parentDepartmentId: "dept-e" },
+        entity: { id: `e-${email}`, entityTypeId: "dept-type", primaryDomainId: "dept-e" },
       };
     });
     mockPrisma.entityProperty.findFirst.mockResolvedValue({ id: "role-prop" });

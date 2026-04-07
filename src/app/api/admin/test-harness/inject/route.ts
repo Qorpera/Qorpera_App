@@ -16,16 +16,16 @@ export async function POST(req: NextRequest) {
 
     switch (type) {
       case "content": {
-        const { sourceType, sourceId, text, entityId, departmentIds, metadata } = data;
+        const { sourceType, sourceId, text, entityId, domainIds, metadata } = data;
         if (!sourceType || !sourceId || !text) {
           return NextResponse.json(
             { error: "Content injection requires: sourceType, sourceId, text" },
             { status: 400 },
           );
         }
-        if (!departmentIds || !Array.isArray(departmentIds) || departmentIds.length === 0) {
+        if (!domainIds || !Array.isArray(domainIds) || domainIds.length === 0) {
           return NextResponse.json(
-            { error: "Content injection requires departmentIds (non-empty array)" },
+            { error: "Content injection requires domainIds (non-empty array)" },
             { status: 400 },
           );
         }
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
           sourceId,
           content: text,
           entityId: entityId ?? undefined,
-          departmentIds,
+          domainIds,
           metadata: metadata ?? {},
         });
 
@@ -75,13 +75,13 @@ export async function POST(req: NextRequest) {
       }
 
       case "activity": {
-        const { signalType, actorEntityId, targetEntityIds, departmentIds, metadata, occurredAt } = data;
+        const { signalType, actorEntityId, targetEntityIds, domainIds, metadata, occurredAt } = data;
         if (!signalType) {
           return NextResponse.json({ error: "Activity injection requires: signalType" }, { status: 400 });
         }
-        if (!departmentIds || !Array.isArray(departmentIds) || departmentIds.length === 0) {
+        if (!domainIds || !Array.isArray(domainIds) || domainIds.length === 0) {
           return NextResponse.json(
-            { error: "Activity injection requires departmentIds (non-empty array)" },
+            { error: "Activity injection requires domainIds (non-empty array)" },
             { status: 400 },
           );
         }
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
             signalType,
             actorEntityId: actorEntityId ?? null,
             targetEntityIds: targetEntityIds ? JSON.stringify(targetEntityIds) : null,
-            departmentIds: JSON.stringify(departmentIds),
+            domainIds: JSON.stringify(domainIds),
             metadata: metadata ? JSON.stringify(metadata) : null,
             occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
           },

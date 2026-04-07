@@ -26,7 +26,7 @@ export async function createDelegation(params: CreateDelegationParams) {
   // Validate fromAiEntityId
   const fromEntity = await prisma.entity.findFirst({
     where: { id: params.fromAiEntityId, operatorId: params.operatorId, status: "active" },
-    select: { id: true, parentDepartmentId: true },
+    select: { id: true, primaryDomainId: true },
   });
   if (!fromEntity) throw new Error("fromAiEntityId not found or wrong operator");
 
@@ -275,7 +275,7 @@ export async function completeDelegation(
   // Notify admins of the sender's department
   const fromEntity = await prisma.entity.findUnique({
     where: { id: delegation.fromAiEntityId },
-    select: { parentDepartmentId: true, displayName: true },
+    select: { primaryDomainId: true, displayName: true },
   });
 
   sendNotificationToAdmins({

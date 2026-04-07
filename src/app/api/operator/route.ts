@@ -8,7 +8,7 @@ export async function GET() {
   const { operatorId } = su;
   const operator = await prisma.operator.findUnique({
     where: { id: operatorId },
-    select: { id: true, displayName: true, companyName: true, industry: true },
+    select: { id: true, displayName: true, companyName: true, industry: true, deletionRequestedAt: true, deletionScheduledFor: true },
   });
   if (!operator) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

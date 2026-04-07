@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
             content:
               "Hi team, I wanted to follow up on the Q3 financial report that was due last week. Our board meeting is scheduled for this Friday and we need the updated revenue breakdown by product line and customer acquisition costs. The CFO is asking for this directly. Can you prioritize this and send over the draft by Wednesday EOD? Thanks.",
             entityId: contactEntity.id,
-            departmentIds: deptIds,
+            domainIds: deptIds,
             metadata: {
               subject: "Q3 Report Request",
               from: contactEmail,
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
           // Assert: chunks created
           const chunks = await prisma.contentChunk.findMany({
             where: { operatorId, sourceId },
-            select: { id: true, departmentIds: true, metadata: true },
+            select: { id: true, domainIds: true, metadata: true },
           });
           contentChunkIds = chunks.map((c) => c.id);
           assert(assertions, "ContentChunk created for sourceId", chunks.length >= 1, `found ${chunks.length} chunk(s)`);
@@ -192,10 +192,10 @@ export async function POST(req: NextRequest) {
             assert(assertions, "Embedding exists on ContentChunk", withEmbedding > 0, `${withEmbedding}/${chunks.length} chunks have embeddings`);
           }
 
-          // Assert: departmentIds preserved
+          // Assert: domainIds preserved
           if (chunks.length > 0) {
-            const deptOk = chunks[0].departmentIds === JSON.stringify(deptIds);
-            assert(assertions, "departmentIds preserved", deptOk, `expected ${JSON.stringify(deptIds)}, got ${chunks[0].departmentIds}`);
+            const deptOk = chunks[0].domainIds === JSON.stringify(deptIds);
+            assert(assertions, "domainIds preserved", deptOk, `expected ${JSON.stringify(deptIds)}, got ${chunks[0].domainIds}`);
           }
 
           // Assert: metadata parseable
@@ -235,7 +235,7 @@ export async function POST(req: NextRequest) {
               signalType: "email_received",
               actorEntityId: contactEntity.id,
               targetEntityIds: JSON.stringify([personEntity.id]),
-              departmentIds: JSON.stringify(deptIds),
+              domainIds: JSON.stringify(deptIds),
               metadata: JSON.stringify({ subject: "Q3 Report", _testRunId: testRunId }),
               occurredAt: daysAgo(2),
             },
@@ -243,7 +243,7 @@ export async function POST(req: NextRequest) {
               signalType: "meeting_held",
               actorEntityId: personEntity.id,
               targetEntityIds: JSON.stringify([contactEntity.id]),
-              departmentIds: JSON.stringify(deptIds),
+              domainIds: JSON.stringify(deptIds),
               metadata: JSON.stringify({ attendees: [personEmail, contactEmail], duration_minutes: 30, _testRunId: testRunId }),
               occurredAt: daysAgo(5),
             },
@@ -251,7 +251,7 @@ export async function POST(req: NextRequest) {
               signalType: "doc_edited",
               actorEntityId: personEntity.id,
               targetEntityIds: null,
-              departmentIds: JSON.stringify(deptIds),
+              domainIds: JSON.stringify(deptIds),
               metadata: JSON.stringify({ fileName: "test-doc.gdoc", _testRunId: testRunId }),
               occurredAt: daysAgo(1),
             },
@@ -270,9 +270,9 @@ export async function POST(req: NextRequest) {
           });
           assert(assertions, "All 3 ActivitySignals created", found.length === 3, `found ${found.length}`);
 
-          // Assert: departmentIds populated
-          const allHaveDepts = found.every((s) => s.departmentIds && s.departmentIds.length > 2);
-          assert(assertions, "departmentIds populated on all signals", allHaveDepts);
+          // Assert: domainIds populated
+          const allHaveDepts = found.every((s) => s.domainIds && s.domainIds.length > 2);
+          assert(assertions, "domainIds populated on all signals", allHaveDepts);
 
           // Assert: actorEntityId references existing entity
           const actorIds = [...new Set(found.map((s) => s.actorEntityId).filter(Boolean))];
@@ -876,7 +876,7 @@ export async function POST(req: NextRequest) {
                 id: true,
                 content: true,
                 metadata: true,
-                departmentIds: true,
+                domainIds: true,
               },
               take: 5,
               orderBy: { createdAt: "desc" },
@@ -893,15 +893,15 @@ export async function POST(req: NextRequest) {
             // Verify department scoping
             if (emailChunks.length > 0) {
               const allHaveDepts = emailChunks.every((c) => {
-                if (!c.departmentIds) return true; // null is OK (system-level)
+                if (!c.domainIds) return true; // null is OK (system-level)
                 try {
-                  const ids = JSON.parse(c.departmentIds) as string[];
+                  const ids = JSON.parse(c.domainIds) as string[];
                   return ids.length >= 0;
                 } catch {
                   return false;
                 }
               });
-              assert(assertions, "search_emails: results have parseable departmentIds", allHaveDepts);
+              assert(assertions, "search_emails: results have parseable domainIds", allHaveDepts);
             }
           } catch (err) {
             toolResults.search_emails = { count: 0, error: err instanceof Error ? err.message : String(err) };
@@ -916,7 +916,7 @@ export async function POST(req: NextRequest) {
                 id: true,
                 content: true,
                 metadata: true,
-                departmentIds: true,
+                domainIds: true,
               },
               take: 5,
               orderBy: { createdAt: "desc" },
@@ -933,7 +933,7 @@ export async function POST(req: NextRequest) {
             const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
             const signals = await prisma.activitySignal.findMany({
               where: { operatorId, occurredAt: { gte: since } },
-              select: { signalType: true, departmentIds: true },
+              select: { signalType: true, domainIds: true },
             });
 
             // Aggregate

@@ -124,7 +124,7 @@ describe("Responses API integration — caller configuration", () => {
     mockPrisma.entity = {
       findUnique: vi.fn().mockResolvedValue({
         id: "ai1", displayName: "AI Entity", ownerUserId: null,
-        ownerDepartmentId: "dept1", parentDepartmentId: "dept1",
+        ownerDomainId: "dept1", primaryDomainId: "dept1",
         entityType: { slug: "department-ai" },
       }),
       findMany: vi.fn().mockResolvedValue([]),

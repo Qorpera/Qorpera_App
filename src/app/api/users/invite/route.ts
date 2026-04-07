@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   // Validate entity
   const entity = await prisma.entity.findFirst({
     where: { id: entityId, operatorId, category: "base" },
-    include: { parentDepartment: { select: { displayName: true } } },
+    include: { primaryDomain: { select: { displayName: true } } },
   });
   if (!entity) {
     return NextResponse.json({ error: "Entity not found or not a base entity in this operator" }, { status: 404 });
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
       email: invite.email,
       role: invite.role,
       entityName: entity.displayName,
-      departmentName: entity.parentDepartment?.displayName ?? null,
+      domainName: entity.primaryDomain?.displayName ?? null,
       link,
       expiresAt: invite.expiresAt,
     },
@@ -122,13 +122,13 @@ export async function GET() {
   const entities = entityIds.length > 0
     ? await prisma.entity.findMany({
         where: { id: { in: entityIds }, operatorId: su.operatorId },
-        select: { id: true, displayName: true, parentDepartmentId: true },
+        select: { id: true, displayName: true, primaryDomainId: true },
       })
     : [];
   const entityMap = new Map(entities.map((e) => [e.id, e]));
 
   // Get department names
-  const deptIds = [...new Set(entities.filter((e) => e.parentDepartmentId).map((e) => e.parentDepartmentId!))];
+  const deptIds = [...new Set(entities.filter((e) => e.primaryDomainId).map((e) => e.primaryDomainId!))];
   const depts = deptIds.length > 0
     ? await prisma.entity.findMany({ where: { id: { in: deptIds } }, select: { id: true, displayName: true } })
     : [];
@@ -145,7 +145,7 @@ export async function GET() {
         email: inv.email,
         role: inv.role,
         entityName: ent?.displayName ?? "Unknown",
-        departmentName: ent?.parentDepartmentId ? deptMap.get(ent.parentDepartmentId) ?? null : null,
+        domainName: ent?.primaryDomainId ? deptMap.get(ent.primaryDomainId) ?? null : null,
         link: `${baseUrl}/invite/${inv.token}`,
         expiresAt: inv.expiresAt,
         createdAt: inv.createdAt,

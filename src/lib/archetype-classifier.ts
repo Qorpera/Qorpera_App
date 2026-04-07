@@ -65,16 +65,16 @@ const archetypeTypeCache = new Map<string, string>();
 
 export async function ensureArchetypeSituationType(
   operatorId: string,
-  departmentId: string,
+  domainId: string,
   archetypeSlug: string,
 ): Promise<string> {
-  const cacheKey = `${operatorId}:${archetypeSlug}:${departmentId}`;
+  const cacheKey = `${operatorId}:${archetypeSlug}:${domainId}`;
   const cached = archetypeTypeCache.get(cacheKey);
   if (cached) return cached;
 
   // Look up department name for slug generation
   const dept = await prisma.entity.findUnique({
-    where: { id: departmentId },
+    where: { id: domainId },
     select: { displayName: true },
   });
   const deptSlug = (dept?.displayName ?? "general")
@@ -92,7 +92,7 @@ export async function ensureArchetypeSituationType(
 
   if (!archetype) {
     // Fallback to generic "Action Required" type if archetype not found
-    return ensureActionRequiredType(operatorId, departmentId);
+    return ensureActionRequiredType(operatorId, domainId);
   }
 
   const detectionLogic =
@@ -114,7 +114,7 @@ export async function ensureArchetypeSituationType(
           ? detectionLogic
           : JSON.stringify(detectionLogic),
       autonomyLevel: "supervised",
-      scopeEntityId: departmentId,
+      scopeEntityId: domainId,
       archetypeSlug: archetypeSlug,
       enabled: true,
     },

@@ -83,7 +83,7 @@ describe("User AI migration patterns", () => {
         entityTypeId: "et-ai",
         displayName: "Bob's Assistant",
         category: "base",
-        parentDepartmentId: "dept-1",
+        primaryDomainId: "dept-1",
         ownerUserId: "u2",
       },
     });

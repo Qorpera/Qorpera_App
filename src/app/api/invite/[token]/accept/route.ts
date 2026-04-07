@@ -27,7 +27,7 @@ export async function POST(
 
       const entity = await tx.entity.findUnique({
         where: { id: invite.entityId },
-        select: { id: true, displayName: true, parentDepartmentId: true },
+        select: { id: true, displayName: true, primaryDomainId: true },
       });
       if (!entity) throw new TxError("Entity no longer exists", 400);
 
@@ -46,11 +46,11 @@ export async function POST(
       });
 
       // Create UserScope for the entity's department
-      if (entity.parentDepartmentId) {
+      if (entity.primaryDomainId) {
         await tx.userScope.create({
           data: {
             userId: newUser.id,
-            departmentEntityId: entity.parentDepartmentId,
+            domainEntityId: entity.primaryDomainId,
             grantedById: invite.createdById,
           },
         });
@@ -81,7 +81,7 @@ export async function POST(
           entityTypeId: aiAgentType.id,
           displayName: `${entity.displayName}'s Assistant`,
           category: "base",
-          parentDepartmentId: entity.parentDepartmentId,
+          primaryDomainId: entity.primaryDomainId,
           ownerUserId: newUser.id,
         },
       });

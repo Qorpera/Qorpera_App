@@ -78,7 +78,7 @@ describe("Org Analyst", () => {
     expect(ORG_ANALYST_PROMPT).toContain("Hierarchy Mapping");
     expect(ORG_ANALYST_PROMPT).toContain("Reality vs. Documentation");
     expect(ORG_ANALYST_PROMPT).toContain("Role Classification");
-    expect(ORG_ANALYST_PROMPT).toContain("departments");
+    expect(ORG_ANALYST_PROMPT).toContain("domains");
     expect(ORG_ANALYST_PROMPT).toContain("teamComposition");
     expect(ORG_ANALYST_PROMPT).toContain("reportingRelationships");
     // Danish keywords

@@ -13,10 +13,10 @@ export async function POST(
   }
 
   const { id: userId } = await params;
-  const { departmentEntityId } = await req.json().catch(() => ({ departmentEntityId: null }));
+  const { domainEntityId } = await req.json().catch(() => ({ domainEntityId: null }));
 
-  if (!departmentEntityId) {
-    return NextResponse.json({ error: "departmentEntityId is required" }, { status: 400 });
+  if (!domainEntityId) {
+    return NextResponse.json({ error: "domainEntityId is required" }, { status: 400 });
   }
 
   // Validate user in same operator
@@ -27,16 +27,16 @@ export async function POST(
 
   // Validate department exists and is foundational
   const dept = await prisma.entity.findFirst({
-    where: { id: departmentEntityId, operatorId: su.operatorId, category: "foundational" },
+    where: { id: domainEntityId, operatorId: su.operatorId, category: "foundational" },
     select: { id: true, displayName: true },
   });
   if (!dept) {
-    return NextResponse.json({ error: "Department not found" }, { status: 404 });
+    return NextResponse.json({ error: "Domain not found" }, { status: 404 });
   }
 
   // Check if scope already exists
   const existing = await prisma.userScope.findUnique({
-    where: { userId_departmentEntityId: { userId, departmentEntityId } },
+    where: { userId_domainEntityId: { userId, domainEntityId } },
   });
   if (existing) {
     return NextResponse.json({ error: "User already has access to this department" }, { status: 409 });
@@ -45,14 +45,14 @@ export async function POST(
   const scope = await prisma.userScope.create({
     data: {
       userId,
-      departmentEntityId,
+      domainEntityId,
       grantedById: su.user.id,
     },
   });
 
   return NextResponse.json({
     id: scope.id,
-    departmentEntityId: scope.departmentEntityId,
-    departmentName: dept.displayName,
+    domainEntityId: scope.domainEntityId,
+    domainName: dept.displayName,
   }, { status: 201 });
 }

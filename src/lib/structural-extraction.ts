@@ -52,8 +52,8 @@ export interface ExtractionDiff {
 
 // ── Extraction Templates ─────────────────────────────────────────────────────
 
-function buildOrgChartPrompt(departmentName: string): string {
-  return `You are analyzing an organizational chart for the "${departmentName}" department.
+function buildOrgChartPrompt(domainName: string): string {
+  return `You are analyzing an organizational chart for the "${domainName}" domain.
 
 Extract every person mentioned with their:
 - name (full name as written)
@@ -88,12 +88,12 @@ export async function extractStructuralDocument(
   });
   if (!doc) throw new Error("Document not found");
   if (!doc.rawText) throw new Error("Document has no extracted text. Run text extraction first.");
-  if (!doc.departmentId) throw new Error("Document has no department assigned");
+  if (!doc.domainId) throw new Error("Document has no domain assigned");
 
   const department = await prisma.entity.findFirst({
-    where: { id: doc.departmentId, operatorId, category: "foundational" },
+    where: { id: doc.domainId, operatorId, category: "foundational" },
   });
-  if (!department) throw new Error("Department not found");
+  if (!department) throw new Error("Domain not found");
 
   const deptName = department.displayName;
   const text = doc.rawText.slice(0, 15000); // Safety limit
@@ -126,14 +126,14 @@ export async function extractStructuralDocument(
 
 export async function generateExtractionDiff(
   extraction: ExtractionResult,
-  departmentId: string,
+  domainId: string,
   operatorId: string,
 ): Promise<ExtractionDiff> {
   // Load current department members
   const currentMembers = await prisma.entity.findMany({
     where: {
       operatorId,
-      parentDepartmentId: departmentId,
+      primaryDomainId: domainId,
       category: "base",
       status: "active",
     },
@@ -251,7 +251,7 @@ function generatePeopleDiff(
 
 export async function applyExtractionDiff(
   diff: ExtractionDiff,
-  departmentId: string,
+  domainId: string,
   operatorId: string,
   documentId: string,
 ): Promise<{ created: number; updated: number }> {
@@ -319,10 +319,10 @@ export async function applyExtractionDiff(
 
         if (existingByEmail) {
           // Update existing entity — adopt into this department if not already
-          if (existingByEmail.parentDepartmentId !== departmentId) {
+          if (existingByEmail.primaryDomainId !== domainId) {
             await prisma.entity.update({
               where: { id: existingByEmail.id },
-              data: { parentDepartmentId: departmentId },
+              data: { primaryDomainId: domainId },
             });
           }
           updated++;
@@ -334,7 +334,7 @@ export async function applyExtractionDiff(
               entityTypeId: entityType.id,
               displayName: person.name,
               category: "base",
-              parentDepartmentId: departmentId,
+              primaryDomainId: domainId,
               sourceSystem: "document",
               externalId: documentId,
             },
@@ -418,7 +418,7 @@ export async function applyExtractionDiff(
     const allMembers = await prisma.entity.findMany({
       where: {
         operatorId,
-        parentDepartmentId: departmentId,
+        primaryDomainId: domainId,
         category: "base",
         status: "active",
       },

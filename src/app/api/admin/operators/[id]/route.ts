@@ -27,7 +27,7 @@ export async function DELETE(
   // Break entity self-references to avoid circular FK issues
   await prisma.entity.updateMany({
     where: { operatorId: id },
-    data: { parentDepartmentId: null, mergedIntoId: null },
+    data: { primaryDomainId: null, mergedIntoId: null },
   });
 
   // Delete in reverse dependency order

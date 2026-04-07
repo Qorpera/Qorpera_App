@@ -121,7 +121,7 @@ model Operator {
   appSettings          AppSetting[]
   onboardingAnalysis   OnboardingAnalysis?
   creditTransactions   CreditTransaction[]
-  departmentHealth     DepartmentHealth[]
+  domainHealth         DomainHealth[]
   // v4: Projects
   projectTemplates     ProjectTemplate[]
   projects             Project[]
@@ -136,6 +136,10 @@ model Operator {
   wikiBookmarks        WikiBookmark[]
   researchPlans        ResearchPlan[]
   contextEvaluations   ContextEvaluation[]
+
+  // Org invite link
+  inviteToken          String?   @unique
+  inviteTokenCreatedAt DateTime?
 
   // Deletion lifecycle (GDPR)
   deletionRequestedAt     DateTime?
@@ -268,12 +272,12 @@ model Entity {
   externalId         String?
   mergedIntoId       String?
   metadata           String? // JSON
-  description        String? // Department purpose one-liner
+  description        String? // Domain purpose one-liner
   mapX               Float? // For foundational entities: position on 2D map
   mapY               Float?
-  parentDepartmentId String?
+  primaryDomainId    String?  @map("parentDepartmentId")
   ownerUserId        String?  @unique // Only set on ai-agent entities — links to the owning User
-  ownerDepartmentId  String?  @unique // Only set on department-ai entities
+  ownerDomainId      String?  @unique @map("ownerDepartmentId") // Only set on domain-ai entities
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -281,8 +285,8 @@ model Entity {
   operator             Operator              @relation(fields: [operatorId], references: [id])
   mergedInto           Entity?               @relation("MergedEntities", fields: [mergedIntoId], references: [id])
   mergedFrom           Entity[]              @relation("MergedEntities")
-  parentDepartment     Entity?               @relation("DepartmentMembers", fields: [parentDepartmentId], references: [id])
-  departmentMembers    Entity[]              @relation("DepartmentMembers")
+  primaryDomain        Entity?               @relation("DomainMembers", fields: [primaryDomainId], references: [id])
+  domainMembers        Entity[]              @relation("DomainMembers")
   propertyValues       PropertyValue[]
   mentions             EntityMention[]
   slackChannelMappings SlackChannelMapping[]
@@ -292,9 +296,11 @@ model Entity {
   user                 User? // A base entity can have at most one user account
   ownerUser            User?                 @relation("AiEntity", fields: [ownerUserId], references: [id], onDelete: SetNull)
   personalAutonomies   PersonalAutonomy[]
+  systemJobsAsDomain   SystemJob[]           @relation("SystemJobDomain")
+  systemJobsAsAssignee SystemJob[]           @relation("SystemJobAssignee")
 
   @@index([operatorId, category])
-  @@index([operatorId, parentDepartmentId])
+  @@index([operatorId, primaryDomainId])
   @@index([ownerUserId])
 }
 
@@ -404,13 +410,13 @@ model SlackChannelMapping {
   connectorId  String
   channelId    String // Slack channel ID (e.g., "C012345")
   channelName  String // Display name (e.g., "#general")
-  departmentId String // Entity ID of the department (category = "foundational")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  domainId   String   @map("departmentId") // Entity ID of the domain (category = "foundational")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  operator   Operator        @relation(fields: [operatorId], references: [id])
-  connector  SourceConnector @relation(fields: [connectorId], references: [id])
-  department Entity          @relation(fields: [departmentId], references: [id])
+  operator  Operator        @relation(fields: [operatorId], references: [id])
+  connector SourceConnector @relation(fields: [connectorId], references: [id])
+  domain    Entity          @relation(fields: [domainId], references: [id])
 
   @@unique([connectorId, channelId])
   @@index([operatorId])
@@ -707,13 +713,13 @@ model InternalDocument {
   entity            Entity?  @relation("DocumentEntity", fields: [entityId], references: [id])
   documentType      String   @default("context") // "org-chart" | "budget" | "compensation" | "team-roster" | "context"
   embeddingStatus   String   @default("pending") // "pending" | "processing" | "complete" | "error"
-  departmentId      String?
+  domainId          String?  @map("departmentId")
   projectId         String?
   project           Project? @relation(fields: [projectId], references: [id])
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  @@index([operatorId, departmentId])
+  @@index([operatorId, domainId])
   @@index([entityId])
 }
 
@@ -744,13 +750,13 @@ model UserScope {
   id                 String   @id @default(cuid())
   userId             String
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  departmentEntityId String // FK to Entity (a foundational/department entity)
+  domainEntityId     String   @map("departmentEntityId") // FK to Entity (a foundational/domain entity)
   grantedById        String? // userId of who granted this — null for system-generated
   createdAt          DateTime @default(now())
 
-  @@unique([userId, departmentEntityId])
+  @@unique([userId, domainEntityId])
   @@index([userId])
-  @@index([departmentEntityId])
+  @@index([domainEntityId])
 }
 
 // ─── Content Chunks (universal RAG store) ───────────────
@@ -763,7 +769,7 @@ model ContentChunk {
   sourceType           String // "email" | "slack_message" | "drive_doc" | "uploaded_doc" | "calendar_note"
   sourceId             String // reference to origin (Event.id, InternalDocument.id, etc.)
   entityId             String? // entity this content is about (if resolvable)
-  departmentIds        String? // JSON array of department IDs (derived from participant routing)
+  domainIds            String? @map("departmentIds") // JSON array of domain IDs (derived from participant routing)
   chunkIndex           Int
   content              String
   embedding            String? // actually vector(1536) — see raw SQL migration
@@ -872,7 +878,7 @@ model ActivitySignal {
   signalType      String // "email_sent" | "email_received" | "slack_message" | "doc_edit" | "meeting_held" | "doc_created" | "doc_shared"
   actorEntityId   String? // who did it (resolved to entity if possible)
   targetEntityIds String? // JSON array — who/what was it about
-  departmentIds   String? // JSON array — derived from participant routing
+  domainIds       String? @map("departmentIds") // JSON array — derived from participant routing
   metadata        String? // JSON: { response_time_ms, thread_id, channel, file_name, attendees, etc. }
   occurredAt      DateTime // when the activity happened (not when we ingested it)
   wikiProcessedAt DateTime?
@@ -937,7 +943,7 @@ model PersonalAutonomy {
 model Initiative {
   id               String   @id @default(cuid())
   operatorId       String
-  aiEntityId       String // the department-ai or hq-ai that proposed this
+  aiEntityId       String // the domain-ai or hq-ai that proposed this
   proposalType     String // "project_creation" | "policy_change" | "autonomy_graduation" | "system_job_creation" | "strategy_revision" | "wiki_update" | "resource_recommendation" | "general"
   triggerSummary   String // one-line description of what was detected
   evidence         Json? // array of {source: string, claim: string} showing what triggered this
@@ -1124,8 +1130,10 @@ model SystemJob {
   title                String
   description          String   @db.Text // natural language description of what this job monitors and investigates
   cronExpression       String
-  scope                String    @default("department") // department | cross_department | personal | company_wide
-  scopeEntityId        String? // Department or person entity ID
+  domainEntityId       String   // REQUIRED — which domain this job monitors
+  assigneeEntityId     String?  // Optional specific person; if null, domain operators receive findings
+  scope                String    @default("domain") // domain | cross_domain | personal | company_wide
+  scopeEntityId        String? // Legacy — kept for backward compat, prefer domainEntityId
   archetypeSlug        String? // Links to system job archetype for cross-org learning
   status               String    @default("proposed") // proposed | active | paused | deactivated
   source               String    @default("manual") // initiative | strategic_scan | onboarding | manual | self_amendment
@@ -1137,11 +1145,14 @@ model SystemJob {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  operator Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  runs     SystemJobRun[]
+  operator    Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  domain      Entity         @relation("SystemJobDomain", fields: [domainEntityId], references: [id])
+  assignee    Entity?        @relation("SystemJobAssignee", fields: [assigneeEntityId], references: [id])
+  runs        SystemJobRun[]
 
   @@index([operatorId, status])
   @@index([status, nextTriggerAt])
+  @@index([domainEntityId])
 }
 
 model SystemJobRun {
@@ -1191,13 +1202,13 @@ model OperationalInsight {
   id                 String   @id @default(cuid())
   operatorId         String
   aiEntityId         String
-  departmentId       String?
+  domainId           String?  @map("departmentId")
   insightType        String // approach_effectiveness, timing_pattern, entity_preference, escalation_pattern, resolution_pattern
   description        String
   evidence           String // JSON: { sampleSize, successRate, situations[], ... }
   confidence         Float
   promptModification String?
-  shareScope         String   @default("personal") // personal, department, operator
+  shareScope         String   @default("personal") // personal, department (legacy), operator
   status             String   @default("active") // active, superseded, invalidated
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -1206,7 +1217,7 @@ model OperationalInsight {
 
   @@index([operatorId, shareScope, status])
   @@index([aiEntityId, status])
-  @@index([operatorId, departmentId, status])
+  @@index([operatorId, domainId, status])
 }
 
 model NotificationPreference {
@@ -1323,17 +1334,18 @@ model OnboardingAgentRun {
 
 // ─── System Health ───────────────────────────────────────
 
-model DepartmentHealth {
-  id                 String   @id @default(cuid())
-  operatorId         String
-  departmentEntityId String? // null = operator-level aggregate
-  snapshot           Json
-  computedAt         DateTime @default(now())
+model DomainHealth {
+  id               String   @id @default(cuid())
+  operatorId       String
+  domainEntityId   String?  @map("departmentEntityId") // null = operator-level aggregate
+  snapshot         Json
+  computedAt       DateTime @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
-  @@unique([operatorId, departmentEntityId])
+  @@unique([operatorId, domainEntityId])
   @@index([operatorId])
+  @@map("DepartmentHealth")
 }
 
 // ─── Worker Job Queue ─────────────────────────────────────
@@ -1661,10 +1673,10 @@ model KnowledgePage {
   // Identity
   pageType        String // entity_profile, relationship_map, process_description,
   // financial_pattern, communication_pattern, situation_pattern,
-  // department_overview, topic_synthesis, contradiction_log,
+  // domain_overview, topic_synthesis, contradiction_log,
   // index, log
   subjectEntityId String?
-  departmentIds   String[] @default([])
+  domainIds       String[] @default([]) @map("departmentIds")
   title           String
   slug            String
 

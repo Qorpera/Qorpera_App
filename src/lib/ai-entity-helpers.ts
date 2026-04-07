@@ -7,12 +7,12 @@ import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
  */
 export async function ensureDepartmentAi(
   operatorId: string,
-  departmentEntityId: string,
-  departmentName: string,
+  domainEntityId: string,
+  domainName: string,
 ): Promise<string> {
   // Check if already exists
   const existing = await prisma.entity.findFirst({
-    where: { operatorId, ownerDepartmentId: departmentEntityId, status: "active" },
+    where: { operatorId, ownerDomainId: domainEntityId, status: "active" },
     select: { id: true },
   });
   if (existing) return existing.id;
@@ -40,10 +40,10 @@ export async function ensureDepartmentAi(
     data: {
       operatorId,
       entityTypeId: entityType.id,
-      displayName: `${departmentName} AI`,
+      displayName: `${domainName} AI`,
       category: "base",
-      ownerDepartmentId: departmentEntityId,
-      parentDepartmentId: departmentEntityId,
+      ownerDomainId: domainEntityId,
+      primaryDomainId: domainEntityId,
     },
   });
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 import type {
   OperatorSnapshot,
   DepartmentSnapshot,
@@ -15,12 +15,12 @@ export async function GET() {
   const { operatorId } = su;
 
   // Scope: members see only their departments
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.user.id);
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.user.id);
 
   // Read persisted snapshot
-  const healthRows = await prisma.departmentHealth.findMany({
+  const healthRows = await prisma.domainHealth.findMany({
     where: { operatorId },
-    select: { departmentEntityId: true, snapshot: true, computedAt: true },
+    select: { domainEntityId: true, snapshot: true, computedAt: true },
   });
 
   // If no snapshot exists, compute one on-the-fly and persist
@@ -29,36 +29,36 @@ export async function GET() {
     // Persist in background
     recomputeHealthSnapshots(operatorId).catch(() => {});
 
-    const scoped = scopeSnapshot(snapshot, visibleDepts);
+    const scoped = scopeSnapshot(snapshot, visibleDomains);
     const enriched = await enrichWithLiveData(scoped, operatorId);
     return NextResponse.json(enriched);
   }
 
   // Reconstruct operator snapshot from persisted rows
-  const operatorRow = healthRows.find((r) => r.departmentEntityId === null);
-  const deptRows = healthRows.filter((r) => r.departmentEntityId !== null);
+  const operatorRow = healthRows.find((r) => r.domainEntityId === null);
+  const deptRows = healthRows.filter((r) => r.domainEntityId !== null);
 
   // Scope filter
   const visibleDeptRows =
-    visibleDepts === "all"
+    visibleDomains === "all"
       ? deptRows
       : deptRows.filter(
-          (r) => r.departmentEntityId && visibleDepts.includes(r.departmentEntityId),
+          (r) => r.domainEntityId && visibleDomains.includes(r.domainEntityId),
         );
 
-  const departments = visibleDeptRows.map(
+  const domains = visibleDeptRows.map(
     (r) => r.snapshot as unknown as DepartmentSnapshot,
   );
 
   // Recompute aggregate from visible departments only
-  const criticalIssueCount = departments.reduce(
+  const criticalIssueCount = domains.reduce(
     (sum, d) => sum + d.criticalIssueCount,
     0,
   );
   let overallStatus: OperatorSnapshot["overallStatus"];
-  if (departments.some((d) => d.overallStatus === "critical")) {
+  if (domains.some((d) => d.overallStatus === "critical")) {
     overallStatus = "critical";
-  } else if (departments.some((d) => d.overallStatus === "attention")) {
+  } else if (domains.some((d) => d.overallStatus === "attention")) {
     overallStatus = "attention";
   } else {
     overallStatus = "healthy";
@@ -70,7 +70,7 @@ export async function GET() {
 
   const snapshot: OperatorSnapshot = {
     operatorId,
-    departments,
+    domains,
     overallStatus,
     criticalIssueCount,
     staleJobCount,
@@ -87,25 +87,25 @@ export async function GET() {
 
 function scopeSnapshot(
   snapshot: OperatorSnapshot,
-  visibleDepts: string[] | "all",
+  visibleDomains: string[] | "all",
 ): OperatorSnapshot {
-  if (visibleDepts === "all") return snapshot;
-  const departments = snapshot.departments.filter((d) =>
-    visibleDepts.includes(d.departmentId),
+  if (visibleDomains === "all") return snapshot;
+  const domains = snapshot.domains.filter((d) =>
+    visibleDomains.includes(d.domainId),
   );
-  const criticalIssueCount = departments.reduce(
+  const criticalIssueCount = domains.reduce(
     (sum, d) => sum + d.criticalIssueCount,
     0,
   );
   let overallStatus: OperatorSnapshot["overallStatus"];
-  if (departments.some((d) => d.overallStatus === "critical")) {
+  if (domains.some((d) => d.overallStatus === "critical")) {
     overallStatus = "critical";
-  } else if (departments.some((d) => d.overallStatus === "attention")) {
+  } else if (domains.some((d) => d.overallStatus === "attention")) {
     overallStatus = "attention";
   } else {
     overallStatus = "healthy";
   }
-  return { ...snapshot, departments, overallStatus, criticalIssueCount };
+  return { ...snapshot, domains, overallStatus, criticalIssueCount };
 }
 
 // ─── Live data enrichment ────────────────────────────────
@@ -114,9 +114,9 @@ async function enrichWithLiveData(
   snapshot: OperatorSnapshot,
   operatorId: string,
 ): Promise<OperatorSnapshot> {
-  // Collect all situation type IDs across departments
+  // Collect all situation type IDs across domains
   const allStIds: string[] = [];
-  for (const dept of snapshot.departments) {
+  for (const dept of snapshot.domains) {
     for (const st of dept.detection.situationTypes) {
       allStIds.push(st.id);
     }
@@ -180,7 +180,7 @@ async function enrichWithLiveData(
   }
 
   // Merge into snapshot
-  const departments = snapshot.departments.map((dept) => ({
+  const domains = snapshot.domains.map((dept) => ({
     ...dept,
     detection: {
       ...dept.detection,
@@ -192,7 +192,7 @@ async function enrichWithLiveData(
     },
   }));
 
-  return { ...snapshot, departments };
+  return { ...snapshot, domains };
 }
 
 function bucketSituations(

@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       activitySignals: 0,
       situationTypes: 0,
       ids: {
-        departments: departments.map((d) => ({ id: d.id, name: d.displayName })),
+        domains: departments.map((d) => ({ id: d.id, name: d.displayName })),
         entities: {
           contact: { id: contactEntity.id, name: contactEntity.displayName },
           person: { id: personEntity.id, name: personEntity.displayName },
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
         sourceId: `test-harness-email-received-1-${Date.now()}`,
         content: `Hi team,\n\nI wanted to follow up on the Q3 report that was due last week. Our board meeting is scheduled for this Friday and we need the updated numbers before then. Specifically, I need the revenue breakdown by product line and the customer acquisition costs.\n\nCan you prioritize this? The CFO is asking for it directly.\n\nBest regards,\n${contactEntity.displayName}`,
         entityId: contactEntity.id,
-        departmentIds: deptIds,
+        domainIds: deptIds,
         metadata: { subject: "Q3 Report - Urgent Request", from: contactEmail, to: personEmail, direction: "received", threadId: "thread-q3-report", isAutomated: false, date: daysAgo(1).toISOString() },
       },
       {
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
         sourceId: `test-harness-email-received-2-${Date.now()}`,
         content: `Hello,\n\nUnfortunately, we're experiencing a delay with the component shipment for order #4521. The expected delivery date has been pushed from March 10 to March 24. This may impact your production schedule.\n\nWe're working with our logistics partner to expedite. I'll update you if anything changes.\n\nRegards,\nSupplier Relations Team`,
         entityId: secondContact.id,
-        departmentIds: deptIds2,
+        domainIds: deptIds2,
         metadata: { subject: "Shipment Delay - Order #4521", from: "supplier@logistics.com", to: personEmail, direction: "received", threadId: "thread-shipment-delay", isAutomated: false, date: daysAgo(2).toISOString() },
       },
       {
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
         sourceId: `test-harness-email-received-3-${Date.now()}`,
         content: `Hi there,\n\nJust confirming our meeting next Tuesday at 2pm to discuss the partnership roadmap for H2. I'll bring the updated projections and we can align on the joint go-to-market strategy.\n\nLooking forward to it!\n\nBest,\nPartner Team`,
         entityId: contactEntity.id,
-        departmentIds: deptIds,
+        domainIds: deptIds,
         metadata: { subject: "Partnership Roadmap Meeting Confirmation", from: "partner@bizpartner.com", to: personEmail, direction: "received", threadId: "thread-partnership-meeting", isAutomated: false, date: daysAgo(0).toISOString() },
       },
       // 2 sent emails (should be skipped by content detection)
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
         sourceId: `test-harness-email-sent-1-${Date.now()}`,
         content: `Hi ${contactEntity.displayName},\n\nThanks for the reminder. I'm pulling together the Q3 numbers now and will have the report ready by Wednesday EOD. I'll include the product line breakdown and CAC metrics as requested.\n\nBest,\nTeam`,
         entityId: contactEntity.id,
-        departmentIds: deptIds,
+        domainIds: deptIds,
         metadata: { subject: "Re: Q3 Report - Urgent Request", from: personEmail, to: contactEmail, direction: "sent", threadId: "thread-q3-report", isAutomated: false, date: daysAgo(0).toISOString() },
       },
       {
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
         sourceId: `test-harness-email-sent-2-${Date.now()}`,
         content: `Hi there,\n\nFollowing up on our conversation last week about your digital transformation needs. I'd love to schedule a 30-minute call to walk through how our platform could help.\n\nWould next Thursday work for you?\n\nBest regards,\nSales Team`,
         entityId: null,
-        departmentIds: deptIds,
+        domainIds: deptIds,
         metadata: { subject: "Follow-up: Digital Transformation Solutions", from: personEmail, to: "prospect@newclient.com", direction: "sent", threadId: "thread-prospect-followup", isAutomated: false, date: daysAgo(1).toISOString() },
       },
       // 2 Slack messages
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
         sourceId: `test-harness-slack-1-${Date.now()}`,
         content: `Hey @channel, I need approval on the updated Q1 budget allocation. We're proposing to shift $15K from the marketing line to engineering tooling. The current marketing spend is underutilized and the eng team needs upgraded CI/CD infrastructure. Doc is linked in the thread - can someone from finance review by EOD?`,
         entityId: personEntity.id,
-        departmentIds: deptIds,
+        domainIds: deptIds,
         metadata: { channel: "#finance-approvals", authorEmail: personEmail, authorName: personEntity.displayName },
       },
       {
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
         sourceId: `test-harness-slack-2-${Date.now()}`,
         content: `Heads up everyone - v2.4 release is scheduled for next Wednesday. Key changes:\n- New dashboard analytics\n- Performance improvements (30% faster page loads)\n- Bug fixes for the notification system\n\nPlease make sure your PRs are merged by Monday EOD for inclusion.`,
         entityId: personEntity.id,
-        departmentIds: deptIds2,
+        domainIds: deptIds2,
         metadata: { channel: "#engineering", authorEmail: personEmail, authorName: personEntity.displayName },
       },
       // 1 Drive document
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
         sourceId: `test-harness-drive-1-${Date.now()}`,
         content: `QUARTERLY BUSINESS REVIEW - Q4 2025\n\nRevenue: $2.4M (+12% QoQ)\nNew Customers: 18 (+28% QoQ)\nChurn Rate: 2.1% (-0.3pp QoQ)\nNPS Score: 67 (+5 QoQ)\n\nKey Highlights:\n- Enterprise segment grew 45% driven by 3 large deals\n- Self-serve ARR crossed $500K milestone\n- Average deal size increased to $18K from $14K\n\nChallenges:\n- Sales cycle lengthened to 45 days (from 38)\n- Support ticket volume up 22% with same team size\n- Two key engineering hires still open after 60 days`,
         entityId: null,
-        departmentIds: deptIds,
+        domainIds: deptIds,
         metadata: { fileName: "Q4 2025 Business Review.gdoc", mimeType: "application/vnd.google-apps.document", lastModifiedBy: personEmail },
       },
     ];
@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
         sourceId: item.sourceId,
         content: item.content,
         entityId: item.entityId ?? undefined,
-        departmentIds: item.departmentIds,
+        domainIds: item.domainIds,
         metadata: item.metadata,
       });
       results.contentChunks += result.chunksCreated;
@@ -173,27 +173,27 @@ export async function POST(req: NextRequest) {
 
     const signals = [
       // 5 email_received spread over 14 days
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], departmentIds: deptIds, metadata: { subject: "Q3 Report Request", response_time_ms: 3600000 }, occurredAt: daysAgo(1) },
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [target2Id], departmentIds: deptIds2, metadata: { subject: "Shipment Update" }, occurredAt: daysAgo(3) },
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], departmentIds: deptIds, metadata: { subject: "Partnership Discussion" }, occurredAt: daysAgo(5) },
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [target2Id], departmentIds: deptIds2, metadata: { subject: "Invoice Follow-up" }, occurredAt: daysAgo(8) },
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], departmentIds: deptIds, metadata: { subject: "Contract Review" }, occurredAt: daysAgo(12) },
+      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Q3 Report Request", response_time_ms: 3600000 }, occurredAt: daysAgo(1) },
+      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [target2Id], domainIds: deptIds2, metadata: { subject: "Shipment Update" }, occurredAt: daysAgo(3) },
+      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Partnership Discussion" }, occurredAt: daysAgo(5) },
+      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [target2Id], domainIds: deptIds2, metadata: { subject: "Invoice Follow-up" }, occurredAt: daysAgo(8) },
+      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Contract Review" }, occurredAt: daysAgo(12) },
       // 3 email_sent
-      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [targetId], departmentIds: deptIds, metadata: { subject: "Re: Q3 Report" }, occurredAt: daysAgo(0) },
-      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [target2Id], departmentIds: deptIds2, metadata: { subject: "Re: Shipment" }, occurredAt: daysAgo(2) },
-      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [targetId], departmentIds: deptIds, metadata: { subject: "Proposal Draft" }, occurredAt: daysAgo(7) },
+      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Re: Q3 Report" }, occurredAt: daysAgo(0) },
+      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [target2Id], domainIds: deptIds2, metadata: { subject: "Re: Shipment" }, occurredAt: daysAgo(2) },
+      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Proposal Draft" }, occurredAt: daysAgo(7) },
       // 3 meeting_held
-      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [targetId, target2Id], departmentIds: deptIds, metadata: { attendees: 4, durationMinutes: 60, title: "Weekly Sync" }, occurredAt: daysAgo(2) },
-      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [targetId], departmentIds: deptIds, metadata: { attendees: 2, durationMinutes: 30, title: "1:1 Review" }, occurredAt: daysAgo(6) },
-      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [target2Id], departmentIds: deptIds2, metadata: { attendees: 3, durationMinutes: 45, title: "Supplier Sync" }, occurredAt: daysAgo(10) },
+      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [targetId, target2Id], domainIds: deptIds, metadata: { attendees: 4, durationMinutes: 60, title: "Weekly Sync" }, occurredAt: daysAgo(2) },
+      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { attendees: 2, durationMinutes: 30, title: "1:1 Review" }, occurredAt: daysAgo(6) },
+      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [target2Id], domainIds: deptIds2, metadata: { attendees: 3, durationMinutes: 45, title: "Supplier Sync" }, occurredAt: daysAgo(10) },
       // 2 doc_edited
-      { signalType: "doc_edited", actorEntityId: actorId, targetEntityIds: null, departmentIds: deptIds, metadata: { fileName: "Q4 Business Review.gdoc" }, occurredAt: daysAgo(1) },
-      { signalType: "doc_edited", actorEntityId: actorId, targetEntityIds: null, departmentIds: deptIds2, metadata: { fileName: "Engineering Roadmap.gdoc" }, occurredAt: daysAgo(4) },
+      { signalType: "doc_edited", actorEntityId: actorId, targetEntityIds: null, domainIds: deptIds, metadata: { fileName: "Q4 Business Review.gdoc" }, occurredAt: daysAgo(1) },
+      { signalType: "doc_edited", actorEntityId: actorId, targetEntityIds: null, domainIds: deptIds2, metadata: { fileName: "Engineering Roadmap.gdoc" }, occurredAt: daysAgo(4) },
       // 2 slack_message
-      { signalType: "slack_message", actorEntityId: actorId, targetEntityIds: null, departmentIds: deptIds, metadata: { channel: "#finance-approvals" }, occurredAt: daysAgo(0) },
-      { signalType: "slack_message", actorEntityId: actorId, targetEntityIds: null, departmentIds: deptIds2, metadata: { channel: "#engineering" }, occurredAt: daysAgo(1) },
+      { signalType: "slack_message", actorEntityId: actorId, targetEntityIds: null, domainIds: deptIds, metadata: { channel: "#finance-approvals" }, occurredAt: daysAgo(0) },
+      { signalType: "slack_message", actorEntityId: actorId, targetEntityIds: null, domainIds: deptIds2, metadata: { channel: "#engineering" }, occurredAt: daysAgo(1) },
       // 1 meeting_frequency
-      { signalType: "meeting_frequency", actorEntityId: actorId, targetEntityIds: [targetId], departmentIds: deptIds, metadata: { frequency: "weekly", count: 4, period: "last_30_days" }, occurredAt: daysAgo(0) },
+      { signalType: "meeting_frequency", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { frequency: "weekly", count: 4, period: "last_30_days" }, occurredAt: daysAgo(0) },
     ];
 
     for (const sig of signals) {
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
           signalType: sig.signalType,
           actorEntityId: sig.actorEntityId,
           targetEntityIds: sig.targetEntityIds ? JSON.stringify(sig.targetEntityIds) : null,
-          departmentIds: JSON.stringify(sig.departmentIds),
+          domainIds: JSON.stringify(sig.domainIds),
           metadata: JSON.stringify(sig.metadata),
           occurredAt: sig.occurredAt,
         },

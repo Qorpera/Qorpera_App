@@ -76,7 +76,7 @@ describe("Goal CRUD", () => {
       description: "Grow Q2 revenue by 20%",
       priority: 1,
       status: "active",
-      departmentId: "dept1",
+      domainId: "dept1",
     };
 
     mockPrisma.goal.create.mockResolvedValue(goalData);
@@ -87,13 +87,13 @@ describe("Goal CRUD", () => {
         title: "Increase Revenue",
         description: "Grow Q2 revenue by 20%",
         priority: 1,
-        departmentId: "dept1",
+        domainId: "dept1",
       },
     });
 
     expect(result.title).toBe("Increase Revenue");
     expect(result.operatorId).toBe("op1");
-    expect(result.departmentId).toBe("dept1");
+    expect(result.domainId).toBe("dept1");
   });
 
   it("reads a goal by id and operator", async () => {
@@ -152,10 +152,10 @@ describe("Goal CRUD", () => {
     // API would return 409 Conflict here
   });
 
-  it("scopes goals by departmentId", async () => {
+  it("scopes goals by domainId", async () => {
     const goals = [
-      { id: "g1", departmentId: "dept1" },
-      { id: "g2", departmentId: null }, // HQ-level
+      { id: "g1", domainId: "dept1" },
+      { id: "g2", domainId: null }, // HQ-level
     ];
     mockPrisma.goal.findMany.mockResolvedValue(goals);
 
@@ -163,8 +163,8 @@ describe("Goal CRUD", () => {
       where: {
         operatorId: "op1",
         OR: [
-          { departmentId: { in: ["dept1"] } },
-          { departmentId: null },
+          { domainId: { in: ["dept1"] } },
+          { domainId: null },
         ],
       },
     });
@@ -525,7 +525,7 @@ describe("NotificationPreference seeding", () => {
 // ── Test 10: Department AI auto-creation ────────────────────────────────────
 
 describe("Department AI auto-creation", () => {
-  it("creates department AI entity with correct type and ownerDepartmentId", async () => {
+  it("creates department AI entity with correct type and ownerDomainId", async () => {
     // No existing department AI
     mockPrisma.entity.findFirst.mockResolvedValue(null);
 
@@ -539,8 +539,8 @@ describe("Department AI auto-creation", () => {
       id: "ent-dept-ai-1",
       displayName: "Sales AI",
       entityTypeId: "et-dept-ai",
-      ownerDepartmentId: "dept-sales",
-      parentDepartmentId: "dept-sales",
+      ownerDomainId: "dept-sales",
+      primaryDomainId: "dept-sales",
       category: "base",
     });
 
@@ -551,8 +551,8 @@ describe("Department AI auto-creation", () => {
       data: expect.objectContaining({
         operatorId: "op1",
         displayName: "Sales AI",
-        ownerDepartmentId: "dept-sales",
-        parentDepartmentId: "dept-sales",
+        ownerDomainId: "dept-sales",
+        primaryDomainId: "dept-sales",
         category: "base",
       }),
     });
@@ -616,10 +616,10 @@ describe("HQ AI auto-creation", () => {
         category: "base",
       }),
     });
-    // HQ AI should NOT have parentDepartmentId or ownerDepartmentId
+    // HQ AI should NOT have primaryDomainId or ownerDomainId
     const createCall = mockPrisma.entity.create.mock.calls[0][0].data;
-    expect(createCall.parentDepartmentId).toBeUndefined();
-    expect(createCall.ownerDepartmentId).toBeUndefined();
+    expect(createCall.primaryDomainId).toBeUndefined();
+    expect(createCall.ownerDomainId).toBeUndefined();
   });
 
   it("returns existing entity ID when HQ AI already exists (idempotent)", async () => {

@@ -16,12 +16,12 @@ const mockPrisma = prisma as any;
 beforeEach(() => vi.clearAllMocks());
 
 describe("backfillContentLinkage", () => {
-  it("links content chunks to departments via email metadata", async () => {
-    // Team members with departments
+  it("links content chunks to domains via email metadata", async () => {
+    // Team members with domains
     mockPrisma.entity.findMany.mockResolvedValue([
       {
         id: "ent-lars",
-        parentDepartmentId: "dept-ops",
+        primaryDomainId: "dept-ops",
         propertyValues: [{ value: "lars@boltly.dk", property: { identityRole: "email", slug: "email" } }],
       },
     ]);
@@ -43,7 +43,7 @@ describe("backfillContentLinkage", () => {
     expect(result.chunksUpdated).toBe(1);
     expect(mockPrisma.contentChunk.update).toHaveBeenCalledWith({
       where: { id: "chunk-1" },
-      data: { departmentIds: expect.stringContaining("dept-ops") },
+      data: { domainIds: expect.stringContaining("dept-ops") },
     });
   });
 
@@ -51,7 +51,7 @@ describe("backfillContentLinkage", () => {
     mockPrisma.entity.findMany.mockResolvedValue([
       {
         id: "ent-lars",
-        parentDepartmentId: "dept-ops",
+        primaryDomainId: "dept-ops",
         propertyValues: [{ value: "lars@boltly.dk", property: { identityRole: "email", slug: "email" } }],
       },
     ]);
@@ -62,7 +62,7 @@ describe("backfillContentLinkage", () => {
       {
         id: "sig-1",
         actorEntityId: null,
-        departmentIds: null,
+        domainIds: null,
         metadata: JSON.stringify({ from: "lars@boltly.dk" }),
       },
     ]);
@@ -81,12 +81,12 @@ describe("backfillContentLinkage", () => {
     mockPrisma.entity.findMany.mockResolvedValue([
       {
         id: "ent-sofie",
-        parentDepartmentId: "dept-ops",
+        primaryDomainId: "dept-ops",
         propertyValues: [{ value: "sofie@boltly.dk", property: { identityRole: "email", slug: "email" } }],
       },
       {
         id: "ent-emil",
-        parentDepartmentId: "dept-ops",
+        primaryDomainId: "dept-ops",
         propertyValues: [{ value: "emil@boltly.dk", property: { identityRole: "email", slug: "email" } }],
       },
     ]);
@@ -105,11 +105,11 @@ describe("backfillContentLinkage", () => {
     expect(result.chunksUpdated).toBe(1);
     expect(mockPrisma.contentChunk.update).toHaveBeenCalledWith({
       where: { id: "chunk-cc" },
-      data: { departmentIds: expect.stringContaining("dept-ops") },
+      data: { domainIds: expect.stringContaining("dept-ops") },
     });
   });
 
-  it("skips when no team members have departments", async () => {
+  it("skips when no team members have domains", async () => {
     mockPrisma.entity.findMany.mockResolvedValue([]);
     const result = await backfillContentLinkage("op-1");
     expect(result.chunksUpdated).toBe(0);

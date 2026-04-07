@@ -1,22 +1,22 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getGraphData } from "@/lib/entity-model-store";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 export async function GET() {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.user.id);
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.user.id);
   const data = await getGraphData(operatorId);
 
   // Post-filter graph nodes/edges by department scope
-  if (visibleDepts !== "all") {
-    const visibleSet = new Set(visibleDepts);
-    const isNodeVisible = (n: { id: string; parentDepartmentId?: string | null; category?: string }) => {
+  if (visibleDomains !== "all") {
+    const visibleSet = new Set(visibleDomains);
+    const isNodeVisible = (n: { id: string; primaryDomainId?: string | null; category?: string }) => {
       if (n.category === "foundational") return visibleSet.has(n.id);
       if (n.category === "external") return true;
-      if (n.parentDepartmentId) return visibleSet.has(n.parentDepartmentId);
+      if (n.primaryDomainId) return visibleSet.has(n.primaryDomainId);
       return false;
     };
     if (data.nodes) {

@@ -4,7 +4,7 @@ import { normalizeCompanyModel, type CompanyModel } from "@/lib/onboarding-intel
 describe("normalizeCompanyModel", () => {
   it("passes conforming input through unchanged", () => {
     const input: CompanyModel = {
-      departments: [{ name: "Engineering", description: "Builds stuff", confidence: "high" }],
+      domains: [{ name: "Engineering", description: "Builds stuff", confidence: "high" }],
       people: [{ email: "a@co.dk", displayName: "Alice", primaryDepartment: "Engineering", role: "Dev", roleLevel: "ic" }],
       crossFunctionalPeople: [],
       processes: [],
@@ -15,15 +15,15 @@ describe("normalizeCompanyModel", () => {
     };
 
     const result = normalizeCompanyModel(input as unknown as Record<string, unknown>);
-    expect(result.departments).toHaveLength(1);
+    expect(result.domains).toHaveLength(1);
     expect(result.people).toHaveLength(1);
     expect(result.people[0].email).toBe("a@co.dk");
     expect(result.people[0].primaryDepartment).toBe("Engineering");
   });
 
-  it("flattens departments[].members[] into top-level people[]", () => {
+  it("flattens domains[].members[] into top-level people[]", () => {
     const input = {
-      departments: [
+      domains: [
         {
           name: "Ledelse",
           description: "Leadership",
@@ -50,12 +50,12 @@ describe("normalizeCompanyModel", () => {
     expect(result.people[1].primaryDepartment).toBe("Drift");
     expect(result.people[2].primaryDepartment).toBe("Drift");
     // Departments should be cleaned (no members key)
-    expect((result.departments[0] as any).members).toBeUndefined();
+    expect((result.domains[0] as any).members).toBeUndefined();
   });
 
   it("resolves reportingRelationships[] into people[].reportsToEmail", () => {
     const input = {
-      departments: [
+      domains: [
         {
           name: "Team",
           description: "The team",
@@ -80,7 +80,7 @@ describe("normalizeCompanyModel", () => {
 
   it("returns valid empty model for null/empty input", () => {
     const result = normalizeCompanyModel({});
-    expect(result.departments).toEqual([]);
+    expect(result.domains).toEqual([]);
     expect(result.people).toEqual([]);
     expect(result.crossFunctionalPeople).toEqual([]);
     expect(result.processes).toEqual([]);
@@ -92,7 +92,7 @@ describe("normalizeCompanyModel", () => {
 
   it("does not flatten members when top-level people[] already exists", () => {
     const input = {
-      departments: [
+      domains: [
         {
           name: "Dept",
           description: "A dept",

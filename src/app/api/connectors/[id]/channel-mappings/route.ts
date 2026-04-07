@@ -60,10 +60,10 @@ export async function GET(
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
   const { connector } = result;
 
-  // Get existing mappings with department name
+  // Get existing mappings with domain name
   const mappings = await prisma.slackChannelMapping.findMany({
     where: { connectorId, operatorId },
-    include: { department: { select: { id: true, displayName: true } } },
+    include: { domain: { select: { id: true, displayName: true } } },
     orderBy: { channelName: "asc" },
   });
 
@@ -100,25 +100,25 @@ export async function POST(
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
 
   const body = await req.json();
-  const { channelId, channelName, departmentId } = body;
-  if (!channelId || !channelName || !departmentId) {
-    return NextResponse.json({ error: "channelId, channelName, and departmentId are required" }, { status: 400 });
+  const { channelId, channelName, domainId } = body;
+  if (!channelId || !channelName || !domainId) {
+    return NextResponse.json({ error: "channelId, channelName, and domainId are required" }, { status: 400 });
   }
 
-  // Validate department belongs to same operator
+  // Validate domain belongs to same operator
   const dept = await prisma.entity.findFirst({
-    where: { id: departmentId, operatorId, category: "foundational" },
+    where: { id: domainId, operatorId, category: "foundational" },
     select: { id: true },
   });
   if (!dept) {
-    return NextResponse.json({ error: "Department not found" }, { status: 400 });
+    return NextResponse.json({ error: "Domain not found" }, { status: 400 });
   }
 
   const mapping = await prisma.slackChannelMapping.upsert({
     where: { connectorId_channelId: { connectorId, channelId } },
-    create: { operatorId, connectorId, channelId, channelName, departmentId },
-    update: { channelName, departmentId },
-    include: { department: { select: { id: true, displayName: true } } },
+    create: { operatorId, connectorId, channelId, channelName, domainId },
+    update: { channelName, domainId },
+    include: { domain: { select: { id: true, displayName: true } } },
   });
 
   return NextResponse.json(mapping, { status: 201 });

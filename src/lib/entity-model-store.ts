@@ -30,7 +30,7 @@ export type EntityInput = {
   metadata?: Record<string, unknown>;
   properties?: Record<string, string>;
   category?: string;
-  parentDepartmentId?: string;
+  primaryDomainId?: string;
   description?: string;
   mapX?: number;
   mapY?: number;
@@ -310,7 +310,7 @@ export async function createEntity(operatorId: string, input: EntityInput) {
         externalId: input.externalId ?? null,
         metadata: input.metadata ? JSON.stringify(input.metadata) : null,
         category: input.category ?? entityType?.defaultCategory ?? "digital",
-        parentDepartmentId: input.parentDepartmentId ?? null,
+        primaryDomainId: input.primaryDomainId ?? null,
         description: input.description ?? null,
         mapX: input.mapX ?? null,
         mapY: input.mapY ?? null,
@@ -354,7 +354,7 @@ export async function updateEntity(
     metadata?: Record<string, unknown>;
     properties?: Record<string, string>;
     category?: string;
-    parentDepartmentId?: string;
+    primaryDomainId?: string;
     description?: string;
     mapX?: number;
     mapY?: number;
@@ -373,7 +373,7 @@ export async function updateEntity(
         ...(fields.status !== undefined && { status: fields.status }),
         ...(fields.metadata !== undefined && { metadata: JSON.stringify(fields.metadata) }),
         ...(fields.category !== undefined && { category: fields.category }),
-        ...(fields.parentDepartmentId !== undefined && { parentDepartmentId: fields.parentDepartmentId }),
+        ...(fields.primaryDomainId !== undefined && { primaryDomainId: fields.primaryDomainId }),
         ...(fields.description !== undefined && { description: fields.description }),
         ...(fields.mapX !== undefined && { mapX: fields.mapX }),
         ...(fields.mapY !== undefined && { mapY: fields.mapY }),

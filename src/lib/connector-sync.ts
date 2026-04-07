@@ -153,8 +153,8 @@ export async function runConnectorSync(
               operatorId,
               item.data.participantEmails,
             );
-            // Merge channel-mapped departmentId if present (Slack channel→department mapping)
-            const mappedDeptId = (meta as Record<string, unknown> | undefined)?.departmentId as string | null;
+            // Merge channel-mapped domainId if present (Slack channel→department mapping)
+            const mappedDeptId = (meta as Record<string, unknown> | undefined)?.domainId as string | null;
             if (mappedDeptId && !deptIds.includes(mappedDeptId)) {
               deptIds.push(mappedDeptId);
             }
@@ -166,7 +166,7 @@ export async function runConnectorSync(
               sourceId: item.data.sourceId,
               content: item.data.content,
               entityId: item.data.entityId,
-              departmentIds: deptIds,
+              domainIds: deptIds,
               metadata: item.data.metadata,
             });
             contentIngested++;

@@ -75,7 +75,7 @@ export interface TemporalIndexEntry {
 // ── Synthesis Output ─────────────────────────────────────────────────────────
 
 export interface SynthesisOutput {
-  departments: Array<{
+  domains: Array<{
     name: string;
     headCount: number;
     keyPeople: string[];

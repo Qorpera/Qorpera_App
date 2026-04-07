@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getEntity, updateEntity, deleteEntity } from "@/lib/entity-model-store";
 import { updateEntitySchema, parseBody } from "@/lib/api-validation";
-import { getVisibleDepartmentIds, canAccessEntity } from "@/lib/user-scope";
+import { getVisibleDomainIds, canAccessEntity } from "@/lib/domain-scope";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.user.id);
-  if (!(await canAccessEntity(id, visibleDepts, operatorId))) {
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.user.id);
+  if (!(await canAccessEntity(id, visibleDomains, operatorId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const entity = await getEntity(operatorId, id);
@@ -23,8 +23,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.user.id);
-  if (!(await canAccessEntity(id, visibleDepts, operatorId))) {
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.user.id);
+  if (!(await canAccessEntity(id, visibleDomains, operatorId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const body = await req.json();
@@ -42,8 +42,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, su.user.id);
-  if (!(await canAccessEntity(id, visibleDepts, operatorId))) {
+  const visibleDomains = await getVisibleDomainIds(operatorId, su.user.id);
+  if (!(await canAccessEntity(id, visibleDomains, operatorId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const ok = await deleteEntity(operatorId, id);

@@ -12,7 +12,7 @@ export async function GET() {
       id: true,
       displayName: true,
       entityType: { select: { slug: true, name: true, icon: true, color: true } },
-      parentDepartment: { select: { id: true, displayName: true } },
+      primaryDomain: { select: { id: true, displayName: true } },
       fromRelations: {
         where: { relationshipType: { slug: "department-member" } },
         select: { toEntity: { select: { id: true, displayName: true } } },
@@ -22,7 +22,7 @@ export async function GET() {
   if (!aiEntity) return NextResponse.json(null);
 
   const departments = [];
-  if (aiEntity.parentDepartment) departments.push(aiEntity.parentDepartment);
+  if (aiEntity.primaryDomain) departments.push(aiEntity.primaryDomain);
   for (const rel of aiEntity.fromRelations) departments.push(rel.toEntity);
 
   return NextResponse.json({ ...aiEntity, departments });

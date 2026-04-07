@@ -1348,15 +1348,15 @@ async function getDepartmentAdminId(
     // Find the assigned user's department memberships
     const scopes = await prisma.userScope.findMany({
       where: { userId: step.assignedUserId },
-      select: { departmentEntityId: true },
+      select: { domainEntityId: true },
     });
 
     if (scopes.length > 0) {
       // Find an admin in one of those departments
-      const deptIds = scopes.map((s) => s.departmentEntityId);
+      const deptIds = scopes.map((s) => s.domainEntityId);
       const adminScope = await prisma.userScope.findFirst({
         where: {
-          departmentEntityId: { in: deptIds },
+          domainEntityId: { in: deptIds },
           user: {
             operatorId,
             role: { in: ["admin", "superadmin"] },

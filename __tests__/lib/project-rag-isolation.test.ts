@@ -63,7 +63,7 @@ describe("Project RAG isolation", () => {
         sourceId: "doc1",
         entityId: null,
         projectId: "proj1",
-        departmentIds: null,
+        domainIds: null,
         metadata: null,
         chunkIndex: 0,
         tokenCount: 10,

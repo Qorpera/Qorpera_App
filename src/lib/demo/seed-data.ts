@@ -22,7 +22,7 @@ export const COMPANY = {
       "We're an 18-person Danish digital agency helping SMBs with web development, marketing, and business process automation. Our focus is on long-term client relationships and measurable results.",
     industry: "Digital Agency",
     teamSize: 18,
-    departments: ["Salg", "Levering", "Marketing", "Økonomi & Admin"],
+    domains: ["Salg", "Levering", "Marketing", "Økonomi & Admin"],
   }),
 };
 

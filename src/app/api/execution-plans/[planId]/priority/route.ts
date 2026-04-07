@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 import {
   computeSinglePlanPriority,
   computePlanPriorityWithBreakdown,
@@ -27,8 +27,8 @@ async function checkPlanVisibility(
 
   if (!plan) return null;
 
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, userId);
-  if (visibleDepts === "all") return plan;
+  const visibleDomains = await getVisibleDomainIds(operatorId, userId);
+  if (visibleDomains === "all") return plan;
 
   // Member visibility check based on source department
   if (plan.sourceType === "situation") {
@@ -38,7 +38,7 @@ async function checkPlanVisibility(
     });
     // Unscoped situation types are visible to all
     if (situation && situation.situationType.scopeEntityId !== null) {
-      if (!visibleDepts.includes(situation.situationType.scopeEntityId)) return null;
+      if (!visibleDomains.includes(situation.situationType.scopeEntityId)) return null;
     }
   } else if (plan.sourceType === "initiative") {
     const initiative = await prisma.initiative.findUnique({

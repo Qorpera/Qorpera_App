@@ -137,8 +137,8 @@ function setupExtractInsightsMocks(options: {
     id: "ai-1",
     displayName: "Jonas AI",
     ownerUserId: "user-1",
-    ownerDepartmentId: "dept-1",
-    parentDepartmentId: "dept-1",
+    ownerDomainId: "dept-1",
+    primaryDomainId: "dept-1",
     entityType: { slug: "ai-agent" },
   };
 
@@ -369,8 +369,8 @@ describe("assembleExtractionData", () => {
       id: "ai-1",
       displayName: "Jonas AI",
       ownerUserId: "user-1",
-      ownerDepartmentId: "dept-1",
-      parentDepartmentId: "dept-1",
+      ownerDomainId: "dept-1",
+      primaryDomainId: "dept-1",
       entityType: { slug: "ai-agent" },
     };
 
@@ -449,7 +449,7 @@ describe("checkInsightExtractionTrigger", () => {
     mockPrisma.entity.findUnique.mockResolvedValue({
       id: "ai-1",
       ownerUserId: "user-1",
-      ownerDepartmentId: "dept-1",
+      ownerDomainId: "dept-1",
       entityType: { slug: "ai-agent" },
     });
 
@@ -544,7 +544,7 @@ describe("getSituationsSinceLastExtraction", () => {
     mockPrisma.operationalInsight.findFirst.mockResolvedValue(null);
     mockPrisma.entity.findUnique.mockResolvedValue({
       ownerUserId: "user-1",
-      ownerDepartmentId: null,
+      ownerDomainId: null,
       entityType: { slug: "ai-agent" },
     });
     mockPrisma.situation.count.mockResolvedValue(15);
@@ -604,7 +604,7 @@ function setupTriggerMocksForMatureOperator() {
   mockPrisma.entity.findUnique.mockResolvedValue({
     id: "ai-1",
     ownerUserId: "user-1",
-    ownerDepartmentId: "dept-1",
+    ownerDomainId: "dept-1",
     entityType: { slug: "ai-agent" },
   });
 

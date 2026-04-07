@@ -15,7 +15,7 @@ export async function GET() {
     },
     include: {
       ownerUser: { select: { id: true, name: true } },
-      parentDepartment: { select: { displayName: true } },
+      primaryDomain: { select: { displayName: true } },
     },
   });
 
@@ -50,7 +50,7 @@ export async function GET() {
       id: ai.id,
       name: ai.displayName,
       ownerName: ai.ownerUser?.name ?? "Unknown",
-      department: ai.parentDepartment?.displayName ?? "Unassigned",
+      department: ai.primaryDomain?.displayName ?? "Unassigned",
       counts,
       topTask,
     };

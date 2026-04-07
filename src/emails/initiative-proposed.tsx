@@ -6,14 +6,14 @@ import { Section } from "./components/Section";
 
 interface InitiativeProposedEmailProps {
   initiativeTitle: string;
-  departmentName: string;
+  domainName: string;
   rationale: string;
   viewUrl: string;
 }
 
 export function InitiativeProposedEmail({
   initiativeTitle,
-  departmentName,
+  domainName,
   rationale,
   viewUrl,
 }: InitiativeProposedEmailProps) {
@@ -24,7 +24,7 @@ export function InitiativeProposedEmail({
         <Text style={label}>Initiative</Text>
         <Text style={value}>{initiativeTitle}</Text>
         <Text style={label}>Department</Text>
-        <Text style={value}>{departmentName}</Text>
+        <Text style={value}>{domainName}</Text>
         <Text style={label}>Rationale</Text>
         <Text style={value}>{rationale}</Text>
       </Section>

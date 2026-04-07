@@ -124,9 +124,9 @@ function ActionButton({ label, href }: { label: string; href: string }) {
 
 // ─── Section components ──────────────────────────────────
 
-function DataPipelineSection({ pipeline, departmentId, locale, t }: {
+function DataPipelineSection({ pipeline, domainId, locale, t }: {
   pipeline: DepartmentSnapshotWithLive["dataPipeline"];
-  departmentId: string;
+  domainId: string;
   locale: string;
   t: ReturnType<typeof useTranslations>;
 }) {
@@ -181,9 +181,9 @@ function ConnectorRow({ connector: c, locale, t }: {
   );
 }
 
-function KnowledgeSection({ knowledge, departmentId, t }: {
+function KnowledgeSection({ knowledge, domainId, t }: {
   knowledge: KnowledgeHealth;
-  departmentId: string;
+  domainId: string;
   t: ReturnType<typeof useTranslations>;
 }) {
   return (
@@ -200,7 +200,7 @@ function KnowledgeSection({ knowledge, departmentId, t }: {
         {knowledge.people.gaps.map((gap, i) => (
           <div key={i} className="text-xs text-amber-400 mt-1 flex items-center gap-2">
             <span>{gap}</span>
-            <Link href={`/map/${departmentId}`} className="text-accent hover:underline flex-shrink-0">
+            <Link href={`/map/${domainId}`} className="text-accent hover:underline flex-shrink-0">
               {gap.includes("reporting") ? t("editHierarchy") : t("editRoles")}
             </Link>
           </div>
@@ -214,7 +214,7 @@ function KnowledgeSection({ knowledge, departmentId, t }: {
         </p>
         {knowledge.documents.count === 0 && (
           <p className="text-xs text-amber-400 mt-1">
-            {t("noDocuments")} &middot; <Link href={`/map/${departmentId}`} className="hover:underline">{t("uploadDocuments")}</Link>
+            {t("noDocuments")} &middot; <Link href={`/map/${domainId}`} className="hover:underline">{t("uploadDocuments")}</Link>
           </p>
         )}
         {knowledge.documents.staleCount > 0 && (
@@ -366,11 +366,11 @@ function OperatorSummaryCard({ snapshot, summaryText, summaryColor, refreshing, 
 
   // Collect all critical issues across departments
   const criticalIssues: { department: string; issue: string; action?: { label: string; href: string } }[] = [];
-  for (const dept of snapshot.departments) {
+  for (const dept of snapshot.domains) {
     for (const c of dept.dataPipeline.connectors) {
       if (c.status === "disconnected") {
         criticalIssues.push({
-          department: dept.departmentName,
+          department: dept.domainName,
           issue: `${c.name}: ${c.issue ?? "Disconnected"}`,
           action: c.action ?? undefined,
         });
@@ -378,15 +378,15 @@ function OperatorSummaryCard({ snapshot, summaryText, summaryColor, refreshing, 
     }
     if (dept.knowledge.status === "empty") {
       criticalIssues.push({
-        department: dept.departmentName,
+        department: dept.domainName,
         issue: t("criticalEmptyKnowledge"),
-        action: { label: t("goToDepartment"), href: `/map/${dept.departmentId}` },
+        action: { label: t("goToDomain"), href: `/map/${dept.domainId}` },
       });
     }
     for (const st of dept.detection.situationTypes) {
       if (st.diagnosis === "no_data") {
         criticalIssues.push({
-          department: dept.departmentName,
+          department: dept.domainName,
           issue: `${st.name}: ${st.diagnosisDetail}`,
           action: st.action ?? undefined,
         });
@@ -464,7 +464,7 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-hover transition"
       >
-        <span className="text-sm font-semibold text-foreground flex-1">{dept.departmentName}</span>
+        <span className="text-sm font-semibold text-foreground flex-1">{dept.domainName}</span>
         <StatusPill status={dept.overallStatus} />
         {dept.criticalIssueCount > 0 && (
           <span className="bg-red-500/10 text-red-400 text-xs px-2 py-0.5 rounded-full">
@@ -483,7 +483,7 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("dataPipeline")}</h3>
                 <StatusPill status={dept.dataPipeline.status} />
               </div>
-              <DataPipelineSection pipeline={dept.dataPipeline} departmentId={dept.departmentId} locale={locale} t={t} />
+              <DataPipelineSection pipeline={dept.dataPipeline} domainId={dept.domainId} locale={locale} t={t} />
             </div>
 
             {/* Knowledge */}
@@ -492,7 +492,7 @@ function DepartmentCard({ dept, locale, t, defaultExpanded }: {
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--fg3)]">{t("knowledge")}</h3>
                 <StatusPill status={dept.knowledge.status} />
               </div>
-              <KnowledgeSection knowledge={dept.knowledge} departmentId={dept.departmentId} t={t} />
+              <KnowledgeSection knowledge={dept.knowledge} domainId={dept.domainId} t={t} />
             </div>
 
             {/* Detection */}
@@ -572,10 +572,10 @@ export default function SystemHealthPage() {
 
   const refreshDisabled = refreshing || refreshCooldown;
 
-  // Sort departments: critical → attention → healthy → unconfigured
+  // Sort domains: critical → attention → healthy → unconfigured
   const statusOrder: Record<string, number> = { critical: 0, attention: 1, healthy: 2, unconfigured: 3 };
-  const sortedDepartments = snapshot?.departments
-    ? [...snapshot.departments].sort((a, b) => (statusOrder[a.overallStatus] ?? 9) - (statusOrder[b.overallStatus] ?? 9))
+  const sortedDepartments = snapshot?.domains
+    ? [...snapshot.domains].sort((a, b) => (statusOrder[a.overallStatus] ?? 9) - (statusOrder[b.overallStatus] ?? 9))
     : [];
 
   // Determine mobile
@@ -666,7 +666,7 @@ export default function SystemHealthPage() {
           {/* Department Cards */}
           {sortedDepartments.map((dept) => (
             <DepartmentCard
-              key={dept.departmentId}
+              key={dept.domainId}
               dept={dept}
               locale={locale}
               t={t}

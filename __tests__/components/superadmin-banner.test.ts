@@ -22,7 +22,7 @@ describe("SuperadminBanner", () => {
 describe("Department page View as button", () => {
   it("has impersonation button for superadmin viewing member with account", () => {
     const source = readFileSync(
-      path.resolve(__dirname, "../../src/app/map/[departmentId]/page.tsx"),
+      path.resolve(__dirname, "../../src/app/map/[domainId]/page.tsx"),
       "utf-8",
     );
     expect(source).toContain("impersonate-user");

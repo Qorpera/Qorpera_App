@@ -15,7 +15,7 @@ export interface ContentChunkResult {
   sourceId: string;
   entityId: string | null;
   projectId: string | null;
-  departmentIds: string[];
+  domainIds: string[];
   metadata: Record<string, unknown> | null;
   chunkIndex: number;
   score: number;
@@ -24,7 +24,7 @@ export interface ContentChunkResult {
 // Legacy type alias for callers that still reference RAGResult
 export type RAGResult = ContentChunkResult & {
   documentName: string;
-  departmentName: string;
+  domainName: string;
 };
 
 /**
@@ -41,7 +41,7 @@ export async function retrieveRelevantChunks(
     sourceTypes?: string[];
     entityId?: string;
     entityIds?: string[];
-    departmentIds?: string[];
+    domainIds?: string[];
     projectId?: string;
     minScore?: number;
     includeParentContext?: boolean;
@@ -106,7 +106,7 @@ export async function retrieveRelevantChunks(
 
   const query = `
     SELECT id, content, "sourceType", "sourceId", "entityId", "projectId",
-           "departmentIds", metadata, "chunkIndex", "tokenCount",
+           "domainIds", metadata, "chunkIndex", "tokenCount",
            1 - (embedding <=> $1::vector) as score
     FROM "ContentChunk"
     WHERE "operatorId" = $2
@@ -126,7 +126,7 @@ export async function retrieveRelevantChunks(
     sourceId: string;
     entityId: string | null;
     projectId: string | null;
-    departmentIds: string | null;
+    domainIds: string | null;
     metadata: string | null;
     chunkIndex: number;
     tokenCount: number | null;
@@ -141,7 +141,7 @@ export async function retrieveRelevantChunks(
     sourceId: row.sourceId,
     entityId: row.entityId,
     projectId: row.projectId ?? null,
-    departmentIds: row.departmentIds ? JSON.parse(row.departmentIds) : [],
+    domainIds: row.domainIds ? JSON.parse(row.domainIds) : [],
     metadata: row.metadata ? JSON.parse(row.metadata) : null,
     chunkIndex: row.chunkIndex,
     score: Number(row.score),
@@ -151,10 +151,10 @@ export async function retrieveRelevantChunks(
   results = results.filter((r) => r.score >= minScore);
 
   // Apply department scoping (overlap check)
-  if (options?.departmentIds?.length) {
-    const allowedDepts = new Set(options.departmentIds);
+  if (options?.domainIds?.length) {
+    const allowedDepts = new Set(options.domainIds);
     results = results.filter((r) =>
-      r.departmentIds.length === 0 || r.departmentIds.some((d) => allowedDepts.has(d)),
+      r.domainIds.length === 0 || r.domainIds.some((d) => allowedDepts.has(d)),
     );
   }
 
@@ -183,12 +183,12 @@ export async function retrieveRelevantChunks(
         sourceId: string;
         entityId: string | null;
         projectId: string | null;
-        departmentIds: string | null;
+        domainIds: string | null;
         metadata: string | null;
         chunkIndex: number;
       }>>(
         `SELECT id, content, "sourceType", "sourceId", "entityId", "projectId",
-                "departmentIds", metadata, "chunkIndex"
+                "domainIds", metadata, "chunkIndex"
          FROM "ContentChunk"
          WHERE "operatorId" = $1
            AND "sourceId" = ANY($2::text[])
@@ -198,12 +198,12 @@ export async function retrieveRelevantChunks(
       );
 
       // Apply department scoping to summary chunks (same logic as main results)
-      if (options?.departmentIds?.length) {
-        const allowedDepts = new Set(options.departmentIds);
+      if (options?.domainIds?.length) {
+        const allowedDepts = new Set(options.domainIds);
         summaryChunks = summaryChunks.filter((s) => {
-          if (!s.departmentIds) return true;
+          if (!s.domainIds) return true;
           try {
-            const depts: string[] = JSON.parse(s.departmentIds);
+            const depts: string[] = JSON.parse(s.domainIds);
             return depts.length === 0 || depts.some((d) => allowedDepts.has(d));
           } catch {
             return true;
@@ -225,7 +225,7 @@ export async function retrieveRelevantChunks(
             sourceId: summary.sourceId,
             entityId: summary.entityId,
             projectId: summary.projectId ?? null,
-            departmentIds: summary.departmentIds ? JSON.parse(summary.departmentIds) : [],
+            domainIds: summary.domainIds ? JSON.parse(summary.domainIds) : [],
             metadata: summary.metadata ? JSON.parse(summary.metadata) : null,
             chunkIndex: summary.chunkIndex,
             score: 1.0,
@@ -249,7 +249,7 @@ export async function retrieveRelevantChunks(
 export async function retrieveRelevantContext(
   query: string,
   operatorId: string,
-  departmentIds: string[],
+  domainIds: string[],
   topK: number = 8,
   userFilter?: { userId: string; skipUserFilter?: boolean },
   projectId?: string,
@@ -259,7 +259,7 @@ export async function retrieveRelevantContext(
 
   const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
     limit: topK,
-    departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
+    domainIds: domainIds.length > 0 ? domainIds : undefined,
     projectId,
     minScore: 0.3,
     userId: userFilter?.userId,
@@ -270,6 +270,6 @@ export async function retrieveRelevantContext(
   return results.map((r) => ({
     ...r,
     documentName: r.metadata?.fileName as string ?? "Unknown",
-    departmentName: "—",
+    domainName: "—",
   }));
 }

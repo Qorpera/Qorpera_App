@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 import { promoteInsight, invalidateInsight } from "@/lib/knowledge-transfer";
 
 export async function GET(
@@ -19,8 +19,8 @@ export async function GET(
   if (!insight) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Scope check for members
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
-  if (visibleDepts !== "all") {
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
+  if (visibleDomains !== "all") {
     if (insight.shareScope === "personal") {
       const aiEntity = await prisma.entity.findFirst({
         where: { operatorId, ownerUserId: user.id, entityType: { slug: "ai-agent" } },
@@ -29,8 +29,8 @@ export async function GET(
       if (!aiEntity || aiEntity.id !== insight.aiEntityId) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-    } else if (insight.shareScope === "department" && insight.departmentId) {
-      if (!visibleDepts.includes(insight.departmentId)) {
+    } else if (insight.shareScope === "domain" && insight.domainId) {
+      if (!visibleDomains.includes(insight.domainId)) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
     }
@@ -49,7 +49,7 @@ export async function GET(
     id: insight.id,
     aiEntityId: insight.aiEntityId,
     aiEntityName: aiEntity?.displayName ?? null,
-    departmentId: insight.departmentId,
+    domainId: insight.domainId,
     insightType: insight.insightType,
     description: insight.description,
     evidence,
@@ -83,7 +83,7 @@ export async function PATCH(
   const body = await req.json();
   const { action, targetScope } = body as {
     action: "promote" | "invalidate";
-    targetScope?: "department" | "operator";
+    targetScope?: "domain" | "operator";
   };
 
   if (!["promote", "invalidate"].includes(action)) {
@@ -92,7 +92,7 @@ export async function PATCH(
 
   try {
     if (action === "promote") {
-      if (!targetScope || !["department", "operator"].includes(targetScope)) {
+      if (!targetScope || !["domain", "operator"].includes(targetScope)) {
         return NextResponse.json({ error: "targetScope required for promote" }, { status: 400 });
       }
       await promoteInsight(id, targetScope, user.id);

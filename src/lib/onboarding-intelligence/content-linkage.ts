@@ -22,7 +22,7 @@ export async function backfillContentLinkage(operatorId: string): Promise<{
       operatorId,
       entityType: { slug: "team-member" },
       status: "active",
-      parentDepartmentId: { not: null },
+      primaryDomainId: { not: null },
     },
     include: {
       propertyValues: {
@@ -38,9 +38,9 @@ export async function backfillContentLinkage(operatorId: string): Promise<{
     const emailPv = member.propertyValues.find(
       (pv) => pv.property.identityRole === "email" || pv.property.slug === "email",
     );
-    if (emailPv && member.parentDepartmentId) {
+    if (emailPv && member.primaryDomainId) {
       const email = emailPv.value.toLowerCase();
-      emailToDept[email] = member.parentDepartmentId;
+      emailToDept[email] = member.primaryDomainId;
       emailToEntityId[email] = member.id;
     }
   }
@@ -52,15 +52,15 @@ export async function backfillContentLinkage(operatorId: string): Promise<{
 
   console.log(`[content-linkage] Found ${Object.keys(emailToDept).length} team members with departments`);
 
-  // ── 2. Backfill ContentChunk departmentIds ───────────────────────
+  // ── 2. Backfill ContentChunk domainIds ───────────────────────
   // Find chunks without department IDs that have email metadata
   const chunks = await prisma.contentChunk.findMany({
     where: {
       operatorId,
       OR: [
-        { departmentIds: null },
-        { departmentIds: "null" },
-        { departmentIds: "[]" },
+        { domainIds: null },
+        { domainIds: "null" },
+        { domainIds: "[]" },
       ],
     },
     select: { id: true, metadata: true },
@@ -89,7 +89,7 @@ export async function backfillContentLinkage(operatorId: string): Promise<{
     if (deptIds.size > 0) {
       await prisma.contentChunk.update({
         where: { id: chunk.id },
-        data: { departmentIds: JSON.stringify([...deptIds]) },
+        data: { domainIds: JSON.stringify([...deptIds]) },
       });
       chunksUpdated++;
     }
@@ -97,16 +97,16 @@ export async function backfillContentLinkage(operatorId: string): Promise<{
 
   console.log(`[content-linkage] Updated ${chunksUpdated}/${chunks.length} content chunks with department IDs`);
 
-  // ── 3. Backfill ActivitySignal actorEntityId + departmentIds ─────
+  // ── 3. Backfill ActivitySignal actorEntityId + domainIds ─────
   const signals = await prisma.activitySignal.findMany({
     where: {
       operatorId,
       OR: [
         { actorEntityId: null },
-        { departmentIds: null },
+        { domainIds: null },
       ],
     },
-    select: { id: true, metadata: true, actorEntityId: true, departmentIds: true },
+    select: { id: true, metadata: true, actorEntityId: true, domainIds: true },
   });
 
   let signalsUpdated = 0;
@@ -131,14 +131,14 @@ export async function backfillContentLinkage(operatorId: string): Promise<{
       }
 
       // Resolve department IDs from all participants
-      if (!signal.departmentIds) {
+      if (!signal.domainIds) {
         const emails = extractEmailsFromMetadata(meta);
         const deptIds = new Set<string>();
         for (const email of emails) {
           const deptId = emailToDept[email.toLowerCase()];
           if (deptId) deptIds.add(deptId);
         }
-        if (deptIds.size > 0) updates.departmentIds = JSON.stringify([...deptIds]);
+        if (deptIds.size > 0) updates.domainIds = JSON.stringify([...deptIds]);
       }
     }
 

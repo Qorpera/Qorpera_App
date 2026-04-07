@@ -7,7 +7,7 @@ import { getBusinessContext, formatBusinessContext } from "@/lib/business-contex
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export interface DepartmentContext {
+export interface DomainContext {
   id: string;
   name: string;
   description: string | null;
@@ -17,7 +17,7 @@ export interface DepartmentContext {
 
 export interface RAGReference {
   documentName: string;
-  departmentName: string;
+  domainName: string;
   content: string;
   preview: string;
   score: number;
@@ -75,15 +75,15 @@ export interface CommunicationContext {
 }
 
 interface CrossDepartmentSignal {
-  departmentName: string;
-  departmentId: string;
+  domainName: string;
+  domainId: string;
   emailCount: number;
   meetingCount: number;
   slackMentions: number;
   lastActivityDate: string | null;
 }
 
-export interface CrossDepartmentContext {
+export interface CrossDomainContext {
   signals: CrossDepartmentSignal[];
 }
 
@@ -102,8 +102,8 @@ interface SituationContext {
     category: string;
     properties: Record<string, string>;
   };
-  departments: DepartmentContext[];
-  departmentKnowledge: RAGReference[];
+  domains: DomainContext[];
+  domainKnowledge: RAGReference[];
   relatedEntities: {
     base: EntitySummary[];
     digital: EntitySummary[];
@@ -143,7 +143,7 @@ interface SituationContext {
   // v3 additions
   activityTimeline: ActivityTimeline;
   communicationContext: CommunicationContext;
-  crossDepartmentSignals: CrossDepartmentContext;
+  crossDomainSignals: CrossDomainContext;
   connectorCapabilities: ConnectorCapability[];
 
   // v3 day 4 additions
@@ -192,13 +192,13 @@ export async function findRelevantDepartments(
   operatorId: string,
   entityId: string,
   category: string | null,
-  parentDepartmentId: string | null,
+  primaryDomainId: string | null,
 ): Promise<string[]> {
   let candidateDeptIds: string[] = [];
 
   // Path A — base or internal category
   if (category === "base" || category === "internal") {
-    if (parentDepartmentId) candidateDeptIds = [parentDepartmentId];
+    if (primaryDomainId) candidateDeptIds = [primaryDomainId];
     else return [];
   }
 
@@ -240,8 +240,8 @@ export async function findRelevantDepartments(
 
     const [withParent, deptMemberRels] = await Promise.all([
       prisma.entity.findMany({
-        where: { id: { in: relatedIds }, parentDepartmentId: { not: null } },
-        select: { parentDepartmentId: true },
+        where: { id: { in: relatedIds }, primaryDomainId: { not: null } },
+        select: { primaryDomainId: true },
       }),
       prisma.relationship.findMany({
         where: {
@@ -256,7 +256,7 @@ export async function findRelevantDepartments(
 
     const deptIds = new Set<string>();
     for (const e of withParent) {
-      if (e.parentDepartmentId) deptIds.add(e.parentDepartmentId);
+      if (e.primaryDomainId) deptIds.add(e.primaryDomainId);
     }
     for (const r of deptMemberRels) {
       deptIds.add(r.fromEntityId);
@@ -280,10 +280,10 @@ export async function findRelevantDepartments(
 
 // ── Department Context Loading ───────────────────────────────────────────────
 
-export async function loadDepartmentContext(
+export async function loadDomainContext(
   operatorId: string,
   deptId: string,
-): Promise<DepartmentContext> {
+): Promise<DomainContext> {
   const dept = await prisma.entity.findUnique({
     where: { id: deptId },
     select: { id: true, displayName: true, description: true },
@@ -291,7 +291,7 @@ export async function loadDepartmentContext(
 
   // Home members
   const homeMembers = await prisma.entity.findMany({
-    where: { operatorId, parentDepartmentId: deptId, category: "base", status: "active" },
+    where: { operatorId, primaryDomainId: deptId, category: "base", status: "active" },
     include: { propertyValues: { include: { property: { select: { slug: true } } } } },
   });
 
@@ -478,7 +478,7 @@ export async function loadCommunicationContext(
   operatorId: string,
   entityId: string,
   situationDescription: string,
-  departmentIds: string[],
+  domainIds: string[],
   limit: number,
 ): Promise<CommunicationContext> {
   try {
@@ -512,7 +512,7 @@ export async function loadCommunicationContext(
       limit,
       sourceTypes,
       entityIds: participantIds,
-      departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
+      domainIds: domainIds.length > 0 ? domainIds : undefined,
       minScore: 0.3,
       skipUserFilter: true,
     });
@@ -523,7 +523,7 @@ export async function loadCommunicationContext(
       const broaderResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
         limit,
         sourceTypes,
-        departmentIds: departmentIds.length > 0 ? departmentIds : undefined,
+        domainIds: domainIds.length > 0 ? domainIds : undefined,
         minScore: 0.3,
         skipUserFilter: true,
       });
@@ -561,13 +561,13 @@ export async function loadCommunicationContext(
   }
 }
 
-export async function loadCrossDepartmentSignals(
+export async function loadCrossDomainSignals(
   operatorId: string,
   entityId: string,
   entityCategory: string | null,
   situationDepartmentIds: string[],
   days: number,
-): Promise<CrossDepartmentContext> {
+): Promise<CrossDomainContext> {
   try {
     // Only meaningful for external entities
     if (entityCategory !== "external") return { signals: [] };
@@ -582,7 +582,7 @@ export async function loadCrossDepartmentSignals(
       select: {
         signalType: true,
         targetEntityIds: true,
-        departmentIds: true,
+        domainIds: true,
         occurredAt: true,
       },
     });
@@ -604,8 +604,8 @@ export async function loadCrossDepartmentSignals(
 
     for (const s of targetSignals) {
       let deptIds: string[] = [];
-      if (s.departmentIds) {
-        try { deptIds = JSON.parse(s.departmentIds); } catch {}
+      if (s.domainIds) {
+        try { deptIds = JSON.parse(s.domainIds); } catch {}
       }
       for (const deptId of deptIds) {
         if (sitDeptSet.has(deptId)) continue;
@@ -632,8 +632,8 @@ export async function loadCrossDepartmentSignals(
       .map((deptId) => {
         const d = deptMap.get(deptId)!;
         return {
-          departmentId: deptId,
-          departmentName: nameMap.get(deptId) ?? "Unknown Department",
+          domainId: deptId,
+          domainName: nameMap.get(deptId) ?? "Unknown Department",
           emailCount: d.emails,
           meetingCount: d.meetings,
           slackMentions: d.messages,
@@ -644,7 +644,7 @@ export async function loadCrossDepartmentSignals(
 
     return { signals };
   } catch (err) {
-    console.warn("[context-assembly] loadCrossDepartmentSignals failed:", err);
+    console.warn("[context-assembly] loadCrossDomainSignals failed:", err);
     return { signals: [] };
   }
 }
@@ -656,7 +656,7 @@ export async function loadCrossDepartmentSignals(
 export async function loadOperationalInsights(
   operatorId: string,
   aiEntityId: string | null,
-  departmentId: string | null,
+  domainId: string | null,
   situationTypeId?: string,
 ): Promise<OperationalInsightContext[]> {
   const orConditions: Record<string, unknown>[] = [
@@ -667,8 +667,8 @@ export async function loadOperationalInsights(
     orConditions.push({ aiEntityId, shareScope: "personal" });
   }
 
-  if (departmentId) {
-    orConditions.push({ departmentId, shareScope: "department" });
+  if (domainId) {
+    orConditions.push({ domainId, shareScope: "department" });
   }
 
   const allInsights = await prisma.operationalInsight.findMany({

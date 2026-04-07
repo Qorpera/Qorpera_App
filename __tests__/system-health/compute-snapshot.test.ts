@@ -17,7 +17,7 @@ vi.mock("@/lib/db", () => ({
     situationType: { findMany: vi.fn() },
     situation: { findMany: vi.fn() },
     entityType: { findMany: vi.fn() },
-    departmentHealth: { upsert: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
+    domainHealth: { upsert: vi.fn(), deleteMany: vi.fn(), findMany: vi.fn() },
     workerJob: { count: vi.fn() },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
@@ -131,7 +131,7 @@ describe("computeDepartmentSnapshot", () => {
 
     const snap = await computeDepartmentSnapshot(OP, DEPT);
 
-    expect(snap.departmentName).toBe(DEPT_NAME);
+    expect(snap.domainName).toBe(DEPT_NAME);
     expect(snap.dataPipeline.status).toBe("empty");
     expect(snap.dataPipeline.connectors).toHaveLength(0);
     expect(snap.knowledge.status).toBe("empty");
@@ -139,7 +139,7 @@ describe("computeDepartmentSnapshot", () => {
     expect(snap.detection.status).toBe("unconfigured");
     expect(snap.detection.situationTypes).toHaveLength(0);
     expect(snap.overallStatus).toBe("unconfigured");
-    // Unconfigured departments have no critical issues
+    // Unconfigured domains have no critical issues
     expect(snap.criticalIssueCount).toBe(0);
   });
 
@@ -423,9 +423,9 @@ describe("computeOperatorSnapshot", () => {
 
     const snap = await computeOperatorSnapshot(OP);
 
-    expect(snap.departments).toHaveLength(2);
+    expect(snap.domains).toHaveLength(2);
     // Dept B has disconnected connector + empty knowledge → critical
-    const deptB = snap.departments.find((d) => d.departmentName === "Support");
+    const deptB = snap.domains.find((d) => d.domainName === "Support");
     expect(deptB?.overallStatus).toBe("critical");
     // Operator overall should be worst = critical
     expect(snap.overallStatus).toBe("critical");
@@ -479,13 +479,13 @@ describe("recomputeHealthSnapshots", () => {
     p.situationType.findMany.mockResolvedValue([]);
     p.situation.findMany.mockResolvedValue([]);
     p.entityType.findMany.mockResolvedValue([]);
-    p.departmentHealth.upsert.mockResolvedValue({});
+    p.domainHealth.upsert.mockResolvedValue({});
     // Return persisted department snapshots for aggregate rebuild
-    p.departmentHealth.findMany.mockResolvedValue([
+    p.domainHealth.findMany.mockResolvedValue([
       {
         snapshot: {
-          departmentId: DEPT,
-          departmentName: DEPT_NAME,
+          domainId: DEPT,
+          domainName: DEPT_NAME,
           overallStatus: "unconfigured",
           criticalIssueCount: 0,
         },
@@ -496,22 +496,22 @@ describe("recomputeHealthSnapshots", () => {
     await recomputeHealthSnapshots(OP, DEPT);
 
     // Upserts the single department
-    expect(p.departmentHealth.upsert).toHaveBeenCalledTimes(1);
-    expect(p.departmentHealth.upsert).toHaveBeenCalledWith(
+    expect(p.domainHealth.upsert).toHaveBeenCalledTimes(1);
+    expect(p.domainHealth.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          operatorId_departmentEntityId: {
+          operatorId_domainEntityId: {
             operatorId: OP,
-            departmentEntityId: DEPT,
+            domainEntityId: DEPT,
           },
         },
       }),
     );
     // Reads persisted rows for aggregate (no full recompute)
-    expect(p.departmentHealth.findMany).toHaveBeenCalledTimes(1);
+    expect(p.domainHealth.findMany).toHaveBeenCalledTimes(1);
     // Writes operator aggregate via raw SQL
     expect(p.$executeRaw).toHaveBeenCalledTimes(1);
-    // Should NOT call entity.findMany for departments (no full recompute)
+    // Should NOT call entity.findMany for domains (no full recompute)
     expect(p.entity.findMany).not.toHaveBeenCalled();
   });
 

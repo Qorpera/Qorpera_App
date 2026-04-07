@@ -10,21 +10,21 @@ import type {
   SituationContext,
   ActivityTimeline,
   CommunicationContext,
-  CrossDepartmentContext,
+  CrossDomainContext,
   ContextSectionMeta,
 } from "@/lib/context-assembly";
 
 // These sub-types are not exported — extract from parent types
 type ActivityTimelineBucket = ActivityTimeline["buckets"][number];
 type CommunicationExcerpt = CommunicationContext["excerpts"][number];
-type CrossDepartmentSignal = CrossDepartmentContext["signals"][number];
+type CrossDomainSignal = CrossDomainContext["signals"][number];
 
 describe("SituationContext type contract", () => {
   it("compiles with all v3 fields present", () => {
     const ctx: SituationContext = {
       triggerEntity: { id: "e1", type: "company", typeSlug: "company", displayName: "Acme", category: "external", properties: {} },
-      departments: [],
-      departmentKnowledge: [],
+      domains: [],
+      domainKnowledge: [],
       relatedEntities: { base: [], digital: [], external: [] },
       recentEvents: [],
       priorSituations: [],
@@ -33,14 +33,14 @@ describe("SituationContext type contract", () => {
       businessContext: "",
       activityTimeline: { buckets: [], trend: "No trend data available", totalSignals: 0 },
       communicationContext: { excerpts: [], sourceBreakdown: {} },
-      crossDepartmentSignals: { signals: [] },
+      crossDomainSignals: { signals: [] },
       contextSections: [],
       connectorCapabilities: [],
     };
 
     expect(ctx.activityTimeline).toBeDefined();
     expect(ctx.communicationContext).toBeDefined();
-    expect(ctx.crossDepartmentSignals).toBeDefined();
+    expect(ctx.crossDomainSignals).toBeDefined();
     expect(ctx.contextSections).toEqual([]);
   });
 });
@@ -97,24 +97,24 @@ describe("CommunicationContext structure", () => {
   });
 });
 
-describe("CrossDepartmentContext structure", () => {
+describe("CrossDomainContext structure", () => {
   it("supports signals with all required fields", () => {
-    const signal: CrossDepartmentSignal = {
-      departmentName: "Engineering",
-      departmentId: "dept-eng",
+    const signal: CrossDomainSignal = {
+      domainName: "Engineering",
+      domainId: "dept-eng",
       emailCount: 5,
       meetingCount: 2,
       slackMentions: 8,
       lastActivityDate: "2026-03-12T10:00:00.000Z",
     };
 
-    const ctx: CrossDepartmentContext = { signals: [signal] };
+    const ctx: CrossDomainContext = { signals: [signal] };
     expect(ctx.signals).toHaveLength(1);
-    expect(ctx.signals[0].departmentName).toBe("Engineering");
+    expect(ctx.signals[0].domainName).toBe("Engineering");
   });
 
   it("accepts empty signals array", () => {
-    const ctx: CrossDepartmentContext = { signals: [] };
+    const ctx: CrossDomainContext = { signals: [] };
     expect(ctx.signals).toHaveLength(0);
   });
 });
@@ -123,10 +123,10 @@ describe("ContextSectionMeta token estimates", () => {
   it("sums token estimates across sections", () => {
     const sections: ContextSectionMeta[] = [
       { section: "triggerEntity", itemCount: 1, tokenEstimate: 200 },
-      { section: "departments", itemCount: 2, tokenEstimate: 300 },
+      { section: "domains", itemCount: 2, tokenEstimate: 300 },
       { section: "activityTimeline", itemCount: 15, tokenEstimate: 500 },
       { section: "communicationContext", itemCount: 6, tokenEstimate: 1200 },
-      { section: "crossDepartmentSignals", itemCount: 3, tokenEstimate: 150 },
+      { section: "crossDomainSignals", itemCount: 3, tokenEstimate: 150 },
     ];
 
     const total = sections.reduce((sum, s) => sum + s.tokenEstimate, 0);

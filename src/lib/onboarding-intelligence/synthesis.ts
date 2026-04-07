@@ -4,7 +4,7 @@
  * After all agent rounds and organizer passes complete, this module:
  * 1. Loads all agent reports
  * 2. LLM call to produce unified company model
- * 3. Creates departments, people, relationships, situation types
+ * 3. Creates domains, people, relationships, situation types
  * 4. Sends email notification
  */
 
@@ -16,7 +16,7 @@ import { upsertEntity, relateEntities } from "@/lib/entity-resolution";
 // ── Company Model Types ──────────────────────────────────────────────────────
 
 export interface CompanyModel {
-  departments: Array<{
+  domains: Array<{
     name: string;
     description: string;
     confidence: "high" | "medium" | "low";
@@ -25,21 +25,21 @@ export interface CompanyModel {
   people: Array<{
     email: string;
     displayName: string;
-    primaryDepartment: string;
+    primaryDomain: string;
     role: string;
     roleLevel: "ic" | "lead" | "manager" | "director" | "c_level";
     reportsToEmail?: string;
     profile?: string;
   }>;
-  crossFunctionalPeople: Array<{
+  multiDomainPeople: Array<{
     email: string;
-    departments: string[];
+    domains: string[];
     evidence: string;
   }>;
   processes: Array<{
     name: string;
     description: string;
-    department: string;
+    domain: string;
     ownerEmail?: string;
     frequency: string;
     steps: Array<{ order: number; actor: string; action: string }>;
@@ -65,7 +65,7 @@ export interface CompanyModel {
     description: string;
     detectionMode: "structured" | "content" | "natural";
     detectionLogic: object;    // Schema depends on detectionMode — see SYNTHESIS_PROMPT
-    department: string;
+    domain: string;
     severity: "high" | "medium" | "low";
     expectedFrequency: string;
     archetypeSlug: string | null;
@@ -87,8 +87,8 @@ export interface CompanyModel {
     context: string;
     possibleAnswers?: string[];
     evidenceChecked?: string;
-    department?: string;
-    scope: "admin" | "department";
+    domain?: string;
+    scope: "admin" | "domain";
     targetEmail?: string;
   }>;
 }
@@ -97,25 +97,29 @@ export interface CompanyModel {
 
 /**
  * Normalizes a raw LLM synthesis output into a valid CompanyModel.
- * Handles common schema drift: members nested inside departments instead of
+ * Handles common schema drift: members nested inside domains instead of
  * top-level people array, missing fields, alternative key names, etc.
+ * Also handles legacy "departments" key from older LLM outputs.
  */
 export function normalizeCompanyModel(
   raw: Record<string, unknown>,
 ): CompanyModel {
   const model = raw as Partial<CompanyModel> & Record<string, unknown>;
 
-  // ── Flatten departments[].members[] into top-level people[] ──
+  // Support legacy "departments" key from older LLM outputs
+  const rawDomains = model.domains ?? (model as Record<string, unknown>).departments;
+
+  // ── Flatten domains[].members[] into top-level people[] ──
   let people = Array.isArray(model.people) ? model.people : [];
 
-  if (people.length === 0 && Array.isArray(model.departments)) {
-    for (const dept of model.departments as Array<Record<string, unknown>>) {
-      const members = (dept.members ?? dept.people ?? []) as Array<Record<string, unknown>>;
+  if (people.length === 0 && Array.isArray(rawDomains)) {
+    for (const dom of rawDomains as Array<Record<string, unknown>>) {
+      const members = (dom.members ?? dom.people ?? []) as Array<Record<string, unknown>>;
       for (const m of members) {
         people.push({
           email: (m.email as string) ?? "",
           displayName: (m.displayName ?? m.name ?? "") as string,
-          primaryDepartment: (dept.name as string) ?? "Unknown",
+          primaryDomain: (dom.name as string) ?? "Unknown",
           role: (m.role ?? m.title ?? "Member") as string,
           roleLevel: (m.roleLevel ?? "ic") as "ic" | "lead" | "manager" | "director" | "c_level",
           reportsToEmail: m.reportsToEmail as string | undefined,
@@ -138,8 +142,14 @@ export function normalizeCompanyModel(
     }
   }
 
-  // ── Clean department objects (strip members — they're now in people[]) ──
-  const departments = (Array.isArray(model.departments) ? model.departments : []).map((d: Record<string, unknown>) => ({
+  // Support legacy "primaryDepartment" key in people objects
+  people = people.map((p: any) => ({
+    ...p,
+    primaryDomain: p.primaryDomain ?? p.primaryDepartment ?? "Unknown",
+  }));
+
+  // ── Clean domain objects (strip members — they're now in people[]) ──
+  const domains = (Array.isArray(rawDomains) ? rawDomains : []).map((d: Record<string, unknown>) => ({
     name: (d.name as string) ?? "Unknown",
     description: (d.description as string) ?? "",
     confidence: ((d.confidence as string) ?? "medium") as "high" | "medium" | "low",
@@ -164,9 +174,9 @@ export function normalizeCompanyModel(
     : [];
 
   return {
-    departments,
+    domains,
     people,
-    crossFunctionalPeople: Array.isArray(model.crossFunctionalPeople) ? model.crossFunctionalPeople : [],
+    multiDomainPeople: Array.isArray(model.multiDomainPeople ?? (model as any).crossFunctionalPeople) ? (model.multiDomainPeople ?? (model as any).crossFunctionalPeople) : [],
     processes: Array.isArray(model.processes) ? model.processes : [],
     keyRelationships: Array.isArray(model.keyRelationships) ? model.keyRelationships : [],
     financialSnapshot: (model.financialSnapshot as CompanyModel["financialSnapshot"]) ?? {
@@ -193,56 +203,56 @@ export function normalizeCompanyModel(
 
 export const SYNTHESIS_PROMPT_V2 = `You are building a company model from raw organizational data. You are receiving:
 
-- A People Registry: all discovered people with emails, roles, and departments (from directory APIs and communication analysis)
+- A People Registry: all discovered people with emails, roles, and domains (from directory APIs and communication analysis)
 - Content samples: recent emails, documents, and communications with sender/subject/content
 - Activity signals: behavioral pattern counts
 - Communication patterns: top email senders by frequency
 - Document and financial data samples
 - Connected system inventory
 
-YOUR PRIMARY JOB is structural mapping — getting departments, people assignment, entity types, and the uncertainty log RIGHT. These create the entity graph that everything else depends on. Be precise and conservative.
+YOUR PRIMARY JOB is structural mapping — getting domains, people assignment, entity types, and the uncertainty log RIGHT. These create the entity graph that everything else depends on. Be precise and conservative.
 
 YOUR SECONDARY JOB is initial intelligence — processes, relationships, financial snapshot, situation types. For these: only include what you can clearly evidence from the data. It is MUCH better to produce 3 well-evidenced situation types than 10 speculative ones. Wiki synthesis will analyze this same data in depth afterward, with full verification and source citation. Anything you get wrong here becomes a starting point the system has to correct later.
 
 ## Small Operations (1-3 people)
 
 If the data shows only 1-3 internal team members:
-- Do NOT force a department hierarchy. Use a single department like "Advisory" or "Operations" or whatever fits.
-- Focus on EXTERNAL relationships — clients, counterparties, partner firms, collaborators. These are the organizational structure for a small operation.
-- Map active engagements/deals/projects as the primary organizational unit, not departments.
-- External collaborators who work on specific engagements (e.g., associates from a partner firm handling specific deals) should appear in keyRelationships with clear engagement-level context, not as cross-functional people.
-- The situation types should focus on deal/engagement lifecycle events, not internal process issues.
+- Create domains for each operational area the founder operates in (e.g., "Product Development", "Sales & Marketing", "Finance & Administration")
+- Map the founder to ALL domains — they are a multi-domain operator
+- The domains still exist as containers for knowledge, situation types, and AI monitoring — even with one person
+- Focus on EXTERNAL relationships — clients, counterparties, collaborators
+- Map active engagements/deals/projects as primary organizational units
 
 ## Required Output Schema
 
-Your response MUST be a single JSON object matching this exact TypeScript interface. Do NOT nest people inside departments — list ALL people in the top-level \`people\` array with their \`primaryDepartment\` field.
+Your response MUST be a single JSON object matching this exact TypeScript interface. Do NOT nest people inside domain objects — list ALL people in the top-level \`people\` array with their \`primaryDomain\` field.
 
 \`\`\`typescript
 interface CompanyModel {
-  departments: Array<{
-    name: string;           // Department name (use company's own language)
-    description: string;    // What this department does
+  domains: Array<{
+    name: string;           // Domain name (use company's own language)
+    description: string;    // What this domain is responsible for
     confidence: "high" | "medium" | "low";
     suggestedLeadEmail?: string;
   }>;
   people: Array<{           // ALL internal people — one entry per person
     email: string;
     displayName: string;
-    primaryDepartment: string;  // Must match a department name above
+    primaryDomain: string;  // Must match a domain name above
     role: string;               // Job title or function
     roleLevel: "ic" | "lead" | "manager" | "director" | "c_level";
     reportsToEmail?: string;    // Email of direct manager (omit if unknown)
     profile?: string;               // 2-3 sentence summary of how this person works day-to-day
   }>;
-  crossFunctionalPeople: Array<{
+  multiDomainPeople: Array<{
     email: string;
-    departments: string[];
+    domains: string[];
     evidence: string;
   }>;
   processes: Array<{
     name: string;
     description: string;
-    department: string;
+    domain: string;
     ownerEmail?: string;
     frequency: string;
     steps: Array<{ order: number; actor: string; action: string }>;
@@ -268,7 +278,7 @@ interface CompanyModel {
     description: string;
     detectionMode: "structured" | "content" | "natural";
     detectionLogic: object;    // Schema depends on detectionMode — see below
-    department: string;
+    domain: string;
     severity: "high" | "medium" | "low";
     expectedFrequency: string;
     archetypeSlug: string | null;  // Best-matching archetype from the Archetype Taxonomy below, or null if none fit
@@ -289,12 +299,23 @@ interface CompanyModel {
     question: string;    // Direct question for the CEO
     context: string;
     possibleAnswers?: string[];
-    department?: string;
-    scope: "admin" | "department";  // "admin" = strategic/company-wide, "department" = operational/team-specific
-    targetEmail?: string;    // For department-scoped: the employee best positioned to answer
+    domain?: string;
+    scope: "admin" | "domain";  // "admin" = strategic/company-wide, "domain" = operational/team-specific
+    targetEmail?: string;    // For domain-scoped: the employee best positioned to answer
   }>;
 }
 \`\`\`
+
+## System Information Requirements
+
+The wiki is the source of truth for organizational intelligence. The system reads wiki pages to determine:
+
+1. **Domain membership**: Which domains (operational areas) each person operates in. Write this explicitly in person profile pages: "Jonas operates across Product Development, Sales, and Finance domains."
+2. **Reporting relationships**: Who reports to whom. Write this in person profiles.
+3. **Domain purpose**: What each domain is responsible for. Write this in domain overview pages.
+4. **Permissions scope**: What information each person should have access to. Derived from domain associations.
+
+When writing wiki pages about people, ALWAYS include their domain associations explicitly. This is how the system determines access permissions.
 
 ## Detection Mode Selection (CRITICAL)
 
@@ -303,7 +324,7 @@ Each situation type must use the correct detection mode. The mode determines HOW
 ### Mode 1: "structured" — Entity property checks
 USE FOR: Situations detected by checking specific field values on a specific entity type.
 EXAMPLES: Overdue invoices (invoice.status = "overdue"), expired contracts (contract.end-date < today), stale deals (deal.lastActivityDaysAgo > 30)
-SCOPING: Scans ALL entities of the specified type operator-wide. Department scope determines who gets notified, NOT what gets scanned.
+SCOPING: Scans ALL entities of the specified type operator-wide. Domain scope determines who gets notified, NOT what gets scanned.
 DETECTION LOGIC FORMAT:
 {
   "mode": "structured",
@@ -374,7 +395,7 @@ Produce a SINGLE JSON object matching the interface above:
 
 1. **Maps organizational structure** from raw data (prefer documented org structure over behavioral inference)
 2. **Merges overlapping findings** into unified entries (don't duplicate)
-3. **Assigns every internal person to exactly one primary department** in the top-level \`people\` array (cross-functional people get a primary + listed in crossFunctionalPeople)
+3. **Assigns every internal person to exactly one primary domain** in the top-level \`people\` array (multi-domain people get a primary + listed in multiDomainPeople)
 4. **Produces actionable situation type recommendations** synthesized from the data
 5. **Discovers entity types** — the business objects this company works with, with properties
 6. **Generates the uncertainty log** — specific questions for the CEO that the data couldn't answer
@@ -382,13 +403,13 @@ Produce a SINGLE JSON object matching the interface above:
 
 These rules override behavioral inference when they conflict. They prevent misclassification of common organizational patterns:
 
-1. **The CEO, owner, director, or founder is ALWAYS in a "Leadership", "Management", or "Ledelse" department.** Even if they also handle administrative tasks, finance, or client work. A CEO who manages invoices is still a CEO in Leadership — not an administrator.
-2. **A department must contain people who share the same primary function.** Do not group a CEO with bookkeepers just because they discuss finances. The CEO's primary function is leadership; the bookkeeper's primary function is administration.
-3. **Apprentices and trainees belong in the department of their work, not in a separate "Training" department.** An electrician apprentice belongs in Field Operations alongside their mentor.
-4. **Contractors and freelancers with internal email addresses should be assigned to the department matching their work but flagged in crossFunctionalPeople or a note.** Do not create a "Contractors" department.
-5. **If an org chart document was found and is less than 6 months old, prefer its department structure over behavioral inference.** Only deviate when clear evidence shows the structure has changed (new departments, merged teams, departed leaders).
-6. **One-person departments are acceptable** when that person has a distinct function (e.g., a solo sales hire, a solo project coordinator). Do not merge them into an unrelated department just to avoid small departments.
-7. **When two runs of this analysis would produce different department structures because the evidence is ambiguous, prefer the structure that matches the company's own documented terminology.** If the company calls it "Kontor" in their documents, use "Kontor" — not "Administration" or "Office Operations."
+1. **The CEO, owner, director, or founder is ALWAYS in a "Leadership", "Management", or "Ledelse" domain.** Even if they also handle administrative tasks, finance, or client work. A CEO who manages invoices is still a CEO in Leadership — not an administrator.
+2. **A domain must contain people who share the same primary function.** Do not group a CEO with bookkeepers just because they discuss finances. The CEO's primary function is leadership; the bookkeeper's primary function is administration.
+3. **Apprentices and trainees belong in the domain of their work, not in a separate "Training" domain.** An electrician apprentice belongs in Field Operations alongside their mentor.
+4. **Contractors and freelancers with internal email addresses should be assigned to the domain matching their work but flagged in multiDomainPeople or a note.** Do not create a "Contractors" domain.
+5. **If an org chart document was found and is less than 6 months old, prefer its domain structure over behavioral inference.** Only deviate when clear evidence shows the structure has changed (new domains, merged teams, departed leaders).
+6. **One-person domains are acceptable** when that person has a distinct function (e.g., a solo sales hire, a solo project coordinator). Do not merge them into an unrelated domain just to avoid small domains.
+7. **When two runs of this analysis would produce different domain structures because the evidence is ambiguous, prefer the structure that matches the company's own documented terminology.** If the company calls it "Kontor" in their documents, use "Kontor" — not "Administration" or "Office Operations."
 
 ## Dual-Routing Rule (MANDATORY)
 
@@ -410,17 +431,17 @@ Do NOT reduce the number of situation type recommendations to avoid duplication 
 
 ## Critical Rules
 
-- The \`people\` array is top-level — do NOT embed people inside department objects.
-- Every department MUST have at least one person assigned to it via \`primaryDepartment\`.
+- The \`people\` array is top-level — do NOT embed people inside domain objects.
+- Every domain MUST have at least one person assigned to it via \`primaryDomain\`.
 - People assignment priority: documented org structure > CRM teams > calendar cluster analysis > email patterns
-- Department names should use the language most commonly found in the company's own documents (Danish companies often use Danish dept names internally)
+- Domain names should use the language most commonly found in the company's own documents (Danish companies often use Danish domain names internally)
 - Situation type recommendations should be conservative — only recommend types with clear evidence in the raw data
 - The uncertainty log should be formatted as direct questions: "Is Thomas the Finance team lead, or does he report to someone else?" — not agent jargon
-- Include ALL internal people from the People Registry. If someone can't be confidently assigned, put them in an "Unassigned" group and flag in uncertainty log.
+- Include ALL internal people from the People Registry. If someone can't be confidently assigned, put them in an "Unassigned" domain and flag in uncertainty log.
 - Each uncertainty question MUST have a scope field:
   - scope: "admin" — strategic questions only the company owner/admin can answer (hiring plans, partnership decisions, pricing strategy, company-wide policies)
-  - scope: "department" — operational questions a specific team member or department lead can answer (process details, tool configurations, individual workload, technical procedures)
-  - When scope is "department", include targetEmail pointing to the person best equipped to answer, based on what the raw data shows about who handles that area
+  - scope: "domain" — operational questions a specific team member or domain lead can answer (process details, tool configurations, individual workload, technical procedures)
+  - When scope is "domain", include targetEmail pointing to the person best equipped to answer, based on what the raw data shows about who handles that area
   - When in doubt, use "admin" — it's better to ask the admin an operational question than to miss a strategic one
 - SELF-CHECK BEFORE GENERATING A QUESTION: For EACH potential uncertainty question, verify it cannot be answered from the raw data you are analyzing RIGHT NOW. If the People Registry shows who handles invoicing via directory data, do NOT ask "Who handles invoicing?" If email patterns clearly show reporting lines, do NOT ask about reporting lines. Only generate questions when:
   (a) The data contains genuinely CONTRADICTORY signals on a specific fact, OR
@@ -434,7 +455,7 @@ Do NOT reduce the number of situation type recommendations to avoid duplication 
 
 /**
  * Builds synthesis input from raw database data.
- * Provides enough signal for structural mapping (departments, people, entity types)
+ * Provides enough signal for structural mapping (domains, people, entity types)
  * and conservative intelligence estimates. Wiki synthesis handles depth later.
  */
 export async function buildRawDataSynthesisInput(
@@ -445,7 +466,7 @@ export async function buildRawDataSynthesisInput(
     isInternal: boolean;
     adminApiVerified: boolean;
     title?: string;
-    department?: string;
+    domain?: string;
   }>,
 ): Promise<string> {
   const parts: string[] = [];
@@ -458,7 +479,7 @@ export async function buildRawDataSynthesisInput(
   for (const p of internal) {
     const tags: string[] = [];
     if (p.adminApiVerified) tags.push("directory-verified");
-    if (p.department) tags.push(`dept: ${p.department}`);
+    if (p.domain) tags.push(`domain: ${p.domain}`);
     if (p.title) tags.push(`title: ${p.title}`);
     parts.push(`- ${p.displayName} <${p.email}>${tags.length ? ` [${tags.join(", ")}]` : ""}`);
   }
@@ -579,7 +600,7 @@ export async function buildRawDataSynthesisInput(
 
   parts.push("\n---\n");
   parts.push(
-    "Produce the company model. PRIORITY: Get departments, people assignment, and entity types RIGHT — " +
+    "Produce the company model. PRIORITY: Get domains, people assignment, and entity types RIGHT — " +
     "these are the structural foundation. For processes, relationships, financials, and situation types: " +
     "only include what is CLEARLY evidenced in the data above. When uncertain, omit. " +
     "Wiki synthesis will add intelligence depth from this same data with full verification.",
@@ -598,32 +619,32 @@ export async function createEntitiesFromModel(
   const deptTypeId = await ensureEntityType(operatorId, "department");
   const teamMemberTypeId = await ensureEntityType(operatorId, "team-member");
 
-  // 2. Create departments
-  const departmentMap = new Map<string, string>(); // name → entityId
+  // 2. Create domains
+  const domainMap = new Map<string, string>(); // name → entityId
 
-  for (const dept of model.departments ?? []) {
-    let deptEntity = await prisma.entity.findFirst({
+  for (const dom of model.domains ?? []) {
+    let domEntity = await prisma.entity.findFirst({
       where: {
         operatorId,
-        displayName: dept.name,
+        displayName: dom.name,
         entityTypeId: deptTypeId,
         status: "active",
       },
     });
 
-    if (!deptEntity) {
-      deptEntity = await prisma.entity.create({
+    if (!domEntity) {
+      domEntity = await prisma.entity.create({
         data: {
           operatorId,
           entityTypeId: deptTypeId,
-          displayName: dept.name,
+          displayName: dom.name,
           category: "foundational",
           sourceSystem: "onboarding-intelligence",
         },
       });
     }
 
-    departmentMap.set(dept.name, deptEntity.id);
+    domainMap.set(dom.name, domEntity.id);
   }
 
   // Pre-fetch relationship types (avoid N+1 queries inside the loop)
@@ -631,10 +652,10 @@ export async function createEntitiesFromModel(
     operatorId, "department-member", "Department Member", deptTypeId, teamMemberTypeId,
   );
 
-  // 3. Create people and assign to departments
+  // 3. Create people and assign to domains
   for (const person of model.people ?? []) {
-    const deptEntityId = departmentMap.get(person.primaryDepartment);
-    if (!deptEntityId) continue;
+    const domainEntityId = domainMap.get(person.primaryDomain);
+    if (!domainEntityId) continue;
 
     let personEntity = await findEntityByEmail(operatorId, person.email);
 
@@ -645,7 +666,7 @@ export async function createEntitiesFromModel(
           entityTypeId: teamMemberTypeId,
           displayName: person.displayName,
           category: "base",
-          parentDepartmentId: deptEntityId,
+          primaryDomainId: domainEntityId,
           sourceSystem: "onboarding-intelligence",
         },
       });
@@ -659,10 +680,10 @@ export async function createEntitiesFromModel(
           data: { entityId: personEntity.id, propertyId: emailProp.id, value: person.email },
         });
       }
-    } else if (!personEntity.parentDepartmentId) {
+    } else if (!personEntity.primaryDomainId) {
       await prisma.entity.update({
         where: { id: personEntity.id },
-        data: { parentDepartmentId: deptEntityId },
+        data: { primaryDomainId: domainEntityId },
       });
     }
 
@@ -680,18 +701,18 @@ export async function createEntitiesFromModel(
       }
     }
 
-    // Create department-member relationship
+    // Create domain-member relationship
     await prisma.relationship.upsert({
       where: {
         relationshipTypeId_fromEntityId_toEntityId: {
           relationshipTypeId: deptMemberTypeId,
-          fromEntityId: deptEntityId,
+          fromEntityId: domainEntityId,
           toEntityId: personEntity.id,
         },
       },
       create: {
         relationshipTypeId: deptMemberTypeId,
-        fromEntityId: deptEntityId,
+        fromEntityId: domainEntityId,
         toEntityId: personEntity.id,
       },
       update: {},
@@ -889,7 +910,7 @@ export async function createSituationTypesFromModel(
     const deptEntity = await prisma.entity.findFirst({
       where: {
         operatorId,
-        displayName: rec.department,
+        displayName: rec.domain,
         entityType: { slug: "department" },
         status: "active",
       },

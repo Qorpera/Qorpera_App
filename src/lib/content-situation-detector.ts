@@ -60,8 +60,8 @@ type ActorBatch = {
   actorEntityId: string;
   actorName: string;
   actorRole: string | null;
-  departmentId: string | null;
-  departmentName: string | null;
+  domainId: string | null;
+  domainName: string | null;
   items: CommunicationItem[];
   openSituations: Array<{ id: string; summary: string }>;
 };
@@ -381,7 +381,7 @@ async function evaluateActorBatch(batch: ActorBatch, enrichments: (EnrichedSigna
   const wikiContextStr = wikiBlock.length > 0 ? `\n${wikiBlock.join("\n\n")}\n` : "";
 
   const userPrompt = `PERSON WHO NEEDS TO ACT: ${batch.actorName}${batch.actorRole ? ` (${batch.actorRole})` : ""}
-DEPARTMENT: ${batch.departmentName ?? "Unknown"}
+DEPARTMENT: ${batch.domainName ?? "Unknown"}
 
 EXISTING OPEN SITUATIONS FOR THIS PERSON:
 ${openSitLines}
@@ -569,15 +569,15 @@ async function handleInitiativeCandidate(
   }
 
   // Resolve department for the actor
-  const departmentId = batch.departmentId
+  const domainId = batch.domainId
     ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0]
     ?? null;
 
   // Find AI entity for attribution
   let aiEntityId: string | null = null;
-  if (departmentId) {
+  if (domainId) {
     const deptAi = await prisma.entity.findFirst({
-      where: { operatorId, ownerDepartmentId: departmentId, status: "active" },
+      where: { operatorId, ownerDomainId: domainId, status: "active" },
       select: { id: true },
     });
     aiEntityId = deptAi?.id ?? null;
@@ -588,7 +588,7 @@ async function handleInitiativeCandidate(
         operatorId,
         status: "active",
         entityType: { slug: { in: ["hq-ai", "ai-agent"] } },
-        ownerDepartmentId: null,
+        ownerDomainId: null,
       },
       select: { id: true },
     });
@@ -818,14 +818,14 @@ async function handleActionRequired(
   }
 
   // Resolve department — prefer batch-level resolution, fall back to per-item
-  const departmentId = batch.departmentId
+  const domainId = batch.domainId
     ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0];
-  if (!departmentId) {
+  if (!domainId) {
     console.warn("[content-detection] No department resolved, skipping situation creation");
     return;
   }
 
-  const situationTypeId = await ensureActionRequiredType(operatorId, departmentId);
+  const situationTypeId = await ensureActionRequiredType(operatorId, domainId);
 
   const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.7;
 
@@ -1052,14 +1052,14 @@ async function handleAwareness(
     }
 
     // Resolve department
-    const departmentId = batch.departmentId
+    const domainId = batch.domainId
       ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0];
-    if (!departmentId) {
+    if (!domainId) {
       console.warn("[content-detection] No department resolved for strategic awareness, skipping");
       return;
     }
 
-    const situationTypeId = await ensureAwarenessType(operatorId, departmentId);
+    const situationTypeId = await ensureAwarenessType(operatorId, domainId);
 
     const { raw: senderRaw, name: senderName } = extractSenderName(meta);
     const subjectStr = meta.subject ? ` re: ${meta.subject}` : "";
@@ -1251,22 +1251,22 @@ export async function evaluateContentForSituations(
       // Resolve department for the actor
       const allEmails = actor.items.flatMap((i) => i.participantEmails ?? []);
       const deptIds = await resolveDepartmentsFromEmails(operatorId, allEmails);
-      let departmentName: string | null = null;
-      let departmentId: string | null = deptIds[0] ?? null;
-      if (departmentId) {
+      let domainName: string | null = null;
+      let domainId: string | null = deptIds[0] ?? null;
+      if (domainId) {
         const dept = await prisma.entity.findFirst({
-          where: { id: departmentId, operatorId },
+          where: { id: domainId, operatorId },
           select: { displayName: true },
         });
-        departmentName = dept?.displayName ?? null;
+        domainName = dept?.displayName ?? null;
       }
 
       const batch: ActorBatch = {
         actorEntityId: entityId,
         actorName: actor.name,
         actorRole: actor.role,
-        departmentId,
-        departmentName,
+        domainId,
+        domainName,
         items: actor.items,
         openSituations,
       };

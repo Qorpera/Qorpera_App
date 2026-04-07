@@ -59,7 +59,7 @@ describe("GET /api/auth/me — impersonation", () => {
 
     // Scopes for impersonated member
     mockPrisma.userScope.findMany.mockResolvedValue([
-      { departmentEntityId: "dept-service" },
+      { domainEntityId: "dept-service" },
     ]);
 
     // Acting operator details

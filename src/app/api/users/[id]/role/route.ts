@@ -22,7 +22,7 @@ export async function PUT(
   // Cannot change superadmin role
   const targetUser = await prisma.user.findFirst({
     where: { id: id, operatorId: su.operatorId },
-    include: { entity: { select: { parentDepartmentId: true } }, scopes: true },
+    include: { entity: { select: { primaryDomainId: true } }, scopes: true },
   });
   if (!targetUser) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -38,11 +38,11 @@ export async function PUT(
 
   // If demoting admin to member: ensure at least one scope exists
   if (targetUser.role === "admin" && role === "member" && targetUser.scopes.length === 0) {
-    if (targetUser.entity?.parentDepartmentId) {
+    if (targetUser.entity?.primaryDomainId) {
       await prisma.userScope.create({
         data: {
           userId: id,
-          departmentEntityId: targetUser.entity.parentDepartmentId,
+          domainEntityId: targetUser.entity.primaryDomainId,
           grantedById: su.user.id,
         },
       });

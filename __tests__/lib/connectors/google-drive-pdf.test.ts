@@ -35,22 +35,22 @@ describe("Google Drive PDF extraction logic", () => {
   });
 });
 
-describe("Slack content departmentId from channel mapping", () => {
-  it("includes departmentId when channel has mapping", () => {
+describe("Slack content domainId from channel mapping", () => {
+  it("includes domainId when channel has mapping", () => {
     const channelDeptMap = new Map([["C001", "dept1"]]);
     const channelId = "C001";
-    const departmentId = channelDeptMap.get(channelId) || null;
-    expect(departmentId).toBe("dept1");
+    const domainId = channelDeptMap.get(channelId) || null;
+    expect(domainId).toBe("dept1");
   });
 
-  it("has null departmentId when channel is unmapped", () => {
+  it("has null domainId when channel is unmapped", () => {
     const channelDeptMap = new Map<string, string>();
     const channelId = "C002";
-    const departmentId = channelDeptMap.get(channelId) || null;
-    expect(departmentId).toBeNull();
+    const domainId = channelDeptMap.get(channelId) || null;
+    expect(domainId).toBeNull();
   });
 
-  it("merges mapped departmentId into deptIds array", () => {
+  it("merges mapped domainId into deptIds array", () => {
     const deptIds = ["dept-from-email"];
     const mappedDeptId: string | null = "dept-from-channel";
 
@@ -61,7 +61,7 @@ describe("Slack content departmentId from channel mapping", () => {
     expect(deptIds).toEqual(["dept-from-email", "dept-from-channel"]);
   });
 
-  it("does not duplicate departmentId if already in deptIds", () => {
+  it("does not duplicate domainId if already in deptIds", () => {
     const deptIds = ["dept1"];
     const mappedDeptId: string | null = "dept1";
 

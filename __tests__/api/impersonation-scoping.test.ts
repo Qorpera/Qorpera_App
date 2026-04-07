@@ -13,16 +13,16 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/lib/user-scope", () => ({
-  getVisibleDepartmentIds: vi.fn(),
+vi.mock("@/lib/domain-scope", () => ({
+  getVisibleDomainIds: vi.fn(),
   situationScopeFilter: vi.fn().mockReturnValue({}),
 }));
 
 import { getSessionUser } from "@/lib/auth";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 const mockAuth = getSessionUser as ReturnType<typeof vi.fn>;
-const mockVisibleDepts = getVisibleDepartmentIds as ReturnType<typeof vi.fn>;
+const mockVisibleDepts = getVisibleDomainIds as ReturnType<typeof vi.fn>;
 
 beforeEach(() => vi.clearAllMocks());
 
