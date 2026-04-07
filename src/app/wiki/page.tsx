@@ -365,7 +365,7 @@ export default function WikiPage() {
         }}
       >
         {/* ── Main Content ── */}
-        <div style={{ flex: 1, overflow: "auto", background: "var(--background)" }}>
+        <div style={{ flex: 1, overflow: "auto", background: "var(--surface)" }}>
           {isMobile && (
             <MobileFilters
               byType={byType}

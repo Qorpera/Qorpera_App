@@ -337,7 +337,7 @@ export function AppShell({ children, pendingApprovals, topBarContent }: { childr
         )}
 
         {/* ── Main content ── */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-background">
+        <div className="flex-1 flex flex-col overflow-hidden bg-surface">
           {/* Mobile top bar (below lg) — CSS-only visibility */}
             <div className="flex lg:hidden items-center justify-between px-3 h-14 border-b border-border flex-shrink-0 bg-sidebar">
               <button
