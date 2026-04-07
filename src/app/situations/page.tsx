@@ -958,6 +958,45 @@ function ThinkingStep({
   );
 }
 
+// ── Collapsible Action (within evaluated actions) ───────────────────────────
+
+function CollapsibleAction({
+  title,
+  tagCount,
+  isLast,
+  children,
+}: {
+  title: string;
+  tagCount: number;
+  isLast: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: isLast ? 0 : 10, paddingBottom: isLast ? 0 : 10, borderBottom: isLast ? "none" : "1px solid rgba(255,255,255,0.04)" }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%", textAlign: "left" }}
+      >
+        <svg width={8} height={8} viewBox="0 0 24 24" fill="none" stroke="var(--fg4)" strokeWidth={2.5} style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--foreground)" }}>{title}</span>
+        {tagCount > 0 && (
+          <span style={{ fontSize: 10, color: "var(--fg4)", marginLeft: "auto", flexShrink: 0 }}>
+            {tagCount} tag{tagCount !== 1 ? "s" : ""}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div style={{ marginTop: 6, marginLeft: 14 }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail Pane ──────────────────────────────────────────────────────────────
 
 function DetailPane({
@@ -1943,7 +1982,6 @@ function DetailPane({
                     <ThinkingStep
                       icon="search"
                       title="Gathered evidence"
-                      defaultOpen
                     >
                       {reasoning.evidenceSummary.split(/(?<=\.)\s+(?=\d+\.)/).map((sentence, i) => (
                         <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}>
@@ -2025,7 +2063,7 @@ function DetailPane({
 
                   {/* Step 6: Evaluated options */}
                   {reasoning.consideredActions.length > 0 && (
-                    <ThinkingStep icon="evaluate" title={`Evaluated ${reasoning.consideredActions.length} possible actions`} defaultOpen>
+                    <ThinkingStep icon="evaluate" title={`Evaluated ${reasoning.consideredActions.length} possible actions`}>
                       {reasoning.consideredActions.map((ca, i) => {
                         if (typeof ca === "string") {
                           return <div key={i} style={{ fontSize: 12, color: "var(--fg2)", marginBottom: 6 }}>{ca}</div>;
@@ -2033,9 +2071,14 @@ function DetailPane({
                         const hasEvidence = "evidenceFor" in ca;
                         const supportItems = hasEvidence ? (ca.evidenceFor ?? []) : (ca.pros ?? []);
                         const againstItems = hasEvidence ? (ca.evidenceAgainst ?? []) : (ca.cons ?? []);
+                        const tagCount = supportItems.length + againstItems.length;
                         return (
-                          <div key={i} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: i < reasoning.consideredActions.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
-                            <div style={{ fontSize: 12, fontWeight: 500, color: "var(--foreground)", marginBottom: 4 }}>{ca.action}</div>
+                          <CollapsibleAction
+                            key={i}
+                            title={ca.action}
+                            tagCount={tagCount}
+                            isLast={i === reasoning.consideredActions.length - 1}
+                          >
                             {supportItems.length > 0 && (
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 3 }}>
                                 {supportItems.map((p, j) => (
@@ -2053,7 +2096,7 @@ function DetailPane({
                             {ca.expectedOutcome && (
                               <p style={{ fontSize: 11, color: "var(--fg3)", marginTop: 2 }}>{ca.expectedOutcome}</p>
                             )}
-                          </div>
+                          </CollapsibleAction>
                         );
                       })}
                     </ThinkingStep>

@@ -9,10 +9,13 @@ export async function GET(req: NextRequest) {
 
   const params = req.nextUrl.searchParams;
   const status = params.get("status");
+  const parentFilter = params.get("parentProjectId");
   const limit = Math.min(Math.max(parseInt(params.get("limit") ?? "50", 10) || 50, 1), 200);
   const offset = Math.max(parseInt(params.get("offset") ?? "0", 10) || 0, 0);
 
-  const where: Record<string, unknown> = { operatorId, parentProjectId: null };
+  const where: Record<string, unknown> = { operatorId };
+  // If parentProjectId is provided, filter to children of that project; otherwise top-level only
+  where.parentProjectId = parentFilter ?? null;
   if (status) where.status = status;
   if (effectiveRole === "member") {
     where.members = { some: { userId: effectiveUserId } };

@@ -28,9 +28,6 @@ export async function GET(req: NextRequest) {
   let returnBase = "/settings?tab=connections";
   if (oauthReturn === "onboarding") {
     returnBase = "/onboarding";
-  } else if (oauthReturn?.startsWith("department:")) {
-    const deptId = oauthReturn.replace("department:", "");
-    returnBase = `/settings?tab=connections`;
   }
   const sep = returnBase.includes("?") ? "&" : "?";
 
