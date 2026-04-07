@@ -906,6 +906,58 @@ const PLAN_STATUS_STYLES: Record<string, { bg: string; color: string; label: str
   executing: { bg: "transparent", color: "var(--fg3)", label: "Executing" },
   re_evaluating: { bg: "rgba(245,158,11,0.12)", color: "var(--warn)", label: "Re-evaluating" },
 };
+// ── Thinking Step (Claude-style reasoning trace) ────────────────────────────
+
+const THINKING_ICONS: Record<string, React.ReactNode> = {
+  search: <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>,
+  entity: <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>,
+  graph: <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="6" cy="6" r="3" /><circle cx="18" cy="18" r="3" /><path d="M8.59 8.59 15.42 15.42" /><circle cx="18" cy="6" r="3" /><path d="M15.41 8.59 8.59 15.42" /></svg>,
+  timeline: <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>,
+  history: <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>,
+  evaluate: <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>,
+  gap: <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>,
+};
+
+function ThinkingStep({
+  icon,
+  title,
+  badge,
+  defaultOpen = false,
+  children,
+}: {
+  icon: string;
+  title: string;
+  badge?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ position: "relative", padding: "8px 0" }}>
+      {/* Dot on rail */}
+      <div style={{ position: "absolute", left: -24 + 4, top: 12, width: 8, height: 8, borderRadius: "50%", background: "var(--elevated)", border: "1.5px solid rgba(255,255,255,0.2)", zIndex: 1 }} />
+      {/* Header */}
+      <button
+        onClick={() => setOpen(!open)}
+        style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", padding: 0, width: "100%", textAlign: "left" }}
+      >
+        <span style={{ color: "var(--fg3)", flexShrink: 0, display: "flex" }}>{THINKING_ICONS[icon]}</span>
+        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>{title}</span>
+        {badge && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "var(--fg3)" }}>{badge}</span>}
+        <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="var(--fg4)" strokeWidth={2} style={{ marginLeft: "auto", flexShrink: 0, transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+      {/* Content */}
+      {open && (
+        <div style={{ marginTop: 8, marginLeft: 20, padding: "8px 12px", background: "rgba(255,255,255,0.02)", borderRadius: 6, border: "0.5px solid rgba(255,255,255,0.06)" }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Detail Pane ──────────────────────────────────────────────────────────────
 
 function DetailPane({
@@ -1867,12 +1919,12 @@ function DetailPane({
             </div>
           )}
 
-          {/* ── Evidence & reasoning toggle ── */}
+          {/* ── Reasoning trace (Claude-style thinking) ── */}
           {reasoning && (
             <div className="w-[80%] mx-auto">
               <button
                 onClick={() => setShowEvidence(!showEvidence)}
-                className="flex items-center gap-1.5 transition-colors hover:text-foreground"
+                className="flex items-center gap-2 transition-colors hover:text-foreground"
                 style={{ fontSize: 13, color: "var(--fg3)" }}
               >
                 <svg className={`w-3 h-3 transition-transform ${showEvidence ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1882,144 +1934,152 @@ function DetailPane({
               </button>
 
               {showEvidence && (
-                <div className="mt-3 space-y-4">
-                  {/* Evidence summary */}
+                <div style={{ marginTop: 12, position: "relative", paddingLeft: 24 }}>
+                  {/* Vertical rail */}
+                  <div style={{ position: "absolute", left: 7, top: 8, bottom: 8, width: 1.5, background: "rgba(255,255,255,0.06)", borderRadius: 1 }} />
+
+                  {/* Step 1: Gathered evidence */}
                   {reasoning.evidenceSummary && (
-                    <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-1.5">{t("evidenceSummary")}</div>
-                      <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}>{reasoning.evidenceSummary}</p>
-                    </div>
+                    <ThinkingStep
+                      icon="search"
+                      title="Gathered evidence"
+                      defaultOpen
+                    >
+                      {reasoning.evidenceSummary.split(/(?<=\.)\s+(?=\d+\.)/).map((sentence, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, color: "var(--fg4)", flexShrink: 0, marginTop: 1 }}>{i + 1}.</span>
+                          <span style={{ fontSize: 12, color: "var(--fg2)", lineHeight: 1.6 }}>{sentence.replace(/^\d+\.\s*/, "")}</span>
+                        </div>
+                      ))}
+                    </ThinkingStep>
                   )}
 
-                  {/* Considered actions */}
-                  {reasoning.consideredActions.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">{t("consideredActions")}</div>
-                      <div className="space-y-2">
-                        {reasoning.consideredActions.map((ca, i) => {
-                          if (typeof ca === "string") {
-                            return (
-                              <div key={i} style={{ padding: "10px 14px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }}>
-                                <span style={{ fontSize: 13, color: "var(--fg2)" }}>{ca}</span>
-                              </div>
-                            );
-                          }
-                          const hasEvidence = "evidenceFor" in ca;
-                          const supportItems = hasEvidence ? (ca.evidenceFor ?? []) : (ca.pros ?? []);
-                          const againstItems = hasEvidence ? (ca.evidenceAgainst ?? []) : (ca.cons ?? []);
-                          return (
-                            <div key={i} style={{ padding: "10px 14px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4 }} className="space-y-1.5">
-                              <span style={{ fontSize: 13, fontWeight: 500, color: "var(--fg2)" }}>{ca.action}</span>
-                              {supportItems.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {supportItems.map((p, j) => (
-                                    <span key={j} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 2, background: "rgba(34,197,94,0.1)", color: "var(--ok)" }}>{p}</span>
-                                  ))}
-                                </div>
-                              )}
-                              {againstItems.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {againstItems.map((c, j) => (
-                                    <span key={j} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 2, background: "rgba(239,68,68,0.1)", color: "var(--danger)" }}>{c}</span>
-                                  ))}
-                                </div>
-                              )}
-                              {ca.expectedOutcome && (
-                                <p style={{ fontSize: 11, color: "var(--fg3)" }}>{ca.expectedOutcome}</p>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Missing context */}
-                  {reasoning.missingContext && reasoning.missingContext.length > 0 && (
-                    <div style={{ background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 4 }} className="p-3">
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--warn)", textTransform: "uppercase" as const }} className="mb-1.5">{t("missingContext")}</div>
-                      <ul className="space-y-0.5">
-                        {reasoning.missingContext.map((mc, i) => (
-                          <li key={i} style={{ fontSize: 13, color: "var(--warn)" }}>&bull; {mc}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Entity Details */}
+                  {/* Step 2: Inspected entity */}
                   {detail.contextSnapshot?.triggerEntity && (
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">Entity Details</div>
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                    <ThinkingStep
+                      icon="entity"
+                      title={`Inspected ${detail.contextSnapshot.triggerEntity.displayName}`}
+                      badge={detail.contextSnapshot.triggerEntity.type}
+                    >
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 16px" }}>
                         {Object.entries(detail.contextSnapshot.triggerEntity.properties).map(([k, v]) => (
-                          <div key={k} className="flex justify-between text-[13px] py-1" style={{ borderBottom: "1px solid var(--border)" }}>
-                            <span style={{ color: "var(--fg3)" }}>{k}</span>
+                          <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                            <span style={{ color: "var(--fg4)" }}>{k}</span>
                             <span style={{ color: "var(--fg2)" }}>{v}</span>
                           </div>
                         ))}
                       </div>
-                    </div>
+                    </ThinkingStep>
                   )}
 
-                  {/* Related Entities */}
+                  {/* Step 3: Checked relationships */}
                   {detail.contextSnapshot?.relatedEntities && (() => {
                     const re = detail.contextSnapshot!.relatedEntities!;
                     const all = [...(re.base ?? []), ...(re.digital ?? []), ...(re.external ?? [])];
                     if (all.length === 0) return null;
                     return (
-                      <div>
-                        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">Related Entities</div>
-                        <div className="space-y-1">
-                          {all.slice(0, 5).map((e: { id: string; type: string; displayName: string; direction: string; relationship: string }) => (
-                            <div key={e.id} className="flex items-center gap-2" style={{ fontSize: 13 }}>
-                              <span style={{ color: "var(--fg4)" }}>{e.direction === "outgoing" ? "\u2192" : "\u2190"}</span>
-                              <Badge>{e.type}</Badge>
-                              <span style={{ color: "var(--fg2)" }}>{e.displayName}</span>
-                              <span style={{ color: "var(--fg4)" }}>({e.relationship})</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      <ThinkingStep icon="graph" title={`Checked ${all.length} related entities`}>
+                        {all.slice(0, 5).map((e: { id: string; type: string; displayName: string; direction: string; relationship: string }) => (
+                          <div key={e.id} className="flex items-center gap-2" style={{ fontSize: 12, marginBottom: 3 }}>
+                            <span style={{ color: "var(--fg4)", fontSize: 10 }}>{e.direction === "outgoing" ? "\u2192" : "\u2190"}</span>
+                            <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "var(--fg3)" }}>{e.type}</span>
+                            <span style={{ color: "var(--fg2)" }}>{e.displayName}</span>
+                            <span style={{ color: "var(--fg4)", fontSize: 11 }}>({e.relationship})</span>
+                          </div>
+                        ))}
+                      </ThinkingStep>
                     );
                   })()}
 
-                  {/* Event Timeline */}
+                  {/* Step 4: Reviewed timeline */}
                   {detail.contextSnapshot?.recentEvents && detail.contextSnapshot.recentEvents.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">Event Timeline</div>
-                      <div className="space-y-1.5">
-                        {detail.contextSnapshot.recentEvents.slice(0, 8).map(ev => (
-                          <div key={ev.id} className="flex items-center gap-3" style={{ fontSize: 13 }}>
-                            <span style={{ fontSize: 11, color: "var(--fg4)", width: 48, textAlign: "right", flexShrink: 0 }}>{formatRelativeTime(ev.createdAt, locale)}</span>
-                            <div style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--border)", flexShrink: 0 }} />
-                            <span style={{ color: "var(--fg2)" }}>{ev.eventType}</span>
-                            <span style={{ color: "var(--fg4)" }}>{ev.source}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <ThinkingStep icon="timeline" title={`Reviewed ${detail.contextSnapshot.recentEvents.length} recent events`}>
+                      {detail.contextSnapshot.recentEvents.slice(0, 6).map(ev => (
+                        <div key={ev.id} className="flex items-center gap-2" style={{ fontSize: 12, marginBottom: 3 }}>
+                          <span style={{ fontSize: 10, color: "var(--fg4)", width: 40, textAlign: "right", flexShrink: 0 }}>{formatRelativeTime(ev.createdAt, locale)}</span>
+                          <div style={{ width: 4, height: 4, borderRadius: "50%", background: "rgba(255,255,255,0.15)", flexShrink: 0 }} />
+                          <span style={{ color: "var(--fg2)" }}>{ev.eventType}</span>
+                          <span style={{ color: "var(--fg4)", fontSize: 11 }}>{ev.source}</span>
+                        </div>
+                      ))}
+                    </ThinkingStep>
                   )}
 
-                  {/* Prior Situations */}
+                  {/* Step 5: Prior situations */}
                   {detail.contextSnapshot?.priorSituations && detail.contextSnapshot.priorSituations.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-2">Prior Situations</div>
-                      <div className="space-y-2">
-                        {detail.contextSnapshot.priorSituations.map(ps => (
-                          <div key={ps.id} className="flex items-start gap-2" style={{ fontSize: 13 }}>
-                            <span className="flex-shrink-0" style={{ color: "var(--fg4)" }}>
-                              {ps.outcome === "positive" ? "\u2713" : ps.outcome === "negative" ? "\u2717" : "?"}
-                            </span>
-                            <div>
-                              <span style={{ color: "var(--fg2)" }}>{ps.triggerEntityName}</span>
-                              <span style={{ color: "var(--fg4)" }} className="ml-2">{ps.status}</span>
-                              {ps.feedback && <p style={{ color: "var(--fg3)" }} className="mt-0.5">{ps.feedback}</p>}
-                            </div>
+                    <ThinkingStep icon="history" title={`Checked ${detail.contextSnapshot.priorSituations.length} prior situations`}>
+                      {detail.contextSnapshot.priorSituations.map(ps => (
+                        <div key={ps.id} className="flex items-start gap-2" style={{ fontSize: 12, marginBottom: 4 }}>
+                          <span style={{ color: ps.outcome === "positive" ? "var(--ok)" : ps.outcome === "negative" ? "var(--danger)" : "var(--fg4)", flexShrink: 0, fontSize: 11 }}>
+                            {ps.outcome === "positive" ? "\u2713" : ps.outcome === "negative" ? "\u2717" : "\u25CB"}
+                          </span>
+                          <div>
+                            <span style={{ color: "var(--fg2)" }}>{ps.triggerEntityName}</span>
+                            <span style={{ color: "var(--fg4)", marginLeft: 6 }}>{ps.status}</span>
+                            {ps.feedback && <p style={{ color: "var(--fg3)", marginTop: 2, fontSize: 11 }}>{ps.feedback}</p>}
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                        </div>
+                      ))}
+                    </ThinkingStep>
                   )}
+
+                  {/* Step 6: Evaluated options */}
+                  {reasoning.consideredActions.length > 0 && (
+                    <ThinkingStep icon="evaluate" title={`Evaluated ${reasoning.consideredActions.length} possible actions`} defaultOpen>
+                      {reasoning.consideredActions.map((ca, i) => {
+                        if (typeof ca === "string") {
+                          return <div key={i} style={{ fontSize: 12, color: "var(--fg2)", marginBottom: 6 }}>{ca}</div>;
+                        }
+                        const hasEvidence = "evidenceFor" in ca;
+                        const supportItems = hasEvidence ? (ca.evidenceFor ?? []) : (ca.pros ?? []);
+                        const againstItems = hasEvidence ? (ca.evidenceAgainst ?? []) : (ca.cons ?? []);
+                        return (
+                          <div key={i} style={{ marginBottom: 10, paddingBottom: 10, borderBottom: i < reasoning.consideredActions.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: "var(--foreground)", marginBottom: 4 }}>{ca.action}</div>
+                            {supportItems.length > 0 && (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 3 }}>
+                                {supportItems.map((p, j) => (
+                                  <span key={j} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: "rgba(34,197,94,0.1)", color: "var(--ok)" }}>{p}</span>
+                                ))}
+                              </div>
+                            )}
+                            {againstItems.length > 0 && (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 3 }}>
+                                {againstItems.map((c, j) => (
+                                  <span key={j} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: "rgba(239,68,68,0.1)", color: "var(--danger)" }}>{c}</span>
+                                ))}
+                              </div>
+                            )}
+                            {ca.expectedOutcome && (
+                              <p style={{ fontSize: 11, color: "var(--fg3)", marginTop: 2 }}>{ca.expectedOutcome}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </ThinkingStep>
+                  )}
+
+                  {/* Step 7: Missing context */}
+                  {reasoning.missingContext && reasoning.missingContext.length > 0 && (
+                    <ThinkingStep icon="gap" title={`Identified ${reasoning.missingContext.length} data gaps`}>
+                      {reasoning.missingContext.map((mc, i) => (
+                        <div key={i} style={{ fontSize: 12, color: "var(--warn)", marginBottom: 4, display: "flex", gap: 6, alignItems: "flex-start" }}>
+                          <span style={{ flexShrink: 0, marginTop: 1, fontSize: 10 }}>&#x26A0;</span>
+                          <span>{mc}</span>
+                        </div>
+                      ))}
+                    </ThinkingStep>
+                  )}
+
+                  {/* Final: Conclusion */}
+                  <div style={{ position: "relative", padding: "10px 0", display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <div style={{ position: "absolute", left: -24 + 3, top: 12, width: 10, height: 10, borderRadius: "50%", background: "var(--accent)", zIndex: 1 }} />
+                    <div style={{ fontSize: 12, color: "var(--fg2)", lineHeight: 1.6 }}>
+                      <span style={{ fontWeight: 600, color: "var(--foreground)" }}>Concluded</span>
+                      <span style={{ color: "var(--fg4)", marginLeft: 6, fontSize: 11 }}>{(reasoning.confidence * 100).toFixed(0)}% confidence</span>
+                      <p style={{ marginTop: 4 }}>{reasoning.analysis}</p>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
