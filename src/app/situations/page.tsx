@@ -1670,8 +1670,8 @@ function DetailPane({
 
                           {isCurrentStep && !isCompleted && !isReEvaluating ? (
                             (step.executionMode === "action" || step.executionMode === "generate") ? (
-                              <div style={{ marginTop: 16 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                              <div style={{ marginTop: 16, maxWidth: "60%" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                   <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); handleApprove(); }} style={{ ...STEP_BTN_PRIMARY }}>Approve Execution</button>
                                   <button
                                     onClick={(e) => {
@@ -1679,13 +1679,13 @@ function DetailPane({
                                       const chatInput = document.getElementById("situation-chat-input") as HTMLTextAreaElement;
                                       if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
                                     }}
-                                    style={{ fontSize: 12, color: "var(--foreground)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
-                                    className="hover:opacity-70 transition-opacity"
+                                    style={{ ...STEP_BTN_SECONDARY }}
+                                    className="hover:opacity-80 transition-opacity"
                                   >
                                     Discuss action
                                   </button>
                                 </div>
-                                <p style={{ fontSize: 11, fontWeight: 600, color: "var(--foreground)", marginTop: 6 }}>AI will execute this step when approved</p>
+                                <p style={{ fontSize: 11, color: "var(--fg3)", marginTop: 6 }}>AI will execute this step when approved</p>
                               </div>
                             ) : step.executionMode === "human_task" && planStep ? (
                               <div style={{ marginTop: 6 }}>

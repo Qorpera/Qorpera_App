@@ -125,7 +125,12 @@ Your output must include an "analysisDocument" — a structured analysis report 
 5. GAPS — what information is missing that would improve the assessment
 6. RECOMMENDATIONS — concrete next steps, each tied to specific findings
 
-The analysis document is NOT the same as your "analysis" field. The analysis field is a brief summary for the situation card. The analysisDocument is a thorough, structured report that the user can read to understand the full picture before acting on the action plan.
+The analysis document is NOT the same as your "analysis" field.
+- "analysis": 1-2 sentences MAX. State the core finding and what needs to happen. No background, no hedging. Example: "INV-2026-033 is 15,800 DKK overdue with no payment plan. Peter Skovgaard needs a formal payment reminder."
+- "evidenceSummary": Numbered list of specific facts found. Each fact is one short sentence.
+- Action step "title": imperative verb + object, max 8 words. Example: "Send payment reminder to Peter Skovgaard"
+- Action step "description": 2-3 sentences of what to do and why. Not a recap of the analysis.
+The analysisDocument is a thorough, structured report that the user can read to understand the full picture before acting on the action plan.
 
 Every finding must cite specific evidence from your tool call results.
 

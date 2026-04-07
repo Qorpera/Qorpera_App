@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 const ActionStepSchema = z.object({
-  title: z.string(),
-  description: z.string(),
+  title: z.string().describe("Imperative verb + object, max 8 words. Example: 'Send payment reminder to Peter Skovgaard'"),
+  description: z.string().describe("2-3 sentences: what to do and why. Not a recap of the analysis."),
   previewType: z.enum(["email", "document", "spreadsheet", "calendar_event", "slack_message", "crm_update", "ticket", "presentation", "generic"]).optional(),
   executionMode: z.enum(["action", "generate", "human_task", "await_situation"]),
   actionCapabilityName: z.string().optional(),  // matches ActionCapability.name
@@ -25,8 +25,8 @@ function normalizeActionBatch<T extends { actionBatch?: unknown; actionPlan?: un
 
 const ReasoningOutputBase = z.object({
   situationTitle: z.string().describe("Short, specific title identifying this situation. Use document numbers, project names, or specific subjects — not just person names. Examples: 'Invoice INV-2026-035 overdue', 'Nygade Center power outage — urgent dispatch', 'Emil cable type question (NOIKLX vs NYM)'").optional(),
-  analysis: z.string().min(10),
-  evidenceSummary: z.string().min(10),
+  analysis: z.string().min(10).describe("1-2 sentences MAX. State the core finding and required action. No background or hedging."),
+  evidenceSummary: z.string().min(10).describe("Numbered list of specific facts found during investigation. Each fact is one short sentence."),
   consideredActions: z.array(z.object({
     action: z.string(),
     evidenceFor: z.array(z.string()),

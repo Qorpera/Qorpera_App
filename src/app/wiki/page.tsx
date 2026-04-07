@@ -413,7 +413,7 @@ export default function WikiPage() {
         }}
       >
         {/* ── Main Content ── */}
-        <div style={{ flex: 1, overflow: "auto" }}>
+        <div style={{ flex: 1, overflow: "auto", background: "var(--surface)" }}>
           {isMobile && (
             <MobileFilters
               byType={byType}
@@ -437,8 +437,8 @@ export default function WikiPage() {
           ) : activeSlug && activePage ? (
             <>
               {/* Back bar */}
-              <div style={{ maxWidth: 800, margin: "0 auto", width: "100%" }}>
-                <div style={{ padding: "12px 24px 0", display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: "90%", maxWidth: 900, margin: "0 auto" }}>
+                <div style={{ padding: "12px 0 16px", display: "flex", alignItems: "center", gap: 8 }}>
                   <button
                     onClick={() => setParam("page", "")}
                     style={{
@@ -987,8 +987,19 @@ function ContentPane({
     return text;
   }, [page.content, pageIndex, page.slug]);
 
+  const [quarantineOpen, setQuarantineOpen] = useState(false);
+
   return (
-    <div style={{ padding: "20px 28px", maxWidth: 800, margin: "0 auto" }}>
+    <div style={{ width: "90%", maxWidth: 900, margin: "0 auto" }}>
+      {/* Page surface — full page feel */}
+      <div style={{
+        background: "var(--elevated)",
+        borderLeft: "1px solid var(--border)",
+        borderRight: "1px solid var(--border)",
+        borderBottom: "1px solid var(--border)",
+        minHeight: "calc(100vh - 200px)",
+        padding: "28px 40px 48px",
+      }}>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -1041,21 +1052,43 @@ function ContentPane({
         </div>
       </div>
 
-      {/* Quarantine warning */}
+      {/* Quarantine warning — collapsible */}
       {page.status === "quarantined" && page.quarantineReason && (
-        <div
-          style={{
-            padding: "10px 14px",
-            marginBottom: 16,
-            borderRadius: 6,
-            border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
-            background: "color-mix(in srgb, var(--danger) 8%, transparent)",
-            fontSize: 12,
-            color: "var(--danger)",
-            lineHeight: "18px",
-          }}
-        >
-          Quarantined: {page.quarantineReason}
+        <div style={{ marginBottom: 16 }}>
+          <button
+            onClick={() => setQuarantineOpen(!quarantineOpen)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 10px",
+              borderRadius: 4,
+              border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
+              background: "color-mix(in srgb, var(--danger) 8%, transparent)",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--danger)",
+              cursor: "pointer",
+            }}
+          >
+            <svg width={8} height={8} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ transform: quarantineOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+            Quarantined
+          </button>
+          {quarantineOpen && (
+            <div style={{
+              marginTop: 8,
+              padding: "10px 14px",
+              border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
+              background: "color-mix(in srgb, var(--danger) 8%, transparent)",
+              fontSize: 12,
+              color: "var(--danger)",
+              lineHeight: "18px",
+            }}>
+              {page.quarantineReason}
+            </div>
+          )}
         </div>
       )}
 
@@ -1128,15 +1161,9 @@ function ContentPane({
           </div>
         </div>
       ) : (
-        /* View mode — markdown on a "page" surface */
+        /* View mode — markdown */
         <div className="wiki-content" style={{
           fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", maxWidth: 720,
-          background: "var(--elevated)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          padding: "32px 40px",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-          marginBottom: 24,
         }}>
           <ReactMarkdown
             components={{
@@ -1198,6 +1225,7 @@ function ContentPane({
           </ReactMarkdown>
         </div>
       )}
+      </div>{/* end page surface */}
     </div>
   );
 }
