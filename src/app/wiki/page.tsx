@@ -333,55 +333,7 @@ export default function WikiPage() {
 
   return (
     <AppShell>
-      {/* ── Scope Toggle (superadmin) ── */}
-      {isSuperadmin && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            padding: "8px 16px 0",
-          }}
-        >
-          {(["operator", "system"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setParam("scope", s === "operator" ? "" : s)}
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                padding: "6px 14px",
-                borderRadius: 6,
-                border: "none",
-                background: activeScope === s ? "rgba(255,255,255,0.08)" : "transparent",
-                color: activeScope === s ? "var(--foreground)" : "var(--fg3)",
-                cursor: "pointer",
-                transition: "all 0.15s",
-              }}
-            >
-              {s === "operator" ? "Organization Wiki" : "System Intelligence"}
-            </button>
-          ))}
-          {activeScope === "system" && (
-            <button
-              onClick={() => setIngestOpen(true)}
-              style={{
-                marginLeft: "auto",
-                fontSize: 11,
-                fontWeight: 600,
-                padding: "4px 12px",
-                borderRadius: 4,
-                background: "rgba(139,92,246,0.12)",
-                border: "0.5px solid rgba(139,92,246,0.25)",
-                color: "rgb(139,92,246)",
-                cursor: "pointer",
-              }}
-            >
-              Ingest research
-            </button>
-          )}
-        </div>
-      )}
+      {/* Scope toggle removed — system intelligence accessible only via superadmin room */}
 
       {/* Domain filter banner */}
       {domainFilter && domainName && (
@@ -408,7 +360,7 @@ export default function WikiPage() {
       <div
         style={{
           display: "flex",
-          height: isSuperadmin ? "calc(100vh - 56px - 37px)" : "calc(100vh - 56px)",
+          height: "calc(100vh - 56px)",
           overflow: "hidden",
         }}
       >
@@ -436,43 +388,26 @@ export default function WikiPage() {
             <div style={{ padding: 32, color: "var(--fg3)" }}>Loading page...</div>
           ) : activeSlug && activePage ? (
             <>
-              {/* Top bar: back + search */}
-              <div style={{ maxWidth: 1080, width: "100%", margin: "0 auto", padding: "12px 24px 16px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <button
-                    onClick={() => setParam("page", "")}
-                    style={{
-                      fontSize: 12,
-                      color: "var(--fg3)",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      flexShrink: 0,
-                    }}
-                  >
-                    ← Back to Wiki
-                  </button>
-                  <input
-                    type="text"
-                    placeholder="Search wiki..."
-                    value={searchInput}
-                    onChange={(e) => { setSearchInput(e.target.value); handleSearch(e.target.value); }}
-                    style={{
-                      flex: 1,
-                      padding: "7px 12px",
-                      background: "rgba(255,255,255,0.05)",
-                      border: "0.5px solid var(--border)",
-                      borderRadius: 6,
-                      color: "var(--foreground)",
-                      fontSize: 12,
-                      outline: "none",
-                      maxWidth: 300,
-                    }}
-                  />
-                </div>
+              {/* Search bar above page — centered */}
+              <div style={{ maxWidth: 1080, width: "100%", margin: "0 auto", padding: "16px 24px 20px", display: "flex", justifyContent: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Search wiki..."
+                  value={searchInput}
+                  onChange={(e) => { setSearchInput(e.target.value); handleSearch(e.target.value); }}
+                  style={{
+                    width: "100%",
+                    maxWidth: 520,
+                    padding: "9px 14px",
+                    background: "rgba(255,255,255,0.05)",
+                    border: "0.5px solid var(--border)",
+                    borderRadius: 6,
+                    color: "var(--foreground)",
+                    fontSize: 13,
+                    outline: "none",
+                    textAlign: "center",
+                  }}
+                />
               </div>
               <ContentPane
                 page={activePage}
@@ -1019,14 +954,31 @@ function ContentPane({
       {/* Page surface */}
       <div style={{
         background: "var(--elevated)",
-        borderLeft: "1px solid var(--border)",
-        borderRight: "1px solid var(--border)",
-        borderBottom: "1px solid var(--border)",
+        border: "1.5px solid var(--border)",
         minHeight: "calc(100vh - 200px)",
-        padding: "32px 48px 48px",
+        padding: "24px 48px 48px",
       }}>
+      {/* Back to Wiki — top left */}
+      <button
+        onClick={() => onNavigate("")}
+        style={{
+          fontSize: 12,
+          color: "var(--fg3)",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          marginBottom: 16,
+          padding: 0,
+        }}
+        className="hover:text-foreground transition-colors"
+      >
+        ← Back to Wiki
+      </button>
       {/* Header */}
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 20, maxWidth: 760, margin: "0 auto 20px" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
           <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", margin: 0, lineHeight: "24px" }}>
             {page.title}
@@ -1092,7 +1044,7 @@ function ContentPane({
       {/* Quarantine details — expanded */}
       {quarantineOpen && page.quarantineReason && (
         <div style={{
-          marginBottom: 16,
+          marginBottom: 16, maxWidth: 760, margin: "0 auto 16px",
           padding: "10px 14px",
           border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
           background: "color-mix(in srgb, var(--danger) 8%, transparent)",
@@ -1175,7 +1127,7 @@ function ContentPane({
       ) : (
         /* View mode — markdown */
         <div className="wiki-content" style={{
-          fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", maxWidth: 720,
+          fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", maxWidth: 760, margin: "0 auto",
         }}>
           <ReactMarkdown
             components={{
