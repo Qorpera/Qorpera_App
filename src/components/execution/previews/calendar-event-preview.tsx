@@ -26,11 +26,15 @@ function PencilIcon({ size = 11, className = "" }: { size?: number; className?: 
 
 function formatTime(dateStr: string, locale: string): string {
   const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr || "—";
   return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 }
 
 function durationMinutes(start: string, end: string): number {
-  return Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60000);
+  const s = new Date(start).getTime();
+  const e = new Date(end).getTime();
+  if (isNaN(s) || isNaN(e)) return 0;
+  return Math.round((e - s) / 60000);
 }
 
 function toLocalDatetimeValue(iso: string): string {
@@ -48,6 +52,7 @@ function toLocalDatetimeValue(iso: string): string {
 
 function getMonday(dateStr: string): string {
   const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
   const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
@@ -87,14 +92,19 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
   const location = (params.location ?? "") as string;
 
   // ── Panel mode: week view ────────────────────────────────────────────────
-  if (inPanel && startTime) {
+  const startDate = startTime ? new Date(startTime) : null;
+  const startValid = startDate && !isNaN(startDate.getTime());
+  if (inPanel && startValid) {
+    const fallbackEnd = new Date(startDate.getTime() + 3600000).toISOString();
+    const endDate = endTime ? new Date(endTime) : null;
+    const endValid = endDate && !isNaN(endDate.getTime());
     return (
       <CalendarWeekPanel
         weekOf={getMonday(startTime)}
         proposedEvent={{
           title,
           startTime,
-          endTime: endTime || new Date(new Date(startTime).getTime() + 3600000).toISOString(),
+          endTime: endValid ? endTime : fallbackEnd,
           attendees,
           location,
         }}

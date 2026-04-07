@@ -33,7 +33,9 @@ function getNf(locale: string, optionsKey: string, options?: Intl.NumberFormatOp
  * Locale-aware relative time formatting.
  */
 export function formatRelativeTime(dateStr: string, locale: string = "en"): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const ts = new Date(dateStr).getTime();
+  if (isNaN(ts)) return dateStr || "—";
+  const diff = Date.now() - ts;
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
@@ -51,6 +53,7 @@ export function formatRelativeTime(dateStr: string, locale: string = "en"): stri
  */
 export function formatDate(date: string | Date, locale: string = "en", style: "short" | "medium" | "long" = "medium"): string {
   const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return typeof date === "string" ? date : "—";
   return getDtf(locale, style).format(d);
 }
 
