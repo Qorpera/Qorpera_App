@@ -169,7 +169,7 @@ async function ensureRelType(
 
 export async function runDemoSeed(operatorId: string) {
   // ─── Entity Types ────────────────────────────────────────────────
-  const typeSlugs = ["organization", "department", "team-member", "ai-agent", "department-ai", "hq-ai"];
+  const typeSlugs = ["organization", "department", "team-member", "ai-agent", "domain-ai", "hq-ai"];
   const types: Record<string, { typeId: string; props: Record<string, string> }> = {};
   for (const slug of typeSlugs) {
     types[slug] = await getTypeAndProps(operatorId, slug);
@@ -177,7 +177,7 @@ export async function runDemoSeed(operatorId: string) {
 
   // ─── Relationship Types ──────────────────────────────────────────
   const deptMemberRelId = await ensureRelType(
-    operatorId, "department-member", "Department Member",
+    operatorId, "domain-member", "Domain Member",
     types["team-member"].typeId, types["department"].typeId,
   );
   const reportsToRelId = await ensureRelType(
@@ -338,7 +338,7 @@ export async function runDemoSeed(operatorId: string) {
   // Department AIs (one per department, skip CompanyHQ which is organization type)
   const deptAiIds: Record<string, string> = {};
   for (const d of DEPARTMENTS) {
-    if (d.entityTypeSlug === "department") {
+    if (d.entityTypeSlug === "domain") {
       deptAiIds[d.name] = await ensureDepartmentAi(operatorId, deptIds[d.name], d.name);
     }
   }

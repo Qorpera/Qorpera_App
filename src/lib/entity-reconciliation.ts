@@ -36,7 +36,7 @@ export async function reconcileOrphanedEntities(operatorId: string): Promise<{
     where: {
       operatorId,
       category: "foundational",
-      entityType: { slug: "department" },
+      entityType: { slug: "domain" },
       status: "active",
     },
     select: { id: true, displayName: true },
@@ -92,7 +92,7 @@ export async function reconcileOrphanedEntities(operatorId: string): Promise<{
     // Strategy 2: Match by department-member relationship
     const deptMemberRel = await prisma.relationship.findFirst({
       where: {
-        relationshipType: { slug: "department-member", operatorId },
+        relationshipType: { slug: "domain-member", operatorId },
         OR: [
           { fromEntityId: orphan.id },
           { toEntityId: orphan.id },

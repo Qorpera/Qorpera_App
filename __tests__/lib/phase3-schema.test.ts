@@ -532,7 +532,7 @@ describe("Department AI auto-creation", () => {
     // EntityType exists
     mockPrisma.entityType.findFirst.mockResolvedValue({
       id: "et-dept-ai",
-      slug: "department-ai",
+      slug: "domain-ai",
     });
 
     mockPrisma.entity.create.mockResolvedValue({
@@ -574,7 +574,7 @@ describe("Department AI auto-creation", () => {
     mockPrisma.entityType.findFirst.mockResolvedValue(null);
     mockPrisma.entityType.create.mockResolvedValue({
       id: "new-et-dept-ai",
-      slug: "department-ai",
+      slug: "domain-ai",
     });
     mockPrisma.entity.create.mockResolvedValue({ id: "new-ent" });
 
@@ -583,7 +583,7 @@ describe("Department AI auto-creation", () => {
     expect(mockPrisma.entityType.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         operatorId: "op1",
-        slug: "department-ai",
+        slug: "domain-ai",
         name: "Department AI",
       }),
     });

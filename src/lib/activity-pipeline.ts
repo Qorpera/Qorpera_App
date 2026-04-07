@@ -43,7 +43,7 @@ async function getDepartmentIdsForEntity(entityId: string): Promise<string[]> {
   const memberRels = await prisma.relationship.findMany({
     where: {
       fromEntityId: entityId,
-      relationshipType: { slug: "department-member" },
+      relationshipType: { slug: "domain-member" },
     },
     select: { toEntityId: true },
   });

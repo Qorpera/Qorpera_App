@@ -33,7 +33,7 @@ export function HumanTaskPreview({ step, isEditable, onParametersUpdate, onStepC
   };
 
   return (
-    <div style={{ padding: inPanel ? 0 : 16 }}>
+    <div style={{ padding: inPanel ? "16px 20px" : 16 }}>
       {/* Task description */}
       <div style={{ marginBottom: 20 }}>
         <p style={{ fontSize: 14, color: "var(--foreground)", lineHeight: 1.7 }}>
@@ -109,7 +109,7 @@ export function HumanTaskPreview({ step, isEditable, onParametersUpdate, onStepC
               padding: "8px 20px",
               borderRadius: 6,
               background: "var(--accent)",
-              color: "white",
+              color: "var(--accent-ink, #000)",
               border: "none",
               fontSize: 13,
               fontWeight: 600,

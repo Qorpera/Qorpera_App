@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       where: {
         id: aiEntityId,
         operatorId,
-        entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+        entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
       },
       select: { id: true },
     });
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   const entities = await prisma.entity.findMany({
     where: {
       operatorId,
-      entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+      entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
       status: "active",
     },
     select: { id: true },

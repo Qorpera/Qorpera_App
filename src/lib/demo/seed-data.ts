@@ -48,7 +48,7 @@ export const MEMBER_USER = {
 
 export type DepartmentDef = {
   name: string;
-  entityTypeSlug: "organization" | "department";
+  entityTypeSlug: "organization" | "domain";
   mapX: number;
   mapY: number;
   description: string;
@@ -56,10 +56,10 @@ export type DepartmentDef = {
 
 export const DEPARTMENTS: DepartmentDef[] = [
   { name: "CompanyHQ", entityTypeSlug: "organization", mapX: 0, mapY: 0, description: "Company headquarters" },
-  { name: "Salg", entityTypeSlug: "department", mapX: -200, mapY: 150, description: "Client acquisition and account management" },
-  { name: "Levering", entityTypeSlug: "department", mapX: 0, mapY: 150, description: "Project delivery and client success" },
-  { name: "Marketing", entityTypeSlug: "department", mapX: 200, mapY: 150, description: "Brand, content, and lead generation" },
-  { name: "Økonomi & Admin", entityTypeSlug: "department", mapX: 400, mapY: 150, description: "Finance, invoicing, and administration" },
+  { name: "Salg", entityTypeSlug: "domain", mapX: -200, mapY: 150, description: "Client acquisition and account management" },
+  { name: "Levering", entityTypeSlug: "domain", mapX: 0, mapY: 150, description: "Project delivery and client success" },
+  { name: "Marketing", entityTypeSlug: "domain", mapX: 200, mapY: 150, description: "Brand, content, and lead generation" },
+  { name: "Økonomi & Admin", entityTypeSlug: "domain", mapX: 400, mapY: 150, description: "Finance, invoicing, and administration" },
 ];
 
 // ── Team Members ─────────────────────────────────────────────────────

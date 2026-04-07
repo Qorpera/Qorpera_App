@@ -130,7 +130,7 @@ export async function generateResearchPlan(
     where: {
       operatorId,
       category: "foundational",
-      entityType: { slug: "department" },
+      entityType: { slug: "domain" },
       status: "active",
     },
     select: { displayName: true, id: true },

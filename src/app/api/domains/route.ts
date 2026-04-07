@@ -42,7 +42,7 @@ export async function GET() {
         prisma.relationship.count({
           where: {
             toEntityId: dept.id,
-            relationshipType: { slug: "department-member" },
+            relationshipType: { slug: "domain-member" },
           },
         }),
         prisma.internalDocument.findMany({
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
 
   // Ensure department entity type exists
   let deptType = await prisma.entityType.findFirst({
-    where: { operatorId, slug: "department" },
+    where: { operatorId, slug: "domain" },
   });
   if (!deptType) {
     const def = HARDCODED_TYPE_DEFS["domain"];

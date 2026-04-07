@@ -43,7 +43,7 @@ export async function isEntityInScope(
           { fromEntityId: targetEntityId, toEntityId: scopeEntityId },
           { fromEntityId: scopeEntityId, toEntityId: targetEntityId },
         ],
-        relationshipType: { slug: "department-member" },
+        relationshipType: { slug: "domain-member" },
       },
     });
     return !!deptMember;
@@ -57,7 +57,7 @@ export async function isEntityInScope(
           { fromEntityId: targetEntityId },
           { toEntityId: targetEntityId },
         ],
-        relationshipType: { slug: { not: "department-member" } },
+        relationshipType: { slug: { not: "domain-member" } },
       },
       select: { fromEntityId: true, toEntityId: true },
     });
@@ -89,7 +89,7 @@ export async function isEntityInScope(
           { fromEntityId: { in: relatedIds }, toEntityId: scopeEntityId },
           { fromEntityId: scopeEntityId, toEntityId: { in: relatedIds } },
         ],
-        relationshipType: { slug: "department-member" },
+        relationshipType: { slug: "domain-member" },
       },
     });
     return !!deptMember;

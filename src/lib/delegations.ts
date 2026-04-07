@@ -137,7 +137,7 @@ export async function approveDelegation(
     include: { entityType: { select: { slug: true } } },
   });
 
-  if (targetEntity?.entityType.slug === "department-ai") {
+  if (targetEntity?.entityType.slug === "domain-ai") {
     // Department AI — will be picked up in next evaluateDepartmentGoals cycle
     sendNotificationToAdmins({
       operatorId: delegation.operatorId,

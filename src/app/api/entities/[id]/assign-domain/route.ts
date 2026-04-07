@@ -36,7 +36,7 @@ export async function POST(
     return NextResponse.json({ error: "Domain not found" }, { status: 404 });
   }
 
-  await relateEntities(operatorId, id, domainId, "department-member");
+  await relateEntities(operatorId, id, domainId, "domain-member");
 
   return NextResponse.json({ ok: true });
 }

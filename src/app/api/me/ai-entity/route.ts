@@ -14,7 +14,7 @@ export async function GET() {
       entityType: { select: { slug: true, name: true, icon: true, color: true } },
       primaryDomain: { select: { id: true, displayName: true } },
       fromRelations: {
-        where: { relationshipType: { slug: "department-member" } },
+        where: { relationshipType: { slug: "domain-member" } },
         select: { toEntity: { select: { id: true, displayName: true } } },
       },
     },

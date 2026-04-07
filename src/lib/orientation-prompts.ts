@@ -13,7 +13,7 @@ type OrientationSession = {
 export async function buildDomainDataContext(operatorId: string, visibleDomains?: string[] | "all"): Promise<string> {
   const departments = await prisma.entity.findMany({
     where: {
-      operatorId, category: "foundational", entityType: { slug: "department" }, status: "active",
+      operatorId, category: "foundational", entityType: { slug: "domain" }, status: "active",
       ...(visibleDomains && visibleDomains !== "all" ? { id: { in: visibleDomains } } : {}),
     },
     include: { entityType: { select: { slug: true } } },
@@ -34,8 +34,8 @@ export async function buildDomainDataContext(operatorId: string, visibleDomains?
     const crossRels = await prisma.relationship.findMany({
       where: {
         OR: [
-          { toEntityId: dept.id, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
-          { fromEntityId: dept.id, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+          { toEntityId: dept.id, relationshipType: { slug: "domain-member" }, fromEntity: { category: "base", status: "active" } },
+          { fromEntityId: dept.id, relationshipType: { slug: "domain-member" }, toEntity: { category: "base", status: "active" } },
         ],
       },
       select: { fromEntityId: true, toEntityId: true, metadata: true },
@@ -64,8 +64,8 @@ export async function buildDomainDataContext(operatorId: string, visibleDomains?
     const digitalRelationships = await prisma.relationship.findMany({
       where: {
         OR: [
-          { fromEntityId: dept.id, relationshipType: { slug: "department-member" } },
-          { toEntityId: dept.id, relationshipType: { slug: "department-member" } },
+          { fromEntityId: dept.id, relationshipType: { slug: "domain-member" } },
+          { toEntityId: dept.id, relationshipType: { slug: "domain-member" } },
         ],
       },
       select: { fromEntityId: true, toEntityId: true },

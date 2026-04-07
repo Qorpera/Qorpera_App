@@ -15,7 +15,7 @@ import type {
   KnowledgeHealth,
   SituationTypeHealthWithLive,
   DetectionHealthWithLive,
-  DepartmentSnapshotWithLive,
+  DomainSnapshotWithLive,
   OperatorSnapshotWithLive,
 } from "@/lib/system-health/compute-snapshot";
 
@@ -125,7 +125,7 @@ function ActionButton({ label, href }: { label: string; href: string }) {
 // ─── Section components ──────────────────────────────────
 
 function DataPipelineSection({ pipeline, domainId, locale, t }: {
-  pipeline: DepartmentSnapshotWithLive["dataPipeline"];
+  pipeline: DomainSnapshotWithLive["dataPipeline"];
   domainId: string;
   locale: string;
   t: ReturnType<typeof useTranslations>;
@@ -451,7 +451,7 @@ function OperatorSummaryCard({ snapshot, summaryText, summaryColor, refreshing, 
 // ─── Department Card ─────────────────────────────────────
 
 function DepartmentCard({ dept, locale, t, defaultExpanded }: {
-  dept: DepartmentSnapshotWithLive;
+  dept: DomainSnapshotWithLive;
   locale: string;
   t: ReturnType<typeof useTranslations>;
   defaultExpanded: boolean;

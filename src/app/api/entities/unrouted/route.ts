@@ -12,7 +12,7 @@ export async function GET() {
 
   // Find department-member relationship type
   const relType = await prisma.relationshipType.findFirst({
-    where: { operatorId, slug: "department-member" },
+    where: { operatorId, slug: "domain-member" },
   });
 
   // Get IDs of entities that have a department-member relationship (either side)

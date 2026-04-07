@@ -35,7 +35,7 @@ async function mirrorDepartmentRemovalToAi(
   // Remove cross-dept relationship if exists
   const aiCrossRel = await prisma.relationship.findFirst({
     where: {
-      relationshipType: { slug: "department-member", operatorId },
+      relationshipType: { slug: "domain-member", operatorId },
       OR: [
         { fromEntityId: aiEntity.id, toEntityId: domainId },
         { fromEntityId: domainId, toEntityId: aiEntity.id },
@@ -163,7 +163,7 @@ export async function DELETE(
   // Check if this is a cross-department member linked via relationship
   const crossRel = await prisma.relationship.findFirst({
     where: {
-      relationshipType: { slug: "department-member", operatorId },
+      relationshipType: { slug: "domain-member", operatorId },
       OR: [
         { fromEntityId: entityId, toEntityId: id },
         { fromEntityId: id, toEntityId: entityId },

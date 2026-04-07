@@ -32,7 +32,7 @@ export async function GET(
 
   // Find department-member relationship type
   const relType = await prisma.relationshipType.findFirst({
-    where: { operatorId, slug: "department-member" },
+    where: { operatorId, slug: "domain-member" },
   });
 
   if (!relType) {

@@ -57,7 +57,7 @@ vi.mock("@/lib/notification-dispatch", () => ({
 vi.mock("@/lib/hardcoded-type-defs", () => ({
   HARDCODED_TYPE_DEFS: {
     department: {
-      slug: "department",
+      slug: "domain",
       name: "Department",
       description: "Organizational department",
       properties: [],

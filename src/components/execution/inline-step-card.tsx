@@ -63,6 +63,15 @@ function GearIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+function PersonIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
 function ArrowRightIcon({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -232,11 +241,12 @@ function extractCardData(step: ExecutionStepForPreview, cardType: CardType): Car
       };
     }
     default: {
+      const isHuman = step.executionMode === "human_task";
       return {
-        icon: <GearIcon />,
+        icon: isHuman ? <PersonIcon /> : <GearIcon />,
         title: step.title,
         subtitle: truncate(step.description, 60),
-        badge: step.executionMode,
+        badge: isHuman ? "Human Task" : step.executionMode,
       };
     }
   }

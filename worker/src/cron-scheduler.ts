@@ -60,7 +60,7 @@ export function startCronScheduler() {
       try {
         const aiEntities = await prisma.entity.findMany({
           where: {
-            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+            entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
             status: "active",
             operator: { isTestOperator: false },
           },

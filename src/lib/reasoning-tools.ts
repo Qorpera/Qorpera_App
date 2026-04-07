@@ -580,7 +580,7 @@ async function executeGetOrgStructure(
   if (!root) return "No organization found. Complete onboarding first.";
 
   const departments = await prisma.entity.findMany({
-    where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active" },
+    where: { operatorId, category: "foundational", entityType: { slug: "domain" }, status: "active" },
     select: { id: true, displayName: true, description: true },
     orderBy: { displayName: "asc" },
   });
@@ -609,8 +609,8 @@ async function executeGetOrgStructure(
     const crossRels = await prisma.relationship.findMany({
       where: {
         OR: [
-          { toEntityId: dept.id, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
-          { fromEntityId: dept.id, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+          { toEntityId: dept.id, relationshipType: { slug: "domain-member" }, fromEntity: { category: "base", status: "active" } },
+          { fromEntityId: dept.id, relationshipType: { slug: "domain-member" }, toEntity: { category: "base", status: "active" } },
         ],
       },
       select: { fromEntityId: true, toEntityId: true, metadata: true },

@@ -46,8 +46,8 @@ export async function GET(
   const deptMemberRels = await prisma.relationship.findMany({
     where: {
       OR: [
-        { toEntityId: id, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
-        { fromEntityId: id, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+        { toEntityId: id, relationshipType: { slug: "domain-member" }, fromEntity: { category: "base", status: "active" } },
+        { fromEntityId: id, relationshipType: { slug: "domain-member" }, toEntity: { category: "base", status: "active" } },
       ],
     },
     select: { id: true, fromEntityId: true, toEntityId: true, metadata: true },
@@ -207,7 +207,7 @@ export async function POST(
       if (existing.primaryDomainId && existing.primaryDomainId !== id) {
         const existingRel = await prisma.relationship.findFirst({
           where: {
-            relationshipType: { slug: "department-member", operatorId },
+            relationshipType: { slug: "domain-member", operatorId },
             OR: [
               { fromEntityId: existing.id, toEntityId: id },
               { fromEntityId: id, toEntityId: existing.id },
@@ -224,16 +224,16 @@ export async function POST(
         // Create cross-department membership via department-member relationship
         // Ensure department-member relationship type exists
         let relType = await prisma.relationshipType.findFirst({
-          where: { operatorId, slug: "department-member" },
+          where: { operatorId, slug: "domain-member" },
         });
         if (!relType) {
           // Need department entity type for from/to
-          const deptType = await prisma.entityType.findFirst({ where: { operatorId, slug: "department" } });
+          const deptType = await prisma.entityType.findFirst({ where: { operatorId, slug: "domain" } });
           relType = await prisma.relationshipType.create({
             data: {
               operatorId,
-              name: "Department Member",
-              slug: "department-member",
+              name: "Domain Member",
+              slug: "domain-member",
               fromEntityTypeId: tmType.id,
               toEntityTypeId: deptType?.id ?? tmType.id,
               description: "Links a person to a department they belong to",
@@ -263,7 +263,7 @@ export async function POST(
           if (aiEntity) {
             const existingAiRel = await prisma.relationship.findFirst({
               where: {
-                relationshipType: { slug: "department-member", operatorId },
+                relationshipType: { slug: "domain-member", operatorId },
                 OR: [
                   { fromEntityId: aiEntity.id, toEntityId: id },
                   { fromEntityId: id, toEntityId: aiEntity.id },

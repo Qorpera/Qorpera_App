@@ -29,7 +29,7 @@ vi.mock("@/lib/db", () => ({
 
 import { prisma } from "@/lib/db";
 import {
-  computeDepartmentSnapshot,
+  computeDomainSnapshot,
   computeOperatorSnapshot,
   recomputeHealthSnapshots,
 } from "@/lib/system-health/compute-snapshot";
@@ -124,12 +124,12 @@ beforeEach(() => {
   p.workerJob.count.mockResolvedValue(0);
 });
 
-describe("computeDepartmentSnapshot", () => {
+describe("computeDomainSnapshot", () => {
   // 1. Empty department → all sections "empty"/"unconfigured", overall "unconfigured"
   it("empty department returns unconfigured overall with empty sections", async () => {
     setupEmptyDepartment();
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     expect(snap.domainName).toBe(DEPT_NAME);
     expect(snap.dataPipeline.status).toBe("empty");
@@ -186,7 +186,7 @@ describe("computeDepartmentSnapshot", () => {
     ]);
     p.entityType.findMany.mockResolvedValue([{ slug: "invoice" }]);
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     expect(snap.dataPipeline.status).toBe("healthy");
     expect(snap.knowledge.status).toBe("complete");
@@ -202,7 +202,7 @@ describe("computeDepartmentSnapshot", () => {
       makeConnector({ status: "disconnected", provider: "google" }),
     ]);
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     expect(snap.dataPipeline.status).toBe("disconnected");
     expect(snap.dataPipeline.connectors[0].issue).toBe("Authentication expired");
@@ -226,7 +226,7 @@ describe("computeDepartmentSnapshot", () => {
     p.entityType.findMany.mockResolvedValue([{ slug: "invoice" }]);
     // entity count for invoice type = 0 (default from setupEmptyDepartment)
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     const stHealth = snap.detection.situationTypes[0];
     expect(stHealth.diagnosis).toBe("no_data");
@@ -254,7 +254,7 @@ describe("computeDepartmentSnapshot", () => {
     // Entities of target type exist
     mockEntityCount({ byEntityType: { invoice: 8 } });
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     const stHealth = snap.detection.situationTypes[0];
     expect(stHealth.diagnosis).toBe("no_matches");
@@ -277,7 +277,7 @@ describe("computeDepartmentSnapshot", () => {
     p.entityType.findMany.mockResolvedValue([{ slug: "invoice" }]);
     mockEntityCount({ byEntityType: { invoice: 10 } });
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     const stHealth = snap.detection.situationTypes[0];
     expect(stHealth.diagnosis).toBe("low_accuracy");
@@ -294,7 +294,7 @@ describe("computeDepartmentSnapshot", () => {
     mockEntityCount({ base: 5 });
     p.entityProperty.findMany.mockResolvedValue([]); // no role/title properties
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     expect(snap.knowledge.people.count).toBe(5);
     expect(snap.knowledge.people.withRoles).toBe(0);
@@ -314,7 +314,7 @@ describe("computeDepartmentSnapshot", () => {
     p.internalDocument.count.mockResolvedValue(0);
     p.$queryRaw.mockResolvedValue([{ count: BigInt(0) }]);
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     expect(snap.knowledge.documents.count).toBe(0);
     expect(snap.knowledge.documents.ragChunks).toBe(0);
@@ -335,7 +335,7 @@ describe("computeDepartmentSnapshot", () => {
       .mockResolvedValueOnce([st]);
     p.entityType.findMany.mockResolvedValue([]);
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     const stHealth = snap.detection.situationTypes[0];
     expect(stHealth.diagnosis).toBe("no_data");
@@ -358,7 +358,7 @@ describe("computeDepartmentSnapshot", () => {
     // Entity type slugs do NOT include "nonexistent-type"
     p.entityType.findMany.mockResolvedValue([{ slug: "invoice" }]);
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     const stHealth = snap.detection.situationTypes[0];
     expect(stHealth.diagnosis).toBe("inactive");
@@ -380,7 +380,7 @@ describe("computeDepartmentSnapshot", () => {
       .mockResolvedValueOnce([st]);
     p.entityType.findMany.mockResolvedValue([]);
 
-    const snap = await computeDepartmentSnapshot(OP, DEPT);
+    const snap = await computeDomainSnapshot(OP, DEPT);
 
     const stHealth = snap.detection.situationTypes[0];
     expect(stHealth.diagnosis).toBe("no_matches");

@@ -130,8 +130,8 @@ export async function POST(req: NextRequest) {
     await tx.relationshipType.create({
       data: {
         operatorId: operator.id,
-        name: "Department Member",
-        slug: "department-member",
+        name: "Domain Member",
+        slug: "domain-member",
         fromEntityTypeId: deptType.id,
         toEntityTypeId: deptType.id,
         description: "Links an entity to the department it belongs to",

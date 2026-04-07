@@ -70,7 +70,7 @@ export type DetectionHealth = {
   status: "active" | "sparse" | "silent" | "unconfigured";
 };
 
-export type DepartmentSnapshot = {
+export type DomainSnapshot = {
   domainId: string;
   domainName: string;
   dataPipeline: DataPipelineHealth;
@@ -82,7 +82,7 @@ export type DepartmentSnapshot = {
 
 export type OperatorSnapshot = {
   operatorId: string;
-  domains: DepartmentSnapshot[];
+  domains: DomainSnapshot[];
   overallStatus: "healthy" | "attention" | "critical";
   criticalIssueCount: number;
   staleJobCount: number;
@@ -104,12 +104,12 @@ export type DetectionHealthWithLive = Omit<DetectionHealth, "situationTypes"> & 
   situationTypes: SituationTypeHealthWithLive[];
 };
 
-export type DepartmentSnapshotWithLive = Omit<DepartmentSnapshot, "detection"> & {
+export type DomainSnapshotWithLive = Omit<DomainSnapshot, "detection"> & {
   detection: DetectionHealthWithLive;
 };
 
 export type OperatorSnapshotWithLive = Omit<OperatorSnapshot, "domains"> & {
-  domains: DepartmentSnapshotWithLive[];
+  domains: DomainSnapshotWithLive[];
 };
 
 // ─── Detection logic types (mirrors situation-detector.ts) ───
@@ -658,10 +658,10 @@ async function computeDetection(
 
 // ─── Snapshot Composition ────────────────────────────────
 
-export async function computeDepartmentSnapshot(
+export async function computeDomainSnapshot(
   operatorId: string,
   domainEntityId: string,
-): Promise<DepartmentSnapshot> {
+): Promise<DomainSnapshot> {
   const department = await prisma.entity.findFirst({
     where: { id: domainEntityId, operatorId, category: "foundational" },
     select: { displayName: true },
@@ -686,7 +686,7 @@ export async function computeDepartmentSnapshot(
   }
 
   // Overall status
-  let overallStatus: DepartmentSnapshot["overallStatus"];
+  let overallStatus: DomainSnapshot["overallStatus"];
   if (
     dataPipeline.connectors.length === 0 &&
     knowledge.people.count === 0 &&
@@ -727,7 +727,7 @@ export async function computeOperatorSnapshot(
   });
 
   const departmentSnapshots = await Promise.all(
-    departments.map((d) => computeDepartmentSnapshot(operatorId, d.id)),
+    departments.map((d) => computeDomainSnapshot(operatorId, d.id)),
   );
 
   let criticalIssueCount = departmentSnapshots.reduce(
@@ -840,7 +840,7 @@ export async function recomputeHealthSnapshots(
   try {
     if (domainEntityId) {
       // Single-department recompute
-      const deptSnapshot = await computeDepartmentSnapshot(
+      const deptSnapshot = await computeDomainSnapshot(
         operatorId,
         domainEntityId,
       );
@@ -873,7 +873,7 @@ export async function recomputeHealthSnapshots(
         select: { snapshot: true },
       });
       const departmentSnapshots = allRows.map(
-        (r) => r.snapshot as unknown as DepartmentSnapshot,
+        (r) => r.snapshot as unknown as DomainSnapshot,
       );
 
       let criticalIssueCount = departmentSnapshots.reduce(

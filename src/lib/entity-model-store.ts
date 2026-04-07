@@ -338,7 +338,7 @@ export async function createEntity(operatorId: string, input: EntityInput) {
   });
 
   // Fire-and-forget: create department AI when a department entity is created
-  if (entityId.slug === "department") {
+  if (entityId.slug === "domain") {
     ensureDepartmentAi(operatorId, entityId.id, input.displayName).catch(console.error);
   }
 

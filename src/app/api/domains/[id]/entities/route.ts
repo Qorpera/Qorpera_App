@@ -45,11 +45,11 @@ export async function GET(
     orderBy: { displayName: "asc" },
   });
 
-  // Digital entities linked via "department-member" relationship
+  // Digital entities linked via "domain-member" relationship
   const digitalRels = await prisma.relationship.findMany({
     where: {
       toEntityId: id,
-      relationshipType: { slug: "department-member" },
+      relationshipType: { slug: "domain-member" },
     },
     include: {
       fromEntity: {

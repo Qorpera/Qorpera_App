@@ -1128,8 +1128,16 @@ function ContentPane({
           </div>
         </div>
       ) : (
-        /* View mode — markdown */
-        <div className="wiki-content" style={{ fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", maxWidth: 720 }}>
+        /* View mode — markdown on a "page" surface */
+        <div className="wiki-content" style={{
+          fontSize: 14, lineHeight: 1.7, color: "var(--foreground)", maxWidth: 720,
+          background: "var(--elevated)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          padding: "32px 40px",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          marginBottom: 24,
+        }}>
           <ReactMarkdown
             components={{
               p: ({ children }) => {

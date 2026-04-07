@@ -62,7 +62,7 @@ async function resolveDepartmentIds(
       deptIds.add(entity.primaryDomainId);
     }
     // If the subject IS a department, add itself
-    if (entity?.entityType?.slug === "department") {
+    if (entity?.entityType?.slug === "domain") {
       deptIds.add(subjectEntityId);
     }
   }

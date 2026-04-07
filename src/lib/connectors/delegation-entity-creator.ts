@@ -24,7 +24,7 @@ async function ensureDelegationProperties(operatorId: string): Promise<void> {
   const existing = new Set(entityType.properties.map((p) => p.slug));
 
   const needed: Array<{ slug: string; name: string; dataType: string }> = [
-    { slug: "department", name: "Department", dataType: "STRING" },
+    { slug: "domain", name: "Department", dataType: "STRING" },
     { slug: "job-title", name: "Job Title", dataType: "STRING" },
   ];
 

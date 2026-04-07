@@ -19,10 +19,10 @@ export async function ensureDepartmentAi(
 
   // Ensure EntityType exists
   let entityType = await prisma.entityType.findFirst({
-    where: { operatorId, slug: "department-ai" },
+    where: { operatorId, slug: "domain-ai" },
   });
   if (!entityType) {
-    const def = HARDCODED_TYPE_DEFS["department-ai"];
+    const def = HARDCODED_TYPE_DEFS["domain-ai"];
     entityType = await prisma.entityType.create({
       data: {
         operatorId,

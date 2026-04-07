@@ -113,7 +113,7 @@ export function EntityRow({ entity, editMode, domainId, onRemoved, onUpdated }: 
   async function removeFromDepartment() {
     const deptMemberRel = relationships.find(
       (r) =>
-        r.relationshipType?.slug === "department-member" &&
+        r.relationshipType?.slug === "domain-member" &&
         (r.toEntityId === domainId || r.fromEntityId === domainId),
     );
     if (deptMemberRel) {

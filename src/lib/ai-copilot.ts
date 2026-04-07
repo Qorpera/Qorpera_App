@@ -521,7 +521,7 @@ async function getVisibleAiEntityIds(
   const entities = await prisma.entity.findMany({
     where: {
       operatorId,
-      entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+      entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
       OR: [
         { primaryDomainId: { in: visibleDomains } },
         { ownerDomainId: { in: visibleDomains } },
@@ -789,7 +789,7 @@ export async function executeTool(
 
       // Load departments (filtered by visibility)
       const departments = await prisma.entity.findMany({
-        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active", ...domainVisFilter },
+        where: { operatorId, category: "foundational", entityType: { slug: "domain" }, status: "active", ...domainVisFilter },
         select: { id: true, displayName: true, description: true },
         orderBy: { displayName: "asc" },
       });
@@ -822,8 +822,8 @@ export async function executeTool(
         const crossRels = await prisma.relationship.findMany({
           where: {
             OR: [
-              { toEntityId: dept.id, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
-              { fromEntityId: dept.id, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+              { toEntityId: dept.id, relationshipType: { slug: "domain-member" }, fromEntity: { category: "base", status: "active" } },
+              { fromEntityId: dept.id, relationshipType: { slug: "domain-member" }, toEntity: { category: "base", status: "active" } },
             ],
           },
           select: { fromEntityId: true, toEntityId: true, metadata: true },
@@ -875,7 +875,7 @@ export async function executeTool(
             operatorId,
             category: "foundational",
             displayName: { contains: scopeDomainName },
-            entityType: { slug: "department" },
+            entityType: { slug: "domain" },
             status: "active",
           },
         });
@@ -966,7 +966,7 @@ export async function executeTool(
 
     case "list_departments": {
       const departments = await prisma.entity.findMany({
-        where: { operatorId, category: "foundational", entityType: { slug: "department" }, status: "active", ...domainVisFilter },
+        where: { operatorId, category: "foundational", entityType: { slug: "domain" }, status: "active", ...domainVisFilter },
         select: { id: true, displayName: true, description: true },
         orderBy: { displayName: "asc" },
       });
@@ -1016,8 +1016,8 @@ export async function executeTool(
       const deptMemberRels = await prisma.relationship.findMany({
         where: {
           OR: [
-            { fromEntityId: dept.id, relationshipType: { slug: "department-member" } },
-            { toEntityId: dept.id, relationshipType: { slug: "department-member" } },
+            { fromEntityId: dept.id, relationshipType: { slug: "domain-member" } },
+            { toEntityId: dept.id, relationshipType: { slug: "domain-member" } },
           ],
         },
         select: { fromEntityId: true, toEntityId: true, metadata: true },
@@ -1115,7 +1115,7 @@ export async function executeTool(
       if (deptName) {
         const dept = await prisma.entity.findFirst({
           where: {
-            operatorId, category: "foundational", entityType: { slug: "department" },
+            operatorId, category: "foundational", entityType: { slug: "domain" },
             displayName: { contains: deptName },
             status: "active",
             ...domainVisFilter,
@@ -1127,7 +1127,7 @@ export async function executeTool(
       } else {
         targetDepts = await prisma.entity.findMany({
           where: {
-            operatorId, category: "foundational", entityType: { slug: "department" },
+            operatorId, category: "foundational", entityType: { slug: "domain" },
             status: "active", ...domainVisFilter,
           },
           select: { id: true, displayName: true, description: true },
@@ -1408,7 +1408,7 @@ export async function executeTool(
       if (args.domainName) {
         const dept = await prisma.entity.findFirst({
           where: {
-            operatorId, category: "foundational", entityType: { slug: "department" },
+            operatorId, category: "foundational", entityType: { slug: "domain" },
             displayName: { contains: String(args.domainName) },
             ...domainVisFilter,
           },
@@ -1419,7 +1419,7 @@ export async function executeTool(
       } else {
         const depts = await prisma.entity.findMany({
           where: {
-            operatorId, category: "foundational", entityType: { slug: "department" },
+            operatorId, category: "foundational", entityType: { slug: "domain" },
             ...domainVisFilter,
           },
           select: { id: true },
@@ -1453,7 +1453,7 @@ export async function executeTool(
       let searchDeptIds: string[] = [];
       const depts = await prisma.entity.findMany({
         where: {
-          operatorId, category: "foundational", entityType: { slug: "department" },
+          operatorId, category: "foundational", entityType: { slug: "domain" },
           ...domainVisFilter,
         },
         select: { id: true },
@@ -1502,7 +1502,7 @@ export async function executeTool(
       // Resolve visible department IDs for scoping
       const docDepts = await prisma.entity.findMany({
         where: {
-          operatorId, category: "foundational", entityType: { slug: "department" },
+          operatorId, category: "foundational", entityType: { slug: "domain" },
           ...domainVisFilter,
         },
         select: { id: true },
@@ -1559,7 +1559,7 @@ export async function executeTool(
       // Resolve visible department IDs for scoping
       const msgDepts = await prisma.entity.findMany({
         where: {
-          operatorId, category: "foundational", entityType: { slug: "department" },
+          operatorId, category: "foundational", entityType: { slug: "domain" },
           ...domainVisFilter,
         },
         select: { id: true },
@@ -1616,7 +1616,7 @@ export async function executeTool(
       // Department scope: resolve visible departments for filtering
       const msgThreadDepts = await prisma.entity.findMany({
         where: {
-          operatorId, category: "foundational", entityType: { slug: "department" },
+          operatorId, category: "foundational", entityType: { slug: "domain" },
           ...domainVisFilter,
         },
         select: { id: true },
@@ -1701,7 +1701,7 @@ export async function executeTool(
       if (visibleDomains && visibleDomains !== "all") {
         const actDepts = await prisma.entity.findMany({
           where: {
-            operatorId, category: "foundational", entityType: { slug: "department" },
+            operatorId, category: "foundational", entityType: { slug: "domain" },
             ...domainVisFilter,
           },
           select: { id: true },
@@ -1807,7 +1807,7 @@ export async function executeTool(
       // If domainId filter, find AI entities in that department
       if (domainId) {
         const deptAiEntities = await prisma.entity.findMany({
-          where: { operatorId, primaryDomainId: domainId, entityType: { slug: { in: ["department-ai", "ai-agent"] } } },
+          where: { operatorId, primaryDomainId: domainId, entityType: { slug: { in: ["domain-ai", "ai-agent"] } } },
           select: { id: true },
         });
         where.aiEntityId = { in: deptAiEntities.map(e => e.id) };
@@ -2084,7 +2084,7 @@ export async function executeTool(
         const deptAis = await prisma.entity.findMany({
           where: {
             operatorId,
-            entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+            entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
             OR: [
               { primaryDomainId: domainId },
               { ownerDomainId: domainId },
@@ -2185,7 +2185,7 @@ export async function executeTool(
         const deptAiEntities = await prisma.entity.findMany({
           where: {
             operatorId,
-            entityType: { slug: { in: ["department-ai", "hq-ai"] } },
+            entityType: { slug: { in: ["domain-ai", "hq-ai"] } },
             OR: [
               { primaryDomainId: { in: visibleDomains } },
               { ownerDomainId: { in: visibleDomains } },
@@ -2328,7 +2328,7 @@ export async function executeTool(
       // Department scope: resolve visible departments for filtering
       const threadDepts = await prisma.entity.findMany({
         where: {
-          operatorId, category: "foundational", entityType: { slug: "department" },
+          operatorId, category: "foundational", entityType: { slug: "domain" },
           ...domainVisFilter,
         },
         select: { id: true },

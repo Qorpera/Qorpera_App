@@ -207,8 +207,8 @@ export async function findRelevantDepartments(
     const deptRels = await prisma.relationship.findMany({
       where: {
         OR: [
-          { fromEntityId: entityId, relationshipType: { slug: "department-member" } },
-          { toEntityId: entityId, relationshipType: { slug: "department-member" } },
+          { fromEntityId: entityId, relationshipType: { slug: "domain-member" } },
+          { toEntityId: entityId, relationshipType: { slug: "domain-member" } },
         ],
       },
       select: { fromEntityId: true, toEntityId: true },
@@ -224,7 +224,7 @@ export async function findRelevantDepartments(
     const rels = await prisma.relationship.findMany({
       where: {
         OR: [{ fromEntityId: entityId }, { toEntityId: entityId }],
-        relationshipType: { slug: { not: "department-member" } },
+        relationshipType: { slug: { not: "domain-member" } },
       },
       select: { fromEntityId: true, toEntityId: true },
     });
@@ -246,8 +246,8 @@ export async function findRelevantDepartments(
       prisma.relationship.findMany({
         where: {
           OR: [
-            { fromEntityId: { in: relatedIds }, relationshipType: { slug: "department-member" } },
-            { toEntityId: { in: relatedIds }, relationshipType: { slug: "department-member" } },
+            { fromEntityId: { in: relatedIds }, relationshipType: { slug: "domain-member" } },
+            { toEntityId: { in: relatedIds }, relationshipType: { slug: "domain-member" } },
           ],
         },
         select: { fromEntityId: true, toEntityId: true },
@@ -299,8 +299,8 @@ export async function loadDomainContext(
   const deptMemberRels = await prisma.relationship.findMany({
     where: {
       OR: [
-        { toEntityId: deptId, relationshipType: { slug: "department-member" }, fromEntity: { category: "base", status: "active" } },
-        { fromEntityId: deptId, relationshipType: { slug: "department-member" }, toEntity: { category: "base", status: "active" } },
+        { toEntityId: deptId, relationshipType: { slug: "domain-member" }, fromEntity: { category: "base", status: "active" } },
+        { fromEntityId: deptId, relationshipType: { slug: "domain-member" }, toEntity: { category: "base", status: "active" } },
       ],
     },
     select: { fromEntityId: true, toEntityId: true, metadata: true },

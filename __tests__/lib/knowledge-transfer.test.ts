@@ -57,7 +57,7 @@ function makeAiEntity(overrides: Record<string, unknown> = {}) {
     ownerUserId: null,
     ownerDomainId: "dept-1",
     primaryDomainId: "dept-1",
-    entityType: { slug: "department-ai" },
+    entityType: { slug: "domain-ai" },
     ...overrides,
   };
 }

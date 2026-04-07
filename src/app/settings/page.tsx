@@ -286,7 +286,7 @@ function SettingsPageInner() {
       ]);
       setTeamUsers(Array.isArray(usersRes) ? usersRes : []);
       setTeamInvites(Array.isArray(invitesRes) ? invitesRes : []);
-      setTeamDomains((domainRes || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
+      setTeamDomains((domainRes || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "domain"));
     } catch {}
     setTeamLoading(false);
     loadInviteLink();
@@ -3393,7 +3393,7 @@ function SlackMappingPanel({
               const dRes = await fetch("/api/domains");
               if (dRes.ok) {
                 const dData = await dRes.json();
-                setTeamDomains((dData || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "department"));
+                setTeamDomains((dData || []).filter((d: { entityType?: { slug?: string } }) => d.entityType?.slug === "domain"));
               }
             } catch { /* ignore */ }
           }

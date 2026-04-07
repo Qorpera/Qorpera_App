@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getWorkStreamContext } from "@/lib/workstreams";
-import type { OperatorSnapshot, DepartmentSnapshot } from "@/lib/system-health/compute-snapshot";
+import type { OperatorSnapshot, DomainSnapshot } from "@/lib/system-health/compute-snapshot";
 
 // ── Situation Context ────────────────────────────────────────────────────────
 
@@ -296,7 +296,7 @@ function formatHealthContext(
 
   const deptRows = healthRows.filter((r) => r.domainEntityId !== null);
   for (const row of deptRows) {
-    const dept = row.snapshot as DepartmentSnapshot;
+    const dept = row.snapshot as DomainSnapshot;
 
     if (dept.overallStatus === "healthy") continue;
 
@@ -337,8 +337,8 @@ function formatHealthContext(
   }
 
   const healthyDepts = deptRows
-    .filter((r) => (r.snapshot as DepartmentSnapshot).overallStatus === "healthy")
-    .map((r) => (r.snapshot as DepartmentSnapshot).domainName);
+    .filter((r) => (r.snapshot as DomainSnapshot).overallStatus === "healthy")
+    .map((r) => (r.snapshot as DomainSnapshot).domainName);
 
   if (healthyDepts.length > 0) {
     lines.push(`Healthy departments (no issues): ${healthyDepts.join(", ")}`);

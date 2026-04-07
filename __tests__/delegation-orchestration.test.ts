@@ -212,7 +212,7 @@ describe("createTeamMemberEntities", () => {
     expect(mockEntityPropertyCreate).toHaveBeenCalledTimes(2);
     expect(mockEntityPropertyCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ slug: "department" }),
+        data: expect.objectContaining({ slug: "domain" }),
       }),
     );
     expect(mockEntityPropertyCreate).toHaveBeenCalledWith(

@@ -192,7 +192,7 @@ export async function canAccessEntity(
 
   // Digital without primaryDomainId: check domain-member relationships
   const relType = await prisma.relationshipType.findFirst({
-    where: { operatorId, slug: "department-member" },
+    where: { operatorId, slug: "domain-member" },
   });
   if (!relType) return false;
 

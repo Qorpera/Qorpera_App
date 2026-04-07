@@ -176,7 +176,7 @@ async function applyStructureEdits(operatorId: string, edits: CompanyModelEdits)
         where: {
           operatorId,
           displayName: oldName,
-          entityType: { slug: "department" },
+          entityType: { slug: "domain" },
           status: "active",
         },
       });
@@ -196,7 +196,7 @@ async function applyStructureEdits(operatorId: string, edits: CompanyModelEdits)
         where: {
           operatorId,
           displayName: name,
-          entityType: { slug: "department" },
+          entityType: { slug: "domain" },
           status: "active",
         },
       });
@@ -225,7 +225,7 @@ async function applyStructureEdits(operatorId: string, edits: CompanyModelEdits)
         where: {
           operatorId,
           displayName: toDepartment,
-          entityType: { slug: "department" },
+          entityType: { slug: "domain" },
           status: "active",
         },
       });
@@ -262,7 +262,7 @@ async function applyStructureEdits(operatorId: string, edits: CompanyModelEdits)
   // Add new departments
   if (edits.addedDepartments) {
     const deptType = await prisma.entityType.findFirst({
-      where: { operatorId, slug: "department" },
+      where: { operatorId, slug: "domain" },
     });
     if (deptType) {
       for (const { name, description } of edits.addedDepartments) {

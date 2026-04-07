@@ -537,8 +537,8 @@ async function getDepartmentMemberIds(
   const crossRels = await prisma.relationship.findMany({
     where: {
       OR: [
-        { fromEntityId: domainId, relationshipType: { slug: "department-member" } },
-        { toEntityId: domainId, relationshipType: { slug: "department-member" } },
+        { fromEntityId: domainId, relationshipType: { slug: "domain-member" } },
+        { toEntityId: domainId, relationshipType: { slug: "domain-member" } },
       ],
     },
     select: { fromEntityId: true, toEntityId: true },

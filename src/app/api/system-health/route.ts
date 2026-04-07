@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getVisibleDomainIds } from "@/lib/domain-scope";
 import type {
   OperatorSnapshot,
-  DepartmentSnapshot,
+  DomainSnapshot,
   SituationTypeHealthWithLive,
 } from "@/lib/system-health/compute-snapshot";
 import { computeOperatorSnapshot, recomputeHealthSnapshots } from "@/lib/system-health/compute-snapshot";
@@ -47,7 +47,7 @@ export async function GET() {
         );
 
   const domains = visibleDeptRows.map(
-    (r) => r.snapshot as unknown as DepartmentSnapshot,
+    (r) => r.snapshot as unknown as DomainSnapshot,
   );
 
   // Recompute aggregate from visible departments only

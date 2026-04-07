@@ -52,7 +52,7 @@ export async function evaluateInsightPromotion(insightId: string): Promise<Promo
   }
 
   let domainId: string | null = null;
-  if (aiEntity.entityType.slug === "department-ai") {
+  if (aiEntity.entityType.slug === "domain-ai") {
     domainId = aiEntity.ownerDomainId;
   } else if (aiEntity.ownerUserId) {
     // Personal AI: find user's department
@@ -70,7 +70,7 @@ export async function evaluateInsightPromotion(insightId: string): Promise<Promo
     where: {
       operatorId: insight.operatorId,
       id: { not: insight.aiEntityId },
-      entityType: { slug: { in: ["ai-agent", "department-ai"] } },
+      entityType: { slug: { in: ["ai-agent", "domain-ai"] } },
       OR: [
         { ownerDomainId: domainId },
         { primaryDomainId: domainId },

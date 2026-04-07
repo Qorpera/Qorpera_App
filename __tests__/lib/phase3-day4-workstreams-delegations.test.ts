@@ -284,7 +284,7 @@ describe("approveDelegation", () => {
     });
     mockPrisma.delegation.update.mockResolvedValue({});
     mockPrisma.entity.findUnique.mockResolvedValue({
-      id: "dept-ai", entityType: { slug: "department-ai" },
+      id: "dept-ai", entityType: { slug: "domain-ai" },
     });
 
     await approveDelegation("del-2", "admin-1", "op-1");

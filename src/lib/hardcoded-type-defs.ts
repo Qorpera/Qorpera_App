@@ -39,7 +39,7 @@ export const HARDCODED_TYPE_DEFS: Record<string, HardcodedTypeDef> = {
     color: "#8b5cf6",
     defaultCategory: "external",
     properties: [
-      { slug: "department", name: "Domain", dataType: "STRING", identityRole: "domain" },
+      { slug: "domain", name: "Domain", dataType: "STRING", identityRole: "domain" },
       { slug: "industry", name: "Industry", dataType: "STRING" },
       { slug: "revenue", name: "Revenue", dataType: "CURRENCY" },
       { slug: "employee-count", name: "Employee Count", dataType: "NUMBER" },
@@ -208,10 +208,10 @@ export const HARDCODED_TYPE_DEFS: Record<string, HardcodedTypeDef> = {
       { slug: "created-date", name: "Created Date", dataType: "DATE" },
     ],
   },
-  department: {
-    slug: "department",
-    name: "Department",
-    description: "An organizational department or division",
+  domain: {
+    slug: "domain",
+    name: "Domain",
+    description: "An operational domain or business area",
     icon: "users",
     color: "#8b5cf6",
     defaultCategory: "foundational",
@@ -287,10 +287,10 @@ export const HARDCODED_TYPE_DEFS: Record<string, HardcodedTypeDef> = {
     defaultCategory: "base",
     properties: [],
   },
-  "department-ai": {
-    slug: "department-ai",
-    name: "Department AI",
-    description: "AI entity that manages a department's strategy and knowledge",
+  "domain-ai": {
+    slug: "domain-ai",
+    name: "Domain AI",
+    description: "AI entity that manages a domain's strategy and knowledge",
     icon: "brain",
     color: "#8b5cf6",
     defaultCategory: "base",

@@ -616,7 +616,7 @@ export async function createEntitiesFromModel(
   model: CompanyModel,
 ): Promise<void> {
   // 1. Ensure required entity types exist
-  const deptTypeId = await ensureEntityType(operatorId, "department");
+  const deptTypeId = await ensureEntityType(operatorId, "domain");
   const teamMemberTypeId = await ensureEntityType(operatorId, "team-member");
 
   // 2. Create domains
@@ -649,7 +649,7 @@ export async function createEntitiesFromModel(
 
   // Pre-fetch relationship types (avoid N+1 queries inside the loop)
   const deptMemberTypeId = await ensureRelationshipType(
-    operatorId, "department-member", "Department Member", deptTypeId, teamMemberTypeId,
+    operatorId, "domain-member", "Domain Member", deptTypeId, teamMemberTypeId,
   );
 
   // 3. Create people and assign to domains
@@ -911,7 +911,7 @@ export async function createSituationTypesFromModel(
       where: {
         operatorId,
         displayName: rec.domain,
-        entityType: { slug: "department" },
+        entityType: { slug: "domain" },
         status: "active",
       },
     });

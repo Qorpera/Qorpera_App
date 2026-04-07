@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     where: {
       operatorId,
       category: "foundational",
-      entityType: { slug: "department" },
+      entityType: { slug: "domain" },
       status: "active",
       ...(visibleDomains !== "all" ? { id: { in: visibleDomains } } : {}),
     },

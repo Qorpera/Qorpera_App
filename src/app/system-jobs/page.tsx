@@ -146,7 +146,6 @@ export default function SystemJobsPage() {
               contextType="system_jobs"
               contextId="global"
               placeholder="Ask about system jobs, create new ones, or adjust schedules..."
-              hints={["Create a weekly sales review job", "Show me which jobs failed recently", "Pause all jobs"]}
             />
           </div>
         </div>

@@ -52,7 +52,7 @@ export async function GET(
     prisma.relationship.findMany({
       where: {
         toEntityId: id,
-        relationshipType: { slug: "department-member" },
+        relationshipType: { slug: "domain-member" },
       },
       include: {
         fromEntity: {

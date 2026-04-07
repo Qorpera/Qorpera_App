@@ -167,7 +167,7 @@ export async function assembleExtractionData(
       where: {
         operatorId,
         id: { not: aiEntityId },
-        entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+        entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
         OR: [
           { ownerDomainId: domainId },
           { primaryDomainId: domainId },
@@ -247,7 +247,7 @@ export async function assembleExtractionData(
         where: {
           operatorId,
           ownerUserId: { in: [...allAiUserIds] },
-          entityType: { slug: { in: ["ai-agent", "department-ai", "hq-ai"] } },
+          entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
         },
         select: { id: true, displayName: true, ownerUserId: true },
       })
