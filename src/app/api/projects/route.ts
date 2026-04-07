@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, description, templateId, dueDate, status: projStatus, members, parentProjectId } = body;
+  const { name, description, templateId, dueDate, status: projStatus, members, parentProjectId, isPortfolio } = body;
 
   if (!name || typeof name !== "string") {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
         parentProjectId: parentProjectId || null,
         dueDate: dueDate ? new Date(dueDate) : null,
         status: projStatus || "draft",
+        isPortfolio: isPortfolio === true,
         createdById: effectiveUserId,
       },
     });

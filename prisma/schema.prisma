@@ -1478,6 +1478,7 @@ model Project {
   name              String
   description       String?
   status            String    @default("draft") // draft, active, paused, completed, archived
+  isPortfolio       Boolean   @default(false)
   createdById       String
   dueDate           DateTime?
   completedAt       DateTime?

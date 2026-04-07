@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { Modal } from "@/components/ui/modal";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { fetchApi } from "@/lib/fetch-api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -21,6 +24,7 @@ interface ProjectListItem {
   name: string;
   description: string | null;
   status: string;
+  isPortfolio: boolean;
   dueDate: string | null;
   completedAt: string | null;
   createdAt: string;
@@ -65,7 +69,7 @@ function CardSkeleton() {
   );
 }
 
-// ── Inner page (needs useSearchParams) ──────────────────────────────────────
+// ── Inner page ──────────────────────────────────────────────────────────────
 
 function ProjectsPageInner() {
   const router = useRouter();
@@ -76,6 +80,13 @@ function ProjectsPageInner() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [portfolioName, setPortfolioName] = useState<string | null>(null);
+
+  // Portfolio creation modal
+  const [showPortfolioModal, setShowPortfolioModal] = useState(false);
+  const [portfolioFormName, setPortfolioFormName] = useState("");
+  const [portfolioFormDesc, setPortfolioFormDesc] = useState("");
+  const [portfolioFormError, setPortfolioFormError] = useState("");
+  const [portfolioSaving, setPortfolioSaving] = useState(false);
 
   const loadProjects = () => {
     setLoading(true);
@@ -89,7 +100,6 @@ function ProjectsPageInner() {
       .finally(() => setLoading(false));
   };
 
-  // Load portfolio name when inside a portfolio
   useEffect(() => {
     if (!portfolioId) { setPortfolioName(null); return; }
     fetchApi(`/api/projects/${portfolioId}`)
@@ -100,13 +110,13 @@ function ProjectsPageInner() {
 
   useEffect(() => { loadProjects(); }, [portfolioId]);
 
-  // In top-level view, separate portfolios from standalone projects
+  // Separate portfolios from standalone projects (top-level view only)
   const { portfolios, standaloneProjects } = useMemo(() => {
     if (portfolioId) return { portfolios: [], standaloneProjects: projects };
     const portfolios: ProjectListItem[] = [];
     const standaloneProjects: ProjectListItem[] = [];
     for (const p of projects) {
-      if (p.childProjects && p.childProjects.length > 0) {
+      if (p.isPortfolio || (p.childProjects && p.childProjects.length > 0)) {
         portfolios.push(p);
       } else {
         standaloneProjects.push(p);
@@ -132,14 +142,36 @@ function ProjectsPageInner() {
     };
   }, [portfolios, standaloneProjects, search]);
 
-  const createPortfolio = () => {
-    const name = window.prompt("Portfolio name:");
-    if (!name?.trim()) return;
-    fetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), status: "active" }),
-    }).then(r => { if (r.ok) loadProjects(); });
+  const handleCreatePortfolio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!portfolioFormName.trim()) { setPortfolioFormError("Name is required"); return; }
+    setPortfolioSaving(true);
+    setPortfolioFormError("");
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: portfolioFormName.trim(),
+          description: portfolioFormDesc.trim() || null,
+          status: "active",
+          isPortfolio: true,
+        }),
+      });
+      if (res.ok) {
+        setShowPortfolioModal(false);
+        setPortfolioFormName("");
+        setPortfolioFormDesc("");
+        loadProjects();
+      } else {
+        const data = await res.json().catch(() => null);
+        setPortfolioFormError(data?.error ?? "Failed to create portfolio");
+      }
+    } catch {
+      setPortfolioFormError("Connection error");
+    } finally {
+      setPortfolioSaving(false);
+    }
   };
 
   const totalItems = filtered.portfolios.length + filtered.standaloneProjects.length;
@@ -149,7 +181,7 @@ function ProjectsPageInner() {
     <div className="flex-1 overflow-y-auto">
       <div style={{ maxWidth: 630, margin: "0 auto", padding: "40px 24px 60px" }}>
 
-        {/* ── Header ── */}
+        {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           {isInsidePortfolio && (
             <button
@@ -179,7 +211,7 @@ function ProjectsPageInner() {
             </button>
             {!isInsidePortfolio && (
               <button
-                onClick={createPortfolio}
+                onClick={() => { setShowPortfolioModal(true); setPortfolioFormName(""); setPortfolioFormDesc(""); setPortfolioFormError(""); }}
                 style={{ fontSize: 11, fontWeight: 500, padding: "4px 12px", borderRadius: 6, background: "transparent", border: "0.5px dashed rgba(255,255,255,0.15)", color: "var(--fg3)", cursor: "pointer" }}
                 className="hover:brightness-125 transition"
               >
@@ -192,7 +224,7 @@ function ProjectsPageInner() {
           </p>
         </div>
 
-        {/* ── Search ── */}
+        {/* Search */}
         {!loading && projects.length > 0 && (
           <input
             type="text"
@@ -203,7 +235,7 @@ function ProjectsPageInner() {
           />
         )}
 
-        {/* ── Grid ── */}
+        {/* Grid */}
         {loading ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
             {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
@@ -220,22 +252,46 @@ function ProjectsPageInner() {
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
-            {/* Portfolios (folders) first — only in top-level view */}
             {filtered.portfolios.map((p) => (
               <FolderCard key={p.id} project={p} onClick={() => router.push(`/projects?portfolio=${p.id}`)} />
             ))}
-            {/* Projects (files) */}
             {filtered.standaloneProjects.map((p) => (
               <FileCard key={p.id} project={p} onClick={() => router.push(`/projects/${p.id}`)} />
             ))}
           </div>
         )}
       </div>
+
+      {/* Portfolio creation modal */}
+      <Modal open={showPortfolioModal} onClose={() => setShowPortfolioModal(false)} title="New Portfolio">
+        <form onSubmit={handleCreatePortfolio} className="space-y-4">
+          <Input
+            label="Portfolio name"
+            value={portfolioFormName}
+            onChange={(e) => setPortfolioFormName(e.target.value)}
+            placeholder="e.g. Client Projects, Q2 Initiatives"
+            autoFocus
+          />
+          <Input
+            label="Description (optional)"
+            value={portfolioFormDesc}
+            onChange={(e) => setPortfolioFormDesc(e.target.value)}
+            placeholder="What is this portfolio for?"
+          />
+          {portfolioFormError && <p className="text-sm text-danger">{portfolioFormError}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="default" size="sm" onClick={() => setShowPortfolioModal(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" size="sm" disabled={portfolioSaving || !portfolioFormName.trim()}>
+              {portfolioSaving ? "Creating..." : "Create Portfolio"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
 
-// ── Page wrapper (Suspense for useSearchParams) ─────────────────────────────
+// ── Page wrapper ────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
   return (
@@ -251,6 +307,7 @@ export default function ProjectsPage() {
 
 function FolderCard({ project: p, onClick }: { project: ProjectListItem; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
+  const childCount = p.childProjects?.length ?? p.childProjectCount ?? 0;
   return (
     <button
       onClick={onClick}
@@ -270,9 +327,14 @@ function FolderCard({ project: p, onClick }: { project: ProjectListItem; onClick
       <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>
         {p.name}
       </span>
+      {p.description && (
+        <span style={{ fontSize: 11, color: "var(--fg4)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>
+          {p.description}
+        </span>
+      )}
       <div className="flex items-center gap-2 mt-auto">
         <span style={{ fontSize: 11, color: "var(--fg4)" }}>
-          {p.childProjects.length} project{p.childProjects.length !== 1 ? "s" : ""}
+          {childCount} project{childCount !== 1 ? "s" : ""}
         </span>
         <StatusBadge status={p.status} />
       </div>
