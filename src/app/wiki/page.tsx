@@ -139,6 +139,7 @@ export default function WikiPage() {
   const searchQuery = searchParams.get("q") ?? "";
   const activeSlug = searchParams.get("page") ?? "";
   const activeScope = searchParams.get("scope") ?? "operator";
+  const domainFilter = searchParams.get("domain") ?? "";
 
   // Data
   const [pages, setPages] = useState<WikiPageSummary[]>([]);
@@ -163,6 +164,15 @@ export default function WikiPage() {
   const [expandedSource, setExpandedSource] = useState<string | null>(null);
   const [verLogOpen, setVerLogOpen] = useState(false);
   const sourceRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Domain filter label
+  const [domainName, setDomainName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!domainFilter) { setDomainName(null); return; }
+    fetch(`/api/domains/${domainFilter}`).then(r => r.ok ? r.json() : null).then(d => {
+      if (d) setDomainName(d.displayName);
+    }).catch(() => {});
+  }, [domainFilter]);
 
   // Search debounce
   const [searchInput, setSearchInput] = useState(searchQuery);
@@ -194,6 +204,7 @@ export default function WikiPage() {
     if (activeType) p.set("pageType", activeType);
     if (searchQuery) p.set("q", searchQuery);
     if (activeScope === "system") p.set("scope", "system");
+    if (domainFilter) p.set("domain", domainFilter);
     try {
       const res = await fetch(`/api/wiki?${p.toString()}`);
       const data = await res.json();
@@ -205,7 +216,7 @@ export default function WikiPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeType, searchQuery, activeScope]);
+  }, [activeType, searchQuery, activeScope, domainFilter]);
 
   useEffect(() => {
     fetchList();
@@ -369,6 +380,28 @@ export default function WikiPage() {
               Ingest research
             </button>
           )}
+        </div>
+      )}
+
+      {/* Domain filter banner */}
+      {domainFilter && domainName && (
+        <div style={{
+          padding: "6px 16px",
+          background: "rgba(139,92,246,0.06)",
+          borderBottom: "1px solid rgba(139,92,246,0.15)",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 12,
+          color: "var(--fg2)",
+        }}>
+          <span>Filtered to domain: <strong style={{ color: "var(--foreground)" }}>{domainName}</strong></span>
+          <button
+            onClick={() => setParam("domain", "")}
+            style={{ fontSize: 11, color: "var(--accent)", background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}
+          >
+            Show all
+          </button>
         </div>
       )}
 

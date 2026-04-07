@@ -72,24 +72,22 @@ function CardSkeleton() {
         background: "rgba(255,255,255,0.035)",
         border: "0.5px solid rgba(255,255,255,0.07)",
         borderRadius: 10,
-        padding: "18px 20px",
-        minHeight: 80,
+        padding: "20px",
+        minHeight: 100,
       }}
     >
       <div
         className="animate-pulse"
-        style={{ width: 60, height: 8, borderRadius: 4, background: "rgba(255,255,255,0.06)", marginBottom: 14 }}
+        style={{ width: 32, height: 32, borderRadius: 6, background: "rgba(255,255,255,0.06)", marginBottom: 14 }}
       />
       <div
         className="animate-pulse"
-        style={{ width: "70%", height: 12, borderRadius: 4, background: "rgba(255,255,255,0.08)", marginBottom: 24 }}
+        style={{ width: "60%", height: 12, borderRadius: 4, background: "rgba(255,255,255,0.08)", marginBottom: 8 }}
       />
-      <div className="flex items-center justify-between">
-        <div
-          className="animate-pulse"
-          style={{ width: 40, height: 8, borderRadius: 4, background: "rgba(255,255,255,0.05)" }}
-        />
-      </div>
+      <div
+        className="animate-pulse"
+        style={{ width: "40%", height: 8, borderRadius: 4, background: "rgba(255,255,255,0.05)" }}
+      />
     </div>
   );
 }
@@ -100,62 +98,67 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const router = useRouter();
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetchApi("/api/projects");
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) setProjects(data.projects ?? []);
-        }
-      } catch {}
-      if (!cancelled) setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const loadProjects = () => {
+    fetchApi("/api/projects")
+      .then(res => res.ok ? res.json() : { projects: [] })
+      .then(data => setProjects(data.projects ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
 
-  const toggleExpand = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  useEffect(() => { loadProjects(); }, []);
+
+  // Separate portfolios (folders — have children) from standalone projects (files)
+  const { portfolios, standaloneProjects } = useMemo(() => {
+    const portfolios: ProjectListItem[] = [];
+    const standaloneProjects: ProjectListItem[] = [];
+    for (const p of projects) {
+      if (p.childProjects && p.childProjects.length > 0) {
+        portfolios.push(p);
+      } else {
+        standaloneProjects.push(p);
+      }
+    }
+    return { portfolios, standaloneProjects };
+  }, [projects]);
+
+  // Filter by search
+  const filtered = useMemo(() => {
+    if (!search.trim()) return { portfolios, standaloneProjects };
+    const q = search.toLowerCase();
+    return {
+      portfolios: portfolios.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q) ||
+        p.childProjects?.some(c => c.name.toLowerCase().includes(q))
+      ),
+      standaloneProjects: standaloneProjects.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q)
+      ),
+    };
+  }, [portfolios, standaloneProjects, search]);
+
+  const createPortfolio = () => {
+    const name = window.prompt("Portfolio name:");
+    if (!name?.trim()) return;
+    fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), status: "active" }),
+    }).then(r => {
+      if (r.ok) loadProjects();
     });
   };
 
-  // Filter projects by search across names, descriptions, and child project names
-  const filtered = useMemo(() => {
-    if (!search.trim()) return projects;
-    const q = search.toLowerCase();
-    return projects.filter((p) => {
-      if (p.name.toLowerCase().includes(q)) return true;
-      if (p.description?.toLowerCase().includes(q)) return true;
-      if (p.childProjects?.some((c) => c.name.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q))) return true;
-      return false;
-    });
-  }, [projects, search]);
-
-  // Auto-expand folders whose children match search
-  const effectiveExpanded = useMemo(() => {
-    if (!search.trim()) return expandedIds;
-    const q = search.toLowerCase();
-    const auto = new Set(expandedIds);
-    for (const p of filtered) {
-      if (p.childProjects?.some((c) => c.name.toLowerCase().includes(q) || c.description?.toLowerCase().includes(q))) {
-        auto.add(p.id);
-      }
-    }
-    return auto;
-  }, [filtered, expandedIds, search]);
+  const totalItems = filtered.portfolios.length + filtered.standaloneProjects.length;
 
   return (
     <AppShell>
       <div className="flex-1 overflow-y-auto">
-        <div style={{ maxWidth: 900, margin: "0 auto", padding: "40px 24px 60px" }}>
+        <div style={{ maxWidth: 630, margin: "0 auto", padding: "40px 24px 60px" }}>
 
           {/* ── Header ── */}
           <div style={{ textAlign: "center", marginBottom: 28 }}>
@@ -177,20 +180,10 @@ export default function ProjectsPage() {
                 }}
                 className="hover:brightness-125 transition"
               >
-                + New project
+                + New Project
               </button>
               <button
-                onClick={() => {
-                  const name = window.prompt("Portfolio name:");
-                  if (!name?.trim()) return;
-                  fetch("/api/projects", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name: name.trim(), status: "active" }),
-                  }).then(r => r.ok ? r.json() : null).then(d => {
-                    if (d) router.push(`/projects/${d.id ?? d.project?.id}`);
-                  });
-                }}
+                onClick={createPortfolio}
                 style={{
                   fontSize: 11,
                   fontWeight: 500,
@@ -203,7 +196,7 @@ export default function ProjectsPage() {
                 }}
                 className="hover:brightness-125 transition"
               >
-                + New portfolio
+                + New Portfolio
               </button>
             </div>
             <p style={{ fontSize: 13, color: "var(--fg3)" }}>
@@ -226,37 +219,36 @@ export default function ProjectsPage() {
                 borderRadius: 8,
                 color: "var(--foreground)",
                 fontSize: 13,
-                marginBottom: 16,
+                marginBottom: 20,
                 outline: "none",
               }}
             />
           )}
 
-          {/* ── List ── */}
+          {/* ── Grid ── */}
           {loading ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {Array.from({ length: 3 }).map((_, i) => (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
+              {Array.from({ length: 6 }).map((_, i) => (
                 <CardSkeleton key={i} />
               ))}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : totalItems === 0 ? (
             <div style={{ textAlign: "center", padding: "60px 20px" }}>
               <p style={{ fontSize: 14, color: "var(--fg4)", lineHeight: 1.6 }}>
                 {search
                   ? "No projects match your search."
-                  : "No projects yet. Projects are created when you approve initiative proposals."}
+                  : "No projects yet. Create a project or portfolio to get started."}
               </p>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {filtered.map((p) => (
-                <FolderCard
-                  key={p.id}
-                  project={p}
-                  expanded={effectiveExpanded.has(p.id)}
-                  onToggle={() => toggleExpand(p.id)}
-                  onNavigate={(id) => router.push(`/projects/${id}`)}
-                />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
+              {/* Portfolios (folders) first */}
+              {filtered.portfolios.map((p) => (
+                <FolderCard key={p.id} project={p} onClick={() => router.push(`/projects/${p.id}`)} />
+              ))}
+              {/* Standalone projects (files) */}
+              {filtered.standaloneProjects.map((p) => (
+                <FileCard key={p.id} project={p} onClick={() => router.push(`/projects/${p.id}`)} />
               ))}
             </div>
           )}
@@ -266,199 +258,9 @@ export default function ProjectsPage() {
   );
 }
 
-// ── Folder Card ─────────────────────────────────────────────────────────────
+// ── Folder Card (Portfolio) ────────────────────────────────────────────────
 
-function FolderCard({
-  project: p,
-  expanded,
-  onToggle,
-  onNavigate,
-}: {
-  project: ProjectListItem;
-  expanded: boolean;
-  onToggle: () => void;
-  onNavigate: (id: string) => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const hasChildren = p.childProjects && p.childProjects.length > 0;
-  const isCompleted = p.status === "completed";
-  const progress = p.deliverableCount > 0
-    ? Math.round((p.completedCount / p.deliverableCount) * 100)
-    : 0;
-
-  const handleClick = () => {
-    if (hasChildren) {
-      onToggle();
-    } else {
-      onNavigate(p.id);
-    }
-  };
-
-  return (
-    <div>
-      <button
-        onClick={handleClick}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          width: "100%",
-          background: hovered ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.035)",
-          border: hovered ? "0.5px solid rgba(255,255,255,0.14)" : "0.5px solid rgba(255,255,255,0.07)",
-          borderRadius: expanded && hasChildren ? "10px 10px 0 0" : 10,
-          padding: "14px 18px",
-          textAlign: "left",
-          cursor: "pointer",
-          transition: "background 0.15s, border-color 0.15s",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
-        {/* Folder/doc icon */}
-        <span style={{ fontSize: 16, flexShrink: 0, opacity: 0.7 }}>
-          {hasChildren ? (expanded ? "📂" : "📁") : "📄"}
-        </span>
-
-        {/* Name + description */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="flex items-center gap-2">
-            <span
-              style={{
-                fontSize: 14,
-                fontWeight: 500,
-                color: "var(--foreground)",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {p.name}
-            </span>
-            <StatusBadge status={p.status} />
-          </div>
-          {p.description && (
-            <p
-              style={{
-                fontSize: 12,
-                color: "var(--fg4)",
-                marginTop: 3,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {p.description}
-            </p>
-          )}
-        </div>
-
-        {/* Right side: child count or progress */}
-        <div className="flex items-center gap-3" style={{ flexShrink: 0 }}>
-          {hasChildren && (
-            <span style={{ fontSize: 11, color: "var(--fg4)" }}>
-              {p.childProjects.length} workstream{p.childProjects.length !== 1 ? "s" : ""}
-            </span>
-          )}
-          {!hasChildren && (
-            <>
-              <span style={{ fontSize: 11, color: "var(--fg4)" }}>
-                {p.deliverableCount} deliverable{p.deliverableCount !== 1 ? "s" : ""}
-              </span>
-              <div
-                style={{
-                  width: 48,
-                  height: 3,
-                  borderRadius: 2,
-                  background: "rgba(255,255,255,0.08)",
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${progress}%`,
-                    height: "100%",
-                    borderRadius: 2,
-                    background: isCompleted ? "rgb(52,211,153)" : "rgba(255,255,255,0.5)",
-                    transition: "width 0.3s",
-                  }}
-                />
-              </div>
-            </>
-          )}
-          {hasChildren && (
-            <svg
-              width={12}
-              height={12}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--fg4)"
-              strokeWidth={2}
-              strokeLinecap="round"
-              style={{
-                transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
-                transition: "transform 0.15s",
-              }}
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          )}
-        </div>
-      </button>
-
-      {/* Expanded children */}
-      {expanded && hasChildren && (
-        <div
-          style={{
-            background: "rgba(255,255,255,0.02)",
-            border: "0.5px solid rgba(255,255,255,0.07)",
-            borderTop: "none",
-            borderRadius: "0 0 10px 10px",
-            overflow: "hidden",
-          }}
-        >
-          {p.childProjects.map((child, i) => (
-            <ChildRow
-              key={child.id}
-              child={child}
-              isLast={i === p.childProjects.length - 1}
-              onClick={() => onNavigate(child.id)}
-            />
-          ))}
-          <button
-            onClick={(e) => { e.stopPropagation(); onNavigate(p.id); }}
-            style={{
-              width: "100%",
-              padding: "8px 18px",
-              fontSize: 11,
-              color: "var(--accent)",
-              background: "none",
-              border: "none",
-              borderTop: "0.5px solid rgba(255,255,255,0.05)",
-              cursor: "pointer",
-              textAlign: "left",
-              fontWeight: 500,
-            }}
-            className="hover:bg-white/[0.03] transition-colors"
-          >
-            View portfolio →
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Child Row ───────────────────────────────────────────────────────────────
-
-function ChildRow({
-  child,
-  isLast,
-  onClick,
-}: {
-  child: ChildProject;
-  isLast: boolean;
-  onClick: () => void;
-}) {
+function FolderCard({ project: p, onClick }: { project: ProjectListItem; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
   return (
     <button
@@ -466,36 +268,112 @@ function ChildRow({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "10px 18px 10px 44px",
-        background: hovered ? "rgba(255,255,255,0.04)" : "transparent",
-        border: "none",
-        borderBottom: isLast ? "none" : "0.5px solid rgba(255,255,255,0.04)",
-        cursor: "pointer",
+        background: hovered ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.035)",
+        border: hovered ? "0.5px solid rgba(255,255,255,0.14)" : "0.5px solid rgba(255,255,255,0.07)",
+        borderRadius: 10,
+        padding: "18px 16px",
         textAlign: "left",
-        transition: "background 0.12s",
+        cursor: "pointer",
+        transition: "background 0.15s, border-color 0.15s",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        minHeight: 110,
       }}
     >
-      <span style={{ fontSize: 12, opacity: 0.5, flexShrink: 0 }}>📄</span>
-      <span
-        style={{
-          fontSize: 13,
-          color: "var(--foreground)",
-          flex: 1,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {child.name}
+      {/* Folder icon */}
+      <svg width={28} height={28} viewBox="0 0 24 24" fill="none" style={{ opacity: 0.6 }}>
+        <path d="M2 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" fill="var(--fg3)" fillOpacity={0.25} stroke="var(--fg3)" strokeWidth={1.2} />
+      </svg>
+
+      {/* Name */}
+      <span style={{
+        fontSize: 13,
+        fontWeight: 500,
+        color: "var(--foreground)",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        width: "100%",
+      }}>
+        {p.name}
       </span>
-      <StatusBadge status={child.status} />
-      <span style={{ fontSize: 11, color: "var(--fg4)", flexShrink: 0 }}>
-        {child._count.deliverables} deliverable{child._count.deliverables !== 1 ? "s" : ""}
+
+      {/* Meta */}
+      <div className="flex items-center gap-2 mt-auto">
+        <span style={{ fontSize: 11, color: "var(--fg4)" }}>
+          {p.childProjects.length} project{p.childProjects.length !== 1 ? "s" : ""}
+        </span>
+        <StatusBadge status={p.status} />
+      </div>
+    </button>
+  );
+}
+
+// ── File Card (Project) ────────────────────────────────────────────────────
+
+function FileCard({ project: p, onClick }: { project: ProjectListItem; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  const progress = p.deliverableCount > 0
+    ? Math.round((p.completedCount / p.deliverableCount) * 100)
+    : 0;
+  const isCompleted = p.status === "completed";
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: hovered ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.035)",
+        border: hovered ? "0.5px solid rgba(255,255,255,0.14)" : "0.5px solid rgba(255,255,255,0.07)",
+        borderRadius: 10,
+        padding: "18px 16px",
+        textAlign: "left",
+        cursor: "pointer",
+        transition: "background 0.15s, border-color 0.15s",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        minHeight: 110,
+      }}
+    >
+      {/* File icon */}
+      <svg width={24} height={28} viewBox="0 0 20 24" fill="none" style={{ opacity: 0.5 }}>
+        <path d="M2 3a2 2 0 012-2h8l6 6v14a2 2 0 01-2 2H4a2 2 0 01-2-2V3z" fill="var(--fg4)" fillOpacity={0.15} stroke="var(--fg4)" strokeWidth={1.2} />
+        <path d="M10 1v6h6" stroke="var(--fg4)" strokeWidth={1.2} strokeLinecap="round" />
+      </svg>
+
+      {/* Name */}
+      <span style={{
+        fontSize: 13,
+        fontWeight: 500,
+        color: "var(--foreground)",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        width: "100%",
+      }}>
+        {p.name}
       </span>
+
+      {/* Meta */}
+      <div className="flex items-center gap-2 mt-auto">
+        <StatusBadge status={p.status} />
+        {p.deliverableCount > 0 && (
+          <div className="flex items-center gap-1.5">
+            <div style={{ width: 36, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+              <div style={{
+                width: `${progress}%`,
+                height: "100%",
+                borderRadius: 2,
+                background: isCompleted ? "rgb(52,211,153)" : "rgba(255,255,255,0.5)",
+              }} />
+            </div>
+            <span style={{ fontSize: 10, color: "var(--fg4)" }}>{progress}%</span>
+          </div>
+        )}
+      </div>
     </button>
   );
 }

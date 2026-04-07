@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
   const search = params.get("q");
   const projectId = params.get("projectId");
   const scopeParam = params.get("scope") ?? "operator";
+  const domainFilter = params.get("domain");
 
   // System scope requires superadmin
   if (scopeParam === "system" && !su.isSuperadmin) {
@@ -41,7 +42,12 @@ export async function GET(req: NextRequest) {
     ];
   }
 
-  // Department scope for members (operator-scoped pages only)
+  // Domain filter — show pages linked to a specific domain
+  if (domainFilter) {
+    where.domainIds = { has: domainFilter };
+  }
+
+  // Domain scope for members (operator-scoped pages only)
   if (scopeParam !== "system") {
     const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
     if (visibleDomains !== "all") {

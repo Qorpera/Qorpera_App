@@ -200,7 +200,7 @@ function KnowledgeSection({ knowledge, domainId, t }: {
         {knowledge.people.gaps.map((gap, i) => (
           <div key={i} className="text-xs text-amber-400 mt-1 flex items-center gap-2">
             <span>{gap}</span>
-            <Link href={`/map/${domainId}`} className="text-accent hover:underline flex-shrink-0">
+            <Link href={`/wiki?domain=${domainId}`} className="text-accent hover:underline flex-shrink-0">
               {gap.includes("reporting") ? t("editHierarchy") : t("editRoles")}
             </Link>
           </div>
@@ -214,7 +214,7 @@ function KnowledgeSection({ knowledge, domainId, t }: {
         </p>
         {knowledge.documents.count === 0 && (
           <p className="text-xs text-amber-400 mt-1">
-            {t("noDocuments")} &middot; <Link href={`/map/${domainId}`} className="hover:underline">{t("uploadDocuments")}</Link>
+            {t("noDocuments")} &middot; <Link href={`/wiki?domain=${domainId}`} className="hover:underline">{t("uploadDocuments")}</Link>
           </p>
         )}
         {knowledge.documents.staleCount > 0 && (
@@ -380,7 +380,7 @@ function OperatorSummaryCard({ snapshot, summaryText, summaryColor, refreshing, 
       criticalIssues.push({
         department: dept.domainName,
         issue: t("criticalEmptyKnowledge"),
-        action: { label: t("goToDomain"), href: `/map/${dept.domainId}` },
+        action: { label: t("goToDomain"), href: `/wiki?domain=${dept.domainId}` },
       });
     }
     for (const st of dept.detection.situationTypes) {

@@ -6,7 +6,7 @@ import { useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { AppShell } from "@/components/app-shell";
 
-type Classification = "action_required" | "awareness" | "irrelevant";
+type Classification = "action_required" | "awareness" | "irrelevant" | "initiative_candidate";
 
 interface LogEntry {
   id: string;
@@ -35,6 +35,7 @@ const CLASSIFICATION_STYLES: Record<Classification, { label: string; color: stri
   action_required: { label: "Action Required", color: "var(--ok)", bg: "color-mix(in srgb, var(--ok) 12%, transparent)" },
   awareness: { label: "Awareness", color: "var(--accent)", bg: "color-mix(in srgb, var(--accent) 12%, transparent)" },
   irrelevant: { label: "Irrelevant", color: "var(--fg3)", bg: "color-mix(in srgb, var(--fg3) 12%, transparent)" },
+  initiative_candidate: { label: "Initiative", color: "var(--warn)", bg: "color-mix(in srgb, var(--warn) 12%, transparent)" },
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -154,7 +155,7 @@ export default function EvaluationLogPage() {
           <p className="text-sm text-[var(--fg3)] py-8 text-center">No evaluation logs yet.</p>
         )}
         {items.map((entry) => {
-          const style = CLASSIFICATION_STYLES[entry.classification];
+          const style = CLASSIFICATION_STYLES[entry.classification] ?? { label: entry.classification, color: "var(--fg3)", bg: "transparent" };
           return (
             <div key={entry.id} className="wf-soft rounded-lg border border-border p-4 space-y-1.5">
               <div className="flex items-center gap-2 flex-wrap">

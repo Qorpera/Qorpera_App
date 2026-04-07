@@ -116,7 +116,7 @@ export default function MapPage() {
             {hq && (
               <div className="flex justify-center mb-8">
                 <button
-                  onClick={() => router.push(`/map/${hq.id}`)}
+                  onClick={() => router.push(`/wiki?domain=${hq.id}`)}
                   className="rounded-lg px-8 py-5 bg-elevated hover:brightness-110 transition text-center"
                   style={{ border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}
                 >
@@ -142,7 +142,7 @@ export default function MapPage() {
                 return (
                   <button
                     key={dom.id}
-                    onClick={() => router.push(`/map/${dom.id}`)}
+                    onClick={() => router.push(`/wiki?domain=${dom.id}`)}
                     className="w-full rounded-lg p-5 bg-elevated hover:brightness-110 transition text-left"
                     style={{ border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}
                   >
