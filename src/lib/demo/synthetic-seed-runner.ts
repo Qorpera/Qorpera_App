@@ -564,7 +564,6 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     await tx.$executeRaw`DELETE FROM "RelationshipType" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "EntityType" WHERE "operatorId" = ${operatorId}`;
     // Group D: no FK to other operator tables (safe in any order)
-    await tx.$executeRaw`DELETE FROM "Goal" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "PolicyRule" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "ActionCapability" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "EvaluationLog" WHERE "operatorId" = ${operatorId}`;

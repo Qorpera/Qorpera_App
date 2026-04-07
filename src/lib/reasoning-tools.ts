@@ -422,6 +422,19 @@ export const REASONING_TOOLS: AITool[] = [
       required: ["chunkId"],
     },
   },
+  {
+    name: "web_search",
+    description:
+      "Search the web for current information. Use for competitor monitoring, market intelligence, legal/regulatory changes, technology trends, pricing benchmarks, or any external information not available in the organizational wiki. Returns top search results with titles, URLs, and descriptions.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query — be specific and targeted" },
+        freshness: { type: "string", enum: ["day", "week", "month"], description: "Optional: restrict to recent results" },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 // ── Dispatch ────────────────────────────────────────────────────────────────
@@ -452,6 +465,14 @@ export async function executeReasoningTool(
       case "get_evidence_for_entity": return capResult(await executeGetEvidenceForEntity(operatorId, args));
       case "get_contradictions": return capResult(await executeGetContradictions(operatorId, args));
       case "read_full_content": return capResult(await executeReadFullContent(operatorId, args));
+      case "web_search": {
+        const { webSearch, formatSearchResults } = await import("@/lib/web-search");
+        const result = await webSearch(
+          args.query as string,
+          args.freshness ? { freshness: args.freshness as "day" | "week" | "month" } : undefined,
+        );
+        return capResult(formatSearchResults(result.results));
+      }
       default: return `Unknown tool: "${toolName}". Available tools: ${REASONING_TOOLS.map(t => t.name).join(", ")}`;
     }
   } catch (err) {
@@ -931,7 +952,6 @@ async function executeGetWorkstreamContext(
     lines.push(`Workstream: ${ws.title}`);
     if (ws.description) lines.push(`  Description: ${ws.description}`);
     lines.push(`  Status: ${ws.status}`);
-    if (ws.goal) lines.push(`  Goal: ${ws.goal.title}${ws.goal.description ? ` — ${ws.goal.description}` : ""}`);
     if (ws.items.length > 0) {
       lines.push(`  Items (${ws.items.length}):`);
       for (const item of ws.items) {

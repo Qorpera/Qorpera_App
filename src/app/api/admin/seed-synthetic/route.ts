@@ -53,6 +53,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "company slug is required" }, { status: 400 });
   }
 
+  // Seed system jobs for any operator
+  if (action === "seed-system-jobs") {
+    const opId = targetOperatorId ?? session.operatorId;
+    const { seedDefaultSystemJobs } = await import("@/lib/demo/seed-system-jobs");
+    const count = await seedDefaultSystemJobs(opId);
+    return NextResponse.json({ success: true, systemJobsCreated: count });
+  }
+
   // Delete action
   if (action === "delete") {
     const deleteLoader = COMPANY_LOADERS[companySlug];

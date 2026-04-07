@@ -16,32 +16,6 @@ export const INTERNAL_CAPABILITIES = [
     sideEffects: ["Creates a new SituationType that the detection engine will monitor"],
   },
   {
-    name: "create_goal",
-    description: "Create a new organizational goal. Used when strategic analysis identifies a new objective.",
-    inputSchema: {
-      title: { type: "string", required: true },
-      description: { type: "string", required: true },
-      departmentId: { type: "string", required: false },
-      measurableTarget: { type: "string", required: false },
-      priority: { type: "number", required: false },
-      deadline: { type: "string", required: false },
-    },
-    sideEffects: ["Creates a new Goal"],
-  },
-  {
-    name: "update_goal",
-    description: "Update an existing goal's status or details. Used when a goal is achieved or needs adjustment.",
-    inputSchema: {
-      goalId: { type: "string", required: true },
-      status: { type: "string", required: false },
-      title: { type: "string", required: false },
-      description: { type: "string", required: false },
-      measurableTarget: { type: "string", required: false },
-      priority: { type: "number", required: false },
-    },
-    sideEffects: ["Updates an existing Goal"],
-  },
-  {
     name: "create_recurring_task",
     description: "Create a recurring task that executes on a schedule. Used when the AI identifies repeating work patterns (weekly reports, monthly reviews, daily digests).",
     inputSchema: {
@@ -64,8 +38,6 @@ export const INTERNAL_CAPABILITIES = [
       cronExpression: { type: "string", required: true, description: "Cron schedule (e.g., '0 8 * * 1' for Monday 8 AM)" },
       scope: { type: "string", required: false, description: "department | cross_department | personal | company_wide" },
       scopeDepartmentId: { type: "string", required: false, description: "Department entity ID if scope is department" },
-      contextProfile: { type: "object", required: false, description: "Which data domains to analyze: { dataDomains: string[], timeWindowDays: number, ... }" },
-      reasoningProfile: { type: "string", required: false, description: "Analytical framework — what questions to answer, what to compare, what good/bad looks like" },
     },
     sideEffects: ["Creates a SystemJob with status 'proposed' that requires admin approval before it starts running"],
   },
@@ -131,10 +103,6 @@ export async function executeInternalCapability(
   switch (name) {
     case "create_situation_type":
       return executeCreateSituationType(params, operatorId);
-    case "create_goal":
-      return executeCreateGoal(params, operatorId);
-    case "update_goal":
-      return executeUpdateGoal(params, operatorId);
     case "create_recurring_task":
       return executeCreateRecurringTask(params, operatorId, planOwnerAiEntityId);
     case "create_system_job":
@@ -194,59 +162,6 @@ async function executeCreateSituationType(
     name: created.name,
     detectionLogic: detectionLogic as object,
   };
-}
-
-async function executeCreateGoal(
-  params: Record<string, unknown>,
-  operatorId: string,
-): Promise<StepOutput> {
-  const title = String(params.title ?? "");
-  const description = String(params.description ?? "");
-
-  if (!title || !description) {
-    throw new Error("create_goal requires title and description");
-  }
-
-  const created = await prisma.goal.create({
-    data: {
-      operatorId,
-      title,
-      description,
-      departmentId: params.departmentId ? String(params.departmentId) : null,
-      measurableTarget: params.measurableTarget ? String(params.measurableTarget) : null,
-      priority: typeof params.priority === "number" ? params.priority : 3,
-      deadline: params.deadline ? new Date(String(params.deadline)) : null,
-    },
-  });
-
-  return { type: "data", payload: { goalId: created.id, title }, description: "Goal created" };
-}
-
-async function executeUpdateGoal(
-  params: Record<string, unknown>,
-  operatorId: string,
-): Promise<StepOutput> {
-  const goalId = String(params.goalId ?? "");
-  if (!goalId) throw new Error("update_goal requires goalId");
-
-  const goal = await prisma.goal.findFirst({
-    where: { id: goalId, operatorId },
-  });
-  if (!goal) throw new Error(`Goal ${goalId} not found for this operator`);
-
-  const updates: Record<string, unknown> = {};
-  if (params.status !== undefined) updates.status = String(params.status);
-  if (params.title !== undefined) updates.title = String(params.title);
-  if (params.description !== undefined) updates.description = String(params.description);
-  if (params.measurableTarget !== undefined) updates.measurableTarget = String(params.measurableTarget);
-  if (params.priority !== undefined) updates.priority = Number(params.priority);
-
-  await prisma.goal.update({
-    where: { id: goalId },
-    data: updates,
-  });
-
-  return { type: "data", payload: { goalId, updated: true }, description: "Goal updated" };
 }
 
 async function executeCreateRecurringTask(
@@ -352,20 +267,6 @@ async function executeCreateSystemJob(
   const scope = params.scope ? String(params.scope) : (params.scopeDepartmentId ? "department" : "company_wide");
   const scopeEntityId = params.scopeDepartmentId ? String(params.scopeDepartmentId) : null;
 
-  const contextProfile = params.contextProfile
-    ? JSON.stringify(params.contextProfile)
-    : JSON.stringify({
-        dataDomains: ["communication", "crm"],
-        timeWindowDays: 30,
-        includeInsights: true,
-        includeGoals: true,
-        includeSituationTypeStats: true,
-      });
-
-  const reasoningProfile = params.reasoningProfile
-    ? String(params.reasoningProfile)
-    : description;
-
   // Dedup check
   const existing = await prisma.systemJob.findFirst({
     where: {
@@ -393,8 +294,6 @@ async function executeCreateSystemJob(
       aiEntityId,
       title,
       description,
-      contextProfile,
-      reasoningProfile,
       cronExpression,
       scope,
       scopeEntityId,

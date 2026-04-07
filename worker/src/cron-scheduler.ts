@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/db";
 import { detectSituations } from "@/lib/situation-detector";
 import { auditPreFilters } from "@/lib/situation-audit";
-import { runScheduledInitiativeEvaluation } from "@/lib/initiative-reasoning";
 import { extractInsights, getLastExtractionTime } from "@/lib/operational-knowledge";
 import { computePriorityScores } from "@/lib/prioritization-engine";
 import { processRecurringTasks } from "@/lib/recurring-tasks";
@@ -53,18 +52,6 @@ export function startCronScheduler() {
         console.error("[cron:audit] Error:", err);
       }
     }, 24 * 60 * 60 * 1000),
-  );
-
-  // ── Initiative Evaluation: every 4 hours ───────────────────────────────
-  timers.push(
-    setInterval(async () => {
-      try {
-        const result = await runScheduledInitiativeEvaluation();
-        console.log("[cron:initiatives]", result);
-      } catch (err) {
-        console.error("[cron:initiatives] Error:", err);
-      }
-    }, 4 * 60 * 60 * 1000),
   );
 
   // ── Insight Extraction: daily ──────────────────────────────────────────
@@ -206,7 +193,7 @@ export function startCronScheduler() {
 
   // ── Wiki Strategic Scanner: every 2 hours (replaces old strategic-scan) ──
   // Reads synthesized wiki pages to identify patterns → routes to initiatives or situations
-  // initiative-reasoning: handles goal-driven initiative evaluation (complementary, not redundant)
+  // wiki-bookmark-assembly: periodically converts bookmark clusters into initiative proposals
   // wiki-strategic-scanner: handles pattern-driven initiative discovery from wiki
   timers.push(
     setInterval(async () => {
@@ -387,7 +374,7 @@ export function startCronScheduler() {
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), initiatives(4h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d)");
+  console.log("[cron] Started: detection(15m), audit(24h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d)");
 }
 
 export function stopCronScheduler() {

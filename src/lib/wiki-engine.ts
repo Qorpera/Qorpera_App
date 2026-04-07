@@ -39,6 +39,60 @@ export interface ProcessWikiUpdatesParams {
   synthesisDurationMs?: number;
 }
 
+// ─── Department derivation ─────────────────────────────
+
+/**
+ * Derive department IDs for a wiki page from its subject entity and source data.
+ * Returns empty array for org-wide pages (visible to all members).
+ */
+async function resolveDepartmentIds(
+  operatorId: string,
+  subjectEntityId?: string,
+  sourceCitations?: WikiUpdate["sourceCitations"],
+): Promise<string[]> {
+  const deptIds = new Set<string>();
+
+  // From subject entity
+  if (subjectEntityId) {
+    const entity = await prisma.entity.findFirst({
+      where: { id: subjectEntityId, operatorId },
+      select: { parentDepartmentId: true, entityType: { select: { slug: true } } },
+    });
+    if (entity?.parentDepartmentId) {
+      deptIds.add(entity.parentDepartmentId);
+    }
+    // If the subject IS a department, add itself
+    if (entity?.entityType?.slug === "department") {
+      deptIds.add(subjectEntityId);
+    }
+  }
+
+  // From source citation chunks
+  if (sourceCitations?.length) {
+    const chunkIds = sourceCitations
+      .filter(c => c.sourceType === "chunk")
+      .map(c => c.sourceId);
+
+    if (chunkIds.length > 0) {
+      const chunks = await prisma.contentChunk.findMany({
+        where: { id: { in: chunkIds.slice(0, 50) }, operatorId },
+        select: { departmentIds: true },
+      });
+      for (const chunk of chunks) {
+        // ContentChunk.departmentIds is String? (JSON array), not String[]
+        if (chunk.departmentIds) {
+          try {
+            const ids = JSON.parse(chunk.departmentIds) as string[];
+            for (const id of ids) deptIds.add(id);
+          } catch { /* malformed JSON, skip */ }
+        }
+      }
+    }
+  }
+
+  return [...deptIds];
+}
+
 // ─── Main entry point ───────────────────────────────────
 
 export async function processWikiUpdates(params: ProcessWikiUpdatesParams): Promise<{
@@ -143,6 +197,11 @@ async function createPage(params: {
   const contentTokens = Math.ceil(params.content.length / 4);
   const crossReferences = extractCrossReferences(params.content);
   const sourceTypes = [...new Set(params.sourceCitations.map((c) => c.sourceType))];
+  const departmentIds = await resolveDepartmentIds(
+    params.operatorId,
+    params.subjectEntityId,
+    params.sourceCitations,
+  );
 
   // Embed content for search
   const embeddings = await embedChunks([params.content]).catch(() => [null]);
@@ -155,6 +214,7 @@ async function createPage(params: {
       projectId: params.projectId ?? null,
       pageType: params.pageType,
       subjectEntityId: params.subjectEntityId ?? null,
+      departmentIds,
       title: params.title,
       slug,
       content: params.content,
@@ -242,6 +302,11 @@ async function updatePage(params: {
     ...existing.sourceTypes,
     ...params.sourceCitations.map((c) => c.sourceType),
   ])];
+  const departmentIds = await resolveDepartmentIds(
+    params.operatorId,
+    params.subjectEntityId,
+    params.sourceCitations,
+  );
 
   // Snapshot current version before update
   await createVersionSnapshot(existing.id, "synthesis", params.synthesizedByModel ?? "unknown");
@@ -262,8 +327,9 @@ async function updatePage(params: {
            "lastSynthesizedAt" = NOW(), "updatedAt" = NOW(),
            "verifiedAt" = NULL, "verifiedByModel" = NULL,
            "verificationLog" = NULL, "quarantineReason" = NULL, "staleReason" = NULL,
-           "embedding" = $11::vector
-       WHERE "id" = $12`,
+           "embedding" = $11::vector,
+           "departmentIds" = $12::text[]
+       WHERE "id" = $13`,
       params.title,
       params.content,
       contentTokens,
@@ -275,6 +341,7 @@ async function updatePage(params: {
       params.synthesizedByModel,
       params.situationId ?? null,
       embeddingStr,
+      departmentIds,
       existing.id,
     );
   } else {
@@ -288,6 +355,7 @@ async function updatePage(params: {
         sources: mergedSources as unknown as Prisma.InputJsonValue,
         sourceCount: mergedSources.length,
         sourceTypes,
+        departmentIds,
         status: "draft",
         version: { increment: 1 },
         synthesisPath: params.synthesisPath,

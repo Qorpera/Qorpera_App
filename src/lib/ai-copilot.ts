@@ -267,17 +267,6 @@ const COPILOT_TOOLS: AITool[] = [
     },
   },
   {
-    name: "get_goals",
-    description: "Get business goals. Use when the user asks about goals, objectives, targets, or what the company/department is working toward.",
-    parameters: {
-      type: "object",
-      properties: {
-        departmentId: { type: "string", description: "Filter to a specific department. Null returns HQ-level goals." },
-        status: { type: "string", enum: ["active", "achieved", "paused"], description: "Goal status filter. Default: active." },
-      },
-    },
-  },
-  {
     name: "get_initiatives",
     description: "Get AI-proposed initiatives and their progress. Use when the user asks what the AI has proposed, what strategic work is happening, or about department AI activity.",
     parameters: {
@@ -285,7 +274,6 @@ const COPILOT_TOOLS: AITool[] = [
       properties: {
         departmentId: { type: "string", description: "Filter to a specific department." },
         status: { type: "string", enum: ["proposed", "approved", "executing", "completed", "rejected"], description: "Initiative status filter." },
-        goalId: { type: "string", description: "Filter by parent goal ID." },
       },
     },
   },
@@ -309,6 +297,20 @@ const COPILOT_TOOLS: AITool[] = [
         status: { type: "string", enum: ["pending", "accepted", "completed", "returned"], description: "Delegation status filter." },
         assignedToMe: { type: "boolean", description: "If true, filter to delegations targeting the current user's AI entity or the user directly. Default: false." },
       },
+    },
+  },
+  {
+    name: "create_system_job",
+    description: "Create a new system job that runs on a schedule to monitor and analyze a specific area. Use when the user wants to set up automated monitoring, intelligence gathering, or periodic analysis.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short title for the job" },
+        description: { type: "string", description: "Detailed description of what this job monitors and investigates" },
+        cronExpression: { type: "string", description: "Cron expression for schedule (e.g., '0 8 * * 1' for every Monday at 8am)" },
+        scope: { type: "string", enum: ["department", "company_wide"], description: "Scope of the job. Default: company_wide" },
+      },
+      required: ["title", "description", "cronExpression"],
     },
   },
   {
@@ -474,7 +476,7 @@ CAPABILITIES:
 - Search messages: use when user asks about Slack or Teams conversations, channel discussions, or internal chat
 - Get message thread: retrieve the full thread from Slack or Teams by thread ID
 - Get activity summary: use when user asks about activity levels, trends, communication volume, or what's been happening
-- Get goals and initiatives: use when user asks about objectives, targets, strategic work, or AI proposals
+- Get initiatives: use when user asks about objectives, targets, strategic work, or AI proposals
 - Get work streams: use when user asks about projects, grouped work, or progress
 - Get delegations: use when user asks about assigned work, AI-to-AI coordination, or human tasks
 - Get recurring tasks: use when user asks about scheduled or automated work
@@ -1150,21 +1152,13 @@ export async function executeTool(
               ],
             },
           },
-          {
-            sourceType: "initiative",
-            initiative: { goal: { departmentId: { in: visibleDepts } } },
-          },
+          { sourceType: "initiative" },
           { sourceType: { in: ["recurring", "delegation"] } },
         ];
       }
 
       // Build initiative scope filter
       const initScopeFilter: Record<string, unknown> = { operatorId };
-      if (visibleDepts && visibleDepts !== "all") {
-        initScopeFilter.goal = {
-          OR: [{ departmentId: { in: visibleDepts } }, { departmentId: null }],
-        };
-      }
 
       // Resolve visible AI entity IDs (used by delegation, insight, recurring scopes)
       let briefingAiIds: string[] | null = null;
@@ -1802,74 +1796,24 @@ export async function executeTool(
 
     // ── Phase 3 Tools ──────────────────────────────────────────────────────
 
-    case "get_goals": {
-      const departmentId = args.departmentId ? String(args.departmentId) : undefined;
-      const status = args.status ? String(args.status) : "active";
-
-      const where: Record<string, unknown> = { operatorId, status };
-      if (departmentId) where.departmentId = departmentId;
-
-      if (visibleDepts && visibleDepts !== "all") {
-        where.OR = [
-          { departmentId: { in: visibleDepts } },
-          { departmentId: null },
-        ];
-      }
-
-      const goals = await prisma.goal.findMany({
-        where,
-        include: { _count: { select: { initiatives: true } } },
-        orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
-      });
-
-      if (goals.length === 0) return "No goals found matching those criteria.";
-
-      return JSON.stringify(goals.map(g => ({
-        id: g.id,
-        title: g.title,
-        description: g.description.slice(0, 200),
-        priority: g.priority,
-        status: g.status,
-        deadline: g.deadline?.toISOString() ?? null,
-        departmentId: g.departmentId,
-        initiativeCount: g._count.initiatives,
-      })));
-    }
-
     case "get_initiatives": {
       const departmentId = args.departmentId ? String(args.departmentId) : undefined;
       const status = args.status ? String(args.status) : undefined;
-      const goalId = args.goalId ? String(args.goalId) : undefined;
 
       const where: Record<string, unknown> = { operatorId };
       if (status) where.status = status;
-      if (goalId) where.goalId = goalId;
-      if (departmentId) where.goal = { departmentId };
 
-      // Scope: initiatives where the goal's department is in visibleDepts, or HQ goals
-      if (visibleDepts && visibleDepts !== "all") {
-        where.goal = {
-          ...(typeof where.goal === "object" ? where.goal as Record<string, unknown> : {}),
-          OR: [
-            { departmentId: { in: visibleDepts } },
-            { departmentId: null },
-          ],
-        };
+      // If departmentId filter, find AI entities in that department
+      if (departmentId) {
+        const deptAiEntities = await prisma.entity.findMany({
+          where: { operatorId, parentDepartmentId: departmentId, entityType: { slug: { in: ["department-ai", "ai-agent"] } } },
+          select: { id: true },
+        });
+        where.aiEntityId = { in: deptAiEntities.map(e => e.id) };
       }
 
       const initiatives = await prisma.initiative.findMany({
         where,
-        include: {
-          goal: { select: { title: true } },
-          executionPlan: {
-            select: {
-              status: true,
-              currentStepOrder: true,
-              _count: { select: { steps: true } },
-              steps: { where: { status: "completed" }, select: { id: true } },
-            },
-          },
-        },
         orderBy: { createdAt: "desc" },
         take: 20,
       });
@@ -1891,10 +1835,7 @@ export async function executeTool(
         title: i.rationale.slice(0, 200),
         rationale: i.rationale.slice(0, 200),
         status: i.status,
-        goalTitle: i.goal?.title ?? null,
-        planStatus: i.executionPlan?.status ?? null,
-        stepsCompleted: i.executionPlan?.steps.length ?? 0,
-        stepsTotal: i.executionPlan?._count.steps ?? 0,
+        proposalType: i.proposalType,
         workStreamTitle: wsMap.get(i.id) ?? null,
       })));
     }
@@ -1923,7 +1864,6 @@ export async function executeTool(
           title: ctx.title,
           description: ctx.description,
           status: ctx.status,
-          goalTitle: ctx.goal?.title ?? null,
           items: ctx.items.map(i => ({ type: i.type, title: i.summary.slice(0, 200), status: i.status })),
           parentTitle: ctx.parent?.title ?? null,
           childCount,
@@ -1941,7 +1881,6 @@ export async function executeTool(
             title: true,
             description: true,
             status: true,
-            goalId: true,
             _count: { select: { items: true, children: true } },
           },
           take: 10,
@@ -2068,6 +2007,49 @@ export async function executeTool(
             ? initTitleMap.get(d.initiativeId) ?? null
             : null,
       })));
+    }
+
+    case "create_system_job": {
+      if (userId) {
+        const caller = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+        if (caller?.role === "member") return "Admin access required to create system jobs.";
+      }
+      const title = String(args.title ?? "");
+      const description = String(args.description ?? "");
+      const cronExpression = String(args.cronExpression ?? "0 8 * * 1");
+      const scope = String(args.scope ?? "company_wide");
+
+      if (!title || !description) return "Title and description are required.";
+
+      try {
+        const { CronExpressionParser } = await import("cron-parser");
+        const interval = CronExpressionParser.parse(cronExpression);
+        const nextTriggerAt = interval.next().toDate();
+
+        const hqAi = await prisma.entity.findFirst({
+          where: { operatorId, entityType: { slug: { in: ["hq-ai", "ai-agent"] } }, status: "active" },
+          select: { id: true },
+        });
+        if (!hqAi) return "No AI entity found. Complete onboarding first.";
+
+        const job = await prisma.systemJob.create({
+          data: {
+            operatorId,
+            aiEntityId: hqAi.id,
+            title,
+            description,
+            cronExpression,
+            scope,
+            status: "active",
+            importanceThreshold: 0.3,
+            nextTriggerAt,
+          },
+        });
+
+        return `System job "${title}" created successfully (ID: ${job.id}). It will first run ${nextTriggerAt.toISOString().split("T")[0]}. Schedule: ${cronExpression}. You can view and manage it on the System Jobs page.`;
+      } catch (err) {
+        return `Failed to create system job: ${err instanceof Error ? err.message : "Unknown error"}`;
+      }
     }
 
     case "get_recurring_tasks": {
@@ -2250,12 +2232,7 @@ export async function executeTool(
               ],
             },
           },
-          {
-            sourceType: "initiative",
-            initiative: {
-              goal: { departmentId: { in: visibleDepts } },
-            },
-          },
+          { sourceType: "initiative" },
           { sourceType: { in: ["recurring", "delegation"] } },
         ];
       }

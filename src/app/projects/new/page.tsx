@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { fetchApi } from "@/lib/fetch-api";
 
@@ -46,6 +46,7 @@ interface WizardState {
   dueDate: string;
   members: TeamMember[];
   files: File[];
+  parentProjectId: string | null;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -111,9 +112,12 @@ function fileIcon(name: string): string {
 
 export default function NewProjectWizard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createStatus, setCreateStatus] = useState("");
+
+  const parentId = searchParams.get("parent");
 
   const [state, setState] = useState<WizardState>({
     template: null,
@@ -123,7 +127,18 @@ export default function NewProjectWizard() {
     dueDate: "",
     members: [],
     files: [],
+    parentProjectId: parentId ?? null,
   });
+
+  // Fetch parent project name for breadcrumb
+  const [parentName, setParentName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!state.parentProjectId) return;
+    fetchApi(`/api/projects/${state.parentProjectId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.name) setParentName(d.name); })
+      .catch(() => {});
+  }, [state.parentProjectId]);
 
   // Load current user as first member
   useEffect(() => {
@@ -172,6 +187,7 @@ export default function NewProjectWizard() {
         description: state.description.trim() || null,
         dueDate: state.dueDate || null,
         templateId: state.template?.id ?? null,
+        parentProjectId: state.parentProjectId,
         members: state.members.map((m) => ({
           userId: m.userId,
           role: m.role,
@@ -218,57 +234,74 @@ export default function NewProjectWizard() {
 
   return (
     <AppShell>
-      <div className="flex-1 overflow-y-auto">
-        <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 24px 80px" }}>
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+        {/* Scrollable content */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px 32px" }}>
 
-          {/* ── Header with step dots ── */}
-          <div style={{ textAlign: "center", marginBottom: 32 }}>
-            <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", marginBottom: 16 }}>
-              New project
-            </h1>
-            <StepDots current={step} steps={STEPS} onJump={(i) => { if (i <= step) setStep(i); }} />
+            {/* ── Header with step dots ── */}
+            <div style={{ textAlign: "center", marginBottom: 32 }}>
+              {parentName && (
+                <div style={{ fontSize: 11, color: "var(--fg4)", marginBottom: 4 }}>
+                  Creating inside <span style={{ color: "var(--fg2)" }}>{parentName}</span>
+                </div>
+              )}
+              <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", marginBottom: 16 }}>
+                New project
+              </h1>
+              <StepDots current={step} steps={STEPS} onJump={(i) => { if (i <= step) setStep(i); }} />
+            </div>
+
+            {/* ── Step content ── */}
+            {step === 0 && (
+              <StepTemplate
+                selected={state.template}
+                isBlank={state.isBlank}
+                onSelect={(t) => {
+                  setState((s) => ({
+                    ...s,
+                    template: t,
+                    isBlank: false,
+                    name: t ? `${t.name} — ` : s.name,
+                  }));
+                }}
+                onDeselect={() => setState((s) => ({ ...s, template: null, isBlank: false }))}
+                onBlank={(on) => setState((s) => ({ ...s, template: null, isBlank: on }))}
+              />
+            )}
+            {step === 1 && (
+              <StepDetails
+                name={state.name}
+                description={state.description}
+                dueDate={state.dueDate}
+                onChange={(patch) => setState((s) => ({ ...s, ...patch }))}
+              />
+            )}
+            {step === 2 && (
+              <StepTeam
+                members={state.members}
+                onChange={(members) => setState((s) => ({ ...s, members }))}
+              />
+            )}
+            {step === 3 && (
+              <StepData
+                files={state.files}
+                onChange={(files) => setState((s) => ({ ...s, files }))}
+              />
+            )}
+            {step === 4 && <StepReview state={state} />}
           </div>
+        </div>
 
-          {/* ── Step content ── */}
-          {step === 0 && (
-            <StepTemplate
-              selected={state.template}
-              isBlank={state.isBlank}
-              onSelect={(t) => {
-                setState((s) => ({
-                  ...s,
-                  template: t,
-                  isBlank: false,
-                  name: t ? `${t.name} — ` : s.name,
-                }));
-              }}
-              onBlank={() => setState((s) => ({ ...s, template: null, isBlank: true }))}
-            />
-          )}
-          {step === 1 && (
-            <StepDetails
-              name={state.name}
-              description={state.description}
-              dueDate={state.dueDate}
-              onChange={(patch) => setState((s) => ({ ...s, ...patch }))}
-            />
-          )}
-          {step === 2 && (
-            <StepTeam
-              members={state.members}
-              onChange={(members) => setState((s) => ({ ...s, members }))}
-            />
-          )}
-          {step === 3 && (
-            <StepData
-              files={state.files}
-              onChange={(files) => setState((s) => ({ ...s, files }))}
-            />
-          )}
-          {step === 4 && <StepReview state={state} />}
-
-          {/* ── Footer nav ── */}
-          <div className="flex items-center justify-between" style={{ marginTop: 32 }}>
+        {/* Sticky footer — always visible */}
+        <div style={{
+          borderTop: "0.5px solid rgba(255,255,255,0.08)",
+          padding: "12px 24px",
+          display: "flex",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}>
+          <div style={{ maxWidth: 900, width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <button
               onClick={step === 0 ? () => router.push("/projects") : goBack}
               style={{
@@ -286,7 +319,9 @@ export default function NewProjectWizard() {
               {step === 0 ? "Cancel" : "Back"}
             </button>
 
-            {step < STEPS.length - 1 ? (
+            {step === 0 && !canAdvance() ? (
+              <span />
+            ) : step < STEPS.length - 1 ? (
               <button
                 onClick={goNext}
                 disabled={!canAdvance()}
@@ -394,12 +429,14 @@ function StepTemplate({
   selected,
   isBlank,
   onSelect,
+  onDeselect,
   onBlank,
 }: {
   selected: ProjectTemplate | null;
   isBlank: boolean;
   onSelect: (t: ProjectTemplate) => void;
-  onBlank: () => void;
+  onDeselect: () => void;
+  onBlank: (on: boolean) => void;
 }) {
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [search, setSearch] = useState("");
@@ -455,6 +492,41 @@ function StepTemplate({
     );
   }
 
+  const blankCard = (
+    <button
+      key="__blank__"
+      onClick={() => onBlank(!isBlank)}
+      style={{
+        padding: "12px 14px",
+        borderRadius: 8,
+        border: isBlank
+          ? "1.5px solid var(--foreground)"
+          : "1.5px dashed rgba(255,255,255,0.15)",
+        background: isBlank ? "rgba(255,255,255,0.06)" : "transparent",
+        textAlign: "left",
+        cursor: "pointer",
+        transition: "border-color 0.15s, background 0.15s",
+      }}
+      className="hover:brightness-110"
+    >
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)", marginBottom: 4 }}>
+        Blank
+      </div>
+      <div style={{ fontSize: 11, color: "var(--fg3)", lineHeight: 1.4 }}>
+        Start from scratch — no template
+      </div>
+    </button>
+  );
+
+  // Determine which group gets the blank card as first item
+  const allGroups: Array<{ label: string; templates: ProjectTemplate[] }> = [];
+  if (operatorTemplates.length > 0) {
+    allGroups.push({ label: "Your templates", templates: operatorTemplates });
+  }
+  for (const [cat, list] of groupByCategory(platformTemplates)) {
+    allGroups.push({ label: CATEGORY_LABELS[cat] ?? cat, templates: list });
+  }
+
   return (
     <div>
       {/* Search */}
@@ -477,58 +549,27 @@ function StepTemplate({
         }}
       />
 
-      {/* Blank project card */}
-      <button
-        onClick={onBlank}
-        style={{
-          width: "100%",
-          padding: "14px 18px",
-          borderRadius: 9,
-          border: isBlank
-            ? "1.5px solid var(--foreground)"
-            : "1.5px dashed rgba(255,255,255,0.15)",
-          background: isBlank ? "rgba(255,255,255,0.06)" : "transparent",
-          color: "var(--fg2)",
-          fontSize: 13,
-          fontWeight: 500,
-          textAlign: "left",
-          cursor: "pointer",
-          transition: "border-color 0.15s, background 0.15s",
-          marginBottom: 24,
-        }}
-        className="hover:brightness-110"
-      >
-        <span style={{ fontWeight: 600 }}>Blank project</span>
-        <span style={{ fontSize: 11, color: "var(--fg4)", marginLeft: 10 }}>
-          Start from scratch — no template
-        </span>
-      </button>
-
-      {/* Operator custom templates */}
-      {operatorTemplates.length > 0 && (
+      {allGroups.map((group, gi) => (
         <TemplateGroup
-          label="Your templates"
-          templates={operatorTemplates}
+          key={group.label}
+          label={group.label}
+          templates={group.templates}
           selectedId={selected?.id ?? null}
           onSelect={onSelect}
-        />
-      )}
-
-      {/* Platform templates grouped by category */}
-      {groupByCategory(platformTemplates).map(([cat, list]) => (
-        <TemplateGroup
-          key={cat}
-          label={CATEGORY_LABELS[cat] ?? cat}
-          templates={list}
-          selectedId={selected?.id ?? null}
-          onSelect={onSelect}
+          onDeselect={onDeselect}
+          blankCard={gi === 0 ? blankCard : null}
         />
       ))}
 
-      {filtered.length === 0 && !isBlank && (
-        <p style={{ textAlign: "center", color: "var(--fg4)", fontSize: 12, padding: 20 }}>
-          No templates match your search.
-        </p>
+      {allGroups.length === 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+            {blankCard}
+          </div>
+          <p style={{ textAlign: "center", color: "var(--fg4)", fontSize: 12, padding: 20 }}>
+            No templates match your search.
+          </p>
+        </div>
       )}
     </div>
   );
@@ -539,11 +580,15 @@ function TemplateGroup({
   templates,
   selectedId,
   onSelect,
+  onDeselect,
+  blankCard,
 }: {
   label: string;
   templates: ProjectTemplate[];
   selectedId: string | null;
   onSelect: (t: ProjectTemplate) => void;
+  onDeselect: () => void;
+  blankCard: React.ReactNode;
 }) {
   return (
     <div style={{ marginBottom: 24 }}>
@@ -559,13 +604,17 @@ function TemplateGroup({
       >
         {label}
       </h3>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        {blankCard}
         {templates.map((t) => {
           const isSelected = t.id === selectedId;
           return (
             <button
               key={t.id}
-              onClick={() => onSelect(t)}
+              onClick={() => {
+                if (isSelected) onDeselect();
+                else onSelect(t);
+              }}
               style={{
                 padding: "12px 14px",
                 borderRadius: 8,

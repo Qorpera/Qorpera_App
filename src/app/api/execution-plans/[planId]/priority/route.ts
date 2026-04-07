@@ -43,11 +43,9 @@ async function checkPlanVisibility(
   } else if (plan.sourceType === "initiative") {
     const initiative = await prisma.initiative.findUnique({
       where: { id: plan.sourceId },
-      select: { goal: { select: { departmentId: true } } },
+      select: { id: true },
     });
-    // HQ-level goals (null department) not visible to members
-    if (!initiative?.goal?.departmentId) return null;
-    if (!visibleDepts.includes(initiative.goal.departmentId)) return null;
+    if (!initiative) return null;
   }
 
   return plan;

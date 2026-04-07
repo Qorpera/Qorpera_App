@@ -34,7 +34,7 @@ import {
 import { CONTENT_CHUNKS, generateActivitySignals } from "./seed-content";
 import { SITUATION_TYPE_UPDATES, SITUATIONS, ACTION_CAPABILITIES } from "./seed-situations";
 import {
-  GOALS, INITIATIVES, WORKSTREAMS, OPERATIONAL_INSIGHTS,
+  INITIATIVES, WORKSTREAMS, OPERATIONAL_INSIGHTS,
   PLAN_AUTONOMY_PATTERNS, RECURRING_TASKS, FOLLOW_UPS,
   NOTIFICATIONS, COPILOT_SESSIONS, DELEGATIONS,
 } from "./seed-phase3";
@@ -69,7 +69,6 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   await prisma.executionStep.deleteMany({ where: { plan: { operatorId } } });
   await prisma.executionPlan.deleteMany({ where: { operatorId } });
   await prisma.initiative.deleteMany({ where: { operatorId } });
-  await prisma.goal.deleteMany({ where: { operatorId } });
   await prisma.planAutonomy.deleteMany({ where: { operatorId } });
   await prisma.operationalInsight.deleteMany({ where: { operatorId } });
   await prisma.departmentHealth.deleteMany({ where: { operatorId } });
@@ -1000,25 +999,11 @@ export async function runDemoSeed(operatorId: string) {
   console.log(`[demo-seed] Created ${situationCount} situations`);
 
   // ═══════════════════════════════════════════════════════════════════
-  // Prompt 4 layers: Goals, Initiatives, WorkStreams, Insights, etc.
+  // Prompt 4 layers: Initiatives, WorkStreams, Insights, etc.
   // ═══════════════════════════════════════════════════════════════════
 
-  // ─── P4 Layer 1: Goals + Initiatives ──────────────────────────────
-  console.log("[demo-seed] Creating goals, initiatives...");
-  const goalIds: Record<string, string> = {};
-  for (const g of GOALS) {
-    const goal = await prisma.goal.create({
-      data: {
-        operatorId,
-        departmentId: g.department ? deptIds[g.department] ?? null : null,
-        title: g.title,
-        description: g.description,
-        priority: g.priority,
-        status: g.status,
-      },
-    });
-    goalIds[g.title] = goal.id;
-  }
+  // ─── P4 Layer 1: Initiatives ──────────────────────────────────────
+  console.log("[demo-seed] Creating initiatives...");
 
   for (const init of INITIATIVES) {
     let executionPlanId: string | null = null;
@@ -1062,9 +1047,11 @@ export async function runDemoSeed(operatorId: string) {
     const initiative = await prisma.initiative.create({
       data: {
         operatorId,
-        goalId: goalIds[init.goalTitle],
         aiEntityId,
-        executionPlanId,
+        proposalType: "general",
+        triggerSummary: init.rationale.slice(0, 120),
+        evidence: [],
+        proposal: {},
         status: init.status,
         rationale: init.rationale,
         impactAssessment: init.impactAssessment ?? null,
@@ -1308,7 +1295,6 @@ export async function runDemoSeed(operatorId: string) {
       situationTypesUpdated: SITUATION_TYPE_UPDATES.length,
       actionCapabilities: ACTION_CAPABILITIES.length,
       situations: situationCount,
-      goals: GOALS.length,
       initiatives: INITIATIVES.length,
       workStreams: WORKSTREAMS.length,
       insights: OPERATIONAL_INSIGHTS.length,

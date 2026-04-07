@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
+import { CronExpressionParser } from "cron-parser";
 
 export async function GET(
   _req: NextRequest,
@@ -9,32 +9,58 @@ export async function GET(
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { user, operatorId } = su;
+  const { operatorId } = su;
   const { id } = await params;
 
-  const systemJob = await prisma.systemJob.findFirst({
+  const job = await prisma.systemJob.findFirst({
     where: { id, operatorId },
+    include: {
+      runs: {
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          cycleNumber: true,
+          status: true,
+          summary: true,
+          importanceScore: true,
+          findings: true,
+          proposedSituationCount: true,
+          proposedInitiativeCount: true,
+          durationMs: true,
+          createdAt: true,
+        },
+      },
+    },
   });
 
-  if (!systemJob) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Department visibility check
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
-  if (visibleDepts !== "all" && systemJob.scopeEntityId) {
-    if (!visibleDepts.includes(systemJob.scopeEntityId)) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-  }
-
-  const runs = await prisma.systemJobRun.findMany({
-    where: { systemJobId: systemJob.id, operatorId },
-    orderBy: { cycleNumber: "desc" },
-    take: 20,
+  return NextResponse.json({
+    id: job.id,
+    title: job.title,
+    description: job.description,
+    scope: job.scope,
+    scopeEntityId: job.scopeEntityId,
+    cronExpression: job.cronExpression,
+    status: job.status,
+    importanceThreshold: job.importanceThreshold,
+    lastTriggeredAt: job.lastTriggeredAt?.toISOString() ?? null,
+    nextTriggerAt: job.nextTriggerAt?.toISOString() ?? null,
+    createdAt: job.createdAt.toISOString(),
+    runs: job.runs.map(r => ({
+      id: r.id,
+      cycleNumber: r.cycleNumber,
+      status: r.status,
+      summary: r.summary,
+      importanceScore: r.importanceScore,
+      findings: r.findings,
+      proposedSituationCount: r.proposedSituationCount,
+      proposedInitiativeCount: r.proposedInitiativeCount,
+      durationMs: r.durationMs,
+      createdAt: r.createdAt.toISOString(),
+    })),
   });
-
-  return NextResponse.json({ systemJob, runs });
 }
 
 export async function PATCH(
@@ -43,107 +69,55 @@ export async function PATCH(
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { user, operatorId } = su;
+  const { operatorId, effectiveRole } = su;
   const { id } = await params;
 
-  if (user.role !== "admin" && user.role !== "superadmin") {
+  if (effectiveRole === "member") {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
-  const systemJob = await prisma.systemJob.findFirst({
-    where: { id, operatorId },
-  });
-
-  if (!systemJob) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  const existing = await prisma.systemJob.findFirst({ where: { id, operatorId } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
-  const action = body.action as string;
+  const data: Record<string, unknown> = {};
 
-  if (!["approve", "pause", "resume", "deactivate"].includes(action)) {
-    return NextResponse.json(
-      { error: "Invalid action. Must be: approve, pause, resume, or deactivate" },
-      { status: 400 },
-    );
+  if (body.title !== undefined) data.title = body.title;
+  if (body.description !== undefined) data.description = body.description;
+  if (body.importanceThreshold !== undefined) data.importanceThreshold = body.importanceThreshold;
+  if (body.status !== undefined && ["active", "paused", "deactivated"].includes(body.status)) {
+    data.status = body.status;
   }
-
-  let updateData: Record<string, unknown> = {};
-
-  switch (action) {
-    case "approve": {
-      if (systemJob.status !== "proposed") {
-        return NextResponse.json(
-          { error: "Can only approve proposed System Jobs" },
-          { status: 400 },
-        );
-      }
-      const { CronExpressionParser } = await import("cron-parser");
-      try {
-        const interval = CronExpressionParser.parse(systemJob.cronExpression, { currentDate: new Date() });
-        updateData = {
-          status: "active",
-          nextTriggerAt: interval.next().toDate(),
-        };
-      } catch {
-        return NextResponse.json(
-          { error: `Invalid cron expression: ${systemJob.cronExpression}` },
-          { status: 400 },
-        );
-      }
-      break;
-    }
-
-    case "pause": {
-      if (systemJob.status !== "active") {
-        return NextResponse.json(
-          { error: "Can only pause active System Jobs" },
-          { status: 400 },
-        );
-      }
-      updateData = {
-        status: "paused",
-        nextTriggerAt: null,
-      };
-      break;
-    }
-
-    case "resume": {
-      if (systemJob.status !== "paused") {
-        return NextResponse.json(
-          { error: "Can only resume paused System Jobs" },
-          { status: 400 },
-        );
-      }
-      const { CronExpressionParser } = await import("cron-parser");
-      try {
-        const interval = CronExpressionParser.parse(systemJob.cronExpression, { currentDate: new Date() });
-        updateData = {
-          status: "active",
-          nextTriggerAt: interval.next().toDate(),
-        };
-      } catch {
-        return NextResponse.json(
-          { error: `Invalid cron expression: ${systemJob.cronExpression}` },
-          { status: 400 },
-        );
-      }
-      break;
-    }
-
-    case "deactivate": {
-      updateData = {
-        status: "deactivated",
-        nextTriggerAt: null,
-      };
-      break;
+  if (body.cronExpression !== undefined) {
+    try {
+      const interval = CronExpressionParser.parse(body.cronExpression);
+      data.cronExpression = body.cronExpression;
+      data.nextTriggerAt = interval.next().toDate();
+    } catch {
+      return NextResponse.json({ error: "Invalid cron expression" }, { status: 400 });
     }
   }
 
-  const updated = await prisma.systemJob.update({
-    where: { id: systemJob.id },
-    data: updateData,
-  });
+  const updated = await prisma.systemJob.update({ where: { id }, data });
+  return NextResponse.json(updated);
+}
 
-  return NextResponse.json({ systemJob: updated });
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { operatorId, effectiveRole } = su;
+  const { id } = await params;
+
+  if (effectiveRole === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+
+  const existing = await prisma.systemJob.findFirst({ where: { id, operatorId } });
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  await prisma.systemJob.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
 }

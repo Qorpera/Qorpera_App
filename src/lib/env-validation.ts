@@ -17,6 +17,7 @@ const ENV_VARS: EnvVar[] = [
   { name: 'DOCUMENT_STORAGE_PATH', required: false, default: './uploads/documents', description: 'Path for document storage' },
   { name: 'NEXTAUTH_URL', required: false, description: 'Base URL for the application' },
   { name: 'ANTHROPIC_API_KEY', required: false, description: 'Anthropic API key — enables cross-provider failover when AI_PROVIDER is openai' },
+  { name: 'BRAVE_SEARCH_API_KEY', required: false, description: 'Brave Search API key — enables web_search tool in reasoning loops' },
 ];
 
 export function validateEnv(): { valid: boolean; errors: string[]; warnings: string[] } {

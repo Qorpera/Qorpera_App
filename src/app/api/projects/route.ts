@@ -81,10 +81,18 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, description, templateId, dueDate, status: projStatus, members } = body;
+  const { name, description, templateId, dueDate, status: projStatus, members, parentProjectId } = body;
 
   if (!name || typeof name !== "string") {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
+  }
+
+  if (parentProjectId) {
+    const parent = await prisma.project.findFirst({
+      where: { id: parentProjectId, operatorId },
+      select: { id: true },
+    });
+    if (!parent) return NextResponse.json({ error: "Parent project not found" }, { status: 404 });
   }
 
   // Track members with restriction text for post-transaction LLM interpretation
@@ -97,6 +105,7 @@ export async function POST(req: NextRequest) {
         name,
         description: description || null,
         templateId: templateId || null,
+        parentProjectId: parentProjectId || null,
         dueDate: dueDate ? new Date(dueDate) : null,
         status: projStatus || "draft",
         createdById: effectiveUserId,

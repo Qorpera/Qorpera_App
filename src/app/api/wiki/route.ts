@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
   const scopeParam = params.get("scope") ?? "operator";
 
   // System scope requires superadmin
-  if (scopeParam === "system" && su.effectiveRole !== "superadmin") {
+  if (scopeParam === "system" && !su.isSuperadmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -40,7 +41,21 @@ export async function GET(req: NextRequest) {
     ];
   }
 
-  const pages = await prisma.knowledgePage.findMany({
+  // Department scope for members (operator-scoped pages only)
+  if (scopeParam !== "system") {
+    const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
+    if (visibleDepts !== "all") {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND as Record<string, unknown>[] : []),
+        { OR: [
+          { departmentIds: { hasSome: visibleDepts } },
+          { departmentIds: { isEmpty: true } },
+        ] },
+      ];
+    }
+  }
+
+  const rawPages = await prisma.knowledgePage.findMany({
     where,
     select: {
       id: true,
@@ -59,9 +74,26 @@ export async function GET(req: NextRequest) {
       synthesisPath: true,
       verifiedAt: true,
       citedByPages: true,
+      subjectEntityId: true,
     },
     orderBy: [{ pageType: "asc" }, { title: "asc" }],
   });
+
+  // Batch-fetch entity displayNames for pages with subjectEntityId
+  const entityIds = rawPages.map((p) => p.subjectEntityId).filter((id): id is string => !!id);
+  const entityMap = new Map<string, string>();
+  if (entityIds.length > 0) {
+    const entities = await prisma.entity.findMany({
+      where: { id: { in: entityIds } },
+      select: { id: true, displayName: true },
+    });
+    for (const e of entities) entityMap.set(e.id, e.displayName);
+  }
+
+  const pages = rawPages.map(({ subjectEntityId, ...p }) => ({
+    ...p,
+    subjectEntityName: subjectEntityId ? entityMap.get(subjectEntityId) ?? undefined : undefined,
+  }));
 
   const byType: Record<string, number> = {};
   for (const p of pages) {

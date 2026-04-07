@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,12 @@ export const dynamic = "force-dynamic";
  * Daily cron: reset budget period for operators whose budgetPeriodStart
  * is in a previous calendar month.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const now = new Date();
 
   const operators = await prisma.operator.findMany({

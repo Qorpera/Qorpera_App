@@ -46,6 +46,7 @@
     "admin": "Admin",
     "setup": "Setup",
     "systemHealth": "System Health",
+    "systemJobs": "System Jobs",
     "account": "Account",
     "evaluationLog": "Evaluation Log"
   },

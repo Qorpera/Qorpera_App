@@ -1,13 +1,8 @@
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { callLLM, getModel, getThinkingBudget } from "@/lib/ai-provider";
-import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ensureInternalCapabilities } from "@/lib/internal-capabilities";
-import { extractJSON } from "@/lib/json-helpers";
-import { embedChunks } from "@/lib/rag/embedder";
-import { retrieveRelevantChunks } from "@/lib/rag/retriever";
 import { CronExpressionParser } from "cron-parser";
 
 // ── Zod Output Schema ──────────────────────────────────────────────────────
@@ -28,16 +23,15 @@ const ProposedSituationSchema = z.object({
 });
 
 const ProposedInitiativeSchema = z.object({
+  proposalType: z.enum([
+    "project_creation", "policy_change", "autonomy_graduation",
+    "system_job_creation", "strategy_revision", "wiki_update",
+    "resource_recommendation", "general",
+  ]),
+  triggerSummary: z.string().min(10),
   rationale: z.string().min(20),
   impactAssessment: z.string().min(10),
-  suggestedGoalId: z.string().optional(),
-  steps: z.array(z.object({
-    title: z.string(),
-    description: z.string(),
-    executionMode: z.enum(["action", "generate", "human_task"]),
-    actionCapabilityName: z.string().optional(),
-    params: z.record(z.any()).optional(),
-  })),
+  proposal: z.record(z.any()),
 });
 
 const SelfAmendmentSchema = z.object({
@@ -134,10 +128,7 @@ type SystemJobRow = {
   operatorId: string;
   aiEntityId: string;
   title: string;
-  description: string | null;
-  contextProfile: string;
-  reasoningProfile: string;
-  outputProfile: string | null;
+  description: string;
   cronExpression: string;
   scope: string;
   scopeEntityId: string | null;
@@ -150,7 +141,6 @@ async function executeSystemJob(
 ): Promise<"completed" | "compressed"> {
   const startTime = Date.now();
 
-  // Create run record
   const runCount = await prisma.systemJobRun.count({ where: { systemJobId: job.id } });
   const run = await prisma.systemJobRun.create({
     data: {
@@ -164,34 +154,106 @@ async function executeSystemJob(
   try {
     await ensureInternalCapabilities(job.operatorId);
 
-    // Load context
-    const context = await assembleSystemJobContext(job, job.operatorId);
-
-    // Load operator company name
     const operator = await prisma.operator.findUnique({
       where: { id: job.operatorId },
       select: { companyName: true },
     });
 
-    // Build prompts
-    const systemPrompt = buildSystemJobSystemPrompt(job, operator?.companyName ?? "the company");
-    const userPrompt = buildSystemJobUserPrompt(context);
+    // Load prior cycle history for seed context
+    const priorRuns = await prisma.systemJobRun.findMany({
+      where: { systemJobId: job.id, status: { in: ["completed", "compressed"] } },
+      orderBy: { cycleNumber: "desc" },
+      take: 3,
+      select: {
+        cycleNumber: true,
+        summary: true,
+        findings: true,
+        cycleComparison: true,
+        importanceScore: true,
+        createdAt: true,
+      },
+    });
 
-    // Call LLM with retry
-    const llmResult = await callAndValidateSystemJob(systemPrompt, userPrompt);
-    if (!llmResult) {
-      await prisma.systemJobRun.update({
-        where: { id: run.id },
-        data: {
-          status: "failed",
-          errorMessage: "LLM output validation failed after 2 attempts",
-          durationMs: Date.now() - startTime,
-        },
-      });
-      return "completed";
+    // Load active situations + initiatives for dedup
+    const activeSituations = await prisma.situation.findMany({
+      where: { operatorId: job.operatorId, status: { notIn: ["resolved", "closed", "dismissed"] } },
+      select: { triggerSummary: true, status: true, situationType: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+
+    const activeInitiatives = await prisma.initiative.findMany({
+      where: { operatorId: job.operatorId, status: { notIn: ["rejected", "failed", "completed"] } },
+      select: { rationale: true, status: true, proposalType: true },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+
+    // Build seed context
+    const seedParts: string[] = [];
+    seedParts.push(`SYSTEM JOB: ${job.title}`);
+    seedParts.push(`DESCRIPTION: ${job.description ?? "No description"}`);
+    seedParts.push(`COMPANY: ${operator?.companyName ?? "Unknown"}`);
+    seedParts.push(`SCOPE: ${job.scope}${job.scopeEntityId ? ` (entity: ${job.scopeEntityId})` : ""}`);
+
+    if (priorRuns.length > 0) {
+      seedParts.push("\nPRIOR CYCLES:");
+      for (const r of priorRuns) {
+        seedParts.push(`  Cycle ${r.cycleNumber} (${r.createdAt.toISOString().split("T")[0]}): ${r.summary ?? "No summary"} (importance: ${r.importanceScore?.toFixed(2) ?? "N/A"})`);
+      }
     }
 
-    const { output, rawText } = llmResult;
+    if (activeSituations.length > 0) {
+      seedParts.push("\nACTIVE SITUATIONS (do NOT duplicate):");
+      for (const s of activeSituations) {
+        seedParts.push(`  [${s.status}] ${s.situationType.name}: ${s.triggerSummary?.slice(0, 100) ?? "No summary"}`);
+      }
+    }
+
+    if (activeInitiatives.length > 0) {
+      seedParts.push("\nACTIVE INITIATIVES (do NOT duplicate):");
+      for (const i of activeInitiatives) {
+        seedParts.push(`  [${i.status}] [${i.proposalType}] ${i.rationale.slice(0, 120)}`);
+      }
+    }
+
+    const seedContext = seedParts.join("\n");
+
+    // Build system prompt
+    const systemPrompt = buildAgenticSystemJobPrompt(job, operator?.companyName ?? "the company");
+
+    // Assemble tools: reasoning tools + connector read tools
+    const { REASONING_TOOLS, executeReasoningTool } = await import("@/lib/reasoning-tools");
+    const { getConnectorReadTools, executeConnectorReadTool } = await import("@/lib/connector-read-tools");
+    const { tools: connectorTools } = await getConnectorReadTools(job.operatorId);
+    const allTools = [...REASONING_TOOLS, ...connectorTools];
+
+    const dispatchTool = async (toolName: string, args: Record<string, unknown>): Promise<string> => {
+      try {
+        return await executeReasoningTool(job.operatorId, toolName, args);
+      } catch {
+        return await executeConnectorReadTool(job.operatorId, toolName, args);
+      }
+    };
+
+    // Run agentic loop
+    const { runAgenticLoop } = await import("@/lib/agentic-loop");
+    const agenticResult = await runAgenticLoop({
+      operatorId: job.operatorId,
+      contextId: job.id,
+      contextType: "system_job",
+      cycleNumber: runCount + 1,
+      systemPrompt,
+      seedContext,
+      tools: allTools,
+      dispatchTool,
+      outputSchema: SystemJobOutputSchema,
+      softBudget: 15,
+      hardBudget: 25,
+      modelRoute: "systemJobReasoning",
+    });
+
+    const output = agenticResult.output;
 
     // Importance gate
     if (
@@ -207,31 +269,16 @@ async function executeSystemJob(
           importanceScore: output.importanceScore,
           findings: (output.findings ?? []) as unknown as Prisma.InputJsonValue,
           selfAmendments: (output.selfAmendments ?? []) as unknown as Prisma.InputJsonValue,
-          rawReasoning: rawText,
+          rawReasoning: JSON.stringify({ toolCalls: agenticResult.toolCallCount, cost: agenticResult.apiCostCents }),
           durationMs: Date.now() - startTime,
         },
       });
-
-      sendNotificationToAdmins({
-        operatorId: job.operatorId,
-        type: "system_alert",
-        title: `System Job ran: ${job.title}`,
-        body: `No actionable findings. Summary: ${output.summary.slice(0, 200)}`,
-        sourceType: "system_job",
-        sourceId: job.id,
-      }).catch(() => {});
-
       return "compressed";
     }
 
     // Dispatch output
-    const { situationsCreated, initiativesCreated } = await dispatchOutput(
-      output,
-      job,
-      context.capabilities,
-    );
+    const { situationsCreated, initiativesCreated } = await dispatchOutput(output, job);
 
-    // Update run record
     await prisma.systemJobRun.update({
       where: { id: run.id },
       data: {
@@ -244,17 +291,16 @@ async function executeSystemJob(
         cycleComparison: (output.cycleComparison ?? null) as unknown as Prisma.InputJsonValue,
         proposedSituationCount: situationsCreated,
         proposedInitiativeCount: initiativesCreated,
-        rawReasoning: rawText,
+        rawReasoning: JSON.stringify({ toolCalls: agenticResult.toolCallCount, cost: agenticResult.apiCostCents }),
         durationMs: Date.now() - startTime,
       },
     });
 
-    // Notify admins
     sendNotificationToAdmins({
       operatorId: job.operatorId,
       type: "system_alert",
       title: `System Job completed: ${job.title}`,
-      body: `${output.proposedSituations.length} situations, ${output.proposedInitiatives.length} initiatives proposed. ${output.summary.slice(0, 200)}`,
+      body: output.summary.slice(0, 200),
       sourceType: "system_job",
       sourceId: job.id,
     }).catch(() => {});
@@ -273,76 +319,15 @@ async function executeSystemJob(
       },
     });
 
-    throw err; // Re-throw so processSystemJobs counts the error
+    throw err;
   }
-}
-
-// ── LLM Call + Validation ──────────────────────────────────────────────────
-
-async function callAndValidateSystemJob(
-  systemPrompt: string,
-  userPrompt: string,
-): Promise<{ output: SystemJobOutput; rawText: string } | null> {
-  let rawResponse = "";
-  let parseError = "";
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const userContent = attempt === 0
-      ? userPrompt
-      : `${userPrompt}\n\nPREVIOUS ATTEMPT FAILED VALIDATION: ${parseError}\nPlease fix the JSON output to match the required schema exactly.`;
-
-    try {
-      const response = await callLLM({
-        instructions: systemPrompt,
-        messages: [{ role: "user", content: userContent }],
-        aiFunction: "reasoning",
-        temperature: 0.3,
-        maxTokens: 65_536,
-        model: getModel("systemJobReasoning"),
-        thinking: true,
-        thinkingBudget: getThinkingBudget("systemJobReasoning") ?? undefined,
-      });
-      rawResponse = response.text;
-
-      const parsed = extractJSON(rawResponse);
-      if (!parsed) {
-        parseError = "Could not parse JSON from response";
-        if (attempt === 0) continue;
-        break;
-      }
-
-      const result = SystemJobOutputSchema.safeParse(parsed);
-      if (!result.success) {
-        parseError = result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ");
-        if (attempt === 0) continue;
-        break;
-      }
-
-      return { output: result.data, rawText: rawResponse };
-    } catch (err) {
-      console.error("[system-job] LLM call failed:", err);
-      return null;
-    }
-  }
-
-  console.warn(`[system-job] Validation failed: ${parseError}`);
-  return null;
 }
 
 // ── Output Dispatch ────────────────────────────────────────────────────────
 
-type CapabilityRow = {
-  id: string;
-  name: string;
-  connectorId: string | null;
-  enabled: boolean;
-  connector: { provider: string } | null;
-};
-
 async function dispatchOutput(
   output: SystemJobOutput,
   job: SystemJobRow,
-  capabilities: CapabilityRow[],
 ): Promise<{ situationsCreated: number; initiativesCreated: number }> {
   let situationsCreated = 0;
   let initiativesCreated = 0;
@@ -350,7 +335,6 @@ async function dispatchOutput(
   // Dispatch proposed situations
   for (const proposed of output.proposedSituations) {
     try {
-      // Resolve situation type
       let situationTypeId: string | null = null;
       if (proposed.suggestedSituationTypeName) {
         const st = await prisma.situationType.findFirst({
@@ -366,26 +350,16 @@ async function dispatchOutput(
         }
         situationTypeId = st.id;
       }
-      if (!situationTypeId) {
-        console.warn("[system-job] No situation type resolved for proposed situation. Skipping.");
-        continue;
-      }
+      if (!situationTypeId) continue;
 
-      // Resolve trigger entity
       let triggerEntityId: string | null = null;
       if (proposed.triggerEntityName) {
         const entity = await prisma.entity.findFirst({
-          where: {
-            operatorId: job.operatorId,
-            displayName: { contains: proposed.triggerEntityName, mode: "insensitive" },
-            status: "active",
-          },
+          where: { operatorId: job.operatorId, displayName: { contains: proposed.triggerEntityName, mode: "insensitive" }, status: "active" },
           select: { id: true },
         });
         triggerEntityId = entity?.id ?? null;
       }
-
-      const urgencyToSeverity: Record<string, number> = { high: 0.9, medium: 0.6, low: 0.3 };
 
       await prisma.situation.create({
         data: {
@@ -394,98 +368,44 @@ async function dispatchOutput(
           triggerEntityId,
           triggerSummary: proposed.description,
           status: "detected",
-          severity: urgencyToSeverity[proposed.urgency] ?? 0.5,
+          severity: { high: 0.9, medium: 0.6, low: 0.3 }[proposed.urgency] ?? 0.5,
           confidence: 0.7,
           source: "system_job",
         },
       });
-
       situationsCreated++;
     } catch (err) {
-      console.error(`[system-job] Failed to create situation "${proposed.title}":`, err);
+      console.error(`[system-job] Failed to create situation:`, err);
     }
   }
 
   // Dispatch proposed initiatives
   for (const proposed of output.proposedInitiatives) {
     try {
-      // Resolve goal
-      let goalId = proposed.suggestedGoalId ?? null;
-      if (goalId) {
-        const exists = await prisma.goal.findFirst({
-          where: { id: goalId, operatorId: job.operatorId, status: "active" },
-          select: { id: true },
-        });
-        if (!exists) goalId = null;
-      }
-      if (!goalId) {
-        // Fall back to first active goal in scope
-        const fallback = await prisma.goal.findFirst({
-          where: {
-            operatorId: job.operatorId,
-            status: "active",
-            ...(job.scopeEntityId ? { departmentId: job.scopeEntityId } : {}),
-          },
-          select: { id: true },
-          orderBy: { priority: "asc" },
-        });
-        if (!fallback) {
-          console.warn("[system-job] No active goal found for initiative. Skipping.");
-          continue;
-        }
-        goalId = fallback.id;
-      }
-
-      // Resolve steps
-      const resolvedSteps: StepDefinition[] = [];
-      let skipProposal = false;
-      for (const step of proposed.steps) {
-        let actionCapabilityId: string | undefined;
-        if (step.executionMode === "action" && step.actionCapabilityName) {
-          const cap = capabilities.find(c => c.name === step.actionCapabilityName);
-          if (!cap) {
-            console.warn(`[system-job] ActionCapability "${step.actionCapabilityName}" not found. Skipping proposal.`);
-            skipProposal = true;
-            break;
-          }
-          actionCapabilityId = cap.id;
-        }
-        resolvedSteps.push({
-          title: step.title,
-          description: step.description,
-          executionMode: step.executionMode,
-          actionCapabilityId,
-          inputContext: step.params ? { params: step.params } : undefined,
-        });
-      }
-      if (skipProposal || resolvedSteps.length === 0) continue;
-
-      // Create initiative
-      const initiative = await prisma.initiative.create({
+      await prisma.initiative.create({
         data: {
           operatorId: job.operatorId,
-          goalId,
           aiEntityId: job.aiEntityId,
+          proposalType: proposed.proposalType,
+          triggerSummary: proposed.triggerSummary,
+          evidence: JSON.stringify([{ source: "system_job", claim: proposed.triggerSummary }]),
+          proposal: proposed.proposal as Prisma.InputJsonValue,
           status: "proposed",
           rationale: proposed.rationale,
           impactAssessment: proposed.impactAssessment,
+          ...(proposed.proposalType === "project_creation" ? {
+            proposedProjectConfig: proposed.proposal as Prisma.InputJsonValue,
+          } : {}),
         },
-      });
-
-      const planId = await createExecutionPlan(job.operatorId, "initiative", initiative.id, resolvedSteps);
-
-      await prisma.initiative.update({
-        where: { id: initiative.id },
-        data: { executionPlanId: planId },
       });
 
       sendNotificationToAdmins({
         operatorId: job.operatorId,
         type: "initiative_proposed",
-        title: `New initiative proposed by System Job: ${proposed.rationale.slice(0, 80)}`,
-        body: proposed.impactAssessment.slice(0, 200),
+        title: `New initiative: ${proposed.triggerSummary.slice(0, 80)}`,
+        body: proposed.rationale.slice(0, 200),
         sourceType: "initiative",
-        sourceId: initiative.id,
+        sourceId: job.id,
       }).catch(() => {});
 
       initiativesCreated++;
@@ -497,412 +417,49 @@ async function dispatchOutput(
   return { situationsCreated, initiativesCreated };
 }
 
-// ── Context Assembly ───────────────────────────────────────────────────────
+// ── System Prompt ──────────────────────────────────────────────────────────
 
-type ContextProfile = {
-  dataDomains?: string[];
-  focusEntityIds?: string[];
-  connectorProviders?: string[];
-  timeWindowDays?: number;
-  includeInsights?: boolean;
-  includeGoals?: boolean;
-  includeSituationTypeStats?: boolean;
-};
+function buildAgenticSystemJobPrompt(job: SystemJobRow, companyName: string): string {
+  return `You are an intelligence analyst for ${companyName}. Your role: ${job.title}.
 
-type AssembledContext = {
-  sections: { label: string; content: string }[];
-  capabilities: CapabilityRow[];
-};
+${job.description ?? ""}
 
-async function assembleSystemJobContext(
-  job: SystemJobRow,
-  operatorId: string,
-): Promise<AssembledContext> {
-  const sections: { label: string; content: string }[] = [];
+You have access to organizational tools to investigate. Start by reading relevant wiki pages to understand the current state, then search for external information if needed, then produce your assessment.
 
-  let profile: ContextProfile = {};
-  try {
-    profile = JSON.parse(job.contextProfile) as ContextProfile;
-  } catch {
-    console.warn(`[system-job] Invalid contextProfile JSON for job ${job.id}`);
-  }
+INVESTIGATION PROCESS:
+1. Use search_wiki and read_wiki_page to understand the company's current state relevant to your role
+2. Use web_search if you need external intelligence (competitors, market, legal, technology)
+3. Use search_entities, lookup_entity, get_activity_timeline for operational data
+4. Use search_communications, search_documents for detailed evidence
+5. Compare what you find against what SHOULD be happening (per wiki strategy/operational pages)
+6. Identify gaps — things the wiki says should happen that aren't happening
 
-  const timeWindowDays = profile.timeWindowDays ?? 30;
-  const since = new Date(Date.now() - timeWindowDays * 24 * 60 * 60 * 1000);
-  const dataDomains = profile.dataDomains ?? [];
-
-  // ── Department context (always if scoped) ────────────────────────────────
-  if (job.scopeEntityId) {
-    const dept = await prisma.entity.findFirst({
-      where: { id: job.scopeEntityId, operatorId },
-      select: { displayName: true, description: true },
-    });
-    if (dept) {
-      const memberCount = await prisma.entity.count({
-        where: { operatorId, parentDepartmentId: job.scopeEntityId, category: "base", status: "active" },
-      });
-      sections.push({
-        label: "DEPARTMENT",
-        content: `${dept.displayName}${dept.description ? ` — ${dept.description}` : ""}\nMembers: ${memberCount}`,
-      });
-    }
-  }
-
-  // ── Prior cycle history (always) ─────────────────────────────────────────
-  const priorRuns = await prisma.systemJobRun.findMany({
-    where: { systemJobId: job.id, status: { in: ["completed", "compressed"] } },
-    orderBy: { cycleNumber: "desc" },
-    take: 5,
-    select: {
-      cycleNumber: true,
-      summary: true,
-      findings: true,
-      cycleComparison: true,
-      importanceScore: true,
-      status: true,
-      createdAt: true,
-    },
-  });
-  if (priorRuns.length > 0) {
-    const runLines = priorRuns.map(r => {
-      const findings = Array.isArray(r.findings) ? r.findings as Array<{ title: string; category: string }> : [];
-      const findingSummary = findings.length > 0
-        ? `\n    Findings: ${findings.map(f => `[${f.category}] ${f.title}`).join("; ")}`
-        : "";
-      const comparison = r.cycleComparison as { keyChanges?: string[] } | null;
-      const changesSummary = comparison?.keyChanges?.length
-        ? `\n    Key changes: ${comparison.keyChanges.join("; ")}`
-        : "";
-      return `  Cycle ${r.cycleNumber} (${r.createdAt.toISOString().split("T")[0]}) — importance: ${r.importanceScore?.toFixed(2) ?? "N/A"}, status: ${r.status}\n    Summary: ${r.summary ?? "N/A"}${findingSummary}${changesSummary}`;
-    }).join("\n\n");
-    sections.push({ label: "PRIOR CYCLE HISTORY", content: runLines });
-  }
-
-  // ── Domain-specific data ─────────────────────────────────────────────────
-
-  const DOMAIN_SIGNAL_PATTERNS: Record<string, string[]> = {
-    financial: ["invoice", "payment", "revenue", "subscription", "charge", "refund"],
-    crm: ["deal", "contact", "pipeline", "company", "lead"],
-    communication: ["email", "message", "thread", "reply"],
-    calendar: ["calendar", "meeting", "event"],
-  };
-
-  for (const domain of dataDomains) {
-    if (domain === "content") continue; // Handled via RAG below
-
-    const patterns = DOMAIN_SIGNAL_PATTERNS[domain];
-    if (!patterns) continue;
-
-    const signals = await prisma.activitySignal.findMany({
-      where: {
-        operatorId,
-        occurredAt: { gte: since },
-        OR: patterns.map(p => ({ signalType: { contains: p, mode: "insensitive" as const } })),
-        ...(job.scopeEntityId ? { departmentIds: { contains: job.scopeEntityId } } : {}),
-      },
-      select: {
-        signalType: true,
-        metadata: true,
-        actorEntityId: true,
-        targetEntityIds: true,
-        occurredAt: true,
-      },
-      orderBy: { occurredAt: "desc" },
-      take: 100,
-    });
-
-    if (signals.length > 0) {
-      const lines = signals.map(s => {
-        let detail = "";
-        if (s.metadata) {
-          try {
-            const meta = JSON.parse(s.metadata) as Record<string, unknown>;
-            const subject = meta.subject ?? meta.file_name ?? meta.channel ?? "";
-            if (subject) detail = ` — ${String(subject)}`;
-          } catch { /* ignore */ }
-        }
-        return `  ${s.occurredAt.toISOString().split("T")[0]} [${s.signalType}]${detail}`;
-      }).join("\n");
-      sections.push({ label: `${domain.toUpperCase()} DATA`, content: `${signals.length} signals in last ${timeWindowDays} days:\n${lines}` });
-    }
-  }
-
-  // ── Content domain (RAG retrieval) ───────────────────────────────────────
-  if (dataDomains.includes("content") && job.description) {
-    try {
-      const [queryEmbedding] = await embedChunks([job.description]);
-      if (queryEmbedding) {
-        const chunks = await retrieveRelevantChunks(operatorId, queryEmbedding, {
-          limit: 10,
-          minScore: 0.3,
-          ...(job.scopeEntityId ? { departmentIds: [job.scopeEntityId] } : {}),
-          skipUserFilter: true,
-        });
-        if (chunks.length > 0) {
-          const lines = chunks.map((c, i) =>
-            `  [${i + 1}] (score: ${c.score.toFixed(2)}) ${c.content.slice(0, 300)}`,
-          ).join("\n");
-          sections.push({ label: "KNOWLEDGE BASE", content: lines });
-        }
-      }
-    } catch (err) {
-      console.warn("[system-job] RAG retrieval failed:", err);
-    }
-  }
-
-  // ── Operational insights ─────────────────────────────────────────────────
-  if (profile.includeInsights) {
-    const insights = await prisma.operationalInsight.findMany({
-      where: {
-        operatorId,
-        status: "active",
-        ...(job.scopeEntityId
-          ? { OR: [{ departmentId: job.scopeEntityId }, { shareScope: "operator" }] }
-          : {}),
-      },
-      select: { description: true, confidence: true, insightType: true },
-      orderBy: { confidence: "desc" },
-      take: 15,
-    });
-    if (insights.length > 0) {
-      const lines = insights.map(i =>
-        `  [${i.insightType}] ${i.description} (confidence: ${i.confidence.toFixed(2)})`,
-      ).join("\n");
-      sections.push({ label: "OPERATIONAL INSIGHTS", content: lines });
-    }
-  }
-
-  // ── Active goals ─────────────────────────────────────────────────────────
-  if (profile.includeGoals) {
-    const goals = await prisma.goal.findMany({
-      where: {
-        operatorId,
-        status: "active",
-        ...(job.scopeEntityId ? { departmentId: job.scopeEntityId } : {}),
-      },
-      select: { id: true, title: true, description: true, measurableTarget: true, priority: true, deadline: true },
-      orderBy: { priority: "asc" },
-    });
-    if (goals.length > 0) {
-      const lines = goals.map(g => {
-        const deadline = g.deadline ? ` | Deadline: ${g.deadline.toISOString().split("T")[0]}` : "";
-        const target = g.measurableTarget ? ` | Target: ${g.measurableTarget}` : "";
-        return `  [${g.id}] ${g.title} (priority ${g.priority}${deadline}${target})\n    ${g.description}`;
-      }).join("\n");
-      sections.push({ label: "ACTIVE GOALS", content: lines });
-    }
-  }
-
-  // ── Situation type stats ─────────────────────────────────────────────────
-  if (profile.includeSituationTypeStats) {
-    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-    const stypes = await prisma.situationType.findMany({
-      where: {
-        operatorId,
-        enabled: true,
-        ...(job.scopeEntityId ? { scopeEntityId: job.scopeEntityId } : {}),
-      },
-      select: {
-        name: true,
-        description: true,
-        _count: {
-          select: {
-            situations: {
-              where: { createdAt: { gte: ninetyDaysAgo } },
-            },
-          },
-        },
-      },
-    });
-    if (stypes.length > 0) {
-      const lines = stypes.map(st =>
-        `  ${st.name}: ${st.description} — ${st._count.situations} detected (90d)`,
-      ).join("\n");
-      sections.push({ label: "SITUATION TYPES", content: lines });
-    }
-  }
-
-  // ── Active situations (dedup check) ──────────────────────────────────────
-  const activeSituations = await prisma.situation.findMany({
-    where: {
-      operatorId,
-      status: { notIn: ["resolved", "closed", "dismissed"] },
-      ...(job.scopeEntityId ? { situationType: { scopeEntityId: job.scopeEntityId } } : {}),
-    },
-    select: {
-      triggerSummary: true,
-      status: true,
-      situationType: { select: { name: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
-  if (activeSituations.length > 0) {
-    const lines = activeSituations.map(s =>
-      `  [${s.status}] ${s.situationType.name}: ${s.triggerSummary?.slice(0, 100) ?? "No summary"}`,
-    ).join("\n");
-    sections.push({ label: "ACTIVE SITUATIONS", content: `Do NOT propose situations that duplicate these:\n${lines}` });
-  }
-
-  // ── Active initiatives (dedup check) ─────────────────────────────────────
-  const activeInitiatives = await prisma.initiative.findMany({
-    where: {
-      operatorId,
-      status: { notIn: ["rejected", "failed"] },
-      ...(job.scopeEntityId ? { goal: { departmentId: job.scopeEntityId } } : {}),
-    },
-    select: {
-      rationale: true,
-      status: true,
-    },
-    orderBy: { createdAt: "desc" },
-    take: 20,
-  });
-  if (activeInitiatives.length > 0) {
-    const lines = activeInitiatives.map(i =>
-      `  [${i.status}] ${i.rationale.slice(0, 120)}`,
-    ).join("\n");
-    sections.push({ label: "ACTIVE INITIATIVES", content: `Do NOT propose initiatives that duplicate these:\n${lines}` });
-  }
-
-  // ── Active system jobs (self-amendment awareness) ────────────────────────
-  const otherJobs = await prisma.systemJob.findMany({
-    where: {
-      operatorId,
-      status: "active",
-      id: { not: job.id },
-    },
-    select: { title: true, description: true, scope: true },
-  });
-  if (otherJobs.length > 0) {
-    const lines = otherJobs.map(j =>
-      `  ${j.title} (${j.scope})${j.description ? `: ${j.description.slice(0, 100)}` : ""}`,
-    ).join("\n");
-    sections.push({ label: "ACTIVE SYSTEM JOBS", content: `Other active jobs (do not duplicate):\n${lines}` });
-  }
-
-  // ── Available action capabilities ────────────────────────────────────────
-  const capabilities = await prisma.actionCapability.findMany({
-    where: { operatorId, enabled: true },
-    include: { connector: { select: { provider: true } } },
-  });
-  if (capabilities.length > 0) {
-    const lines = capabilities.map(c =>
-      `  ${c.name}: ${c.description ?? "No description"} (${c.connector?.provider ?? "internal"})`,
-    ).join("\n");
-    sections.push({ label: "AVAILABLE ACTIONS", content: lines });
-  } else {
-    sections.push({ label: "AVAILABLE ACTIONS", content: "None. Only generate and human_task steps are possible." });
-  }
-
-  return { sections, capabilities };
-}
-
-// ── Prompt Builders ────────────────────────────────────────────────────────
-
-function buildSystemJobSystemPrompt(
-  job: SystemJobRow,
-  companyName: string,
-): string {
-  return `You are a specialized intelligence analyst performing a scheduled analysis for ${companyName}.
-
-YOUR ROLE: ${job.title}
-${job.description || ""}
-
-ANALYTICAL FRAMEWORK:
-${job.reasoningProfile}
-
-You run on a recurring schedule. Your value comes from DEPTH OF INSIGHT, not breadth of summary. Do not restate metrics that anyone could read from a dashboard. Identify patterns, correlations, anomalies, and actionable opportunities that require cross-system reasoning.
-
-YOUR JOB HAS TWO PHASES:
-
-Phase 1 — THINKING (use your extended thinking block):
-- Review all data sections thoroughly
-- Compare against prior cycle findings (if available)
-- Identify what CHANGED since last cycle and what that change means
-- Assess which findings are truly actionable vs merely informational
-- Self-assess: is this cycle's analysis important enough to warrant attention?
-
-Phase 2 — OUTPUT (JSON):
-- summary: 2-3 sentence executive summary. Lead with the most important finding.
-- importanceScore: 0.0-1.0. Be honest. If nothing significant changed since last cycle, score low. A score below ${job.importanceThreshold} means your findings will be compressed to a notification only. This is fine — it builds trust that when you DO flag something, it matters.
-- analysisNarrative: Full analysis with evidence citations. Reference data by section name (e.g., [FINANCIAL DATA], [CRM DATA]).
-- proposedSituations: Things that need decisions NOW. Only propose if you have concrete evidence and a clear entity involved. Each becomes a real situation in the system that a human must review and act on. Use existing situation type names when possible.
-- proposedInitiatives: Strategic changes that need multi-step planning. Only propose for significant opportunities or risks. Steps with executionMode "action" must reference available capabilities by name.
-- findings: Informational observations — trends, metrics, anomalies that don't require immediate action but should be visible.
-- selfAmendments: How should this job evolve? Should it look at additional data sources? Run more/less frequently? Be deactivated because it's no longer finding value?
-- cycleComparison: What changed since last cycle? For each recommendation from prior cycles, track what happened.
+YOUR OUTPUT:
+After investigation, produce a JSON assessment with:
+- summary: 2-3 sentence executive summary
+- importanceScore: 0.0-1.0 — be honest. If nothing changed, score low.
+- analysisNarrative: full analysis with evidence
+- proposedSituations: things that need decisions NOW (each becomes a real situation)
+- proposedInitiatives: proposed actions for the operator to approve or reject. These are the actual deliverables — not just "we should do X" but "here is X, should we implement it?"
+  Each initiative has a proposalType:
+  - "project_creation": propose creating a project with specific config (title, description, deliverables, team)
+  - "policy_change": propose adding, modifying, or removing a governance policy (include the policy text)
+  - "autonomy_graduation": propose changing a situation type's autonomy level (include which type and to what level)
+  - "system_job_creation": propose creating a new system job (include title, description, cron schedule)
+  - "strategy_revision": propose updating a strategic wiki page (include the proposed content)
+  - "wiki_update": propose updating any wiki page (include slug and proposed content)
+  - "resource_recommendation": propose a resource change (hiring, firing, reallocation — include full analysis)
+  - "general": any other proposal (include full description of what to do)
+  The proposal field MUST contain the actual work product, not just a description of what to do.
+- findings: informational observations (trends, metrics, anomalies)
+- selfAmendments: how should this job evolve?
+- cycleComparison: what changed since last cycle?
 
 RULES:
-- proposedSituations must reference existing situation type names when possible (see SITUATION TYPES section)
-- proposedInitiatives steps with executionMode "action" MUST reference available capabilities by name (see AVAILABLE ACTIONS section)
-- Do NOT propose situations for things already in ACTIVE SITUATIONS
-- Do NOT propose initiatives that duplicate ACTIVE INITIATIVES
-- Do NOT propose System Jobs that duplicate ACTIVE SYSTEM JOBS (use selfAmendments to suggest changes to THIS job instead)
-- If nothing significant changed since last cycle, say so honestly and score importanceScore LOW
-- selfAmendments with type "deactivate" should be rare — only when the job has been consistently low-importance for many cycles
+- Do NOT propose situations/initiatives that duplicate active ones (listed in seed context)
+- Score importanceScore below ${job.importanceThreshold} if nothing significant — this is fine, it builds trust
+- For proposedSituations: reference existing situation type names when possible
+- For proposedInitiatives: the proposal field must contain ACTIONABLE content the operator can approve directly
 
-OUTPUT FORMAT:
-Respond with ONLY valid JSON (no markdown fences, no commentary):
-{
-  "summary": "2-3 sentence executive summary",
-  "importanceScore": 0.0,
-  "analysisNarrative": "full analysis with evidence citations",
-  "proposedSituations": [
-    {
-      "title": "specific situation title",
-      "description": "what needs a decision",
-      "suggestedSituationTypeName": "existing type name or null",
-      "triggerEntityName": "entity name involved or null",
-      "urgency": "low | medium | high",
-      "evidence": ["evidence point 1", "evidence point 2"]
-    }
-  ],
-  "proposedInitiatives": [
-    {
-      "rationale": "why this initiative now",
-      "impactAssessment": "expected outcome",
-      "suggestedGoalId": "goal ID or null",
-      "steps": [
-        {
-          "title": "step title",
-          "description": "step description",
-          "executionMode": "action | generate | human_task",
-          "actionCapabilityName": "capability name (for action mode)",
-          "params": {}
-        }
-      ]
-    }
-  ],
-  "findings": [
-    {
-      "title": "finding title",
-      "description": "finding description",
-      "category": "trend | risk | opportunity | metric | anomaly"
-    }
-  ],
-  "selfAmendments": [
-    {
-      "type": "add_data_source | change_frequency | refine_focus | expand_scope | deactivate",
-      "description": "what to change",
-      "rationale": "why"
-    }
-  ],
-  "cycleComparison": {
-    "keyChanges": ["change 1", "change 2"],
-    "priorRecommendationOutcomes": [
-      {
-        "recommendation": "what was recommended last cycle",
-        "whatHappened": "what actually happened",
-        "assessment": "effective | ineffective | too_early | not_implemented"
-      }
-    ]
-  }
-}`;
-}
-
-function buildSystemJobUserPrompt(context: AssembledContext): string {
-  return context.sections
-    .map(s => `${s.label}:\n${s.content}`)
-    .join("\n\n");
+Respond with ONLY valid JSON (no markdown fences).`;
 }

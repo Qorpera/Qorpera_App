@@ -148,6 +148,12 @@ export async function POST(request: Request) {
     }
   }
 
+  // Seed default system jobs (fire-and-forget)
+  import("@/lib/demo/seed-system-jobs")
+    .then(({ seedDefaultSystemJobs }) => seedDefaultSystemJobs(operatorId))
+    .then(count => { if (count > 0) console.log(`[confirm-structure] Seeded ${count} default system jobs`); })
+    .catch(err => console.error("[confirm-structure] System job seeding failed:", err));
+
   const situationTypes = await prisma.situationType.findMany({
     where: { operatorId, enabled: true },
     select: { name: true },

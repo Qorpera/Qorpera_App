@@ -10,12 +10,10 @@ export async function GET(req: NextRequest) {
   const { user, operatorId } = su;
 
   const url = new URL(req.url);
-  const goalId = url.searchParams.get("goalId") ?? undefined;
   const status = url.searchParams.get("status") ?? undefined;
   const ownerAiEntityId = url.searchParams.get("ownerAiEntityId") ?? undefined;
 
   const where: Record<string, unknown> = { operatorId };
-  if (goalId) where.goalId = goalId;
   if (status) where.status = status;
   if (ownerAiEntityId) where.ownerAiEntityId = ownerAiEntityId;
 
@@ -39,27 +37,8 @@ export async function GET(req: NextRequest) {
     });
     const memberWsIds = memberWsItems.map(i => i.workStreamId);
 
-    // Get goals visible to this member
-    const visibleGoals = await prisma.goal.findMany({
-      where: {
-        operatorId,
-        OR: [
-          { departmentId: { in: visibleDepts } },
-          { departmentId: null },
-        ],
-      },
-      select: { id: true },
-    });
-    const visibleGoalIds = visibleGoals.map(g => g.id);
-
-    // Members see WorkStreams that either contain their assigned situations,
-    // or are linked to goals in their visible departments.
-    // WorkStreams with goalId: null are only visible if they contain the member's situations.
-    // This is intentional — unlinked WorkStreams without the member's work are not their concern.
-    where.OR = [
-      { id: { in: memberWsIds } },
-      { goalId: { in: visibleGoalIds } },
-    ];
+    // Members see WorkStreams that contain their assigned situations.
+    where.id = { in: memberWsIds };
   }
 
   const workStreams = await prisma.workStream.findMany({
@@ -97,7 +76,6 @@ export async function GET(req: NextRequest) {
         id: ws.id,
         title: ws.title,
         description: ws.description,
-        goalId: ws.goalId,
         ownerAiEntityId: ws.ownerAiEntityId,
         status: ws.status,
         parentWorkStreamId: ws.parentWorkStreamId,
@@ -123,7 +101,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { title, description, goalId, ownerAiEntityId, parentWorkStreamId } = body;
+  const { title, description, ownerAiEntityId, parentWorkStreamId } = body;
 
   if (!title || !description || !ownerAiEntityId) {
     return NextResponse.json({ error: "title, description, and ownerAiEntityId are required" }, { status: 400 });
@@ -143,7 +121,6 @@ export async function POST(req: NextRequest) {
       operatorId,
       title,
       description,
-      goalId,
       ownerAiEntityId,
       parentWorkStreamId,
     });

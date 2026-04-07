@@ -167,20 +167,8 @@ export async function loadInitiativeContext(
       impactAssessment: true,
       aiEntityId: true,
       createdAt: true,
-      goal: {
-        select: { title: true, description: true, priority: true, deadline: true },
-      },
-      executionPlan: {
-        select: {
-          id: true,
-          status: true,
-          currentStepOrder: true,
-          steps: {
-            select: { title: true, executionMode: true, status: true, sequenceOrder: true },
-            orderBy: { sequenceOrder: "asc" },
-          },
-        },
-      },
+      proposalType: true,
+      triggerSummary: true,
     },
   });
 
@@ -204,14 +192,6 @@ export async function loadInitiativeContext(
     aiEntityInfo = `Proposed by: ${aiEntity.displayName}${deptName}`;
   }
 
-  // Goal section
-  const goal = initiative.goal;
-  const goalSection = goal ? [
-    `\nGoal: ${goal.title}`,
-    goal.description ? `Goal description: ${goal.description}` : null,
-    `Goal priority: ${goal.priority} | Deadline: ${goal.deadline ? goal.deadline.toISOString().split("T")[0] : "none"}`,
-  ].filter(Boolean).join("\n") : "";
-
   // Rationale
   const rationaleSection = `\nRationale:\n${initiative.rationale}`;
 
@@ -219,17 +199,6 @@ export async function loadInitiativeContext(
   const impactSection = initiative.impactAssessment
     ? `\nImpact Assessment:\n${initiative.impactAssessment}`
     : "";
-
-  // Execution plan
-  let planSection = "";
-  if (initiative.executionPlan) {
-    const plan = initiative.executionPlan;
-    const stepLines = plan.steps.map(s => {
-      const icon = s.status === "completed" ? "✓" : s.sequenceOrder === plan.currentStepOrder ? "→" : "○";
-      return `  ${icon} ${s.title} [${s.executionMode}] (${s.status})`;
-    }).join("\n");
-    planSection = `\nExecution Plan (${plan.status}):\n${stepLines}`;
-  }
 
   // WorkStream membership
   let wsSection = "";
@@ -245,10 +214,10 @@ export async function loadInitiativeContext(
     "INITIATIVE CONTEXT:",
     `Status: ${initiative.status} | Created: ${initiative.createdAt.toISOString().split("T")[0]}`,
     aiEntityInfo,
-    goalSection,
+    initiative.triggerSummary ? `Trigger: ${initiative.triggerSummary}` : "",
+    initiative.proposalType ? `Type: ${initiative.proposalType}` : "",
     rationaleSection,
     impactSection,
-    planSection,
     wsSection,
   ].filter(Boolean).join("\n");
 }
@@ -282,7 +251,7 @@ export async function loadWorkStreamContext(
   return [
     "PROJECT CONTEXT:",
     `Title: ${ctx.title}`,
-    `Status: ${ctx.status}${ctx.goal ? ` | Goal: ${ctx.goal.title}` : ""}`,
+    `Status: ${ctx.status}`,
     ctx.description ? `Description: ${ctx.description}` : null,
     itemLines ? `\nItems:\n${itemLines}` : "\nItems: none",
     ctx.parent ? `\nParent project: ${ctx.parent.title}` : null,
@@ -404,9 +373,9 @@ export function getContextRoleInstruction(contextType: string): string {
     case "situation":
       return "You are advising on this specific situation. You have full context about the AI's analysis, the proposed action plan, and the current execution status. Help the user understand the situation, evaluate the AI's reasoning, discuss alternatives, or take action. If the user wants to approve or modify the plan, guide them through the options.";
     case "initiative":
-      return "You are advising on this specific initiative proposed by the department AI. You have full context about the goal it serves, the rationale, and the execution plan. Help the user evaluate whether this initiative makes sense, discuss the approach, or understand the expected impact.";
+      return "You are advising on this specific initiative proposed by the department AI. You have full context about the rationale and the execution plan. Help the user evaluate whether this initiative makes sense, discuss the approach, or understand the expected impact.";
     case "workstream":
-      return "You are advising on this project. You have full context about all the items grouped in this work stream, their current statuses, and the goal being served. Help the user understand project progress, identify blockers, or plan next steps.";
+      return "You are advising on this project. You have full context about all the items grouped in this work stream and their current statuses. Help the user understand project progress, identify blockers, or plan next steps.";
     case "system-health":
       return "The user is viewing the System Health page. Help them understand and resolve any issues shown. When suggesting fixes, provide specific navigation paths (e.g., \"Go to Settings → Connections to reconnect Gmail\"). If a department has no issues, say so briefly. Focus on actionable advice — what specifically should the user do next to improve their system health.";
     default:

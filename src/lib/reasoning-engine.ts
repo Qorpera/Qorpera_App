@@ -796,17 +796,15 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
           select: { id: true },
         });
 
-        const goal = await prisma.goal.findFirst({
-          where: { operatorId: situation.operatorId, departmentId: triggerEntity.parentDepartmentId, status: "active" },
-          orderBy: { priority: "asc" },
-        });
-
-        if (deptAi && goal) {
+          if (deptAi) {
           await prisma.initiative.create({
             data: {
               operatorId: situation.operatorId,
-              goalId: goal.id,
               aiEntityId: deptAi.id,
+              proposalType: "general",
+              triggerSummary: `Escalated from situation: ${situation.situationType?.name ?? situationId}`,
+              evidence: [{ source: "situation_escalation", claim: reasoning.escalation.rationale }],
+              proposal: { type: "escalation", description: reasoning.escalation.rationale, sourceSituationId: situationId },
               status: "proposed",
               rationale: reasoning.escalation.rationale,
               impactAssessment: `Escalated from situation: ${situation.situationType?.name ?? situationId}`,

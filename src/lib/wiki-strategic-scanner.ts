@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSON } from "@/lib/json-helpers";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
@@ -309,18 +310,14 @@ async function createInitiativeFromPattern(
     return;
   }
 
-  // Find highest-priority active goal (optional)
-  const goal = await prisma.goal.findFirst({
-    where: { operatorId, status: "active" },
-    orderBy: { priority: "asc" },
-    select: { id: true },
-  });
-
   const initiative = await prisma.initiative.create({
     data: {
       operatorId,
-      goalId: goal?.id ?? null,
       aiEntityId: aiEntity.id,
+      proposalType: pattern.proposedProject ? "project_creation" : "general",
+      triggerSummary: pattern.title,
+      evidence: pattern.evidence as unknown as Prisma.InputJsonValue,
+      proposal: (pattern.proposedProject ?? { description: pattern.description }) as unknown as Prisma.InputJsonValue,
       status: "proposed",
       rationale: `[Wiki Scanner] ${pattern.title}\n\n${pattern.description}`,
       impactAssessment: `Severity: ${pattern.severity}, Confidence: ${(pattern.confidence * 100).toFixed(0)}%\n\nEvidence:\n${pattern.evidence.map((e) => `- ${e.pageSlug}: ${e.claim}`).join("\n")}`,

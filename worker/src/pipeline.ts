@@ -12,7 +12,6 @@ import {
   createEntityTypesFromModel,
   createExternalEntitiesFromModel,
   createSituationTypesFromModel,
-  createGoalsFromModel,
   normalizeCompanyModel,
   sendAnalysisCompleteEmail,
   type CompanyModel,
@@ -245,7 +244,6 @@ ${archetypeTaxonomy}`;
   await createEntitiesFromModel(operatorId, companyModel);
   await createExternalEntitiesFromModel(operatorId, companyModel);
   await createSituationTypesFromModel(operatorId, companyModel);
-  await createGoalsFromModel(operatorId, companyModel);
 
   // Record synthesis run for audit
   await prisma.onboardingAgentRun.create({

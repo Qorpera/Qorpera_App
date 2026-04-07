@@ -114,7 +114,6 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
 
   // ── Load source data once ────────────────────────────────────────────
   let sourceSituation: { triggerEntityId: string | null; spawningStepId: string | null; situationType: { slug: string; detectionLogic: string } } | null = null;
-  let sourceInitiative: { goal: { priority: number } | null } | null = null;
 
   if (plan.sourceType === "situation") {
     sourceSituation = await prisma.situation.findFirst({
@@ -124,11 +123,6 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
         spawningStepId: true,
         situationType: { select: { slug: true, detectionLogic: true } },
       },
-    });
-  } else if (plan.sourceType === "initiative") {
-    sourceInitiative = await prisma.initiative.findFirst({
-      where: { executionPlanId: plan.id },
-      select: { goal: { select: { priority: true } } },
     });
   }
 
@@ -188,8 +182,8 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
         }
       }
     }
-  } else if (sourceInitiative?.goal) {
-    impact = sourceInitiative.goal.priority * 20;
+  } else if (plan.sourceType === "initiative") {
+    impact = 60;
   }
 
   // ── Dependencies (weight: 0.20) ────────────────────────────────────────

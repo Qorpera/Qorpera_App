@@ -238,26 +238,44 @@ Respond with ONLY a JSON array:
           }));
         }
 
-        // Find highest-priority active goal
-        const goal = await prisma.goal.findFirst({
-          where: { operatorId, status: "active" },
-          orderBy: { priority: "asc" },
-          select: { id: true },
-        });
-
-        const evidence = group.bookmarks
-          .map((b) => `- ${b.pageSlug}: [${b.bookmarkType}] ${b.reason}`)
-          .join("\n");
-
         const initiative = await prisma.initiative.create({
           data: {
             operatorId,
-            goalId: goal?.id ?? null,
             aiEntityId: aiEntity.id,
-            status: "proposed",
-            rationale: `${ini.title}\n\n${ini.description}`,
-            impactAssessment: `Severity: ${ini.severity}\n\nEvidence from ${group.bookmarks.length} bookmark(s):\n${evidence}`,
+            proposalType: "project_creation",
+            triggerSummary: ini.title,
+            evidence: JSON.stringify(group.bookmarks.map(b => ({ source: "wiki_bookmark", claim: b.reason }))),
+            proposal: {
+              title: ini.proposedProject?.title ?? ini.title,
+              description: ini.proposedProject?.description ?? ini.description,
+              coordinatorEmail: "",
+              dueDate: null,
+              members: [],
+              deliverables: (ini.proposedProject?.deliverables ?? []).map((d) => ({
+                title: d.title,
+                description: d.description,
+                assignedToEmail: "",
+                format: "report",
+                suggestedDeadline: null,
+              })),
+              childProjects: ini.isPortfolio && ini.proposedProject?.childProjects
+                ? ini.proposedProject.childProjects.map((cp) => ({
+                    title: cp.title,
+                    description: cp.description,
+                    deliverables: cp.deliverables.map((d) => ({
+                      title: d.title,
+                      description: d.description,
+                      assignedToEmail: "",
+                      format: "report",
+                      suggestedDeadline: null,
+                    })),
+                  }))
+                : undefined,
+            },
             proposedProjectConfig: proposedProjectConfig as Prisma.InputJsonValue,
+            status: "proposed",
+            rationale: ini.description,
+            impactAssessment: `Severity: ${ini.severity}\n\nEvidence from ${group.bookmarks.length} bookmark(s)`,
           },
         });
 

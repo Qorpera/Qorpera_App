@@ -83,11 +83,9 @@ export async function POST(req: NextRequest) {
       } else if (ctxType === "initiative") {
         const init = await prisma.initiative.findFirst({
           where: { id: ctxId, operatorId },
-          select: { goal: { select: { departmentId: true } } },
+          select: { id: true },
         });
         if (!init) {
-          ctxType = null; ctxId = null;
-        } else if (init.goal?.departmentId && !visibleDepts.includes(init.goal.departmentId)) {
           ctxType = null; ctxId = null;
         }
       } else if (ctxType === "workstream") {

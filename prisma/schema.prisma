@@ -107,8 +107,6 @@ model Operator {
   activitySignals      ActivitySignal[]
   entityMergeLogs      EntityMergeLog[]
   personalAutonomies   PersonalAutonomy[]
-  // v3: Goal-driven execution
-  goals                Goal[]
   initiatives          Initiative[]
   executionPlans       ExecutionPlan[]
   workStreams          WorkStream[]
@@ -934,55 +932,31 @@ model PersonalAutonomy {
   @@index([aiEntityId])
 }
 
-// ─── Phase 3: Goals & Execution ─────────────────────────
-
-model Goal {
-  id                   String    @id @default(cuid())
-  operatorId           String
-  departmentId         String? // null = HQ-level goal
-  title                String
-  description          String
-  measurableTarget     String?
-  priority             Int       @default(3) // 1-5, 1 = highest
-  status               String    @default("active") // active, achieved, paused, inferred
-  deadline             DateTime?
-  source               String? // "synthesis", "document", "communication", "manual"
-  sourceReference      String? // Document name or chunk ID that contained this goal
-  extractionConfidence Float? // 0-1, how confident the system is this is a real strategic goal
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  operator    Operator     @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  initiatives Initiative[]
-
-  @@index([operatorId, status])
-  @@index([operatorId, departmentId])
-}
+// ─── Initiatives & Execution ────────────────────────────
 
 model Initiative {
   id               String   @id @default(cuid())
   operatorId       String
-  goalId           String?
   aiEntityId       String // the department-ai or hq-ai that proposed this
-  executionPlanId  String?  @unique
+  proposalType     String // "project_creation" | "policy_change" | "autonomy_graduation" | "system_job_creation" | "strategy_revision" | "wiki_update" | "resource_recommendation" | "general"
+  triggerSummary   String // one-line description of what was detected
+  evidence         Json? // array of {source: string, claim: string} showing what triggered this
+  proposal         Json   // the actual work product — varies by proposalType
   status           String   @default("proposed") // proposed, approved, executing, completed, rejected, failed, paused
   rationale        String
   impactAssessment String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  proposedProjectConfig Json?
+  proposedProjectConfig Json? // @deprecated — reads from proposal for project_creation type, kept for backward compat
   projectId             String? @unique
 
-  operator      Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  goal          Goal?          @relation(fields: [goalId], references: [id])
-  executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
-  project       Project?       @relation(fields: [projectId], references: [id])
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  project  Project? @relation(fields: [projectId], references: [id])
 
   resolvedBookmarks WikiBookmark[]
 
   @@index([operatorId, status])
-  @@index([goalId])
 }
 
 model ExecutionPlan {
@@ -1006,7 +980,6 @@ model ExecutionPlan {
 
   operator         Operator          @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   steps            ExecutionStep[]
-  initiative       Initiative?
   situation        Situation?
   cycle            SituationCycle?
   priorityOverride PriorityOverride?
@@ -1050,7 +1023,6 @@ model WorkStream {
   operatorId             String
   title                  String
   description            String?
-  goalId                 String?
   ownerAiEntityId        String?
   status                 String    @default("active") // active, completed, paused, abandoned
   parentWorkStreamId     String?
@@ -1150,10 +1122,7 @@ model SystemJob {
   operatorId           String
   aiEntityId           String
   title                String
-  description          String?
-  contextProfile       String // JSON — which data loaders/entities/connectors to pull
-  reasoningProfile     String // JSON — analytical framework, questions to answer, comparisons
-  outputProfile        String? // JSON — expected output types, situation/initiative patterns
+  description          String   @db.Text // natural language description of what this job monitors and investigates
   cronExpression       String
   scope                String    @default("department") // department | cross_department | personal | company_wide
   scopeEntityId        String? // Department or person entity ID
@@ -1695,6 +1664,7 @@ model KnowledgePage {
   // department_overview, topic_synthesis, contradiction_log,
   // index, log
   subjectEntityId String?
+  departmentIds   String[] @default([])
   title           String
   slug            String
 

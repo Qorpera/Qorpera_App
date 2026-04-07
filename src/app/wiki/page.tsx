@@ -29,6 +29,7 @@ interface WikiPageSummary {
   synthesisPath: string;
   verifiedAt: string | null;
   citedByPages: number;
+  subjectEntityName?: string;
 }
 
 interface WikiPageFull {
@@ -875,22 +876,38 @@ function escapeRegex(s: string): string {
 }
 
 function insertCrossLinks(text: string, pageIndex: WikiPageSummary[], currentSlug: string): string {
-  // Sort by title length (longest first) to avoid partial matches
-  const entries = pageIndex
-    .filter((p) => p.slug !== currentSlug && p.title.length > 3)
-    .sort((a, b) => b.title.length - a.title.length);
+  // Build match terms from entity names and stripped titles
+  const matchTerms: { term: string; slug: string }[] = [];
+
+  for (const p of pageIndex) {
+    if (p.slug === currentSlug) continue;
+
+    // Source 1: entity displayName (preferred — e.g. "Lars Jensen")
+    if (p.subjectEntityName && p.subjectEntityName.length > 3) {
+      matchTerms.push({ term: p.subjectEntityName, slug: p.slug });
+    }
+
+    // Source 2: stripped title — remove suffix after " - " or " — "
+    const stripped = p.title.replace(/\s*[-—]\s+.*$/, "").trim();
+    if (stripped.length > 3 && stripped !== p.subjectEntityName) {
+      matchTerms.push({ term: stripped, slug: p.slug });
+    }
+  }
+
+  // Sort longest first to avoid partial matches
+  matchTerms.sort((a, b) => b.term.length - a.term.length);
 
   let result = text;
   const linked = new Set<string>();
 
-  for (const entry of entries) {
-    if (linked.has(entry.slug)) continue;
+  for (const { term, slug } of matchTerms) {
+    if (linked.has(slug)) continue;
     // Only link first occurrence, whole word, case-insensitive
     // Skip matches inside markdown links, headings, or citation markers
-    const regex = new RegExp(`(?<![#\\[\\(])\\b(${escapeRegex(entry.title)})\\b(?![\\]\\)])`, "i");
+    const regex = new RegExp(`(?<![#\\[\\(])\\b(${escapeRegex(term)})\\b(?![\\]\\)])`, "i");
     if (regex.test(result)) {
-      result = result.replace(regex, `[$1](wiki:${entry.slug})`);
-      linked.add(entry.slug);
+      result = result.replace(regex, `[$1](wiki:${slug})`);
+      linked.add(slug);
     }
   }
   return result;

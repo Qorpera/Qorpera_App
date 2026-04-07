@@ -14,7 +14,10 @@ function getKeyBuffer(): Buffer | null {
 export function encryptConfig(plainConfig: Record<string, unknown>): string {
   const key = getKeyBuffer();
   if (!key) {
-    // No ENCRYPTION_KEY — development mode, store as plain JSON
+    if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
+      throw new Error("[config-encryption] ENCRYPTION_KEY is required in production");
+    }
+    console.warn("[config-encryption] No ENCRYPTION_KEY set — storing config unencrypted (dev only)");
     return JSON.stringify(plainConfig);
   }
 

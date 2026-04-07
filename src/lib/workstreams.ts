@@ -6,7 +6,6 @@ interface CreateWorkStreamParams {
   operatorId: string;
   title: string;
   description: string;
-  goalId?: string;
   ownerAiEntityId: string;
   parentWorkStreamId?: string;
 }
@@ -25,7 +24,6 @@ export async function createWorkStream(params: CreateWorkStreamParams) {
       operatorId: params.operatorId,
       title: params.title,
       description: params.description,
-      goalId: params.goalId ?? null,
       ownerAiEntityId: params.ownerAiEntityId,
       parentWorkStreamId: params.parentWorkStreamId ?? null,
     },
@@ -189,26 +187,6 @@ export async function canMemberAccessWorkStream(
     if (match) return true;
   }
 
-  // Check if workstream's goal is visible to this member
-  const ws = await prisma.workStream.findUnique({
-    where: { id: workStreamId },
-    select: { goalId: true },
-  });
-  if (ws?.goalId) {
-    const goal = await prisma.goal.findFirst({
-      where: {
-        id: ws.goalId,
-        operatorId,
-        OR: [
-          { departmentId: { in: visibleDepts } },
-          { departmentId: null },
-        ],
-      },
-      select: { id: true },
-    });
-    if (goal) return true;
-  }
-
   return false;
 }
 
@@ -254,15 +232,6 @@ export async function getWorkStreamContext(workStreamId: string) {
     }
   }
 
-  // Load goal context
-  let goal = null;
-  if (ws.goalId) {
-    goal = await prisma.goal.findUnique({
-      where: { id: ws.goalId },
-      select: { id: true, title: true, description: true },
-    });
-  }
-
   // Load parent context
   let parent = null;
   if (ws.parentWorkStreamId) {
@@ -280,7 +249,6 @@ export async function getWorkStreamContext(workStreamId: string) {
     title: ws.title,
     description: ws.description,
     status: ws.status,
-    goal,
     items: itemDetails,
     parent,
   };

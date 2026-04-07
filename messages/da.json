@@ -46,6 +46,7 @@
     "admin": "Admin",
     "setup": "Opsætning",
     "systemHealth": "Systemstatus",
+    "systemJobs": "Systemjobs",
     "account": "Konto",
     "evaluationLog": "Evalueringslog"
   },

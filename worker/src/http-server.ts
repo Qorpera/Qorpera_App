@@ -4,13 +4,23 @@ import type { LLMRequestOptions } from "@/lib/ai-provider";
 import { verifyRequest } from "./auth";
 
 const WORKER_SECRET = process.env.WORKER_SECRET || "";
+const MAX_BODY_BYTES = 10 * 1024 * 1024; // 10MB
 
 // ── Body parsing ─────────────────────────────────────────────────────────────
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(chunk));
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString()));
     req.on("error", reject);
   });
@@ -45,7 +55,8 @@ async function handleLLMStream(body: string, res: ServerResponse) {
     res.write("data: [DONE]\n\n");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    res.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`);
+    console.error("[http] stream error:", message);
+    res.write(`event: error\ndata: ${JSON.stringify({ error: "LLM call failed" })}\n\n`);
   }
   res.end();
 }
@@ -78,13 +89,14 @@ export function createHttpServer() {
       return json(res, 400, { error: "Failed to read request body" });
     }
 
-    // HMAC verification
-    if (WORKER_SECRET) {
-      const timestamp = req.headers["x-worker-timestamp"] as string | undefined;
-      const signature = req.headers["x-worker-signature"] as string | undefined;
-      if (!verifyRequest(timestamp, signature, body, WORKER_SECRET)) {
-        return json(res, 401, { error: "Invalid signature" });
-      }
+    // HMAC verification — fail-closed
+    if (!WORKER_SECRET) {
+      return json(res, 500, { error: "Worker secret not configured" });
+    }
+    const timestamp = req.headers["x-worker-timestamp"] as string | undefined;
+    const signature = req.headers["x-worker-signature"] as string | undefined;
+    if (!verifyRequest(timestamp, signature, body, WORKER_SECRET)) {
+      return json(res, 401, { error: "Invalid signature" });
     }
 
     try {
@@ -99,7 +111,7 @@ export function createHttpServer() {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[http] ${url} error:`, message);
       if (!res.headersSent) {
-        json(res, 500, { error: message });
+        json(res, 500, { error: "Internal worker error" });
       }
     }
   });

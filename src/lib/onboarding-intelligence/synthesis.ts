@@ -70,17 +70,6 @@ export interface CompanyModel {
     expectedFrequency: string;
     archetypeSlug: string | null;
   }>;
-  strategicGoals: Array<{
-    title: string;
-    description: string;
-    scope: "company" | "department";
-    department?: string;        // Required if scope is "department", must match a department name
-    measurableTarget?: string;  // Quantified target if mentioned (e.g., "30% revenue growth", "DSO under 35 days")
-    deadline?: string;          // ISO date string if mentioned
-    priority: 1 | 2 | 3;       // 1 = critical, 2 = important, 3 = aspirational
-    source: string;             // Which document or communication this was extracted from
-    confidence: "high" | "medium" | "low";
-  }>;
   entityTypes: Array<{
     slug: string;
     name: string;
@@ -157,20 +146,6 @@ export function normalizeCompanyModel(
     suggestedLeadEmail: d.suggestedLeadEmail as string | undefined,
   }));
 
-  const strategicGoals = Array.isArray(model.strategicGoals)
-    ? (model.strategicGoals as Array<Record<string, unknown>>).map(g => ({
-        title: (g.title as string) ?? "",
-        description: (g.description as string) ?? "",
-        scope: ((g.scope as string) === "department" ? "department" : "company") as "company" | "department",
-        department: g.department as string | undefined,
-        measurableTarget: g.measurableTarget as string | undefined,
-        deadline: g.deadline as string | undefined,
-        priority: (typeof g.priority === "number" && [1, 2, 3].includes(g.priority) ? g.priority : 3) as 1 | 2 | 3,
-        source: (g.source as string) ?? "unknown",
-        confidence: (["high", "medium", "low"].includes(g.confidence as string) ? g.confidence : "medium") as "high" | "medium" | "low",
-      }))
-    : [];
-
   const entityTypes = Array.isArray(model.entityTypes)
     ? (model.entityTypes as Array<Record<string, unknown>>).map(et => ({
         slug: (et.slug as string) ?? "",
@@ -201,7 +176,6 @@ export function normalizeCompanyModel(
       dataCompleteness: "low",
     },
     situationTypeRecommendations: Array.isArray(model.situationTypeRecommendations) ? model.situationTypeRecommendations : [],
-    strategicGoals,
     entityTypes,
     uncertaintyLog: Array.isArray(model.uncertaintyLog)
       ? model.uncertaintyLog.map((q: any) => ({
@@ -228,7 +202,7 @@ export const SYNTHESIS_PROMPT_V2 = `You are building a company model from raw or
 
 YOUR PRIMARY JOB is structural mapping — getting departments, people assignment, entity types, and the uncertainty log RIGHT. These create the entity graph that everything else depends on. Be precise and conservative.
 
-YOUR SECONDARY JOB is initial intelligence — processes, relationships, financial snapshot, goals, situation types. For these: only include what you can clearly evidence from the data. It is MUCH better to produce 3 well-evidenced situation types than 10 speculative ones. Wiki synthesis will analyze this same data in depth afterward, with full verification and source citation. Anything you get wrong here becomes a starting point the system has to correct later.
+YOUR SECONDARY JOB is initial intelligence — processes, relationships, financial snapshot, situation types. For these: only include what you can clearly evidence from the data. It is MUCH better to produce 3 well-evidenced situation types than 10 speculative ones. Wiki synthesis will analyze this same data in depth afterward, with full verification and source citation. Anything you get wrong here becomes a starting point the system has to correct later.
 
 ## Small Operations (1-3 people)
 
@@ -298,17 +272,6 @@ interface CompanyModel {
     severity: "high" | "medium" | "low";
     expectedFrequency: string;
     archetypeSlug: string | null;  // Best-matching archetype from the Archetype Taxonomy below, or null if none fit
-  }>;
-  strategicGoals: Array<{
-    title: string;                    // Concise goal statement (e.g., "Reduce average invoice payment time")
-    description: string;              // Full context — what this goal means for the company
-    scope: "company" | "department";  // Company-wide or department-specific
-    department?: string;              // Department name (must match departments array). Required when scope is "department"
-    measurableTarget?: string;        // Quantified target if available
-    deadline?: string;                // ISO date if mentioned
-    priority: 1 | 2 | 3;             // 1 = critical to survival/strategy, 2 = important for growth, 3 = aspirational improvement
-    source: string;                   // Document or communication where this goal was found
-    confidence: "high" | "medium" | "low";
   }>;
   entityTypes: Array<{
     slug: string;           // lowercase-hyphenated identifier (e.g., "invoice", "project-site")
@@ -386,33 +349,6 @@ IMPORTANT: Natural language descriptions must be genuine paragraphs describing t
 - When in doubt between content and natural → content (most situations have communication evidence)
 - Natural should be RARE — typically 0-2 per company, reserved for strategic/aggregate patterns
 
-## Strategic Goal Extraction (CRITICAL)
-
-Extract STRATEGIC goals from the raw data. These are deliberate organizational priorities — things the CEO would recognize as objectives the company is actively working toward.
-
-### What IS a strategic goal:
-- Revenue/growth targets mentioned in business plans, strategy documents, or board communications
-- Operational KPIs referenced in management discussions (DSO targets, response time SLAs, quality benchmarks)
-- Expansion plans (new markets, new products, new hires)
-- Transformation initiatives (digitalization, process overhaul, organizational restructuring)
-- Compliance or certification deadlines
-- Explicit OKRs or KPIs found in documents
-
-### What is NOT a strategic goal:
-- Routine operational tasks ("process invoices weekly")
-- Incidental purposes behind activities ("ordering lunch to boost morale")
-- Individual employee objectives unless they represent department mandates
-- Generic best practices ("improve communication")
-- Anything the CEO would NOT recognize as a deliberate priority
-
-### Extraction rules:
-1. Prefer goals extracted from FORMAL documents (business plans, strategy memos, board presentations, annual reports) over informal communications
-2. High confidence = stated explicitly in a strategic document. Medium = inferred from multiple signals (e.g., repeated emphasis in leadership communications). Low = inferred from operational patterns only.
-3. A healthy company has 3-5 company-level goals and 1-3 per department. If you find more than 15 total goals, you are being too granular — consolidate or drop low-confidence items.
-4. Every goal MUST have a \`source\` field identifying where you found it. If you can't cite a specific source, don't include the goal.
-5. Company mission/vision statements are context, not goals — unless they contain specific measurable targets.
-6. Department-scoped goals must reference a department from the departments array.
-
 ## Entity Type Discovery
 
 Based on the business objects referenced across the ingested content, propose entity types that the system should track. These are the nouns of the business — invoices, projects, shipments, orders, permits, whatever this specific company works with.
@@ -442,8 +378,6 @@ Produce a SINGLE JSON object matching the interface above:
 4. **Produces actionable situation type recommendations** synthesized from the data
 5. **Discovers entity types** — the business objects this company works with, with properties
 6. **Generates the uncertainty log** — specific questions for the CEO that the data couldn't answer
-7. **Extracts strategic goals** from formal documents and leadership communications — few, important, CEO-recognizable
-
 ## Structural Classification Rules (MANDATORY)
 
 These rules override behavioral inference when they conflict. They prevent misclassification of common organizational patterns:
@@ -646,7 +580,7 @@ export async function buildRawDataSynthesisInput(
   parts.push("\n---\n");
   parts.push(
     "Produce the company model. PRIORITY: Get departments, people assignment, and entity types RIGHT — " +
-    "these are the structural foundation. For processes, relationships, financials, goals, and situation types: " +
+    "these are the structural foundation. For processes, relationships, financials, and situation types: " +
     "only include what is CLEARLY evidenced in the data above. When uncertain, omit. " +
     "Wiki synthesis will add intelligence depth from this same data with full verification.",
   );
@@ -984,69 +918,6 @@ export async function createSituationTypesFromModel(
         description: rec.description,
         detectionLogic: detectionLogicJson,
         archetypeSlug: rec.archetypeSlug ?? null,
-      },
-    });
-  }
-}
-
-// ── Goal Creation ───────────────────────────────────────────────────────────
-
-export async function createGoalsFromModel(
-  operatorId: string,
-  model: CompanyModel,
-): Promise<void> {
-  const CONFIDENCE_MAP: Record<string, number> = { high: 0.9, medium: 0.7, low: 0.5 };
-
-  for (const goal of model.strategicGoals ?? []) {
-    if (!goal.title || !goal.description) continue;
-
-    let departmentId: string | null = null;
-    if (goal.scope === "department" && goal.department) {
-      const dept = await prisma.entity.findFirst({
-        where: {
-          operatorId,
-          displayName: goal.department,
-          entityType: { slug: "department" },
-          status: "active",
-        },
-        select: { id: true },
-      });
-      departmentId = dept?.id ?? null;
-      // If department not found, skip department-scoped goal rather than making it HQ-level
-      if (!departmentId) {
-        console.warn(`[synthesis] Goal "${goal.title}" references unknown department "${goal.department}", skipping`);
-        continue;
-      }
-    }
-
-    // Dedup: check if a goal with similar title already exists
-    const existing = await prisma.goal.findFirst({
-      where: {
-        operatorId,
-        departmentId,
-        title: goal.title,
-        status: { not: "achieved" },
-      },
-    });
-    if (existing) continue;
-
-    await prisma.goal.create({
-      data: {
-        operatorId,
-        departmentId,
-        title: goal.title,
-        description: goal.description,
-        measurableTarget: goal.measurableTarget ?? null,
-        priority: goal.priority,
-        status: "active",
-        deadline: (() => {
-          if (!goal.deadline) return null;
-          const d = new Date(goal.deadline);
-          return isNaN(d.getTime()) ? null : d;
-        })(),
-        source: "synthesis",
-        sourceReference: goal.source,
-        extractionConfidence: CONFIDENCE_MAP[goal.confidence] ?? 0.7,
       },
     });
   }

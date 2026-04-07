@@ -20,20 +20,6 @@ export async function reassessWorkStream(
   });
   if (!ws || ws.status !== "active") return;
 
-  // Load goal context
-  let goalTitle = "";
-  let goalDescription = "";
-  if (ws.goalId) {
-    const goal = await prisma.goal.findUnique({
-      where: { id: ws.goalId },
-      select: { title: true, description: true },
-    });
-    if (goal) {
-      goalTitle = goal.title;
-      goalDescription = goal.description;
-    }
-  }
-
   // Check all items
   const itemSummaries: Array<{ type: string; id: string; status: string; summary: string }> = [];
   let allTerminal = true;
@@ -84,7 +70,6 @@ export async function reassessWorkStream(
   const contextLines = [
     `Workstream: "${ws.title}"`,
     ws.description ? `Description: ${ws.description}` : "",
-    goalTitle ? `Goal: ${goalTitle} — ${goalDescription}` : "",
     "",
     "Current items:",
     ...itemSummaries.map(i => `  - [${i.type}] ${i.summary} (status: ${i.status})`),

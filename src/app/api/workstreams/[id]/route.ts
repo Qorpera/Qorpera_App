@@ -56,7 +56,7 @@ export async function GET(
       } else {
         const i = await prisma.initiative.findUnique({
           where: { id: item.itemId },
-          select: { id: true, status: true, rationale: true, goal: { select: { title: true } } },
+          select: { id: true, status: true, rationale: true },
         });
         return {
           workStreamItemId: item.id,
@@ -64,7 +64,7 @@ export async function GET(
           itemId: item.itemId,
           addedAt: item.addedAt.toISOString(),
           status: i?.status ?? "unknown",
-          summary: i ? `${i.goal?.title ?? "No goal"}: ${i.rationale.slice(0, 120)}` : "Unknown initiative",
+          summary: i ? i.rationale.slice(0, 120) : "Unknown initiative",
         };
       }
     }),
@@ -87,7 +87,6 @@ export async function GET(
     id: ws.id,
     title: ws.title,
     description: ws.description,
-    goalId: ws.goalId,
     ownerAiEntityId: ws.ownerAiEntityId,
     status: ws.status,
     parentWorkStreamId: ws.parentWorkStreamId,
@@ -131,7 +130,6 @@ export async function PATCH(
 
   if (body.title !== undefined) updates.title = body.title;
   if (body.description !== undefined) updates.description = body.description;
-  if (body.goalId !== undefined) updates.goalId = body.goalId;
   if (body.status !== undefined) {
     updates.status = body.status;
     if (body.status === "completed") {
@@ -151,7 +149,6 @@ export async function PATCH(
     title: updated.title,
     description: updated.description,
     status: updated.status,
-    goalId: updated.goalId,
     completedAt: updated.completedAt?.toISOString() ?? null,
   });
 }

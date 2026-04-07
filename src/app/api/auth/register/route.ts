@@ -27,7 +27,11 @@ export async function POST(req: NextRequest) {
   // Check email uniqueness
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
-    return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+    // Return identical success shape to prevent email enumeration
+    return NextResponse.json({
+      user: { id: "redacted", name, email, role: "admin" },
+      operator: { id: "redacted", companyName },
+    });
   }
 
   const passwordHash = await hashPassword(password);

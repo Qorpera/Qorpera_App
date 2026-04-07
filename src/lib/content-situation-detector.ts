@@ -573,25 +573,6 @@ async function handleInitiativeCandidate(
     ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0]
     ?? null;
 
-  // Find relevant goal (if any)
-  let goalId: string | null = null;
-  if (departmentId) {
-    const goal = await prisma.goal.findFirst({
-      where: { operatorId, departmentId, status: "active" },
-      select: { id: true },
-      orderBy: { priority: "asc" },
-    });
-    goalId = goal?.id ?? null;
-  }
-  if (!goalId) {
-    const hqGoal = await prisma.goal.findFirst({
-      where: { operatorId, departmentId: null, status: "active" },
-      select: { id: true },
-      orderBy: { priority: "asc" },
-    });
-    goalId = hqGoal?.id ?? null;
-  }
-
   // Find AI entity for attribution
   let aiEntityId: string | null = null;
   if (departmentId) {
@@ -622,8 +603,23 @@ async function handleInitiativeCandidate(
   const initiative = await prisma.initiative.create({
     data: {
       operatorId,
-      goalId,
       aiEntityId,
+      proposalType: "general",
+      triggerSummary: rec.title,
+      evidence: [{
+        source: "content_detection",
+        sourceType: item.sourceType,
+        sourceId: item.sourceId,
+        claim: rec.rationale,
+      }],
+      proposal: {
+        title: rec.title,
+        description: rec.description,
+        coordinatorEmail: rec.coordinatorEmail,
+        dueDate: rec.dueDate,
+        members: rec.proposedMembers,
+        deliverables: rec.proposedDeliverables,
+      },
       status: "proposed",
       rationale: `[content-detected:initiative_candidate] ${rec.title}\n\n${rec.rationale}`,
       impactAssessment: rec.description,

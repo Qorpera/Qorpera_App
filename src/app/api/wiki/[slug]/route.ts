@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { embedChunks } from "@/lib/rag/embedder";
 import { createVersionSnapshot } from "@/lib/wiki-engine";
+import { getVisibleDepartmentIds } from "@/lib/user-scope";
 
 /** Resolve a wiki page by slug — tries operator-scoped first, then system-scoped. */
 async function resolvePageBySlug(
@@ -16,20 +17,10 @@ async function resolvePageBySlug(
   });
   if (operatorPage) return operatorPage;
 
-  // Try system-scoped page (superadmin can always see; non-superadmin requires intelligenceAccess)
+  // System-scoped pages: superadmin only (system wiki is infrastructure, not content)
   if (isSuperadmin) {
     return prisma.knowledgePage.findFirst({
       where: { scope: "system", slug },
-    });
-  }
-
-  const operator = await prisma.operator.findUnique({
-    where: { id: operatorId },
-    select: { intelligenceAccess: true },
-  });
-  if (operator?.intelligenceAccess) {
-    return prisma.knowledgePage.findFirst({
-      where: { scope: "system", slug, status: { in: ["verified", "stale"] } },
     });
   }
 
@@ -44,10 +35,21 @@ export async function GET(
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
   const { slug } = await params;
-  const isSuperadmin = su.effectiveRole === "superadmin";
+  const isSuperadmin = su.isSuperadmin;
 
   const page = await resolvePageBySlug(slug, operatorId, isSuperadmin);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
+
+  // Department scope check for operator pages
+  if (page.scope === "operator") {
+    const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
+    if (visibleDepts !== "all") {
+      const pageDepts = (page.departmentIds ?? []) as string[];
+      if (pageDepts.length > 0 && !pageDepts.some(d => (visibleDepts as string[]).includes(d))) {
+        return NextResponse.json({ error: "Page not found" }, { status: 404 });
+      }
+    }
+  }
 
   // Resolve source details for citations
   const sources =
@@ -136,10 +138,21 @@ export async function PATCH(
   }
   const { operatorId } = su;
   const { slug } = await params;
-  const isSuperadmin = su.effectiveRole === "superadmin";
+  const isSuperadmin = su.isSuperadmin;
 
   const page = await resolvePageBySlug(slug, operatorId, isSuperadmin);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
+
+  // Department scope check for operator pages
+  if (page.scope === "operator") {
+    const visibleDepts = await getVisibleDepartmentIds(operatorId, su.effectiveUserId);
+    if (visibleDepts !== "all") {
+      const pageDepts = (page.departmentIds ?? []) as string[];
+      if (pageDepts.length > 0 && !pageDepts.some(d => (visibleDepts as string[]).includes(d))) {
+        return NextResponse.json({ error: "Page not found" }, { status: 404 });
+      }
+    }
+  }
 
   // System pages can only be edited by superadmin
   if (page.scope === "system" && !isSuperadmin) {

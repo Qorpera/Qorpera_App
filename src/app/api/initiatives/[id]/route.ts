@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDepartmentIds } from "@/lib/user-scope";
-import { enqueueWorkerJob } from "@/lib/worker-dispatch";
+import { Prisma } from "@prisma/client";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { createProjectFromInitiative } from "@/lib/initiative-project";
@@ -13,81 +12,36 @@ export async function GET(
 ) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { user, operatorId } = su;
+  const { operatorId } = su;
   const { id } = await params;
 
   const initiative = await prisma.initiative.findFirst({
     where: { id, operatorId },
-    include: {
-      goal: { select: { id: true, title: true, description: true, departmentId: true } },
-      executionPlan: {
-        include: {
-          steps: { orderBy: { sequenceOrder: "asc" } },
-        },
-      },
-    },
   });
+  if (!initiative) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (!initiative) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  // Department visibility check
-  const visibleDepts = await getVisibleDepartmentIds(operatorId, user.id);
-  if (visibleDepts !== "all" && initiative.goal?.departmentId) {
-    if (!visibleDepts.includes(initiative.goal.departmentId)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
-  }
-
-  // Resolve AI entity display name
   const aiEntity = await prisma.entity.findFirst({
     where: { id: initiative.aiEntityId, operatorId },
     select: { displayName: true },
   });
 
-  // Batch-load action capabilities for preview component mapping
-  const rawSteps = initiative.executionPlan?.steps ?? [];
-  const capIds = [...new Set(rawSteps.map(s => s.actionCapabilityId).filter(Boolean))] as string[];
-  const capabilities = capIds.length > 0
-    ? await prisma.actionCapability.findMany({
-        where: { id: { in: capIds } },
-        select: { id: true, slug: true, name: true },
-      })
-    : [];
-  const capMap = new Map(capabilities.map(c => [c.id, c]));
-
-  // Parse step outputs for completed steps
-  const steps = rawSteps.map(s => ({
-    id: s.id,
-    sequenceOrder: s.sequenceOrder,
-    title: s.title,
-    description: s.description,
-    executionMode: s.executionMode,
-    status: s.status,
-    assignedUserId: s.assignedUserId,
-    parameters: s.parameters ? (() => { try { return JSON.parse(s.parameters); } catch { return null; } })() : null,
-    actionCapability: s.actionCapabilityId ? capMap.get(s.actionCapabilityId) ?? null : null,
-    outputResult: s.outputResult ? (() => { try { return JSON.parse(s.outputResult); } catch { return null; } })() : null,
-    approvedAt: s.approvedAt?.toISOString() ?? null,
-    approvedById: s.approvedById,
-    executedAt: s.executedAt?.toISOString() ?? null,
-    errorMessage: s.errorMessage,
-    createdAt: s.createdAt.toISOString(),
-  }));
+  const parseJson = (val: unknown) => {
+    if (!val) return null;
+    if (typeof val === "object") return val;
+    try { return JSON.parse(String(val)); } catch { return null; }
+  };
 
   return NextResponse.json({
     id: initiative.id,
-    goalId: initiative.goalId,
-    goal: initiative.goal,
     aiEntityId: initiative.aiEntityId,
     aiEntityName: aiEntity?.displayName ?? null,
+    proposalType: initiative.proposalType,
+    triggerSummary: initiative.triggerSummary,
+    evidence: parseJson(initiative.evidence),
+    proposal: parseJson(initiative.proposal),
     status: initiative.status,
     rationale: initiative.rationale,
     impactAssessment: initiative.impactAssessment,
-    executionPlanId: initiative.executionPlanId,
-    planStatus: initiative.executionPlan?.status ?? null,
-    steps,
     proposedProjectConfig: initiative.proposedProjectConfig,
     projectId: initiative.projectId,
     createdAt: initiative.createdAt.toISOString(),
@@ -108,14 +62,8 @@ export async function PATCH(
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 
-  const initiative = await prisma.initiative.findFirst({
-    where: { id, operatorId },
-    include: { goal: { select: { title: true } } },
-  });
-
-  if (!initiative) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+  const initiative = await prisma.initiative.findFirst({ where: { id, operatorId } });
+  if (!initiative) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await req.json();
 
@@ -123,102 +71,103 @@ export async function PATCH(
     return NextResponse.json({ error: "Status must be 'approved' or 'rejected'" }, { status: 400 });
   }
 
-  if (body.status === "approved") {
-    // Update initiative
-    await prisma.initiative.update({
-      where: { id, operatorId },
-      data: { status: "approved" },
-    });
+  if (body.status === "rejected") {
+    await prisma.initiative.update({ where: { id }, data: { status: "rejected" } });
 
-    // If initiative has a proposed project config, create the project
-    if (initiative.proposedProjectConfig) {
+    sendNotificationToAdmins({
+      operatorId,
+      type: "system_alert",
+      title: `Initiative rejected: ${initiative.triggerSummary?.slice(0, 80) ?? "Unknown"}`,
+      body: `The proposed initiative was rejected.`,
+      sourceType: "initiative",
+      sourceId: id,
+    }).catch(() => {});
+
+    triggerInitiativeWorkStreamRecheck(id);
+    return NextResponse.json({ id, status: "rejected" });
+  }
+
+  // Approved: dispatch based on proposalType
+  const proposalType = initiative.proposalType;
+  const proposal = (typeof initiative.proposal === "object" && initiative.proposal !== null)
+    ? initiative.proposal as Record<string, unknown>
+    : {};
+
+  switch (proposalType) {
+    case "project_creation": {
+      if (!initiative.proposedProjectConfig && initiative.proposal) {
+        await prisma.initiative.update({
+          where: { id },
+          data: { proposedProjectConfig: initiative.proposal as Prisma.InputJsonValue },
+        });
+      }
+      await prisma.initiative.update({ where: { id }, data: { status: "approved" } });
       let projectId: string | undefined;
       try {
         projectId = await createProjectFromInitiative(initiative.id, user.id);
       } catch (err) {
-        console.error("[initiative-api] Failed to create project from initiative:", err);
-        // Don't fail the approval — the initiative is approved, project creation can be retried
+        console.error("[initiative-api] Failed to create project:", err);
       }
-
       triggerInitiativeWorkStreamRecheck(id);
-
-      const current = await prisma.initiative.findFirst({ where: { id, operatorId }, select: { status: true } });
-      return NextResponse.json({ id, status: current?.status ?? "approved", projectId });
+      return NextResponse.json({ id, status: "completed", projectId });
     }
 
-    if (initiative.executionPlanId) {
-      // Approve the execution plan
-      await prisma.executionPlan.update({
-        where: { id: initiative.executionPlanId },
-        data: { status: "approved", approvedAt: new Date(), approvedById: user.id },
-      });
-
-      // Find the first awaiting step
-      const firstStep = await prisma.executionStep.findFirst({
-        where: { planId: initiative.executionPlanId, status: "awaiting_approval" },
-        orderBy: { sequenceOrder: "asc" },
-      });
-
-      if (firstStep) {
-        // Assign approving user to unassigned action steps
-        await prisma.executionStep.updateMany({
-          where: {
-            planId: initiative.executionPlanId,
-            executionMode: "action",
-            assignedUserId: null,
+    case "system_job_creation": {
+      await prisma.initiative.update({ where: { id }, data: { status: "approved" } });
+      try {
+        const aiEntity = await prisma.entity.findFirst({
+          where: { operatorId, entityType: { slug: { in: ["ai-agent", "hq-ai"] } }, status: "active" },
+          select: { id: true },
+        });
+        const { CronExpressionParser } = await import("cron-parser");
+        const cronExpr = (proposal.cronExpression as string) ?? "0 0 * * *";
+        const interval = CronExpressionParser.parse(cronExpr);
+        const job = await prisma.systemJob.create({
+          data: {
+            operatorId,
+            aiEntityId: aiEntity?.id ?? initiative.aiEntityId,
+            title: (proposal.title as string) ?? "New System Job",
+            description: (proposal.description as string) ?? "",
+            cronExpression: cronExpr,
+            scope: (proposal.scope as string) ?? "company_wide",
+            status: "active",
+            importanceThreshold: 0.3,
+            nextTriggerAt: interval.next().toDate(),
           },
-          data: { assignedUserId: user.id },
         });
-
-        // Advance the first step and update initiative to executing
-        await prisma.initiative.update({
-          where: { id, operatorId },
-          data: { status: "executing" },
-        });
-
-        enqueueWorkerJob("advance_step", operatorId, {
-          stepId: firstStep.id,
-          action: "approve",
-          userId: user.id,
-        }).catch(err =>
-          console.error(`[initiatives-api] Failed to enqueue step advance for initiative ${id}:`, err),
-        );
+        await prisma.initiative.update({ where: { id }, data: { status: "completed" } });
+        return NextResponse.json({ id, status: "completed", systemJobId: job.id });
+      } catch (err) {
+        console.error("[initiative-api] Failed to create system job:", err);
+        return NextResponse.json({ id, status: "approved" });
       }
     }
 
-    // Trigger WorkStream recheck
-    triggerInitiativeWorkStreamRecheck(id);
+    case "autonomy_graduation": {
+      await prisma.initiative.update({ where: { id }, data: { status: "approved" } });
+      try {
+        const typeName = proposal.situationTypeName as string;
+        const newLevel = proposal.newAutonomyLevel as string;
+        if (typeName && newLevel) {
+          await prisma.situationType.updateMany({
+            where: { operatorId, name: { equals: typeName, mode: "insensitive" } },
+            data: { autonomyLevel: newLevel },
+          });
+          await prisma.initiative.update({ where: { id }, data: { status: "completed" } });
+        }
+      } catch (err) {
+        console.error("[initiative-api] Failed to graduate autonomy:", err);
+      }
+      triggerInitiativeWorkStreamRecheck(id);
+      return NextResponse.json({ id, status: "completed" });
+    }
 
-    const current = await prisma.initiative.findFirst({ where: { id, operatorId }, select: { status: true } });
-    return NextResponse.json({ id, status: current?.status ?? "approved" });
+    default: {
+      await prisma.initiative.update({ where: { id }, data: { status: "approved" } });
+      triggerInitiativeWorkStreamRecheck(id);
+      return NextResponse.json({ id, status: "approved" });
+    }
   }
-
-  // Rejected
-  await prisma.initiative.update({
-    where: { id, operatorId },
-    data: { status: "rejected" },
-  });
-
-  if (initiative.executionPlanId) {
-    await prisma.executionPlan.update({
-      where: { id: initiative.executionPlanId },
-      data: { status: "failed" },
-    });
-  }
-
-  sendNotificationToAdmins({
-    operatorId,
-    type: "system_alert",
-    title: `Initiative rejected: ${initiative.goal?.title ?? "Unknown goal"}`,
-    body: `The proposed initiative was rejected by ${user.id}.`,
-    sourceType: "initiative",
-    sourceId: id,
-  }).catch(() => {});
-
-  // Trigger WorkStream recheck
-  triggerInitiativeWorkStreamRecheck(id);
-
-  return NextResponse.json({ id, status: "rejected" });
 }
 
 function triggerInitiativeWorkStreamRecheck(initiativeId: string) {
