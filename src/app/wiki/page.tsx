@@ -413,7 +413,7 @@ export default function WikiPage() {
         }}
       >
         {/* ── Main Content ── */}
-        <div style={{ flex: 1, overflow: "auto", background: "var(--surface)" }}>
+        <div style={{ flex: 1, overflow: "auto", background: "color-mix(in srgb, var(--surface) 85%, black)" }}>
           {isMobile && (
             <MobileFilters
               byType={byType}
@@ -436,9 +436,9 @@ export default function WikiPage() {
             <div style={{ padding: 32, color: "var(--fg3)" }}>Loading page...</div>
           ) : activeSlug && activePage ? (
             <>
-              {/* Back bar */}
-              <div style={{ width: "90%", maxWidth: 900, margin: "0 auto" }}>
-                <div style={{ padding: "12px 0 16px", display: "flex", alignItems: "center", gap: 8 }}>
+              {/* Top bar: back + search */}
+              <div style={{ maxWidth: 1080, width: "100%", margin: "0 auto", padding: "12px 24px 16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <button
                     onClick={() => setParam("page", "")}
                     style={{
@@ -450,10 +450,28 @@ export default function WikiPage() {
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
+                      flexShrink: 0,
                     }}
                   >
-                    ← Back to pages
+                    ← Back to Wiki
                   </button>
+                  <input
+                    type="text"
+                    placeholder="Search wiki..."
+                    value={searchInput}
+                    onChange={(e) => { setSearchInput(e.target.value); handleSearch(e.target.value); }}
+                    style={{
+                      flex: 1,
+                      padding: "7px 12px",
+                      background: "rgba(255,255,255,0.05)",
+                      border: "0.5px solid var(--border)",
+                      borderRadius: 6,
+                      color: "var(--foreground)",
+                      fontSize: 12,
+                      outline: "none",
+                      maxWidth: 300,
+                    }}
+                  />
                 </div>
               </div>
               <ContentPane
@@ -977,28 +995,35 @@ function ContentPane({
   inspectorOpen: boolean;
   onNavigate: (slug: string) => void;
 }) {
-  // Process content: replace citations with markers, then insert cross-links
+  // Process content: strip duplicate title, replace citations, insert cross-links
   const processedContent = useMemo(() => {
-    let text = page.content.replace(
-      /\[src:([a-zA-Z0-9_-]+)\]/g,
-      "{{CITE:$1}}",
-    );
+    let text = page.content;
+    // Strip leading heading if it matches the page title (avoids duplicate)
+    const titleMatch = text.match(/^#{1,2}\s+(.+)\n/);
+    if (titleMatch) {
+      const headingText = titleMatch[1].trim().replace(/\s*\(.*\)\s*$/, "").trim();
+      const pageTitle = page.title.replace(/\s*\(.*\)\s*$/, "").trim();
+      if (headingText.toLowerCase() === pageTitle.toLowerCase() || pageTitle.toLowerCase().startsWith(headingText.toLowerCase())) {
+        text = text.slice(titleMatch[0].length);
+      }
+    }
+    text = text.replace(/\[src:([a-zA-Z0-9_-]+)\]/g, "{{CITE:$1}}");
     text = insertCrossLinks(text, pageIndex, page.slug);
     return text;
-  }, [page.content, pageIndex, page.slug]);
+  }, [page.content, page.title, pageIndex, page.slug]);
 
   const [quarantineOpen, setQuarantineOpen] = useState(false);
 
   return (
-    <div style={{ width: "90%", maxWidth: 900, margin: "0 auto" }}>
-      {/* Page surface — full page feel */}
+    <div style={{ maxWidth: 1080, width: "100%", margin: "0 auto" }}>
+      {/* Page surface */}
       <div style={{
         background: "var(--elevated)",
         borderLeft: "1px solid var(--border)",
         borderRight: "1px solid var(--border)",
         borderBottom: "1px solid var(--border)",
         minHeight: "calc(100vh - 200px)",
-        padding: "28px 40px 48px",
+        padding: "32px 48px 48px",
       }}>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
@@ -1042,7 +1067,19 @@ function ContentPane({
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-          <Badge variant={STATUS_BADGE[page.status] ?? "default"}>{page.status}</Badge>
+          {page.status === "quarantined" && page.quarantineReason ? (
+            <button
+              onClick={() => setQuarantineOpen(!quarantineOpen)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: 0, background: "none", border: "none", cursor: "pointer" }}
+            >
+              <Badge variant="red">{page.status}</Badge>
+              <svg width={8} height={8} viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth={2.5} style={{ transform: quarantineOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
+                <path d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          ) : (
+            <Badge variant={STATUS_BADGE[page.status] ?? "default"}>{page.status}</Badge>
+          )}
           <span style={{ fontSize: 11, color: "var(--fg3)" }}>
             {PAGE_TYPE_META[page.pageType]?.label ?? page.pageType}
           </span>
@@ -1052,43 +1089,18 @@ function ContentPane({
         </div>
       </div>
 
-      {/* Quarantine warning — collapsible */}
-      {page.status === "quarantined" && page.quarantineReason && (
-        <div style={{ marginBottom: 16 }}>
-          <button
-            onClick={() => setQuarantineOpen(!quarantineOpen)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "4px 10px",
-              borderRadius: 4,
-              border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
-              background: "color-mix(in srgb, var(--danger) 8%, transparent)",
-              fontSize: 11,
-              fontWeight: 600,
-              color: "var(--danger)",
-              cursor: "pointer",
-            }}
-          >
-            <svg width={8} height={8} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} style={{ transform: quarantineOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
-              <path d="M9 5l7 7-7 7" />
-            </svg>
-            Quarantined
-          </button>
-          {quarantineOpen && (
-            <div style={{
-              marginTop: 8,
-              padding: "10px 14px",
-              border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
-              background: "color-mix(in srgb, var(--danger) 8%, transparent)",
-              fontSize: 12,
-              color: "var(--danger)",
-              lineHeight: "18px",
-            }}>
-              {page.quarantineReason}
-            </div>
-          )}
+      {/* Quarantine details — expanded */}
+      {quarantineOpen && page.quarantineReason && (
+        <div style={{
+          marginBottom: 16,
+          padding: "10px 14px",
+          border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
+          background: "color-mix(in srgb, var(--danger) 8%, transparent)",
+          fontSize: 12,
+          color: "var(--danger)",
+          lineHeight: "18px",
+        }}>
+          {page.quarantineReason}
         </div>
       )}
 
