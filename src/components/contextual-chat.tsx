@@ -215,10 +215,10 @@ export function ContextualChat({
                 ? "2px solid var(--accent)"
                 : "1px solid var(--border)",
               borderRadius: 8,
-              padding: chatFocused ? "11px 13px" : "12px 14px",
-              paddingRight: chatFocused ? 43 : 44,
+              padding: chatFocused ? "15px 17px" : "16px 18px",
+              paddingRight: chatFocused ? 55 : 56,
               fontSize: 14,
-              minHeight: 80,
+              minHeight: 88,
               lineHeight: 1.5,
               color: "var(--foreground)",
               fontFamily: "inherit",
@@ -236,7 +236,7 @@ export function ContextualChat({
           <button
             onClick={handleSend}
             disabled={streaming || !input.trim()}
-            className="absolute bottom-3 right-3 p-1.5 rounded-md transition-all disabled:cursor-not-allowed"
+            className="absolute bottom-5 right-4 p-2.5 rounded-md transition-all disabled:cursor-not-allowed"
             style={{
               background: input.trim() ? "var(--btn-primary-bg)" : "var(--badge-bg)",
               color: input.trim() ? "var(--btn-primary-text)" : "var(--fg4)",

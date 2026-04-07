@@ -789,7 +789,7 @@ export default function CopilotPage() {
           )}
 
           {/* Input area */}
-          <div className="border-t border-border px-6 py-4 bg-sidebar/40">
+          <div className="px-6 py-4">
             {aiPaused && (
               <div className="max-w-[720px] mx-auto mb-2">
                 <div className="text-[12px] text-danger/80">{t("aiPausedChat")}</div>
@@ -819,7 +819,7 @@ export default function CopilotPage() {
               </div>
             )}
             {!aiPaused && (
-            <div className="max-w-[720px] mx-auto flex items-end gap-3">
+            <div className="max-w-[720px] mx-auto relative">
               <textarea
                 ref={inputRef}
                 value={input}
@@ -833,17 +833,33 @@ export default function CopilotPage() {
                       : t("askAnything")
                 }
                 rows={1}
-                className="flex-1 resize-none px-4 py-3 rounded-xl bg-hover border border-border text-foreground placeholder:text-[var(--fg3)] focus:outline-none focus:border-accent focus:ring-1 focus:ring-[color-mix(in_srgb,var(--accent)_30%,transparent)] text-base md:text-sm leading-relaxed"
-                style={{ maxHeight: 200 }}
+                className="w-full resize-none outline-none"
+                style={{
+                  background: "var(--elevated)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "16px 18px",
+                  paddingRight: 56,
+                  fontSize: 14,
+                  minHeight: 88,
+                  maxHeight: 200,
+                  lineHeight: 1.5,
+                  color: "var(--foreground)",
+                  fontFamily: "inherit",
+                }}
                 disabled={streaming || initializing || (copilotBudget?.billingStatus !== "active" && (copilotBudget?.remainingCents ?? 1) <= 0)}
               />
               <button
                 onClick={handleSend}
                 disabled={streaming || !input.trim() || initializing || (copilotBudget?.billingStatus !== "active" && (copilotBudget?.remainingCents ?? 1) <= 0)}
-                className="flex-shrink-0 p-3 rounded-xl bg-accent-light text-accent hover:bg-[color-mix(in_srgb,var(--accent)_30%,transparent)] hover:text-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="absolute bottom-5 right-4 p-2.5 rounded-md transition-all disabled:cursor-not-allowed"
+                style={{
+                  background: input.trim() ? "var(--btn-primary-bg)" : "var(--badge-bg)",
+                  color: input.trim() ? "var(--btn-primary-text)" : "var(--fg4)",
+                }}
               >
                 {streaming ? (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
                 ) : (
                   <svg
                     className="w-4 h-4"

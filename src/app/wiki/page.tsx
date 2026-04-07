@@ -365,7 +365,7 @@ export default function WikiPage() {
         }}
       >
         {/* ── Main Content ── */}
-        <div style={{ flex: 1, overflow: "auto", background: "var(--surface)" }}>
+        <div style={{ flex: 1, overflow: "auto" }}>
           {isMobile && (
             <MobileFilters
               byType={byType}
@@ -388,25 +388,13 @@ export default function WikiPage() {
             <div style={{ padding: 32, color: "var(--fg3)" }}>Loading page...</div>
           ) : activeSlug && activePage ? (
             <>
-              {/* Search bar above page — centered */}
+              {/* Search bar above page — centered, with dropdown */}
               <div style={{ maxWidth: 1080, width: "100%", margin: "0 auto", padding: "16px 24px 20px", display: "flex", justifyContent: "center" }}>
-                <input
-                  type="text"
-                  placeholder="Search wiki..."
+                <WikiSearchBar
                   value={searchInput}
-                  onChange={(e) => { setSearchInput(e.target.value); handleSearch(e.target.value); }}
-                  style={{
-                    width: "100%",
-                    maxWidth: 520,
-                    padding: "9px 14px",
-                    background: "rgba(255,255,255,0.05)",
-                    border: "0.5px solid var(--border)",
-                    borderRadius: 6,
-                    color: "var(--foreground)",
-                    fontSize: 13,
-                    outline: "none",
-                    textAlign: "center",
-                  }}
+                  onChange={(v) => { setSearchInput(v); handleSearch(v); }}
+                  pages={pages}
+                  onSelectPage={(slug) => { setSearchInput(""); setParam("page", slug); }}
                 />
               </div>
               <ContentPane
@@ -897,6 +885,106 @@ function insertCrossLinks(text: string, pageIndex: WikiPageSummary[], currentSlu
     }
   }
   return result;
+}
+
+// ── Wiki Search Bar with dropdown ────────────────────────
+
+function WikiSearchBar({
+  value,
+  onChange,
+  pages,
+  onSelectPage,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  pages: WikiPageSummary[];
+  onSelectPage: (slug: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!focused) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setFocused(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [focused]);
+
+  const q = value.toLowerCase().trim();
+  const suggestions = q.length >= 2
+    ? pages.filter(p => p.title.toLowerCase().includes(q)).slice(0, 8)
+    : [];
+
+  const showDropdown = focused && suggestions.length > 0;
+
+  return (
+    <div ref={ref} style={{ position: "relative", width: "100%", maxWidth: 520 }}>
+      <input
+        type="text"
+        placeholder="Search wiki..."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        style={{
+          width: "100%",
+          padding: "9px 14px",
+          background: "rgba(255,255,255,0.05)",
+          border: "0.5px solid var(--border)",
+          borderRadius: showDropdown ? "6px 6px 0 0" : 6,
+          color: "var(--foreground)",
+          fontSize: 13,
+          outline: "none",
+          textAlign: "center",
+        }}
+      />
+      {showDropdown && (
+        <div style={{
+          position: "absolute",
+          top: "100%",
+          left: 0,
+          right: 0,
+          background: "var(--elevated)",
+          border: "0.5px solid var(--border)",
+          borderTop: "none",
+          borderRadius: "0 0 6px 6px",
+          zIndex: 20,
+          maxHeight: 280,
+          overflow: "auto",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+        }}>
+          {suggestions.map(p => (
+            <button
+              key={p.slug}
+              onMouseDown={(e) => { e.preventDefault(); onSelectPage(p.slug); setFocused(false); }}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 14px",
+                background: "none",
+                border: "none",
+                borderBottom: "0.5px solid rgba(255,255,255,0.04)",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+              className="hover:bg-hover transition-colors"
+            >
+              <span style={{ fontSize: 12, color: "var(--foreground)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.title}
+              </span>
+              <span style={{ fontSize: 10, color: "var(--fg4)", flexShrink: 0 }}>
+                {p.pageType.replace(/_/g, " ")}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ContentPane({

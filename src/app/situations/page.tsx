@@ -1415,7 +1415,7 @@ function DetailPane({
 
           {/* ── SITUATION RESUME (only for multi-cycle situations) ── */}
           {detail.resumeSummary && detail.cycles && detail.cycles.length >= 2 && (
-            <div className="w-[80%] mx-auto my-6">
+            <div className="w-[70%] mx-auto my-6">
               <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--fg3)" }}>
                 {t("situationSummary") ?? "Situation Summary"}
               </div>
@@ -1441,7 +1441,7 @@ function DetailPane({
 
           {/* ── ANALYSIS DOCUMENT (thorough investigations) ── */}
           {detail?.analysisDocument && detail?.investigationDepth === "thorough" && (
-            <div className="w-[80%] mx-auto" style={{ marginBottom: 16 }}>
+            <div className="w-[70%] mx-auto" style={{ marginBottom: 16 }}>
               <div style={{ marginBottom: 12 }}>
                 <span style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }}>
                   Investigation Analysis
@@ -1512,7 +1512,7 @@ function DetailPane({
 
           {/* ── CURRENT ACTION PLAN ── */}
           {reasoning && actionPlan && actionPlan.length > 0 ? (
-            <div className="overflow-hidden min-w-0 w-[80%] mx-auto">
+            <div className="overflow-hidden min-w-0 w-[70%] mx-auto">
               {/* Section header */}
               <div style={{ marginBottom: 16 }}>
                 <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.02em", color: "var(--foreground)" }}>
@@ -1619,7 +1619,7 @@ function DetailPane({
                               plan: { sourceType: "situation" as const, situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } } },
                             };
                             return (
-                              <div className="mt-2 mb-2" onClick={e => e.stopPropagation()}>
+                              <div className="mt-2 mb-2" style={{ maxWidth: "33%" }} onClick={e => e.stopPropagation()}>
                                 <InlineStepCard
                                   step={enrichedStep}
                                   isActive={sidePanelStepIndex === i}
@@ -1653,7 +1653,7 @@ function DetailPane({
                                     border: `1px solid color-mix(in srgb, ${colorVar} ${borderOpacity}, transparent)`,
                                   }}>
                                     <span style={{ fontSize: 12, flexShrink: 0, marginTop: 1, color: isDanger ? "var(--danger)" : undefined }}>
-                                      {isDanger ? "⚠" : isWarn ? "⚠" : "ℹ"}
+                                      {isDanger ? "⚠" : isWarn ? "⚠" : "?"}
                                     </span>
                                     <span style={{ fontSize: 12, color: isDanger ? "var(--danger)" : "var(--fg2)", lineHeight: 1.5 }}>
                                       {u.assumption}
@@ -1779,7 +1779,7 @@ function DetailPane({
               })()}
             </div>
           ) : reasoning && !actionPlan ? (
-            <div className="w-[80%] mx-auto">
+            <div className="w-[70%] mx-auto" style={{ maxWidth: "calc(100% - 150px)" }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "var(--fg2)", marginBottom: 12 }}>
                 No action recommended
               </div>
@@ -1968,7 +1968,7 @@ function DetailPane({
 
           {/* ── Reasoning trace (Claude-style thinking) ── */}
           {reasoning && (
-            <div className="w-[80%] mx-auto">
+            <div className="w-[70%] mx-auto" style={{ maxWidth: "calc(100% - 150px)" }}>
               <button
                 onClick={() => setShowEvidence(!showEvidence)}
                 className="flex items-center gap-2 transition-colors hover:text-foreground"
@@ -2138,7 +2138,7 @@ function DetailPane({
 
           {/* ── Bottom Action Bar ── */}
           {canAct && !currentMode && (
-            <div className="flex items-center gap-2 pt-3 w-[80%] mx-auto">
+            <div className="flex items-center gap-2 pt-3 w-[70%] mx-auto">
                 <button className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
                   style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
                   onClick={() => { setShowRejectForm(!showRejectForm); setShowTeachForm(false); }}>
@@ -2153,7 +2153,7 @@ function DetailPane({
           )}
           {/* Inline reject form */}
           {showRejectForm && (
-            <div className="w-[80%] mx-auto mt-3 space-y-2">
+            <div className="w-[70%] mx-auto mt-3 space-y-2">
               <textarea
                 value={feedbackText}
                 onChange={e => setFeedbackText(e.target.value)}
@@ -2177,7 +2177,7 @@ function DetailPane({
           )}
           {/* Inline teach form */}
           {showTeachForm && (
-            <div className="w-[80%] mx-auto mt-3 space-y-2">
+            <div className="w-[70%] mx-auto mt-3 space-y-2">
               <select
                 value={feedbackCategory}
                 onChange={e => setFeedbackCategory(e.target.value)}

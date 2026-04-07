@@ -150,28 +150,9 @@ export default function SystemJobsPage() {
           </div>
         </div>
 
-        {/* ── Filter tabs ── */}
+        {/* ── Divider ── */}
         <div style={{ maxWidth: 900, margin: "0 auto", width: "100%", padding: "0 20px" }}>
-          <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-            {(["active", "all"] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                style={{
-                  fontSize: 11,
-                  fontWeight: 500,
-                  padding: "4px 12px",
-                  borderRadius: 999,
-                  border: filter === f ? "1px solid var(--border)" : "1px solid transparent",
-                  background: filter === f ? "var(--elevated)" : "transparent",
-                  color: filter === f ? "var(--foreground)" : "var(--fg4)",
-                  cursor: "pointer",
-                }}
-              >
-                {f === "active" ? "Active" : "All"}
-              </button>
-            ))}
-          </div>
+          <div style={{ borderTop: "1px solid var(--border)", marginBottom: 20 }} />
         </div>
 
         {/* ── Job grid ── */}

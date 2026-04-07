@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { QorperaLogo } from "@/components/qorpera-logo";
+import ReactMarkdown from "react-markdown";
 
 interface OperatorInfo {
   id: string;
@@ -421,8 +422,12 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
+
           </div>
         )}
+
+        {/* System Intelligence Wiki — inline */}
+        <SystemIntelligenceSection />
       </div>
 
       {/* Synthetic Seed Result Modal */}
@@ -454,6 +459,114 @@ export default function AdminPage() {
         </div>
       )}
 
+    </div>
+  );
+}
+
+// ── System Intelligence Wiki (inline on admin page) ─────────────────────────
+
+interface SystemWikiPage {
+  id: string;
+  slug: string;
+  title: string;
+  pageType: string;
+  status: string;
+  content: string;
+  contentTokens: number;
+  lastSynthesizedAt: string;
+}
+
+function SystemIntelligenceSection() {
+  const [pages, setPages] = useState<SystemWikiPage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
+  const [pageContent, setPageContent] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    fetch("/api/wiki?scope=system")
+      .then(r => r.ok ? r.json() : { pages: [] })
+      .then(data => setPages(data.pages ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const loadPage = useCallback(async (slug: string) => {
+    if (pageContent[slug]) return;
+    try {
+      const res = await fetch(`/api/wiki/${slug}?scope=system`);
+      if (res.ok) {
+        const data = await res.json();
+        setPageContent(prev => ({ ...prev, [slug]: data.content ?? "" }));
+      }
+    } catch {}
+  }, [pageContent]);
+
+  const togglePage = (slug: string) => {
+    if (expandedSlug === slug) {
+      setExpandedSlug(null);
+    } else {
+      setExpandedSlug(slug);
+      loadPage(slug);
+    }
+  };
+
+  return (
+    <div className="mt-10">
+      <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">System Intelligence</h2>
+      <div className="wf-soft p-6">
+        {loading ? (
+          <p className="text-sm text-[var(--fg3)]">Loading...</p>
+        ) : pages.length === 0 ? (
+          <p className="text-sm text-[var(--fg4)]">No system intelligence pages yet.</p>
+        ) : (
+          <div className="space-y-1">
+            {pages.map(page => (
+              <div key={page.slug}>
+                <button
+                  onClick={() => togglePage(page.slug)}
+                  className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-hover transition-colors"
+                >
+                  <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="var(--fg4)" strokeWidth={2} style={{ flexShrink: 0, transform: expandedSlug === page.slug ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>
+                    <path d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span className="text-sm text-foreground flex-1 truncate">{page.title}</span>
+                  <span className="text-[10px] text-[var(--fg4)] flex-shrink-0">{page.pageType}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                    page.status === "verified" ? "bg-[color-mix(in_srgb,var(--ok)_12%,transparent)] text-ok"
+                    : page.status === "quarantined" ? "bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-danger"
+                    : "bg-hover text-[var(--fg3)]"
+                  }`}>{page.status}</span>
+                </button>
+                {expandedSlug === page.slug && (
+                  <div className="ml-7 mr-3 mb-3 p-4 rounded-md" style={{ background: "var(--elevated)", border: "1px solid var(--border)" }}>
+                    {pageContent[page.slug] ? (
+                      <div className="prose-sm" style={{ fontSize: 13, lineHeight: 1.7, color: "var(--fg2)", maxHeight: 500, overflow: "auto" }}>
+                        <ReactMarkdown
+                          components={{
+                            h1: ({ children }) => <h1 style={{ fontSize: 16, fontWeight: 600, marginTop: 16, marginBottom: 8, color: "var(--foreground)" }}>{children}</h1>,
+                            h2: ({ children }) => <h2 style={{ fontSize: 14, fontWeight: 600, marginTop: 14, marginBottom: 6, color: "var(--foreground)" }}>{children}</h2>,
+                            h3: ({ children }) => <h3 style={{ fontSize: 13, fontWeight: 600, marginTop: 12, marginBottom: 4, color: "var(--foreground)" }}>{children}</h3>,
+                            p: ({ children }) => <p style={{ marginBottom: 8 }}>{children}</p>,
+                            ul: ({ children }) => <ul style={{ paddingLeft: 16, marginBottom: 8 }}>{children}</ul>,
+                            ol: ({ children }) => <ol style={{ paddingLeft: 16, marginBottom: 8 }}>{children}</ol>,
+                            li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
+                            strong: ({ children }) => <strong style={{ fontWeight: 600, color: "var(--foreground)" }}>{children}</strong>,
+                            blockquote: ({ children }) => <blockquote style={{ borderLeft: "2px solid var(--border)", paddingLeft: 12, color: "var(--fg3)", margin: "8px 0" }}>{children}</blockquote>,
+                          }}
+                        >
+                          {pageContent[page.slug]}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-[var(--fg3)]">Loading content...</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
