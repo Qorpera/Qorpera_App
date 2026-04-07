@@ -248,7 +248,7 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     const { callLLM, getModel } = await import("@/lib/ai-provider");
 
     const situationDesc = situation
-      ? (situation.description ?? situation.title ?? "Unknown situation")
+      ? (situation.triggerSummary ?? "Unknown situation")
       : `Source: ${plan.sourceType} ${plan.sourceId}`;
 
     const response = await callLLM({
