@@ -22,6 +22,7 @@ export interface PreviewProps {
   step: ExecutionStepForPreview;
   isEditable: boolean;
   onParametersUpdate?: (params: Record<string, unknown>) => void;
+  onStepComplete?: (notes: string) => Promise<void>;
   locale: string;
   inPanel?: boolean;
   onOpenAttachment?: (attachment: Record<string, unknown>, index: number) => void;
@@ -42,6 +43,7 @@ import { DocumentPreview } from "./document-preview";
 import { SpreadsheetPreview } from "./spreadsheet-preview";
 import { PresentationPreview } from "./presentation-preview";
 import { GenericStepPreview } from "./generic-step-preview";
+import { HumanTaskPreview } from "./human-task-preview";
 
 // ── Prefix → Component mapping ──────────────────────────────────────────────
 
@@ -129,6 +131,9 @@ const PREVIEW_TYPE_MAP: Record<string, PreviewComponent> = {
 // ── Resolver ─────────────────────────────────────────────────────────────────
 
 export function getPreviewComponent(step: ExecutionStepForPreview): PreviewComponent {
+  // Human tasks always use the human task preview
+  if (step.executionMode === "human_task") return HumanTaskPreview;
+
   const slug = step.actionCapability?.slug;
 
   // 1. Exact slug match

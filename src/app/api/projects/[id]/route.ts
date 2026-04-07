@@ -117,3 +117,55 @@ export async function PATCH(
 
   return NextResponse.json(updated);
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const su = await getSessionUser();
+  if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (su.effectiveRole === "member") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+
+  const { id } = await params;
+  const { operatorId } = su;
+
+  const project = await prisma.project.findFirst({
+    where: { id, operatorId },
+    include: { _count: { select: { childProjects: true } } },
+  });
+  if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  await prisma.$transaction(async (tx) => {
+    // If portfolio, delete children first
+    if (project._count.childProjects > 0) {
+      const childIds = (await tx.project.findMany({
+        where: { parentProjectId: id },
+        select: { id: true },
+      })).map(c => c.id);
+
+      for (const childId of childIds) {
+        await cleanProjectDeps(tx, childId);
+      }
+      await tx.project.deleteMany({ where: { parentProjectId: id } });
+    }
+
+    // Clean this project's deps then delete
+    await cleanProjectDeps(tx, id);
+    await tx.project.delete({ where: { id } });
+  });
+
+  return NextResponse.json({ success: true });
+}
+
+/** Remove non-cascading FK references so the project can be deleted. */
+async function cleanProjectDeps(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], projectId: string) {
+  // Unlink nullable FKs (these use onDelete: SetNull or no onDelete)
+  await tx.internalDocument.updateMany({ where: { projectId }, data: { projectId: null } });
+  await tx.contentChunk.updateMany({ where: { projectId }, data: { projectId: null } });
+  await tx.knowledgePage.deleteMany({ where: { projectId } });
+  await tx.sourceConnector.updateMany({ where: { projectId }, data: { projectId: null } });
+  // Initiative has a unique optional FK — unlink it
+  await tx.initiative.updateMany({ where: { projectId }, data: { projectId: null } });
+}

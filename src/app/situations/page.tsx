@@ -760,6 +760,14 @@ export default function SituationsPage() {
                     }]);
                     setSidePanelData(prev => prev ? { ...prev, step: syntheticStep } : null);
                   }}
+                  onStepComplete={async (notes: string) => {
+                    if (!detail?.executionPlanId) return;
+                    await fetch(
+                      `/api/execution-plans/${detail.executionPlanId}/steps/${sidePanelData.planStepId}/complete`,
+                      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes: notes.trim() || null }) },
+                    );
+                    setPlanRefetchTrigger(n => n + 1);
+                  }}
                   locale={locale}
                 />
               </SidePanel>

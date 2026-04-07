@@ -88,6 +88,23 @@ function ProjectsPageInner() {
   const [portfolioFormError, setPortfolioFormError] = useState("");
   const [portfolioSaving, setPortfolioSaving] = useState(false);
 
+  // Delete state
+  const [deleteTarget, setDeleteTarget] = useState<ProjectListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetchApi(`/api/projects/${deleteTarget.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setDeleteTarget(null);
+        loadProjects();
+      }
+    } catch {}
+    finally { setDeleting(false); }
+  };
+
   const loadProjects = () => {
     setLoading(true);
     const url = portfolioId
@@ -253,10 +270,10 @@ function ProjectsPageInner() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
             {filtered.portfolios.map((p) => (
-              <FolderCard key={p.id} project={p} onClick={() => router.push(`/projects?portfolio=${p.id}`)} />
+              <FolderCard key={p.id} project={p} onClick={() => router.push(`/projects?portfolio=${p.id}`)} onDelete={() => setDeleteTarget(p)} />
             ))}
             {filtered.standaloneProjects.map((p) => (
-              <FileCard key={p.id} project={p} onClick={() => router.push(`/projects/${p.id}`)} />
+              <FileCard key={p.id} project={p} onClick={() => router.push(`/projects/${p.id}`)} onDelete={() => setDeleteTarget(p)} />
             ))}
           </div>
         )}
@@ -287,6 +304,25 @@ function ProjectsPageInner() {
           </div>
         </form>
       </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} title={deleteTarget?.isPortfolio ? "Delete Portfolio" : "Delete Project"}>
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--fg2)] leading-relaxed">
+            {deleteTarget?.isPortfolio ? (
+              <>Delete <strong className="text-foreground">{deleteTarget.name}</strong> and all {deleteTarget.childProjects?.length ?? 0} projects inside it? This will permanently remove all deliverables, messages, and wiki pages.</>
+            ) : (
+              <>Delete <strong className="text-foreground">{deleteTarget?.name}</strong>? This will permanently remove all deliverables, messages, and wiki pages associated with this project.</>
+            )}
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="default" size="sm" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="danger" size="sm" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -305,22 +341,32 @@ export default function ProjectsPage() {
 
 // ── Folder Card (Portfolio) ────────────────────────────────────────────────
 
-function FolderCard({ project: p, onClick }: { project: ProjectListItem; onClick: () => void }) {
+function FolderCard({ project: p, onClick, onDelete }: { project: ProjectListItem; onClick: () => void; onDelete: () => void }) {
   const [hovered, setHovered] = useState(false);
   const childCount = p.childProjects?.length ?? p.childProjectCount ?? 0;
   return (
-    <button
-      onClick={onClick}
+    <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
+        position: "relative",
         background: hovered ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.035)",
         border: hovered ? "0.5px solid rgba(255,255,255,0.14)" : "0.5px solid rgba(255,255,255,0.07)",
         borderRadius: 10, padding: "18px 16px", textAlign: "left", cursor: "pointer",
         transition: "background 0.15s, border-color 0.15s",
         display: "flex", flexDirection: "column", gap: 8, minHeight: 110,
       }}
+      onClick={onClick}
     >
+      {hovered && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          style={{ position: "absolute", top: 8, right: 8, width: 20, height: 20, borderRadius: 4, background: "rgba(255,255,255,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          className="hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)]"
+        >
+          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="var(--fg3)" strokeWidth={2}><path d="M18 6L6 18M6 6l12 12" /></svg>
+        </button>
+      )}
       <svg width={28} height={28} viewBox="0 0 24 24" fill="none" style={{ opacity: 0.6 }}>
         <path d="M2 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" fill="var(--fg3)" fillOpacity={0.25} stroke="var(--fg3)" strokeWidth={1.2} />
       </svg>
@@ -338,23 +384,24 @@ function FolderCard({ project: p, onClick }: { project: ProjectListItem; onClick
         </span>
         <StatusBadge status={p.status} />
       </div>
-    </button>
+    </div>
   );
 }
 
 // ── File Card (Project) ────────────────────────────────────────────────────
 
-function FileCard({ project: p, onClick }: { project: ProjectListItem; onClick: () => void }) {
+function FileCard({ project: p, onClick, onDelete }: { project: ProjectListItem; onClick: () => void; onDelete: () => void }) {
   const [hovered, setHovered] = useState(false);
   const progress = p.deliverableCount > 0 ? Math.round((p.completedCount / p.deliverableCount) * 100) : 0;
   const isCompleted = p.status === "completed";
 
   return (
-    <button
+    <div
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
+        position: "relative",
         background: hovered ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.035)",
         border: hovered ? "0.5px solid rgba(255,255,255,0.14)" : "0.5px solid rgba(255,255,255,0.07)",
         borderRadius: 10, padding: "18px 16px", textAlign: "left", cursor: "pointer",
@@ -362,6 +409,15 @@ function FileCard({ project: p, onClick }: { project: ProjectListItem; onClick: 
         display: "flex", flexDirection: "column", gap: 8, minHeight: 110,
       }}
     >
+      {hovered && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          style={{ position: "absolute", top: 8, right: 8, width: 20, height: 20, borderRadius: 4, background: "rgba(255,255,255,0.08)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          className="hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)]"
+        >
+          <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="var(--fg3)" strokeWidth={2}><path d="M18 6L6 18M6 6l12 12" /></svg>
+        </button>
+      )}
       <svg width={24} height={28} viewBox="0 0 20 24" fill="none" style={{ opacity: 0.5 }}>
         <path d="M2 3a2 2 0 012-2h8l6 6v14a2 2 0 01-2 2H4a2 2 0 01-2-2V3z" fill="var(--fg4)" fillOpacity={0.15} stroke="var(--fg4)" strokeWidth={1.2} />
         <path d="M10 1v6h6" stroke="var(--fg4)" strokeWidth={1.2} strokeLinecap="round" />
@@ -380,6 +436,6 @@ function FileCard({ project: p, onClick }: { project: ProjectListItem; onClick: 
           </div>
         )}
       </div>
-    </button>
+    </div>
   );
 }
