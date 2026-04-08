@@ -136,6 +136,7 @@ model Operator {
   wikiBookmarks        WikiBookmark[]
   researchPlans        ResearchPlan[]
   contextEvaluations   ContextEvaluation[]
+  systemIntelligenceSignals SystemIntelligenceSignal[]
 
   // Org invite link
   inviteToken          String?   @unique
@@ -1672,10 +1673,12 @@ model KnowledgePage {
   scope      String  @default("operator") // "operator" | "system"
 
   // Identity
-  pageType        String // entity_profile, relationship_map, process_description,
-  // financial_pattern, communication_pattern, situation_pattern,
-  // domain_overview, topic_synthesis, contradiction_log,
-  // index, log
+  pageType        String // OPERATOR: entity_profile, relationship_map, process_description,
+  //   financial_pattern, communication_pattern, situation_pattern,
+  //   domain_overview, topic_synthesis, operational_learning,
+  //   contradiction_log, index, log
+  // SYSTEM: fundamentals, methodology, practices, statistics,
+  //   theory, ontology_index
   subjectEntityId String?
   domainIds       String[] @default([]) @map("departmentIds")
   title           String
@@ -1834,4 +1837,57 @@ model ContextEvaluation {
 
   @@index([operatorId])
   @@index([situationId])
+}
+
+// ─── System Intelligence Signals ────────────────────────────
+
+model SystemIntelligenceSignal {
+  id                String    @id @default(cuid())
+  operatorId        String    // which operator generated this signal
+  signalType        String    // positive_citation, negative_citation, correction_signal,
+                              // gap_signal, pattern_discovery, contradiction_signal,
+                              // confirmation_signal, cross_domain_citation
+  systemPageSlug    String?   // which system wiki page was involved (null for gap_signal)
+  systemPageTitle   String?   // title snapshot at time of signal
+  situationTypeSlug String?   // situation type context
+  industryVertical  String?   // operator's industry (for aggregation)
+  payload           Json      // signal-specific data (search query for gaps, correction details, etc.)
+
+  createdAt         DateTime  @default(now())
+  processedAt       DateTime? // when the curator evaluated this
+  curatorAction     String?   // update_page, ignore, flag_for_review, queue_research
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([signalType])
+  @@index([systemPageSlug])
+  @@index([operatorId])
+  @@index([createdAt])
+  @@index([processedAt])
+}
+
+// ─── System Intelligence Change Log ─────────────────────────
+
+model SystemIntelligenceLog {
+  id              String   @id @default(cuid())
+  action          String   // page_updated, page_created, page_archived, content_pruned, page_split
+  pageSlug        String
+  pageTitle       String
+  pageType        String?  // fundamentals, methodology, theory, practices, statistics, etc.
+  previousContent String?  @db.Text // full content before change
+  newContent      String?  @db.Text // full content after change
+  reason          String   // why the change was made
+  changeSource    String   // "research_synthesis", "curator", "admin", "verification"
+  signalCount     Int      @default(0) // how many signals drove this decision
+  signalSummary   Json?    // aggregated signal data
+  operatorCount   Int      @default(0) // how many operators contributed signals (anonymized)
+  curatorModel    String?  // which model made the synthesis decision
+
+  createdAt       DateTime @default(now())
+  reviewedBy      String?  // superadmin who reviewed
+  reviewedAt      DateTime?
+
+  @@index([pageSlug])
+  @@index([action])
+  @@index([createdAt])
 }

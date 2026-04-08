@@ -199,6 +199,29 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     await runDocumentIntelligenceOnly(fileUploadId);
   },
 
+  async seed_ontology(payload) {
+    const { vertical, content } = payload as { vertical: string; content: string };
+    const { seedOntology } = await import("@/lib/system-intelligence-ontology");
+    const pageId = await seedOntology(vertical, content);
+    console.log(`[worker:seed-ontology] ${vertical}: ${pageId ? `created ${pageId}` : "already exists"}`);
+  },
+
+  async process_research_corpus(payload) {
+    const { documents, vertical, dryRun } = payload as {
+      documents: Array<{ id: string; title: string; content: string; focusArea?: string }>;
+      vertical: string;
+      dryRun?: boolean;
+    };
+    const { processResearchCorpus } = await import("@/lib/research-corpus-pipeline");
+    const report = await processResearchCorpus(documents, vertical, {
+      dryRun,
+      onProgress: async (phase, msg) => {
+        console.log(`[worker:research-corpus] [${phase}] ${msg}`);
+      },
+    });
+    console.log(`[worker:research-corpus] ${report.phase}: ${report.pagesSynthesized} pages, $${(report.totalCostCents / 100).toFixed(2)}`);
+  },
+
   async synthesize_research(payload) {
     const { content, title, focusArea } = payload as { content: string; title: string; focusArea?: string };
     const { synthesizeResearchDocument } = await import("@/lib/research-synthesizer");

@@ -387,6 +387,25 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       console.warn("[reasoning-engine] System expertise discovery failed:", err);
     }
 
+    // Emit gap signal if system intelligence had nothing relevant
+    if (systemExpertiseIndex.length === 0) {
+      import("@/lib/system-intelligence-signals").then(({ emitSystemSignal }) => {
+        emitSystemSignal({
+          operatorId: situation.operatorId,
+          signalType: "gap_signal",
+          situationTypeSlug: situation.situationType?.slug,
+          payload: {
+            situationId,
+            searchQuery: [
+              situation.situationType.name,
+              situation.situationType.description?.slice(0, 200),
+            ].filter(Boolean).join(" "),
+            situationTypeName: situation.situationType.name,
+          },
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+
     // 6c. Build system prompt and seed context
     const depth = situation.investigationDepth ?? "standard";
     const softBudget = depth === "thorough" ? 50 : 20;
@@ -426,6 +445,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       id: string;
       slug?: string;
       pageType?: string;
+      source?: string;
       tokenCount: number;
     }> = [];
     for (const page of wikiPages) {
@@ -434,7 +454,15 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         id: page.slug,
         slug: page.slug,
         pageType: page.pageType,
+        source: (page as any).source ?? "operator",
         tokenCount: Math.ceil(page.content.length / 4),
+      });
+    }
+    if (systemExpertiseIndex.length > 0) {
+      contextSections.push({
+        type: "system_expertise_index",
+        id: "system_discovery",
+        tokenCount: systemExpertiseIndex.reduce((n, e) => n + Math.ceil(e.contentPreview.length / 4), 0),
       });
     }
     if (evidenceClaims.length > 0) {

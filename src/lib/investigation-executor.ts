@@ -178,7 +178,7 @@ Respond with JSON:
       "pageType": "entity_profile|process_description|financial_pattern|communication_pattern|topic_synthesis",
       "title": "Page Title",
       "updateType": "create|update",
-      "content": "Full markdown content with [src:chunkId] citations",
+      "content": "Full markdown content with [src:chunkId] citations and [[cross-references]] to related pages. End each page with a ## Related Pages section.",
       "sourceCitations": [{ "sourceType": "chunk", "sourceId": "chunk-id", "claim": "what this source proves" }],
       "reasoning": "why this page was created/updated"
     }

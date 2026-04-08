@@ -113,7 +113,7 @@ RULES:
     messages: [{ role: "user", content: "Infer all relationships from the evidence above." }],
     model: getModel("multiAgentCoordinator"), // Opus — cross-referencing reasoning
     temperature: 0.2,
-    maxTokens: 16384,
+    maxTokens: 65_536,
     operatorId,
     thinking: true,
     thinkingBudget: 8192,

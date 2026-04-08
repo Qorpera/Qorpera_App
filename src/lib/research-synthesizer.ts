@@ -8,7 +8,7 @@
 
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
-import { extractJSON, extractJSONArray } from "@/lib/json-helpers";
+import { extractJSONArray } from "@/lib/json-helpers";
 import { embedChunks } from "@/lib/rag/embedder";
 
 // ── Types ──────────────────────────────────────────────
@@ -19,6 +19,8 @@ interface SynthesisPlan {
   slug: string;
   sourceSections: number[];
   synthesisGoal: string;
+  updateExisting: string | null;
+  crossReferences: string[];
 }
 
 interface DocumentSection {
@@ -129,15 +131,68 @@ async function planSynthesis(
     ? `\nFOCUS AREA: ${focusArea} — prioritize pages relevant to this domain.`
     : "";
 
+  // Load existing system wiki pages for dedup and cross-referencing
+  const existingSystemPages = await prisma.knowledgePage.findMany({
+    where: { scope: "system", status: { in: ["verified", "stale", "draft"] } },
+    select: { slug: true, title: true, pageType: true },
+    orderBy: { title: "asc" },
+  });
+
+  const existingPagesContext = existingSystemPages.length > 0
+    ? `\n\nEXISTING SYSTEM WIKI PAGES (${existingSystemPages.length} pages):\n${existingSystemPages.map(p => `- [[${p.slug}]] — ${p.title} [${p.pageType}]`).join("\n")}\n\nIMPORTANT: If the source material covers a topic that an existing page already addresses, plan an UPDATE (not a new page). If the source material covers a RELATED but distinct topic, plan a new page and note which existing pages should be cross-referenced.`
+    : "";
+
+  // Load ontology gaps for the focus area
+  let ontologyContext = "";
+  if (focusArea) {
+    try {
+      const { getOntologyGapsForPrompt } = await import("@/lib/system-intelligence-ontology");
+      const vertical = inferVertical(focusArea);
+      if (vertical) {
+        const gapsPrompt = await getOntologyGapsForPrompt(vertical);
+        if (gapsPrompt) {
+          ontologyContext = `\n\nKNOWLEDGE GAPS (from the ${vertical} ontology — prioritize filling these):\n${gapsPrompt}\n\nWhen planning pages, check if any gap from the ontology is addressed by this document. If so, use the gap's suggested page types and domain categorization.`;
+        }
+      }
+    } catch { /* non-fatal */ }
+  }
+
   const response = await callLLM({
     instructions: `You are planning a knowledge base synthesis from a research document. Identify 5-20 distinct knowledge pages that can be extracted.
 
 Each page must be a self-contained topic, NOT a document summary. Think: what would an analyst need to look up during an investigation?
 
-Output a JSON array of objects with: pageType (topic_synthesis, process_description, or financial_pattern), title, slug (lowercase-kebab-case), sourceSections (array of section indices), synthesisGoal.${focusHint}`,
+CROSS-REFERENCING IS CRITICAL:
+- When a page covers a topic that RELATES to another page (existing or planned), note the cross-reference
+- Every page you plan should reference at least 1-2 other pages it connects to
+- Think in terms of navigation: an analyst reading about "revenue quality analysis" should be able to follow a link to "revenue concentration red flags" and from there to "customer diversification assessment"
+
+Each page must have a pageType from this taxonomy:
+- "fundamentals" — Stable foundational knowledge that rarely changes (principles, definitions, legal frameworks)
+- "methodology" — Analytical frameworks and step-by-step approaches (how to analyze, how to evaluate)
+- "theory" — Models and analytical logic that reference statistics and practices (when to escalate, risk scoring models)
+- "practices" — How things are actually done in industry (typical payment terms, common contract structures, standard processes)
+- "statistics" — Empirical data, benchmarks, and metrics (median values, ranges, trends, market data)
+
+Choose the type that best describes the NATURE of the knowledge, not the topic. A page about "average freight rates in Scandinavia" is statistics. A page about "how to evaluate freight rate proposals" is methodology. A page about "what freight forwarding is" is fundamentals.
+
+This matters because the system uses different update policies per type — fundamentals are near-frozen, statistics update frequently.
+
+Output a JSON array of objects with:
+- pageType: fundamentals | methodology | theory | practices | statistics
+- title: descriptive title for the knowledge page
+- slug: lowercase-kebab-case identifier
+- sourceSections: array of section indices from the document
+- synthesisGoal: what this page should teach the analyst
+- updateExisting: slug of existing page to UPDATE instead of creating new (or null)
+- crossReferences: array of slugs (existing or planned) this page should link to
+
+If KNOWLEDGE GAPS from the ontology are provided, prioritize creating pages that fill those gaps. Match your planned page types to the suggested types in the gap description. Pages that fill critical gaps should be planned first.
+
+If the document doesn't cover any ontology gaps, that's fine — create pages based on the document content. Not every document fills a gap.${focusHint}`,
     messages: [{
       role: "user",
-      content: `Document: "${documentTitle}"\n\nSections:\n${sectionSummaries}`,
+      content: `Document: "${documentTitle}"\n\nSections:\n${sectionSummaries}${existingPagesContext}${ontologyContext}`,
     }],
     model: getModel("onboardingSynthesis"),
     aiFunction: "reasoning",
@@ -160,7 +215,14 @@ Output a JSON array of objects with: pageType (topic_synthesis, process_descript
       Array.isArray((p as Record<string, unknown>).sourceSections) &&
       typeof (p as Record<string, unknown>).synthesisGoal === "string"
     ) {
-      plans.push(p as unknown as SynthesisPlan);
+      const raw = p as Record<string, unknown>;
+      plans.push({
+        ...(p as unknown as SynthesisPlan),
+        updateExisting: typeof raw.updateExisting === "string" ? raw.updateExisting : null,
+        crossReferences: Array.isArray(raw.crossReferences)
+          ? (raw.crossReferences as string[]).filter(s => typeof s === "string")
+          : [],
+      });
     }
   }
   return plans;
@@ -183,22 +245,41 @@ async function synthesizePage(
     .map((s) => `### Section ${s.index}: ${s.heading}\n${s.content}`)
     .join("\n\n");
 
+  const crossRefContext = plan.crossReferences?.length > 0
+    ? `\n\nCROSS-REFERENCES: Link to these related pages using [[slug]] notation inline in your text. Don't just list them — weave them naturally: "For detailed methodology on assessing revenue concentration, see [[revenue-concentration-analysis]]".\nRelated pages: ${plan.crossReferences.map(s => `[[${s}]]`).join(", ")}`
+    : "";
+
+  const existingContent = plan.updateExisting
+    ? await prisma.knowledgePage.findFirst({
+        where: { scope: "system", slug: plan.updateExisting },
+        select: { content: true },
+      })
+    : null;
+
+  const updateContext = existingContent
+    ? `\n\nEXISTING PAGE CONTENT (you are UPDATING this page with new material):\n${existingContent.content}\n\nIntegrate the new material into the existing page. Preserve existing content and citations. Add the new information in the relevant sections, or create new sections if needed.`
+    : "";
+
   const response = await callLLM({
     instructions: `You are building a knowledge base page for a professional intelligence system.
 
 Page type: ${plan.pageType}
 Title: ${plan.title}
 Goal: ${plan.synthesisGoal}
+${updateContext}
 
 Source material:
 ${sourceContent}
+${crossRefContext}
 
 Write a comprehensive knowledge page. Requirements:
 - Every claim must cite its source section as [src:section-N]
 - Include specific numbers, benchmarks, thresholds where the source provides them
 - Structure for quick reference — the reasoning engine will use this during investigations
 - Write as KNOWLEDGE, not as a document summary. "Revenue concentration above 40% is a red flag" not "The paper discusses revenue concentration"
-- Include practical guidance: what should an analyst look for, what questions to ask, what thresholds matter`,
+- Include practical guidance: what should an analyst look for, what questions to ask, what thresholds matter
+- USE [[cross-references]] to link to related pages. When you mention a concept covered by another page, write it as [[page-slug]]. This creates the navigation graph that analysts use to build deep expertise.
+- At the end of the page, include a "## Related Pages" section listing all [[cross-references]] with a one-line description of what each linked page covers`,
     messages: [{
       role: "user",
       content: `Synthesize the knowledge page "${plan.title}" from the source material above.`,
@@ -212,6 +293,7 @@ Write a comprehensive knowledge page. Requirements:
   if (!content || content.length < 100) return null;
 
   const contentTokens = Math.ceil(content.length / 4);
+  const crossReferences = extractCrossRefsFromContent(content);
 
   // Build source citations
   const sourceCitations = relevantSections.map((s) => ({
@@ -221,12 +303,75 @@ Write a comprehensive knowledge page. Requirements:
     claimCount: 1,
   }));
 
-  // Check for existing page with same slug
-  const existing = await prisma.knowledgePage.findFirst({
+  // Handle updateExisting path — update the existing page instead of creating new
+  if (plan.updateExisting) {
+    const existing = await prisma.knowledgePage.findFirst({
+      where: { scope: "system", slug: plan.updateExisting },
+      select: { id: true, version: true, content: true },
+    });
+    if (existing) {
+      const { createVersionSnapshot } = await import("@/lib/wiki-engine");
+      await createVersionSnapshot(existing.id, "research", getModel("agenticReasoning"));
+
+      await prisma.knowledgePage.update({
+        where: { id: existing.id },
+        data: {
+          content,
+          contentTokens,
+          crossReferences,
+          sources: sourceCitations,
+          sourceCount: sourceCitations.length,
+          status: "draft",
+          version: existing.version + 1,
+          lastSynthesizedAt: new Date(),
+        },
+      });
+
+      // Re-embed (fire-and-forget)
+      embedChunks([content]).then(([embedding]) => {
+        if (embedding) {
+          const embeddingStr = `[${embedding.join(",")}]`;
+          return prisma.$executeRawUnsafe(
+            `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
+            embeddingStr,
+            existing.id,
+          );
+        }
+      }).catch(() => {});
+
+      // Re-verify (fire-and-forget)
+      import("@/lib/wiki-verification").then(({ verifyPage }) => {
+        verifyPage(existing.id).catch((err) =>
+          console.error(`[research-synthesizer] Verification failed for ${plan.updateExisting}:`, err),
+        );
+      });
+
+      // Log system intelligence change (fire-and-forget)
+      import("@/lib/system-intelligence-signals").then(({ logSystemIntelligenceChange }) => {
+        logSystemIntelligenceChange({
+          action: "page_updated",
+          pageSlug: plan.updateExisting!,
+          pageTitle: plan.title,
+          pageType: plan.pageType,
+          previousContent: existing.content,
+          newContent: content,
+          reason: `Research synthesis update from "${documentTitle}" — ${plan.synthesisGoal}`,
+          changeSource: "research_synthesis",
+          curatorModel: getModel("agenticReasoning"),
+        }).catch(() => {});
+      }).catch(() => {});
+
+      console.log(`[research-synthesizer] Updated existing page "${plan.updateExisting}"`);
+      return existing.id;
+    }
+  }
+
+  // Check for existing page with same slug (collision guard for new pages)
+  const existingBySlug = await prisma.knowledgePage.findFirst({
     where: { scope: "system", slug: plan.slug },
     select: { id: true },
   });
-  if (existing) {
+  if (existingBySlug) {
     console.log(`[research-synthesizer] Skipping "${plan.slug}" — already exists`);
     return null;
   }
@@ -241,7 +386,7 @@ Write a comprehensive knowledge page. Requirements:
       slug: plan.slug,
       content,
       contentTokens,
-      crossReferences: [],
+      crossReferences,
       sources: sourceCitations,
       sourceCount: sourceCitations.length,
       sourceTypes: ["research"],
@@ -276,5 +421,34 @@ Write a comprehensive knowledge page. Requirements:
     );
   });
 
+  // Log system intelligence change (fire-and-forget)
+  import("@/lib/system-intelligence-signals").then(({ logSystemIntelligenceChange }) => {
+    logSystemIntelligenceChange({
+      action: "page_created",
+      pageSlug: plan.slug,
+      pageTitle: plan.title,
+      pageType: plan.pageType,
+      newContent: content,
+      reason: `Research synthesis from "${documentTitle}" — ${plan.synthesisGoal}`,
+      changeSource: "research_synthesis",
+      curatorModel: getModel("agenticReasoning"),
+    }).catch(() => {});
+  }).catch(() => {});
+
   return page.id;
+}
+
+function extractCrossRefsFromContent(content: string): string[] {
+  const matches = content.match(/\[\[([a-z0-9-]+)\]\]/g) ?? [];
+  return [...new Set(matches.map(m => m.replace(/\[\[|\]\]/g, "")))];
+}
+
+function inferVertical(focusArea: string): string | null {
+  const text = focusArea.toLowerCase();
+  if (text.includes("logist") || text.includes("freight") || text.includes("shipping") || text.includes("cargo") || text.includes("warehouse")) return "logistics";
+  if (text.includes("saas") || text.includes("software") || text.includes("subscription")) return "saas";
+  if (text.includes("construct") || text.includes("building") || text.includes("electrician")) return "construction";
+  if (text.includes("consult") || text.includes("service") || text.includes("advisory")) return "professional-services";
+  if (text.includes("hotel") || text.includes("restaurant") || text.includes("hospitality")) return "hospitality";
+  return null;
 }

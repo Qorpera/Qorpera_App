@@ -195,6 +195,73 @@ export async function PATCH(
 
   // Edit & Approve flow — reset to detected and re-reason with instruction
   if (typeof body.editInstruction === "string" && body.editInstruction.trim()) {
+    // Emit correction signal BEFORE re-reasoning (captures original plan state)
+    if (situation.proposedAction) {
+      import("@/lib/system-intelligence-signals").then(async ({ emitSystemSignal }) => {
+        try {
+          const evals = await prisma.contextEvaluation.findMany({
+            where: { situationId: id, operatorId },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { contextSections: true, citedSections: true },
+          });
+
+          const sections = Array.isArray(evals[0]?.contextSections) ? evals[0].contextSections as any[] : [];
+          const cited = Array.isArray(evals[0]?.citedSections) ? evals[0].citedSections as any[] : [];
+          const citedSlugs = cited.map((c: any) => c.id || c.slug).filter(Boolean);
+
+          const systemPagesCited = sections
+            .filter((s: any) => (s.source === "system" || s.type === "system_wiki_page") && citedSlugs.includes(s.slug || s.id))
+            .map((s: any) => ({ slug: s.slug || s.id, title: s.title }));
+
+          let originalPlan: unknown = null;
+          try { originalPlan = JSON.parse(situation.proposedAction!); } catch {}
+
+          let reasoningAnalysis: string | null = null;
+          if (situation.reasoning) {
+            try {
+              const r = JSON.parse(situation.reasoning);
+              reasoningAnalysis = r.analysis?.slice(0, 1000) ?? null;
+            } catch {}
+          }
+
+          for (const page of systemPagesCited) {
+            await emitSystemSignal({
+              operatorId,
+              signalType: "correction_signal",
+              systemPageSlug: page.slug,
+              systemPageTitle: page.title,
+              situationTypeSlug: situation.situationType?.slug ?? undefined,
+              payload: {
+                situationId: id,
+                editInstruction: body.editInstruction,
+                originalPlan,
+                reasoningAnalysis,
+                allSystemPagesCited: systemPagesCited.map((p: any) => p.slug),
+              },
+            });
+          }
+
+          if (systemPagesCited.length === 0) {
+            await emitSystemSignal({
+              operatorId,
+              signalType: "correction_signal",
+              situationTypeSlug: situation.situationType?.slug ?? undefined,
+              payload: {
+                situationId: id,
+                editInstruction: body.editInstruction,
+                originalPlan,
+                reasoningAnalysis,
+                noSystemPagesInContext: true,
+              },
+            });
+          }
+        } catch (err) {
+          console.warn("[situation-patch] Correction signal emission failed:", err);
+        }
+      }).catch(() => {});
+    }
+
     await prisma.situation.update({
       where: { id },
       data: {
@@ -437,6 +504,77 @@ export async function PATCH(
     prisma.contextEvaluation.updateMany({
       where: { situationId: id, operatorId, outcome: null },
       data: { outcome: body.status, resolvedAt: new Date() },
+    }).catch(() => {});
+
+    // Emit system intelligence signals (fire-and-forget)
+    import("@/lib/system-intelligence-signals").then(async ({ emitSystemSignal }) => {
+      try {
+        const evals = await prisma.contextEvaluation.findMany({
+          where: { situationId: id, operatorId },
+          select: { contextSections: true, citedSections: true },
+        });
+
+        // Parse reasoning context for enriched payloads
+        let reasoningAnalysis: string | null = null;
+        let proposedAction: unknown = null;
+        if (situation?.reasoning) {
+          try {
+            const r = JSON.parse(situation.reasoning);
+            reasoningAnalysis = r.analysis?.slice(0, 1000) ?? null;
+          } catch {}
+        }
+        if (situation?.proposedAction) {
+          try { proposedAction = JSON.parse(situation.proposedAction); } catch {}
+        }
+
+        for (const eval_ of evals) {
+          const sections = Array.isArray(eval_.contextSections) ? eval_.contextSections as any[] : [];
+          const cited = Array.isArray(eval_.citedSections) ? eval_.citedSections as any[] : [];
+          const citedIds = new Set(cited.map((c: any) => c.id));
+
+          const systemSections = sections.filter((s: any) => s.type === "system_wiki_page" || s.source === "system");
+
+          for (const section of systemSections) {
+            const wasCited = citedIds.has(section.id || section.slug);
+            const outcome = body.status;
+
+            if (wasCited && outcome === "approved") {
+              await emitSystemSignal({
+                operatorId,
+                signalType: "positive_citation",
+                systemPageSlug: section.slug || section.id,
+                systemPageTitle: section.title,
+                situationTypeSlug: situation?.situationType?.slug,
+                payload: {
+                  situationId: id,
+                  outcome: "approved",
+                  wasEdited: !!situation?.editInstruction,
+                  allSystemPagesCited: systemSections.map((s: any) => s.slug || s.id),
+                },
+              });
+            } else if (wasCited && (outcome === "rejected" || outcome === "dismissed")) {
+              await emitSystemSignal({
+                operatorId,
+                signalType: "negative_citation",
+                systemPageSlug: section.slug || section.id,
+                systemPageTitle: section.title,
+                situationTypeSlug: situation?.situationType?.slug,
+                payload: {
+                  situationId: id,
+                  outcome,
+                  feedback: body.feedback ?? null,
+                  feedbackCategory: body.feedbackCategory ?? null,
+                  reasoningAnalysis,
+                  proposedAction,
+                  allSystemPagesCited: systemSections.map((s: any) => s.slug || s.id),
+                },
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[situation-resolve] System signal emission failed:", err);
+      }
     }).catch(() => {});
   }
 

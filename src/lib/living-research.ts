@@ -251,6 +251,23 @@ export async function runLivingResearch(
 
   const sourceTypeCount = new Set(newClaims.map((c) => c.sourceType)).size;
 
+  // Load domain expertise for significance assessment
+  let domainContext = "";
+  try {
+    const op = await prisma.operator.findUnique({
+      where: { id: operatorId },
+      select: { intelligenceAccess: true },
+    });
+    if (op?.intelligenceAccess) {
+      const { getSystemWikiPages } = await import("@/lib/wiki-engine");
+      const topEntity = [...mentionedEntities][0] ?? "business operations";
+      const pages = await getSystemWikiPages({ query: topEntity, maxPages: 1 }).catch(() => []);
+      if (pages.length > 0) {
+        domainContext = `\n\n## Domain Context (industry best practices)\n${pages[0].content.slice(0, 1500)}`;
+      }
+    }
+  } catch { /* non-fatal */ }
+
   const assessmentPrompt = `You are reviewing new evidence that arrived for an organization. Determine what's significant enough to update the wiki.
 
 ## New Evidence (${newClaims.length} claims from ${sourceTypeCount} source types)
@@ -261,6 +278,7 @@ ${contradictionsSummary}
 ## Existing Wiki Pages That May Be Affected
 
 ${pagesSummary || "(no existing pages matched)"}
+${domainContext}
 
 ## Task
 
@@ -270,6 +288,8 @@ For each significant finding, decide:
 3. **skip** — routine data that doesn't change understanding
 
 Only include genuinely significant items. Routine emails, standard transactions, and expected patterns should be skipped.
+
+For wiki updates, include [[cross-references]] to other related wiki pages where appropriate.
 
 Respond ONLY with JSON:
 {

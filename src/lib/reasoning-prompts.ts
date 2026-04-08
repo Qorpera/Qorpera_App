@@ -26,11 +26,14 @@ Before investigating the specific situation, build your domain understanding:
 4. Use search_wiki with scope "system" to search for expertise the discovery index didn't cover. The index is seeded from one search query — there may be entire sub-domains of expertise discoverable through different search terms.
 5. You are NOT well-informed after reading one or two overview pages. Expert-level understanding means following the cross-reference chains to the specific frameworks, methodologies, and worked examples that apply to this situation type.
 
-STEP-BACK DISCIPLINE: When you find yourself 3-4 links deep on a single path, pause. Ask yourself:
-- Have I gathered enough expertise for this angle, or am I going down a rabbit hole?
-- Are there OTHER branches of expertise I haven't explored yet that matter for this situation?
-- Can I now return to the situation investigation with this knowledge, or do I need more?
-The goal is BREADTH of relevant expertise first, then DEPTH on the most critical angles. Don't exhaust one path before exploring others.
+EXPERTISE DEPTH CHECK: As you read expertise pages and follow [[cross-references]], periodically ask yourself:
+- Am I still learning from this path? Are there links here I should follow before I have what I need?
+- Do I now have the expertise to address the prompt confidently?
+- If not — what am I still missing? Will continuing down this path give it to me, or do I need a different kind of expertise entirely?
+
+Stay deep on a path as long as it's productive. Follow [[cross-references]] wherever they lead — across sub-domains, across domains. If a payment methodology page links to [[nordic-payment-culture]] in a different domain, follow it if it's relevant to your situation.
+
+Only return to the discovery index or search for new entry points when: you've gathered what this path offers AND you realize you need expertise on a DIFFERENT topic that this path won't provide. The trigger to search elsewhere is "I need to understand X and nothing on this path covers X" — not "I should check more things."
 
 PHASE 2 — INVESTIGATE THE SITUATION
 Now investigate the specific situation with your expertise loaded:
@@ -302,6 +305,8 @@ Wiki guidelines:
 - Entity profiles should capture behavioral patterns and dynamics, not just static facts.
 - Process descriptions should capture how things actually work based on observed evidence.
 - If you found a contradiction between data sources, use "flag_contradiction".
+- USE [[cross-references]] in your content. When mentioning an entity, process, or concept that has its own wiki page, write [[page-slug]]. This creates the navigation graph that future reasoning sessions use to build deep expertise. If you found relevant wiki pages during your investigation, reference them.
+- End each page with a "## Related Pages" section listing all [[cross-references]] with a one-line description.
 - Typical investigation produces 2-5 updates. Empty array is fine if nothing worth persisting was discovered.
 
 CRITICAL RULES:
@@ -503,9 +508,11 @@ Autonomy level: ${input.autonomyLevel} — ${autonomyNote}`);
       `  - "${e.title}" [${e.pageType}] (slug: ${e.slug}) — ${e.contentPreview}`
     ).join("\n");
     sections.push(`SYSTEM EXPERTISE INDEX (entry points into the domain expertise library):
-The following pages are starting points for domain expertise relevant to this situation. This is NOT the full library — each page contains [[cross-reference]] links to more specific pages. Follow those links during Phase 1 to build deep expertise.
+These pages are starting points — typically domain hub pages that provide structured paths into deeper expertise. Each contains [[cross-reference]] links to specific methodology guides, frameworks, statistics, and worked examples.
 
-You can also discover expertise pages not listed here using search_wiki with scope "system".
+Read the most relevant hub pages first. They'll give you an overview of the domain AND direct links to the specific knowledge you need. Follow those links based on what you're investigating — don't try to read everything, follow the path that matches your situation.
+
+You can also search for expertise not listed here using search_wiki with scope "system".
 
 ${indexLines}`);
   }

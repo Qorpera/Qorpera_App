@@ -60,12 +60,12 @@ const MODEL_ROUTES = {
   onboardingAgent: "claude-sonnet-4-6",
   onboardingAgentFollowup: "claude-sonnet-4-6",
   onboardingOrganizer: "claude-opus-4-6",
-  evidenceIngestion: "claude-sonnet-4-6",
+  evidenceIngestion: "claude-haiku-4-5-20251001",
   researchPlanner: "claude-opus-4-6",
   investigationDeep: "claude-opus-4-6",       // financial, strategic, contradiction
   investigationStandard: "claude-sonnet-4-6",  // operational, relational, temporal, gap
   livingResearch: "claude-sonnet-4-6",
-  onboardingSynthesis: "claude-sonnet-4-6",
+  onboardingSynthesis: "claude-opus-4-6",
   onboardingChat: "claude-sonnet-4-6",
   // Wiki knowledge verification (deliberately different model than synthesis)
   verifier: "claude-sonnet-4-6",
@@ -109,6 +109,7 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   onboardingChat: null,
   verifier: 4_096,
   adversarialChallenge: 16_384,
+  investigationDeep: 16_384,
   documentComprehensionDeep: 16_000,
   documentComprehensionStandard: null,
   onboardingExtraction: null,

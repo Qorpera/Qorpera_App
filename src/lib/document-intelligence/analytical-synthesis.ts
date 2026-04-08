@@ -86,7 +86,46 @@ export async function runAnalyticalSynthesis(
     },
   });
 
-  // 3. Build synthesis context
+  // 3. Load domain expertise from system wiki for synthesis context
+  let domainExpertise = "";
+  try {
+    const operator = await prisma.operator.findUnique({
+      where: { id: registration.operatorId },
+      select: { intelligenceAccess: true },
+    });
+    if (operator?.intelligenceAccess) {
+      const { getSystemWikiPages } = await import("@/lib/wiki-engine");
+      const queries = [
+        `${profile.documentType} analysis wiki synthesis`,
+        ...profile.expertiseDomains.slice(0, 2).map(d => `${d} knowledge structure`),
+      ];
+      const seenSlugs = new Set<string>();
+      const systemPages: Array<{ title: string; content: string }> = [];
+      let budgetUsed = 0;
+      const BUDGET = 4000;
+
+      for (const query of queries) {
+        if (budgetUsed >= BUDGET) break;
+        const pages = await getSystemWikiPages({ query, maxPages: 2 });
+        for (const page of pages) {
+          if (seenSlugs.has(page.slug)) continue;
+          const tokens = Math.ceil(page.content.length / 4);
+          if (budgetUsed + tokens > BUDGET) break;
+          seenSlugs.add(page.slug);
+          systemPages.push({ title: page.title, content: page.content });
+          budgetUsed += tokens;
+        }
+      }
+
+      if (systemPages.length > 0) {
+        domainExpertise = `\n\n## Domain Expertise (from research intelligence)\n\nUse this expertise to structure your analysis — it tells you what patterns matter in this domain, what red flags to highlight, and how to structure wiki pages for this type of content.\n\n${systemPages.map(p => `### ${p.title}\n${p.content}`).join("\n\n---\n\n")}`;
+      }
+    }
+  } catch (err) {
+    console.warn("[analytical-synthesis] Domain expertise loading failed:", err);
+  }
+
+  // 4. Build synthesis context
   const synthesisContext = buildSynthesisContext(
     registration,
     profile,
@@ -96,9 +135,9 @@ export async function runAnalyticalSynthesis(
     allRelationships,
     allContradictions,
     correlations,
-  );
+  ) + domainExpertise;
 
-  // 4. Ask Opus to plan and write wiki pages
+  // 5. Ask Opus to plan and write wiki pages
   try {
     const response = await callLLM({
       operatorId: registration.operatorId,
@@ -122,7 +161,7 @@ export async function runAnalyticalSynthesis(
 
     const rawPages = parsed.wikiPages as Array<Record<string, unknown>>;
 
-    // 5. Process wiki updates
+    // 6. Process wiki updates
     await processWikiUpdates({
       operatorId: registration.operatorId,
       projectId: registration.projectId,
@@ -152,7 +191,7 @@ export async function runAnalyticalSynthesis(
       else report.pagesCreated++;
     }
 
-    // 6. Mark correlation findings as resolved in wiki
+    // 7. Mark correlation findings as resolved in wiki
     for (const corr of correlations) {
       const matchingPage = rawPages.find(
         (p) =>
@@ -275,6 +314,12 @@ const SYNTHESIS_PROMPT = `You are writing analytical wiki pages based on deep do
 
 You have a complete picture: the document's purpose, its red flags, analytical insights from domain experts, and cross-document correlations that confirm or contradict its claims.
 
+If DOMAIN EXPERTISE is provided in the context, use it to:
+- Structure your analysis using industry-standard frameworks (e.g., if domain expertise describes a financial analysis methodology, follow that structure)
+- Compare findings against domain benchmarks and best practices
+- Flag deviations from industry norms — these are the highest-value insights
+- Use the same terminology as the domain expertise pages to enable cross-referencing
+
 Write wiki pages that a senior analyst would find useful. Not summaries — ANALYSIS.
 
 Rules:
@@ -286,6 +331,8 @@ Rules:
 - Confidence scores must reflect evidence strength
 - Include "Risks and Caveats" for uncertain conclusions
 - Flag areas where more data would change the analysis
+- USE [[cross-references]] to link to other wiki pages. When you mention an entity, process, or pattern that has its own wiki page, write [[slug]]. When you reference a concept from domain expertise, note it.
+- End each page with a "## Related Pages" section listing all [[cross-references]]
 
 Think: "What would a board member need to know? What would they NOT want to miss?"
 
@@ -303,7 +350,7 @@ Respond with JSON:
       "pageType": "entity_profile|financial_pattern|process_description|topic_synthesis|communication_pattern",
       "title": "Analytical Page Title",
       "updateType": "create|update",
-      "content": "Full markdown content with [src:chunkId] citations and analytical depth",
+      "content": "Full markdown content with [src:chunkId] citations, [[cross-references]], and analytical depth",
       "sourceCitations": [{ "sourceType": "chunk", "sourceId": "chunk-id", "claim": "what this source proves" }],
       "reasoning": "Why this page was created and what intelligence it captures"
     }
