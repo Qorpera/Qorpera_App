@@ -78,6 +78,24 @@ export async function findOntologyGaps(vertical: string): Promise<OntologyNode[]
     }
   }
 
+  // Also check horizontal skill ontologies for application gaps
+  const skillOntologies = await prisma.knowledgePage.findMany({
+    where: { scope: "system", pageType: "ontology_index", slug: { startsWith: "ontology-skill-" }, status: { in: ["verified", "draft"] } },
+    select: { content: true, slug: true },
+  });
+
+  for (const skillOntology of skillOntologies) {
+    if (skillOntology.content.includes(vertical)) {
+      const skillIndex = parseOntologyContent(skillOntology.content, skillOntology.slug);
+      const skillReqs = skillIndex.domains.flatMap(d => d.requirements);
+      for (const req of skillReqs) {
+        if (req.knowledgeRequirement.toLowerCase().includes("application")) {
+          gaps.push(req);
+        }
+      }
+    }
+  }
+
   return gaps;
 }
 

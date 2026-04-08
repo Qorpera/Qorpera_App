@@ -31,6 +31,7 @@ interface DocumentClassification {
   subTopics: string[];
   keyConceptsOrEntities: string[];
   estimatedRelevanceByDomain: Record<string, number>; // domain name → 0-1 relevance
+  horizontalSkills: string[]; // cross-cutting skills (negotiation, financial modeling, etc.)
   tokenCount: number;
 }
 
@@ -38,6 +39,7 @@ interface CorpusMap {
   vertical: string;
   documents: DocumentClassification[];
   domainCoverage: Record<string, string[]>; // domain → document IDs with high relevance
+  horizontalSkills: Map<string, string[]>;  // skill name → document IDs
 }
 
 interface PagePlan {
@@ -109,6 +111,14 @@ export async function processResearchCorpus(
     report.documentsClassified = corpusMap.documents.length;
 
     await progress("classification", `Classified ${corpusMap.documents.length} documents across ${Object.keys(corpusMap.domainCoverage).length} domains`);
+
+    // ═══ PHASE 0: Ontology Generation ═════════════════════
+    report.phase = "ontology";
+    await progress("ontology", "Generating knowledge ontology from corpus...");
+
+    const ontologySlug = await generateOntologyFromCorpus(corpusMap, vertical, report);
+
+    await progress("ontology", `Ontology generated: ${ontologySlug}`);
 
     // ═══ PHASE 2: Domain-Level Planning ══════════════════════
     report.phase = "planning";
@@ -220,9 +230,10 @@ async function classifyCorpus(
 3. subTopics: more specific topics within the primary ones
 4. keyConceptsOrEntities: specific frameworks, standards, companies, regulations mentioned
 5. estimatedRelevanceByDomain: for each domain in the ${vertical} ontology, how relevant is this document (0.0 = not relevant, 1.0 = highly relevant)
+6. horizontalSkills: identify any cross-cutting skills this document teaches that apply beyond this specific domain (e.g., "negotiation", "financial modeling", "risk assessment", "stakeholder communication"). These are skills that would be valuable in OTHER domains too. Empty array if the document is purely domain-specific.
 
 Respond with JSON array, one object per document:
-[{ "documentId": "id", "role": "...", "primaryTopics": [...], "subTopics": [...], "keyConceptsOrEntities": [...], "estimatedRelevanceByDomain": { "domain": 0.8 } }]`,
+[{ "documentId": "id", "role": "...", "primaryTopics": [...], "subTopics": [...], "keyConceptsOrEntities": [...], "estimatedRelevanceByDomain": { "domain": 0.8 }, "horizontalSkills": [] }]`,
         messages: [{ role: "user", content: batchContent }],
         model,
         maxTokens: 4000,
@@ -242,6 +253,7 @@ Respond with JSON array, one object per document:
             subTopics: Array.isArray(raw.subTopics) ? raw.subTopics as string[] : [],
             keyConceptsOrEntities: Array.isArray(raw.keyConceptsOrEntities) ? raw.keyConceptsOrEntities as string[] : [],
             estimatedRelevanceByDomain: (raw.estimatedRelevanceByDomain as Record<string, number>) ?? {},
+            horizontalSkills: Array.isArray(raw.horizontalSkills) ? raw.horizontalSkills as string[] : [],
             tokenCount: Math.ceil(doc.content.length / 4),
           });
         }
@@ -262,7 +274,17 @@ Respond with JSON array, one object per document:
     }
   }
 
-  return { vertical, documents: classifications, domainCoverage };
+  // Aggregate horizontal skills
+  const horizontalSkills = new Map<string, string[]>();
+  for (const cls of classifications) {
+    for (const skill of cls.horizontalSkills) {
+      const existing = horizontalSkills.get(skill) ?? [];
+      existing.push(cls.documentId);
+      horizontalSkills.set(skill, existing);
+    }
+  }
+
+  return { vertical, documents: classifications, domainCoverage, horizontalSkills };
 }
 
 // ═══ PHASE 2: Domain-Level Planning ═══════════════════════
@@ -335,6 +357,12 @@ ARCHITECTURE RULES:
    - If an existing page covers a topic, plan an UPDATE (set updateExisting to its slug).
    - Page types: fundamentals, methodology, theory, practices, statistics
    - Priority: critical (ontology gap or hub page), important (multi-source leaf), useful (single-source or supplementary)
+
+5. HORIZONTAL SKILL APPLICATIONS:
+   - If the corpus covers topics that are cross-cutting skills (negotiation, financial modeling, risk assessment, communication, etc.), plan APPLICATION pages that bridge the skill into this vertical.
+   - An application page links BOTH to the vertical hub AND to the skill hub: [[dd-financial-analysis-overview]] and [[negotiation-overview]]
+   - DO NOT recreate core skill knowledge. If "negotiation fundamentals" belongs in the negotiation skill domain, reference it via [[link]]. Create only the APPLICATION: "how negotiation applies in THIS vertical."
+   - Check the ontology for "Cross-Cutting Skills" section — it lists which skills are relevant.
 
 Respond with JSON:
 {
@@ -797,6 +825,228 @@ async function resolveCrossReferences(slugs: string[]): Promise<number> {
   }
 
   return resolved;
+}
+
+// ═══ PHASE 0: Ontology Generation ═══════════════════════
+
+async function generateOntologyFromCorpus(
+  corpusMap: CorpusMap,
+  vertical: string,
+  report: CorpusPipelineReport,
+): Promise<string> {
+  const model = getModel("researchPlanner"); // Opus — structural design
+
+  const allTopics = corpusMap.documents.flatMap(d => d.primaryTopics);
+  const allSubTopics = corpusMap.documents.flatMap(d => d.subTopics);
+  const allConcepts = corpusMap.documents.flatMap(d => d.keyConceptsOrEntities);
+  const allRoles = corpusMap.documents.map(d => `"${d.title}" (${d.role})`);
+
+  // Check if ontology already exists
+  const slug = `ontology-${vertical.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const existingOntology = await prisma.knowledgePage.findFirst({
+    where: { scope: "system", slug, pageType: "ontology_index" },
+    select: { content: true, slug: true, id: true, version: true },
+  });
+
+  const existingContext = existingOntology
+    ? `\n\nEXISTING ONTOLOGY (update and expand — don't discard existing structure unless wrong):\n${existingOntology.content}`
+    : "";
+
+  // Check for existing horizontal skill ontologies
+  const horizontalOntologies = await prisma.knowledgePage.findMany({
+    where: { scope: "system", pageType: "ontology_index", slug: { startsWith: "ontology-skill-" } },
+    select: { slug: true, title: true },
+  });
+  const horizontalContext = horizontalOntologies.length > 0
+    ? `\n\nEXISTING HORIZONTAL SKILL ONTOLOGIES:\n${horizontalOntologies.map(o => `- [[${o.slug}]] ${o.title}`).join("\n")}\n\nIf this corpus touches any of these skills, plan APPLICATION pages that bridge the skill into this vertical. Do NOT duplicate the skill's core knowledge — reference it via [[cross-references]].`
+    : "";
+
+  const response = await callLLM({
+    instructions: `You are generating a knowledge ontology from a research corpus. The corpus contains ${corpusMap.documents.length} documents about "${vertical}".
+
+CORPUS OVERVIEW:
+Documents: ${allRoles.join(", ")}
+Primary topics: ${[...new Set(allTopics)].join(", ")}
+Sub-topics: ${[...new Set(allSubTopics)].join(", ")}
+Key concepts: ${[...new Set(allConcepts)].slice(0, 50).join(", ")}
+${existingContext}${horizontalContext}
+
+YOUR TASK: Generate an ontology that maps the knowledge structure of this domain.
+
+THE TWO AXES OF KNOWLEDGE:
+
+1. VERTICAL DOMAINS — specific to this field (e.g., for DD: financial analysis, legal review, commercial assessment, tax structuring). These are the core competency areas.
+
+2. HORIZONTAL SKILLS — foundational capabilities that this field USES but that also apply elsewhere (e.g., negotiation, financial modeling, risk assessment, stakeholder communication). If the corpus discusses these, they should be noted as cross-cutting skills with APPLICATION requirements.
+
+For each domain/skill, identify:
+- What specific knowledge an expert needs (the requirements)
+- Which corpus documents cover this area
+- Whether requirements are critical (must have), important (should have), or useful (nice to have)
+- Whether this is a vertical domain or a horizontal skill application
+
+OUTPUT FORMAT — structured markdown matching this template:
+
+# Knowledge Ontology — [Vertical Name]
+
+[1-2 sentence description of what this vertical covers]
+
+## [Domain Name]
+[What this domain covers and why it matters]
+
+- [critical] Sub-domain: Knowledge requirement description (needs: page_types)
+- [important] Sub-domain: Knowledge requirement description (needs: page_types)
+- [useful] Sub-domain: Knowledge requirement description (needs: page_types)
+
+## Cross-Cutting Skills
+
+### [Skill Name] (horizontal — see [[ontology-skill-slug]] if exists)
+Application of [skill] in [vertical] context:
+- [important] Application area: What the analyst needs to know about applying this skill HERE (needs: practices, methodology)
+
+Page types: fundamentals, methodology, theory, practices, statistics
+Use the [priority] prefix on every requirement line — this is parsed by the system.`,
+    messages: [{ role: "user", content: "Generate the ontology for this corpus." }],
+    model,
+    maxTokens: 65_536,
+    thinking: true,
+    thinkingBudget: 16_384,
+  });
+  report.totalCostCents += response.apiCostCents;
+
+  const ontologyContent = response.text;
+
+  if (existingOntology) {
+    const { createVersionSnapshot } = await import("@/lib/wiki-engine");
+    await createVersionSnapshot(existingOntology.id, "corpus_pipeline", model);
+
+    await prisma.knowledgePage.update({
+      where: { id: existingOntology.id },
+      data: {
+        content: ontologyContent,
+        contentTokens: Math.ceil(ontologyContent.length / 4),
+        version: existingOntology.version + 1,
+        lastSynthesizedAt: new Date(),
+        synthesizedByModel: model,
+      },
+    });
+
+    embedPage(existingOntology.id, ontologyContent);
+
+    logSystemIntelligenceChange({
+      action: "page_updated",
+      pageSlug: slug,
+      pageTitle: `Knowledge Ontology — ${vertical}`,
+      pageType: "ontology_index",
+      previousContent: existingOntology.content,
+      newContent: ontologyContent,
+      reason: `Auto-generated from ${corpusMap.documents.length}-document corpus`,
+      changeSource: "research_synthesis",
+      curatorModel: model,
+    }).catch(() => {});
+  } else {
+    const page = await prisma.knowledgePage.create({
+      data: {
+        operatorId: null,
+        scope: "system",
+        pageType: "ontology_index",
+        title: `Knowledge Ontology — ${vertical}`,
+        slug,
+        content: ontologyContent,
+        contentTokens: Math.ceil(ontologyContent.length / 4),
+        crossReferences: [],
+        sources: [],
+        sourceCount: 0,
+        sourceTypes: ["corpus_pipeline"],
+        status: "verified",
+        confidence: 0.9,
+        version: 1,
+        synthesisPath: "corpus_pipeline",
+        synthesizedByModel: model,
+        lastSynthesizedAt: new Date(),
+        verifiedAt: new Date(),
+        verifiedByModel: model,
+      },
+      select: { id: true },
+    });
+
+    embedPage(page.id, ontologyContent);
+
+    logSystemIntelligenceChange({
+      action: "page_created",
+      pageSlug: slug,
+      pageTitle: `Knowledge Ontology — ${vertical}`,
+      pageType: "ontology_index",
+      newContent: ontologyContent,
+      reason: `Auto-generated from ${corpusMap.documents.length}-document corpus`,
+      changeSource: "research_synthesis",
+      curatorModel: model,
+    }).catch(() => {});
+  }
+
+  // Generate horizontal skill ontology stubs
+  await generateHorizontalSkillOntologies(ontologyContent, vertical);
+
+  return slug;
+}
+
+async function generateHorizontalSkillOntologies(
+  verticalOntology: string,
+  vertical: string,
+): Promise<void> {
+  const crossCuttingSection = verticalOntology.split("## Cross-Cutting Skills")[1];
+  if (!crossCuttingSection) return;
+
+  const skillHeaders = crossCuttingSection.match(/### (.+?)(?:\s*\(|$)/gm) ?? [];
+  const skillNames = skillHeaders.map(h => h.replace("### ", "").replace(/\s*\(.+$/, "").trim());
+
+  for (const skillName of skillNames) {
+    const skillSlug = `ontology-skill-${skillName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+
+    const existing = await prisma.knowledgePage.findFirst({
+      where: { scope: "system", slug: skillSlug, pageType: "ontology_index" },
+      select: { id: true },
+    });
+    if (existing) continue;
+
+    const verticalSlug = `ontology-${vertical.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const content = `# Knowledge Ontology — ${skillName} (Horizontal Skill)
+
+${skillName} is a cross-cutting skill applicable across multiple vertical domains.
+
+## Core Principles
+- [critical] Foundational Concepts: Core principles and frameworks of ${skillName.toLowerCase()} (needs: fundamentals)
+- [important] Methodologies: Established approaches and techniques (needs: methodology)
+- [useful] Psychology and Behavioral Patterns: Human factors and cognitive aspects (needs: theory)
+
+## Applications
+This skill has been identified as relevant in the following verticals:
+- ${vertical}: See [[${verticalSlug}]] for application requirements
+
+*This ontology was auto-generated as a stub. It will be enriched when a focused research corpus on ${skillName.toLowerCase()} is processed.*`;
+
+    await prisma.knowledgePage.create({
+      data: {
+        operatorId: null,
+        scope: "system",
+        pageType: "ontology_index",
+        title: `Knowledge Ontology — ${skillName} (Skill)`,
+        slug: skillSlug,
+        content,
+        contentTokens: Math.ceil(content.length / 4),
+        crossReferences: [verticalSlug],
+        sources: [],
+        sourceCount: 0,
+        sourceTypes: ["corpus_pipeline"],
+        status: "draft",
+        confidence: 0.5,
+        version: 1,
+        synthesisPath: "corpus_pipeline",
+        synthesizedByModel: "auto_stub",
+        lastSynthesizedAt: new Date(),
+      },
+    }).catch(() => {});
+  }
 }
 
 // ═══ Helpers ═══════════════════════════════════════════
