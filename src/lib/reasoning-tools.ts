@@ -288,7 +288,7 @@ export const REASONING_TOOLS: AITool[] = [
   {
     name: "read_wiki_page",
     description:
-      "Read a knowledge page from the organizational wiki. Wiki pages contain synthesized intelligence about entities, processes, patterns, and topics — richer and more cross-referenced than raw data lookups. Use this when you need deep context about an entity or topic.",
+      "Read a knowledge page from the wiki. Can read both company-specific pages (operator scope) and domain expertise pages (system scope). IMPORTANT: Pages contain cross-reference links written as [[page-slug]]. These are navigation links to related pages — methodology guides link to specific frameworks, overviews link to detailed sub-topics, concepts link to worked examples. Follow relevant [[links]] to build deep expertise on the domain.",
     parameters: {
       type: "object",
       properties: {
@@ -311,7 +311,7 @@ export const REASONING_TOOLS: AITool[] = [
   {
     name: "search_wiki",
     description:
-      "Search the organizational wiki for relevant knowledge pages. Use scope 'system' to search general professional knowledge and best practices, or 'all' to search both.",
+      "Search the knowledge base for relevant pages. Two scopes available:\n- 'operator' (default): Company-specific knowledge — entity profiles, processes, behavioral patterns, operational context for THIS organization\n- 'system': Domain expertise — industry best practices, analytical frameworks, regulatory standards, methodology guides, worked examples. This is deep research-backed knowledge — not surface-level. Follow cross-references between pages to build complete domain understanding.\n- 'all': Search both layers\nUse 'system' when you need domain expertise (e.g., 'invoice escalation framework', 'DD financial analysis methodology'). Use 'operator' when you need company context (e.g., 'how does Vestegnens Boligforening handle payments'). Use 'all' to find relevant knowledge across both layers.",
     parameters: {
       type: "object",
       properties: {

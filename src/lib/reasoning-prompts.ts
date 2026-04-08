@@ -16,20 +16,51 @@ export function buildAgenticSystemPrompt(businessContext: string | null, company
 Your job: investigate a business situation using your tools, then produce a concrete assessment with an action plan.
 ${businessContext ? `\nBUSINESS CONTEXT:\n${businessContext}\n` : ""}
 INVESTIGATION PROCESS:
-1. Read the trigger carefully. Identify the key entities, the core question, and what you need to know to make a recommendation.
-2. Start by looking up the trigger entity (use lookup_entity with the ID from the seed context) to understand its full context — properties, relationships, recent mentions.
-3. Follow evidence chains. If the trigger entity has linked entities (purchase orders, projects, contracts), look those up. If those link to other relevant entities, follow the chain as far as it matters.
-4. Search communications for relevant discussions — agreements, concerns, prior conversations about this topic.
-5. Check cross-domain signals if the entity is external (customer, supplier) — other domains may have relevant context.
-6. Check prior situations of this type to learn from how they were handled before.
-7. When you have enough evidence, produce your final JSON output.
+Your investigation has three phases. Do not skip or rush any phase.
 
-WIKI-FIRST INVESTIGATION:
-When investigating, prefer wiki pages over raw data when available:
-1. First, check if relevant wiki pages exist (they may be in your seed context above, or use search_wiki to find them)
-2. Wiki pages contain cross-referenced, verified synthesis — richer than individual lookups
-3. Fall back to raw data tools (lookup_entity, search_documents, search_communications) when wiki coverage is insufficient or when you need to verify a specific claim
-4. If you find information during raw data investigation that contradicts a wiki page, include a "flag_contradiction" in your wikiUpdates
+PHASE 1 — GATHER EXPERTISE
+Before investigating the specific situation, build your domain understanding:
+1. Check the SYSTEM EXPERTISE INDEX in your seed context. It lists entry-point pages into the domain expertise library. These are starting points — NOT the full library.
+2. Read the most relevant entry-point pages using read_wiki_page.
+3. CRITICAL: Wiki pages contain cross-reference links written as [[page-slug]]. These are the knowledge graph — they link overview pages to specific methodology guides, frameworks to worked examples, concepts to edge case analysis. FOLLOW THESE LINKS. When a page about "invoice management" links to [[escalation-framework-b2b]] and [[payment-term-analysis-methodology]], read those pages. When those link to more specific pages, follow the ones relevant to your situation.
+4. Use search_wiki with scope "system" to search for expertise the discovery index didn't cover. The index is seeded from one search query — there may be entire sub-domains of expertise discoverable through different search terms.
+5. You are NOT well-informed after reading one or two overview pages. Expert-level understanding means following the cross-reference chains to the specific frameworks, methodologies, and worked examples that apply to this situation type.
+
+STEP-BACK DISCIPLINE: When you find yourself 3-4 links deep on a single path, pause. Ask yourself:
+- Have I gathered enough expertise for this angle, or am I going down a rabbit hole?
+- Are there OTHER branches of expertise I haven't explored yet that matter for this situation?
+- Can I now return to the situation investigation with this knowledge, or do I need more?
+The goal is BREADTH of relevant expertise first, then DEPTH on the most critical angles. Don't exhaust one path before exploring others.
+
+PHASE 2 — INVESTIGATE THE SITUATION
+Now investigate the specific situation with your expertise loaded:
+6. Read the organizational wiki pages in your seed context — entity profiles, process descriptions, behavioral patterns for this company.
+7. Look up the trigger entity (lookup_entity with the ID from seed context) for full current state.
+8. Follow evidence chains through the entity graph. Search communications, documents, and the evidence registry.
+9. Apply your domain expertise to interpret what you find. The expertise tells you what patterns to look for, what's normal, and what's a red flag.
+10. Search the organizational wiki (search_wiki scope "operator") for additional company context as needed.
+11. If during investigation you realize you need more domain expertise — e.g., you discover a compliance angle, a financial structure you didn't expect, or a process pattern you haven't seen before — go back to search_wiki scope "system" and follow the cross-reference chains into that sub-domain. Phase 1 and Phase 2 can interleave.
+
+PHASE 3 — ASSESS AND PROPOSE
+12. When you have both domain understanding AND situation-specific evidence, produce your final assessment.
+13. Your analysis should reflect expert-level domain understanding applied to company-specific context. Reference specific findings from both your expertise pages and your investigation.
+
+KNOWLEDGE ARCHITECTURE:
+You have access to two knowledge layers via search_wiki and read_wiki_page:
+
+1. SYSTEM INTELLIGENCE (scope: "system") — Domain expertise built from deep research. Industry best practices, analytical frameworks, process standards, worked examples. This is a comprehensive knowledge library with hundreds of interconnected pages per domain. Pages link to each other via [[cross-references]] — follow these links to navigate from overviews to specific methodologies to worked examples.
+
+2. ORGANIZATIONAL WIKI (scope: "operator") — Company-specific knowledge synthesized from their actual data. Entity profiles, process descriptions, behavioral patterns, financial context. This grows richer as the system operates.
+
+The power is in combining them: domain expertise tells you what questions to ask; organizational knowledge gives you the company-specific answers. A domain expert who doesn't know the company gives generic advice. A company insider without domain expertise misses industry-standard red flags. You must be both.
+
+When your investigation reveals something unexpected, check it against both layers:
+- Does domain expertise say this is normal or abnormal for this industry?
+- Does organizational knowledge say this is normal or abnormal for this company?
+- If both layers agree it's abnormal → strong signal
+- If domain expertise flags it but organizational knowledge says it's normal here → investigate WHY this company deviates
+- If organizational knowledge flags it but domain expertise says it's standard → may be company over-sensitivity
+- If you find information during raw data investigation that contradicts a wiki page from either layer, include a "flag_contradiction" in your wikiUpdates output
 
 RULES FOR INVESTIGATION:
 - You reason ONLY from what the tools return. Never assume information that wasn't in a tool result. If a tool returns no results, that absence is meaningful evidence.
@@ -339,6 +370,13 @@ export interface AgenticSeedInput {
   connectorCapabilities: ConnectorCapability[];
   wikiPages: Array<{ slug: string; title: string; pageType: string; status: string; content: string; trustLevel?: string }>;
   evidenceClaims?: Array<{ claim: string; type: string; confidence: number; source: string }>;
+  systemExpertiseIndex?: Array<{
+    slug: string;
+    title: string;
+    pageType: string;
+    confidence: number;
+    contentPreview: string;
+  }>;
 }
 
 export function buildAgenticSeedContext(input: AgenticSeedInput): string {
@@ -457,6 +495,19 @@ Autonomy level: ${input.autonomyLevel} — ${autonomyNote}`);
       return `### ${p.title} (${p.pageType})${trustTag}${statusTag}\n${p.content}`;
     }).join("\n\n---\n\n");
     sections.push(`ORGANIZATIONAL KNOWLEDGE (from wiki):\nPre-loaded knowledge pages relevant to this situation. Pages marked [trust: authoritative] have strong outcome track records. Pages marked [trust: challenged] should be verified.\n\n${pageContent}`);
+  }
+
+  // SYSTEM EXPERTISE INDEX
+  if (input.systemExpertiseIndex && input.systemExpertiseIndex.length > 0) {
+    const indexLines = input.systemExpertiseIndex.map(e =>
+      `  - "${e.title}" [${e.pageType}] (slug: ${e.slug}) — ${e.contentPreview}`
+    ).join("\n");
+    sections.push(`SYSTEM EXPERTISE INDEX (entry points into the domain expertise library):
+The following pages are starting points for domain expertise relevant to this situation. This is NOT the full library — each page contains [[cross-reference]] links to more specific pages. Follow those links during Phase 1 to build deep expertise.
+
+You can also discover expertise pages not listed here using search_wiki with scope "system".
+
+${indexLines}`);
   }
 
   // RELEVANT EVIDENCE CLAIMS

@@ -108,6 +108,25 @@ export async function reflectOnOutcome(params: {
     select: { id: true, content: true, version: true },
   });
 
+  // 3b. Load domain expertise as best-practice baseline
+  let domainExpertise = "";
+  try {
+    const op = await prisma.operator.findUnique({
+      where: { id: operatorId },
+      select: { intelligenceAccess: true },
+    });
+    if (op?.intelligenceAccess) {
+      const { getSystemWikiPages } = await import("@/lib/wiki-engine");
+      const pages = await getSystemWikiPages({
+        query: `${situation.situationType.name} response best practices`,
+        maxPages: 1,
+      }).catch(() => []);
+      if (pages.length > 0) {
+        domainExpertise = `\nDOMAIN BEST PRACTICE BASELINE:\n${pages[0].content.slice(0, 1500)}`;
+      }
+    }
+  } catch { /* non-fatal */ }
+
   // 4. Build LLM prompt
   const analysisSnippet = reasoning?.analysis
     ? String(reasoning.analysis).slice(0, 1000)
@@ -138,6 +157,7 @@ export async function reflectOnOutcome(params: {
     existingPage
       ? `\nEXISTING OPERATIONAL LEARNING PAGE:\n${existingPage.content.slice(0, 2000)}`
       : "\nNo existing operational learning page for this situation type.",
+    domainExpertise || null,
   ].filter(Boolean).join("\n");
 
   // 5. Call LLM
@@ -328,5 +348,6 @@ Rules:
 - If the outcome is "approved" with edits → learn what needed correction
 - If rejected/dismissed → learn what went wrong and how to avoid it
 - If there's existing page content, INTEGRATE the new learning — don't replace the whole page
-- Keep the page concise and actionable — operators and future AI reasoning will read this`;
+- Keep the page concise and actionable — operators and future AI reasoning will read this
+- If domain expertise is provided, compare the AI's approach against the industry best practice. Was the AI's approach aligned with expert methodology? If not, capture that as a learning.`;
 }

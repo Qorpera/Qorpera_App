@@ -371,6 +371,22 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       console.warn("[reasoning-engine] Evidence claim loading failed:", err);
     }
 
+    // 6c-ii. Discover available system expertise for seed context
+    let systemExpertiseIndex: Array<{
+      slug: string; title: string; pageType: string; confidence: number; contentPreview: string;
+    }> = [];
+    try {
+      const { discoverSystemExpertise } = await import("@/lib/wiki-discovery");
+      const searchQuery = [
+        situation.situationType.name,
+        situation.situationType.description?.slice(0, 200) ?? "",
+        situation.triggerSummary ?? "",
+      ].filter(Boolean).join(" ");
+      systemExpertiseIndex = await discoverSystemExpertise(situation.operatorId, searchQuery, 15);
+    } catch (err) {
+      console.warn("[reasoning-engine] System expertise discovery failed:", err);
+    }
+
     // 6c. Build system prompt and seed context
     const depth = situation.investigationDepth ?? "standard";
     const softBudget = depth === "thorough" ? 50 : 20;
@@ -400,6 +416,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       connectorCapabilities,
       wikiPages,
       evidenceClaims,
+      systemExpertiseIndex,
     };
     const seedContext = buildAgenticSeedContext(seedInput);
 

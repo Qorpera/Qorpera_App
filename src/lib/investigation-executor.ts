@@ -136,6 +136,7 @@ ${sharedFindings.map(s => `- ${s}`).join("\n")}` : ""}
 5. **When you've exhausted your evidence, stop.** Don't speculate beyond what the data shows.
 6. **Your findings will be independently challenged by another model.** Make sure your evidence chains are airtight.
 7. **Produce wiki pages** for knowledge worth preserving. Each page should be a standalone document with clear structure, source citations using [src:chunkId] format, and confidence indicators.
+8. **Start with domain expertise.** Before diving into raw evidence, search system intelligence (search_wiki scope "system") for expertise relevant to your investigation angle. If investigating a financial pattern, read the financial analysis methodology pages. If investigating a communication pattern, read the communication pattern analysis guides. Domain expertise shapes what you look for in the evidence.
 
 ## Available Tools
 
@@ -150,7 +151,7 @@ Use these tools to investigate:
 - **search_entities** — find entities by name/type
 - **search_around** — graph traversal from an entity
 - **get_activity_timeline** — activity history for an entity
-- **search_wiki** — search existing wiki pages
+- **search_wiki** — search the knowledge base. Use scope "system" for domain expertise (best practices, methodologies), scope "operator" for company-specific knowledge
 - **read_wiki_page** — read a specific wiki page
 ${connectorToolNames.size > 0 ? `- Live connector tools: ${[...connectorToolNames].join(", ")}` : ""}
 

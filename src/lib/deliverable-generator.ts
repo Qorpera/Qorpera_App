@@ -213,12 +213,25 @@ function buildDeliverableSystemPrompt(
 Your output must be EXHAUSTIVE. Every claim must be backed by evidence from the data you investigate. Every relevant angle must be explored. Missing something important is worse than taking extra time.
 
 INVESTIGATION APPROACH:
-1. Start by reading the knowledge index (get_knowledge_index) to understand what data is available.
-2. Form hypotheses about what this deliverable section should cover based on the template requirements.
-3. Systematically investigate each hypothesis using project documents AND organizational wiki knowledge.
-4. For each finding, trace it to specific source data. Cross-reference across multiple documents.
-5. Identify contradictions, gaps, and risks as you go.
-6. When you've covered all required areas AND followed all evidence chains to conclusion, produce your output.
+
+PHASE 1 — DOMAIN EXPERTISE:
+Before analyzing project data, build your domain understanding:
+1. Check the AVAILABLE DOMAIN EXPERTISE in your context below — these are entry points into the expertise library.
+2. Read the most relevant pages via read_wiki_page. FOLLOW [[cross-reference]] links in pages — they connect overviews to specific frameworks, methodologies, worked examples, and edge cases.
+3. Search for more expertise using search_wiki scope "system" for angles the discovery index didn't cover.
+4. STEP-BACK DISCIPLINE: when you're 3-4 links deep on one path, pause. Have you explored other relevant branches? Breadth first, then depth on critical angles.
+5. For a DD financial review, you might read: financial analysis methodology → [[revenue-recognition-red-flags]] → [[working-capital-analysis]] and separately: [[corporate-governance-framework]] → [[board-composition-analysis]]. Two branches, deep on each.
+
+PHASE 2 — PROJECT INVESTIGATION:
+6. Read the knowledge index (get_knowledge_index) to understand available data.
+7. Search the organizational wiki (search_wiki scope "operator") for company-specific context.
+8. Systematically investigate project documents using your domain expertise as a lens.
+9. Cross-reference findings across multiple documents.
+10. If you discover an angle not covered by your Phase 1 expertise, go back and search system intelligence for it.
+
+PHASE 3 — SYNTHESIS:
+11. Combine domain expertise with project evidence to produce expert-level analysis.
+12. Your analysis should reflect both deep domain knowledge AND project-specific findings.
 
 THOROUGHNESS REQUIREMENTS:
 - You have a large tool call budget. USE IT. 50+ tool calls is normal and expected.
@@ -329,12 +342,30 @@ async function loadWikiContext(
   projectName: string,
   deliverableTitle: string,
 ): Promise<string[]> {
+  const parts: string[] = [];
+
+  // System expertise discovery index (titles only — model reads on demand)
+  try {
+    const { discoverSystemExpertise } = await import("@/lib/wiki-discovery");
+    const systemIndex = await discoverSystemExpertise(operatorId, deliverableTitle, 10);
+    if (systemIndex.length > 0) {
+      parts.push("  AVAILABLE DOMAIN EXPERTISE (read with read_wiki_page during Phase 1):");
+      for (const e of systemIndex) {
+        parts.push(`  - "${e.title}" [${e.pageType}] (slug: ${e.slug})`);
+      }
+    }
+  } catch { /* non-fatal */ }
+
+  // Operator context (existing logic)
   try {
     const results = await searchPages(operatorId, `${projectName} ${deliverableTitle}`, { limit: 5 });
-    return results.map((r) =>
-      `  - ${r.title} [${r.pageType}] (slug: ${r.slug}, confidence: ${r.confidence.toFixed(2)})`,
-    );
-  } catch {
-    return [];
-  }
+    if (results.length > 0) {
+      parts.push("  ORGANIZATIONAL CONTEXT:");
+      for (const r of results) {
+        parts.push(`  - ${r.title} [${r.pageType}] (slug: ${r.slug}, confidence: ${r.confidence.toFixed(2)})`);
+      }
+    }
+  } catch { /* non-fatal */ }
+
+  return parts;
 }

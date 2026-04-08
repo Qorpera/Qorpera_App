@@ -347,6 +347,42 @@ const COPILOT_TOOLS: AITool[] = [
       },
     },
   },
+  {
+    name: "search_wiki",
+    description: "Search the organizational knowledge base for synthesized intelligence. Two scopes:\n- 'operator' (default): Company-specific knowledge — entity profiles, processes, behavioral patterns for THIS company\n- 'system': Domain expertise — industry best practices, analytical frameworks, methodology guides from deep research\n- 'all': Search both\nUse 'system' for domain questions ('how should DD financials be analyzed?'). Use 'operator' for company questions ('how does our invoicing process work?'). Use 'all' when unsure.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query — topic, entity name, concept, or domain" },
+        scope: { type: "string", enum: ["operator", "system", "all"], description: "Which knowledge layer. Default: operator" },
+        limit: { type: "number", description: "Max results (default 5, max 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "read_wiki_page",
+    description: "Read a full knowledge page by slug. Can read both company-specific pages and domain expertise pages. When a page contains cross-references like [[slug]], those are links to related pages.",
+    parameters: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Page slug from search_wiki results or cross-references in other pages" },
+      },
+      required: ["slug"],
+    },
+  },
+  {
+    name: "search_evidence",
+    description: "Search the evidence registry for specific factual claims extracted from raw data sources. Returns individual claims with confidence scores and source attribution. More precise than document search.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query — a claim, entity name, number, or topic" },
+        maxResults: { type: "number", description: "Max results (default 10)" },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 const ORIENTATION_TOOLS: AITool[] = [
@@ -484,6 +520,17 @@ CAPABILITIES:
 - Get insights: use when user asks what the AI has learned, best approaches, or effectiveness patterns
 - Get priorities: use when user asks what needs attention, what's most urgent, or what to work on next
 - Create new situation types scoped to specific departments
+
+KNOWLEDGE SOURCES:
+You have access to two layers of intelligence via search_wiki and read_wiki_page:
+1. **Domain expertise** (search_wiki scope "system") — Deep research-backed knowledge about business domains. Industry best practices, analytical frameworks, methodology guides. Use when the user asks about HOW things should work or what best practice is.
+2. **Company knowledge** (search_wiki scope "operator") — Synthesized intelligence about THIS specific company. Entity profiles, processes, behavioral patterns. Use when the user asks about their company.
+
+When answering domain questions: search system intelligence first, then add company-specific context.
+When answering company questions: search company knowledge first, then add domain expertise for interpretation.
+When recommending actions: combine both — domain expertise for the framework, company knowledge for the specifics.
+
+You also have search_evidence for precise factual claims extracted from raw data — use when you need specific numbers, dates, or verified facts.
 
 USER CONTEXT:
 - Role: ${userRole || "admin"}
@@ -2420,6 +2467,120 @@ export async function executeTool(
           return `[${(m.direction || "unknown").toUpperCase()}] ${m.date ? new Date(m.date).toLocaleString() : "unknown"}\nFrom: ${m.from || "unknown"} | To: ${Array.isArray(m.to) ? m.to.join(", ") : m.to || "unknown"}\nSubject: ${m.subject || "(no subject)"}\n\n${c.content.slice(0, 500)}`;
         });
       return `Thread ${threadId} (${formatted.length} messages):\n\n${formatted.join("\n\n---\n\n")}`;
+    }
+
+    case "search_wiki": {
+      const query = String(args.query ?? "");
+      if (!query) return "Please provide a search query.";
+      const scopeParam = args.scope ? String(args.scope) : "operator";
+      const limit = typeof args.limit === "number" ? Math.min(args.limit, 10) : 5;
+
+      const { searchPages: sp, searchSystemPages: ssp } = await import("@/lib/wiki-engine");
+      const perLayerLimit = scopeParam === "all" ? Math.ceil(limit / 2) : limit;
+
+      const operatorResults = (scopeParam === "operator" || scopeParam === "all")
+        ? await sp(operatorId, query, { limit: perLayerLimit }).catch(() => [])
+        : [];
+
+      let systemResults: typeof operatorResults = [];
+      if (scopeParam === "system" || scopeParam === "all") {
+        const op = await prisma.operator.findUnique({
+          where: { id: operatorId },
+          select: { intelligenceAccess: true },
+        });
+        if (op?.intelligenceAccess) {
+          systemResults = await ssp(query, { limit: perLayerLimit }).catch(() => []);
+        }
+      }
+
+      // Interleave results so both layers are represented
+      const all: typeof operatorResults = [];
+      const maxLen = Math.max(operatorResults.length, systemResults.length);
+      for (let i = 0; i < maxLen && all.length < limit; i++) {
+        if (i < operatorResults.length) all.push(operatorResults[i]);
+        if (i < systemResults.length && all.length < limit) all.push(systemResults[i]);
+      }
+      if (all.length === 0) return `No wiki pages found matching "${query}".`;
+
+      return all.map(r => {
+        const scopeTag = "scope" in r && r.scope === "system" ? " [system expertise]" : "";
+        return `- ${r.title} [${r.pageType}]${scopeTag} (slug: ${r.slug}, confidence: ${r.confidence.toFixed(2)})\n  ${r.contentPreview}`;
+      }).join("\n\n") + "\n\nUse read_wiki_page with a slug to read the full page.";
+    }
+
+    case "read_wiki_page": {
+      const slug = String(args.slug ?? "");
+      if (!slug) return "Please provide a page slug.";
+
+      // Try operator-scoped first
+      let page = await prisma.knowledgePage.findUnique({
+        where: { operatorId_slug: { operatorId, slug } },
+        select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true },
+      });
+
+      // Fallback to system-scoped (gated)
+      if (!page) {
+        const op = await prisma.operator.findUnique({
+          where: { id: operatorId },
+          select: { intelligenceAccess: true },
+        });
+        if (op?.intelligenceAccess) {
+          page = await prisma.knowledgePage.findFirst({
+            where: { scope: "system", slug, status: { in: ["verified", "stale"] } },
+            select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true },
+          });
+        }
+      }
+
+      if (!page) return `No wiki page found with slug "${slug}".`;
+      if (page.status === "quarantined") return `Wiki page "${slug}" is quarantined (unreliable).`;
+
+      // Increment use count (fire-and-forget)
+      prisma.knowledgePage.update({
+        where: { id: page.id },
+        data: { reasoningUseCount: { increment: 1 } },
+      }).catch(() => {});
+
+      const statusNote = page.status !== "verified"
+        ? `\n\nNote: This page is ${page.status} — may be outdated.`
+        : "";
+
+      return `Wiki page: ${page.title} [${page.pageType}] (confidence: ${page.confidence.toFixed(2)})${statusNote}\n\n${page.content}`;
+    }
+
+    case "search_evidence": {
+      const query = String(args.query ?? "");
+      if (!query) return "Please provide a search query.";
+      const maxResults = typeof args.maxResults === "number" ? Math.min(args.maxResults, 20) : 10;
+
+      const rows = await prisma.$queryRaw<Array<{
+        id: string; sourceChunkId: string; sourceType: string; extractions: unknown; extractedAt: Date;
+      }>>`
+        SELECT ee.id, ee."sourceChunkId", ee."sourceType", ee.extractions, ee."extractedAt"
+        FROM "EvidenceExtraction" ee
+        WHERE ee."operatorId" = ${operatorId}
+          AND ee.extractions::text ILIKE ${`%${query}%`}
+        ORDER BY ee."extractedAt" DESC
+        LIMIT ${maxResults}
+      `;
+
+      if (rows.length === 0) return `No evidence found matching "${query}".`;
+
+      const queryLower = query.toLowerCase();
+      const lines: string[] = [`Found evidence in ${rows.length} extractions:`];
+      for (const row of rows) {
+        const claims = Array.isArray(row.extractions) ? row.extractions : [];
+        const matching = claims.filter((c: any) =>
+          c.claim?.toLowerCase().includes(queryLower) ||
+          c.entities?.some((e: string) => e.toLowerCase().includes(queryLower))
+        );
+        if (matching.length === 0) continue;
+        lines.push(`\n[${row.sourceType}] Chunk: ${row.sourceChunkId} (${row.extractedAt.toISOString().split("T")[0]})`);
+        for (const c of matching) {
+          lines.push(`  - [${c.type}] (${(c.confidence * 100).toFixed(0)}%) ${c.claim}`);
+        }
+      }
+      return lines.join("\n");
     }
 
     default:

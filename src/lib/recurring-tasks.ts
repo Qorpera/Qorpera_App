@@ -164,8 +164,39 @@ Respond with ONLY valid JSON — an array of steps:
 
 The plan should accomplish the task using the available actions and current context.`;
 
+  // Load domain expertise + operator wiki context (single-pass: no tool loop)
+  let wikiContext = "";
+  try {
+    const op = await prisma.operator.findUnique({
+      where: { id: task.operatorId },
+      select: { intelligenceAccess: true },
+    });
+    if (op?.intelligenceAccess) {
+      const { getSystemWikiPages } = await import("@/lib/wiki-engine");
+      const systemPages = await getSystemWikiPages({
+        query: config.description,
+        maxPages: 1,
+      }).catch(() => []);
+      if (systemPages.length > 0) {
+        wikiContext = `\n\nDOMAIN EXPERTISE:\n${systemPages[0].content.slice(0, 2000)}`;
+      }
+    }
+    // Also load operator wiki context
+    const { searchPages: sp } = await import("@/lib/wiki-engine");
+    const operatorPages = await sp(task.operatorId, config.description, { limit: 2 }).catch(() => []);
+    if (operatorPages.length > 0) {
+      const fullPages = await prisma.knowledgePage.findMany({
+        where: { operatorId: task.operatorId, slug: { in: operatorPages.map(p => p.slug) } },
+        select: { title: true, content: true },
+      });
+      if (fullPages.length > 0) {
+        wikiContext += `\n\nORGANIZATIONAL CONTEXT:\n${fullPages.map(p => `### ${p.title}\n${p.content.slice(0, 1000)}`).join("\n\n")}`;
+      }
+    }
+  } catch { /* non-fatal */ }
+
   const response = await callLLM({
-    instructions: systemPrompt,
+    instructions: systemPrompt + wikiContext,
     messages: [
       { role: "user", content: `Execute the recurring task: "${task.title}"` },
     ],
