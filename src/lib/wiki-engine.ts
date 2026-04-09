@@ -619,6 +619,7 @@ export async function getSystemWikiPages(params: {
         `scope = 'system'`,
         `status = 'verified'`,
         `embedding IS NOT NULL`,
+        `("stagingStatus" IS NULL OR "stagingStatus" = 'approved')`,
       ];
       const sqlParams: unknown[] = [embeddingStr];
       let nextIdx = 2;
@@ -655,6 +656,7 @@ export async function getSystemWikiPages(params: {
     where: {
       scope: "system",
       status: "verified",
+      OR: [{ stagingStatus: null }, { stagingStatus: "approved" }],
       ...(params.pageTypes?.length ? { pageType: { in: params.pageTypes } } : {}),
     },
     orderBy: [{ citedByPages: "desc" }, { confidence: "desc" }],
@@ -684,6 +686,7 @@ export async function searchSystemPages(
       `scope = 'system'`,
       `status IN ('verified', 'stale')`,
       `embedding IS NOT NULL`,
+      `("stagingStatus" IS NULL OR "stagingStatus" = 'approved')`,
     ];
     const params: unknown[] = [embeddingStr];
     let nextIdx = 2;
@@ -730,10 +733,13 @@ export async function searchSystemPages(
     where: {
       scope: "system",
       status: { in: ["verified", "stale"] },
+      OR: [{ stagingStatus: null }, { stagingStatus: "approved" }],
       ...(options?.pageType ? { pageType: options.pageType } : {}),
-      OR: [
-        { title: { contains: query, mode: "insensitive" } },
-        { content: { contains: query, mode: "insensitive" } },
+      AND: [
+        { OR: [
+          { title: { contains: query, mode: "insensitive" } },
+          { content: { contains: query, mode: "insensitive" } },
+        ] },
       ],
     },
     select: { slug: true, title: true, pageType: true, status: true, confidence: true, content: true, scope: true },

@@ -349,7 +349,7 @@ const COPILOT_TOOLS: AITool[] = [
   },
   {
     name: "search_wiki",
-    description: "Search the organizational knowledge base for synthesized intelligence. Two scopes:\n- 'operator' (default): Company-specific knowledge — entity profiles, processes, behavioral patterns for THIS company\n- 'system': Domain expertise — industry best practices, analytical frameworks, methodology guides from deep research\n- 'all': Search both\nUse 'system' for domain questions ('how should DD financials be analyzed?'). Use 'operator' for company questions ('how does our invoicing process work?'). Use 'all' when unsure.",
+    description: "Search the knowledge wiki. Use scope 'operator' for this company's specific knowledge (people, processes, financials, patterns). Use scope 'system' for practitioner reference material — benchmarks, regional practice specifics, empirical patterns, red flag heuristics. The system reference library is supplementary — consult it when you need specific thresholds or practitioner insights. Use 'all' to search both layers.",
     parameters: {
       type: "object",
       properties: {
@@ -362,7 +362,7 @@ const COPILOT_TOOLS: AITool[] = [
   },
   {
     name: "read_wiki_page",
-    description: "Read a full knowledge page by slug. Can read both company-specific pages and domain expertise pages. When a page contains cross-references like [[slug]], those are links to related pages.",
+    description: "Read a knowledge page by slug. Pages contain synthesized intelligence — company-specific context (operator) or practitioner reference material (system). Cross-references like [[slug]] link to related pages.",
     parameters: {
       type: "object",
       properties: {
@@ -379,6 +379,18 @@ const COPILOT_TOOLS: AITool[] = [
       properties: {
         query: { type: "string", description: "Search query — a claim, entity name, number, or topic" },
         maxResults: { type: "number", description: "Max results (default 10)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "web_search",
+    description: "Search the web for current information — regulations, market data, company news, industry benchmarks, anything that changes over time. Use when you need facts you're not confident about or that might be more current than your training.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query — keep specific and concise" },
+        freshness: { type: "string", enum: ["day", "week", "month"], description: "Optional: restrict to recent results" },
       },
       required: ["query"],
     },
@@ -522,13 +534,13 @@ CAPABILITIES:
 - Create new situation types scoped to specific departments
 
 KNOWLEDGE SOURCES:
-You have access to two layers of intelligence via search_wiki and read_wiki_page:
-1. **Domain expertise** (search_wiki scope "system") — Deep research-backed knowledge about business domains. Industry best practices, analytical frameworks, methodology guides. Use when the user asks about HOW things should work or what best practice is.
-2. **Company knowledge** (search_wiki scope "operator") — Synthesized intelligence about THIS specific company. Entity profiles, processes, behavioral patterns. Use when the user asks about their company.
+You have access to two knowledge layers via search_wiki and read_wiki_page:
+1. **Company knowledge** (search_wiki scope "operator") — Synthesized intelligence about THIS specific company. Entity profiles, processes, behavioral patterns. Use when the user asks about their company.
+2. **Reference library** (search_wiki scope "system") — Practitioner reference material: benchmarks, regional practice specifics (especially Danish/Nordic), empirical patterns, red flag heuristics. Consult when you need specific thresholds or practitioner insights to supplement your own expertise.
 
-When answering domain questions: search system intelligence first, then add company-specific context.
-When answering company questions: search company knowledge first, then add domain expertise for interpretation.
-When recommending actions: combine both — domain expertise for the framework, company knowledge for the specifics.
+When answering company questions: search company knowledge first, then consult reference material if you need specific benchmarks or thresholds.
+When answering domain questions: use your own expertise, then consult the reference library for specifics like Danish practice, empirical patterns, or industry benchmarks.
+When recommending actions: combine company knowledge for the specifics with reference material for practitioner benchmarks when relevant.
 
 You also have search_evidence for precise factual claims extracted from raw data — use when you need specific numbers, dates, or verified facts.
 
@@ -2526,7 +2538,7 @@ export async function executeTool(
         });
         if (op?.intelligenceAccess) {
           page = await prisma.knowledgePage.findFirst({
-            where: { scope: "system", slug, status: { in: ["verified", "stale"] } },
+            where: { scope: "system", slug, status: { in: ["verified", "stale"] }, OR: [{ stagingStatus: null }, { stagingStatus: "approved" }] },
             select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true },
           });
         }
@@ -2546,6 +2558,21 @@ export async function executeTool(
         : "";
 
       return `Wiki page: ${page.title} [${page.pageType}] (confidence: ${page.confidence.toFixed(2)})${statusNote}\n\n${page.content}`;
+    }
+
+    case "web_search": {
+      const query = String(args.query ?? "");
+      if (!query) return "Please provide a search query.";
+      try {
+        const { webSearch, formatSearchResults } = await import("@/lib/web-search");
+        const result = await webSearch(
+          query,
+          args.freshness ? { freshness: args.freshness as "day" | "week" | "month" } : undefined,
+        );
+        return formatSearchResults(result.results);
+      } catch (err) {
+        return `Web search failed: ${err instanceof Error ? err.message : "unknown error"}`;
+      }
     }
 
     case "search_evidence": {

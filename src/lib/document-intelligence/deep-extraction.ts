@@ -4,7 +4,7 @@
  * Extracts structured evidence from each section WITH the full-document
  * understanding from Layer 4. Instead of blind per-chunk extraction, each
  * section extraction is informed by purpose, red flags, contradictions,
- * and assembled domain expertise.
+ * and reference material.
  *
  * Produces both raw claims (facts, numbers, commitments) and analytical
  * claims (insights, discrepancies, risks derived from cross-section context).

@@ -61,6 +61,8 @@ const MODEL_ROUTES = {
   onboardingAgentFollowup: "claude-sonnet-4-6",
   onboardingOrganizer: "claude-opus-4-6",
   evidenceIngestion: "claude-haiku-4-5-20251001",
+  sourceStructureDetection: "claude-haiku-4-5-20251001",
+  sourceSynthesis: "claude-opus-4-6",
   researchPlanner: "claude-opus-4-6",
   investigationDeep: "claude-opus-4-6",       // financial, strategic, contradiction
   investigationStandard: "claude-sonnet-4-6",  // operational, relational, temporal, gap

@@ -164,7 +164,7 @@ Respond with ONLY valid JSON — an array of steps:
 
 The plan should accomplish the task using the available actions and current context.`;
 
-  // Load domain expertise + operator wiki context (single-pass: no tool loop)
+  // Load reference material + operator wiki context (single-pass: no tool loop)
   let wikiContext = "";
   try {
     const op = await prisma.operator.findUnique({
@@ -178,7 +178,7 @@ The plan should accomplish the task using the available actions and current cont
         maxPages: 1,
       }).catch(() => []);
       if (systemPages.length > 0) {
-        wikiContext = `\n\nDOMAIN EXPERTISE:\n${systemPages[0].content.slice(0, 2000)}`;
+        wikiContext = `\n\nREFERENCE MATERIAL (practitioner benchmarks):\n${systemPages[0].content.slice(0, 2000)}`;
       }
     }
     // Also load operator wiki context

@@ -53,6 +53,7 @@ export async function discoverSystemExpertise(
      WHERE scope = 'system'
        AND status IN ('verified', 'draft')
        AND embedding IS NOT NULL
+       AND ("stagingStatus" IS NULL OR "stagingStatus" = 'approved')
      ORDER BY embedding <=> $1::vector
      LIMIT $2`,
     embeddingStr,

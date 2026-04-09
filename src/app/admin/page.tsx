@@ -496,7 +496,7 @@ function SystemIntelligenceSection() {
       const res = await fetch(`/api/wiki/${slug}?scope=system`);
       if (res.ok) {
         const data = await res.json();
-        setPageContent(prev => ({ ...prev, [slug]: data.content ?? "" }));
+        setPageContent(prev => ({ ...prev, [slug]: data.page?.content ?? "" }));
       }
     } catch {}
   }, [pageContent]);

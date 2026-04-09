@@ -86,7 +86,7 @@ export async function runAnalyticalSynthesis(
     },
   });
 
-  // 3. Load domain expertise from system wiki for synthesis context
+  // 3. Load reference material from system wiki for synthesis context
   let domainExpertise = "";
   try {
     const operator = await prisma.operator.findUnique({
@@ -118,7 +118,7 @@ export async function runAnalyticalSynthesis(
       }
 
       if (systemPages.length > 0) {
-        domainExpertise = `\n\n## Domain Expertise (from research intelligence)\n\nUse this expertise to structure your analysis — it tells you what patterns matter in this domain, what red flags to highlight, and how to structure wiki pages for this type of content.\n\n${systemPages.map(p => `### ${p.title}\n${p.content}`).join("\n\n---\n\n")}`;
+        domainExpertise = `\n\n## Reference Material (practitioner benchmarks and best-practice comparisons)\n\nYou may reference these pages for benchmarks and best-practice comparisons, but your analysis should be driven by the actual company data. Use these for industry-standard frameworks, empirical red flag patterns, and terminology that enables cross-referencing.\n\n${systemPages.map(p => `### ${p.title}\n${p.content}`).join("\n\n---\n\n")}`;
       }
     }
   } catch (err) {
@@ -314,11 +314,11 @@ const SYNTHESIS_PROMPT = `You are writing analytical wiki pages based on deep do
 
 You have a complete picture: the document's purpose, its red flags, analytical insights from domain experts, and cross-document correlations that confirm or contradict its claims.
 
-If DOMAIN EXPERTISE is provided in the context, use it to:
-- Structure your analysis using industry-standard frameworks (e.g., if domain expertise describes a financial analysis methodology, follow that structure)
-- Compare findings against domain benchmarks and best practices
+If REFERENCE MATERIAL is provided in the context, you may use it to:
+- Compare findings against industry benchmarks and best-practice baselines
 - Flag deviations from industry norms — these are the highest-value insights
-- Use the same terminology as the domain expertise pages to enable cross-referencing
+- Use the same terminology as the reference pages to enable cross-referencing
+Your analysis should be driven by the actual company data. Reference material adds specificity — empirical benchmarks, practitioner red flag patterns — but your analytical capability is your own.
 
 Write wiki pages that a senior analyst would find useful. Not summaries — ANALYSIS.
 
@@ -331,7 +331,7 @@ Rules:
 - Confidence scores must reflect evidence strength
 - Include "Risks and Caveats" for uncertain conclusions
 - Flag areas where more data would change the analysis
-- USE [[cross-references]] to link to other wiki pages. When you mention an entity, process, or pattern that has its own wiki page, write [[slug]]. When you reference a concept from domain expertise, note it.
+- USE [[cross-references]] to link to other wiki pages. When you mention an entity, process, or pattern that has its own wiki page, write [[slug]]. When you reference a concept from the reference library, note it.
 - End each page with a "## Related Pages" section listing all [[cross-references]]
 
 Think: "What would a board member need to know? What would they NOT want to miss?"

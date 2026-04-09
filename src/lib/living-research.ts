@@ -251,7 +251,7 @@ export async function runLivingResearch(
 
   const sourceTypeCount = new Set(newClaims.map((c) => c.sourceType)).size;
 
-  // Load domain expertise for significance assessment
+  // Load reference material for empirical baselines
   let domainContext = "";
   try {
     const op = await prisma.operator.findUnique({
@@ -263,7 +263,7 @@ export async function runLivingResearch(
       const topEntity = [...mentionedEntities][0] ?? "business operations";
       const pages = await getSystemWikiPages({ query: topEntity, maxPages: 1 }).catch(() => []);
       if (pages.length > 0) {
-        domainContext = `\n\n## Domain Context (industry best practices)\n${pages[0].content.slice(0, 1500)}`;
+        domainContext = `\n\n## Reference Material (empirical baselines for comparison)\n${pages[0].content.slice(0, 1500)}`;
       }
     }
   } catch { /* non-fatal */ }

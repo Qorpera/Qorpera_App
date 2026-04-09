@@ -5,11 +5,13 @@ import type { DocumentProfile } from "./types";
 const EXPERTISE_TOKEN_BUDGET = 15000;
 
 /**
- * Assemble domain expertise from the system wiki and operator wiki.
+ * Load reference material from the system wiki and company context
+ * from the operator wiki to supplement the model's analysis.
  *
- * This is the layer that makes Qorpera's analysis improve over time.
- * The "analyst" is not a hardcoded persona — it's assembled knowledge
- * from the research corpus and company-specific context.
+ * System wiki pages provide practitioner-specific details: Danish
+ * accounting practice, empirical benchmarks, red flag patterns.
+ * The model brings its own analytical expertise — this material
+ * sharpens the analysis with specifics it wouldn't reliably know.
  */
 export async function assembleExpertise(
   profile: DocumentProfile,
@@ -22,7 +24,7 @@ export async function assembleExpertise(
   }> = [];
   let tokensUsed = 0;
 
-  // 1. Load system wiki expertise for each domain
+  // 1. Load system wiki reference material for each domain
   for (const domain of profile.expertiseDomains) {
     // Build search queries that combine domain + document type for relevance
     const queries = [
@@ -95,7 +97,7 @@ export async function assembleExpertise(
   }
 
   if (expertisePages.length === 0) {
-    return "No specific domain expertise available. Apply general analytical rigor — look for claims without evidence, numbers without context, commitments without timelines, and gaps in coverage.";
+    return "No specific reference material available. Apply your analytical expertise — look for claims without evidence, numbers without context, commitments without timelines, and gaps in coverage.";
   }
 
   const systemCount = expertisePages.filter(
@@ -105,9 +107,9 @@ export async function assembleExpertise(
     (p) => p.source === "operator",
   ).length;
 
-  return `## Domain Expertise (${systemCount} research pages, ${operatorCount} company-specific pages)
+  return `## Reference Material (${systemCount} practitioner reference pages, ${operatorCount} company-specific pages)
 
-The following knowledge has been assembled to inform your analysis. Use it as an experienced analyst would use their training — it shapes HOW you read, WHAT you look for, and WHAT questions you ask.
+The following reference material may sharpen your analysis of this document. System pages provide practitioner specifics — Danish ÅRL interpretation, empirical benchmarks, red flag patterns. Company pages provide organizational context. Your analytical expertise is your own — use this material to add specificity where it helps.
 
 ${expertisePages.map((p) => `### ${p.title}\n${p.content}`).join("\n\n---\n\n")}`;
 }

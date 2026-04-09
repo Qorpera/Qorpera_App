@@ -108,7 +108,7 @@ export async function reflectOnOutcome(params: {
     select: { id: true, content: true, version: true },
   });
 
-  // 3b. Load domain expertise as best-practice baseline
+  // 3b. Load empirical reference data for comparison
   let domainExpertise = "";
   try {
     const op = await prisma.operator.findUnique({
@@ -122,7 +122,7 @@ export async function reflectOnOutcome(params: {
         maxPages: 1,
       }).catch(() => []);
       if (pages.length > 0) {
-        domainExpertise = `\nDOMAIN BEST PRACTICE BASELINE:\n${pages[0].content.slice(0, 1500)}`;
+        domainExpertise = `\nEMPIRICAL REFERENCE DATA (practitioner baselines for comparison):\n${pages[0].content.slice(0, 1500)}`;
       }
     }
   } catch { /* non-fatal */ }
@@ -349,5 +349,5 @@ Rules:
 - If rejected/dismissed → learn what went wrong and how to avoid it
 - If there's existing page content, INTEGRATE the new learning — don't replace the whole page
 - Keep the page concise and actionable — operators and future AI reasoning will read this
-- If domain expertise is provided, compare the AI's approach against the industry best practice. Was the AI's approach aligned with expert methodology? If not, capture that as a learning.`;
+- If empirical reference data is provided, compare the AI's approach against practitioner baselines. Was the AI's approach aligned with empirical best practice? If not, capture that as a learning.`;
 }

@@ -1547,7 +1547,8 @@ model FileUpload {
   projectId String?
   project   Project? @relation(fields: [projectId], references: [id])
 
-  contentChunks ContentChunk[]
+  contentChunks  ContentChunk[]
+  sourceDocument SourceDocument?
 
   @@unique([operatorId, storageProvider, storageKey])
   @@index([operatorId])
@@ -1724,12 +1725,25 @@ model KnowledgePage {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  // Source tracing
+  sourceAuthority     String?    // "foundational" | "empirical" | null (operator pages)
+  sourceDocumentId    String?    // primary source document
+  sourceDocumentIds   String[]   @default([])
+  sourceReference     String?    // human-readable: "Financial Shenanigans, Ch. 4, pp. 87-142"
+  sourceReferences    Json?      // array of { sourceDocumentId, sectionId, reference, claimSummary, authority }
+  stagingStatus       String?    // "staged" | "approved" | "rejected" | "merged"
+  stagingReviewedAt   DateTime?
+  stagingReviewNote   String?
+  lastIntegrityCheck  DateTime?
+  integrityStatus     String?    // "verified" | "drift_suspected" | "needs_update"
+
   // Embedding for search_wiki
   embedding Unsupported("vector(1536)")?
 
-  operator  Operator?              @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  versions  KnowledgePageVersion[]
-  bookmarks WikiBookmark[]
+  operator       Operator?              @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  sourceDocument SourceDocument?        @relation(fields: [sourceDocumentId], references: [id])
+  versions       KnowledgePageVersion[]
+  bookmarks      WikiBookmark[]
 
   @@unique([operatorId, slug])
   @@unique([operatorId, projectId, subjectEntityId, pageType])
@@ -1867,6 +1881,114 @@ model SystemIntelligenceSignal {
 }
 
 // ─── System Intelligence Change Log ─────────────────────────
+
+// ─── Source Library ─────────────────────────────────────
+
+model SourceDocument {
+  id              String   @id @default(cuid())
+
+  // Identity
+  title           String
+  authors         String?
+  domain          String?
+  domains         String[]
+
+  // Classification
+  sourceType      String   // "book" | "research" | "expert_doc" | "standard" | "empirical_aggregate" | "outcome_analysis" | "regulation"
+  sourceAuthority String   // "foundational" | "empirical"
+
+  // Storage
+  fileUploadId    String?  @unique
+  rawText         String?
+  rawMarkdown     String?
+
+  // Processing state
+  status          String   @default("uploaded") // uploaded | extracting | synthesizing | staged | complete
+  sectionCount    Int?
+  pagesProduced   Int      @default(0)
+  errorMessage    String?
+
+  // Metadata
+  publicationYear Int?
+  isbn            String?
+  version         String?
+  supersededById  String?
+  notes           String?
+
+  // Integrity
+  lastIntegrityCheck  DateTime?
+  integrityStatus     String?   // "healthy" | "drift_detected" | "gaps_found" | "stale"
+  integrityNotes      String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  sections        SourceSection[]
+  integrityChecks IntegrityCheck[]
+  knowledgePages  KnowledgePage[]
+  fileUpload      FileUpload?      @relation(fields: [fileUploadId], references: [id])
+  supersededBy    SourceDocument?   @relation("Supersession", fields: [supersededById], references: [id])
+  supersedes      SourceDocument[]  @relation("Supersession")
+
+  @@index([sourceType])
+  @@index([sourceAuthority])
+  @@index([status])
+  @@index([domain])
+  @@index([integrityStatus])
+}
+
+model SourceSection {
+  id              String   @id @default(cuid())
+  sourceId        String
+
+  sectionIndex    Int
+  title           String
+  titleHierarchy  String[]
+  content         String
+  tokenCount      Int
+  pageRange       String?
+  sectionType     String   @default("content") // "content" | "preface" | "appendix" | "index" | "case_study" | "framework" | "data_table"
+
+  status          String   @default("pending") // pending | synthesizing | complete | skipped
+  pagesProduced   Int      @default(0)
+  skipReason      String?
+  contentHash     String
+
+  source          SourceDocument @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, sectionIndex])
+  @@index([sourceId])
+  @@index([contentHash])
+}
+
+model IntegrityCheck {
+  id              String   @id @default(cuid())
+  sourceId        String
+
+  checkType       String   // "coverage" | "accuracy" | "staleness" | "contradiction" | "full"
+  status          String   // "healthy" | "drift_detected" | "gaps_found" | "stale" | "contradictions_found"
+
+  findings        Json
+  pagesChecked    Int
+  issuesFound     Int
+
+  resolvedAt      DateTime?
+  resolvedBy      String?
+  resolutionNotes String?
+
+  modelUsed       String
+  tokenCount      Int?
+  costCents       Int?
+
+  createdAt       DateTime @default(now())
+
+  source          SourceDocument @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([status])
+  @@index([createdAt])
+}
 
 model SystemIntelligenceLog {
   id              String   @id @default(cuid())

@@ -10,7 +10,7 @@ import type {
 /**
  * Full-document comprehension pass.
  *
- * Reads the entire document with assembled domain expertise.
+ * Reads the entire document with reference material for context.
  * Builds understanding: purpose, narrative, red flags, gaps, cross-reference queries.
  * This is what separates analysis from summarization.
  *
@@ -209,7 +209,7 @@ Build a deep understanding of:
 4. **UNSTATED ASSUMPTIONS**
    What does the document assume without saying? What context is taken for granted?
 
-5. **RED FLAGS** (informed by your domain expertise)
+5. **RED FLAGS** (informed by your expertise and reference material)
    Claims that don't add up. Metrics that look good but aren't.
    Numbers without context. Commitments without evidence of follow-through.
    For each: location in the document, severity, explanation.
@@ -221,10 +221,10 @@ Build a deep understanding of:
 7. **CONSPICUOUS GAPS**
    What SHOULD be in a document of this type that isn't here?
    What topics are avoided? What questions aren't addressed?
-   Your expertise tells you what "normal" looks like — deviations are insights.
+   Your expertise and reference material tell you what "normal" looks like — deviations are insights.
 
-8. **EXPERTISE-SPECIFIC FINDINGS**
-   For each expertise domain you have, what does that lens reveal?
+8. **DOMAIN-SPECIFIC FINDINGS**
+   For each analytical domain relevant to this document, what does that lens reveal?
    A financial lens sees different things than a legal lens.
 
 9. **CROSS-REFERENCE QUERIES**

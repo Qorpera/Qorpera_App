@@ -48,7 +48,8 @@
     "systemHealth": "System Health",
     "systemJobs": "System Jobs",
     "account": "Account",
-    "evaluationLog": "Evaluation Log"
+    "evaluationLog": "Evaluation Log",
+    "library": "Source Library"
   },
   "shell": {
     "aiPaused": "AI activity is paused.",

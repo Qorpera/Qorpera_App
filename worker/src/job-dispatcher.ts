@@ -222,6 +222,88 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     console.log(`[worker:research-corpus] ${report.phase}: ${report.pagesSynthesized} pages, $${(report.totalCostCents / 100).toFixed(2)}`);
   },
 
+  async process_source_document(payload) {
+    const { sourceId } = payload as { sourceId: string };
+    const { extractRawText, extractSections } = await import("@/lib/source-extractor");
+    const { synthesizeSourceSection } = await import("@/lib/source-synthesizer");
+
+    try {
+      const source = await prisma.sourceDocument.findUnique({
+        where: { id: sourceId },
+        select: { id: true, fileUploadId: true, rawText: true, rawMarkdown: true, sourceType: true },
+      });
+      if (!source) throw new Error(`Source document not found: ${sourceId}`);
+
+      // Extract raw text if file upload and no text yet
+      let text = source.rawText || source.rawMarkdown;
+      if (source.fileUploadId && !text) {
+        await prisma.sourceDocument.update({ where: { id: sourceId }, data: { status: "extracting" } });
+        const rawText = await extractRawText(source.fileUploadId);
+        await prisma.sourceDocument.update({ where: { id: sourceId }, data: { rawText } });
+        text = rawText;
+      }
+      if (!text) throw new Error(`No text content for source ${sourceId}`);
+
+      // Extract sections
+      await extractSections({ sourceId, rawText: text, sourceType: source.sourceType });
+      await prisma.sourceDocument.update({ where: { id: sourceId }, data: { status: "synthesizing" } });
+      console.log(`[process_source_document] Sections extracted for "${sourceId}", starting synthesis`);
+
+      // Synthesize each section sequentially (rate limits + later sections see earlier pages)
+      const sections = await prisma.sourceSection.findMany({
+        where: { sourceId, status: "pending" },
+        orderBy: { sectionIndex: "asc" },
+        select: { id: true, sectionIndex: true, title: true, tokenCount: true, sectionType: true },
+      });
+
+      // Skip non-content sections
+      const skippable = new Set(["preface", "index", "appendix"]);
+      const contentSections = sections.filter(s => !skippable.has(s.sectionType));
+
+      let totalPages = 0;
+      for (const section of contentSections) {
+        try {
+          const result = await synthesizeSourceSection({ sourceId, sectionId: section.id });
+          totalPages += result.pagesCreated;
+        } catch (err) {
+          console.error(`[process_source_document] Synthesis failed for section ${section.id}:`, err);
+          await prisma.sourceSection.update({
+            where: { id: section.id },
+            data: { status: "skipped", skipReason: err instanceof Error ? err.message : String(err) },
+          }).catch(() => {});
+        }
+      }
+
+      // Mark skipped sections
+      for (const section of sections.filter(s => skippable.has(s.sectionType))) {
+        await prisma.sourceSection.update({
+          where: { id: section.id },
+          data: { status: "skipped", skipReason: `Section type: ${section.sectionType}` },
+        }).catch(() => {});
+      }
+
+      // Update source status
+      await prisma.sourceDocument.update({
+        where: { id: sourceId },
+        data: {
+          status: totalPages > 0 ? "staged" : "complete",
+          pagesProduced: totalPages,
+        },
+      });
+      console.log(`[process_source_document] Complete: ${totalPages} pages from "${sourceId}"`);
+    } catch (err) {
+      console.error(`[process_source_document] Failed for ${sourceId}:`, err);
+      await prisma.sourceDocument.update({
+        where: { id: sourceId },
+        data: {
+          status: "uploaded",
+          errorMessage: err instanceof Error ? err.message : String(err),
+        },
+      }).catch(() => {});
+      throw err;
+    }
+  },
+
   async synthesize_research(payload) {
     const { content, title, focusArea } = payload as { content: string; title: string; focusArea?: string };
     const { synthesizeResearchDocument } = await import("@/lib/research-synthesizer");

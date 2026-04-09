@@ -288,7 +288,7 @@ export const REASONING_TOOLS: AITool[] = [
   {
     name: "read_wiki_page",
     description:
-      "Read a knowledge page from the wiki. Can read both company-specific pages (operator scope) and domain expertise pages (system scope). IMPORTANT: Pages contain cross-reference links written as [[page-slug]]. These are navigation links to related pages — methodology guides link to specific frameworks, overviews link to detailed sub-topics, concepts link to worked examples. Follow relevant [[links]] to build deep expertise on the domain.",
+      "Read a knowledge page. Pages contain synthesized intelligence — company-specific context (operator) or practitioner reference material (system). Pages contain cross-reference links written as [[page-slug]] — follow relevant links to navigate to related methodology guides, frameworks, and worked examples.",
     parameters: {
       type: "object",
       properties: {
@@ -311,7 +311,7 @@ export const REASONING_TOOLS: AITool[] = [
   {
     name: "search_wiki",
     description:
-      "Search the knowledge base for relevant pages. Two scopes available:\n- 'operator' (default): Company-specific knowledge — entity profiles, processes, behavioral patterns, operational context for THIS organization\n- 'system': Domain expertise — industry best practices, analytical frameworks, regulatory standards, methodology guides, worked examples. This is deep research-backed knowledge — not surface-level. Follow cross-references between pages to build complete domain understanding.\n- 'all': Search both layers\nUse 'system' when you need domain expertise (e.g., 'invoice escalation framework', 'DD financial analysis methodology'). Use 'operator' when you need company context (e.g., 'how does Vestegnens Boligforening handle payments'). Use 'all' to find relevant knowledge across both layers.",
+      "Search the knowledge wiki. Use scope 'operator' for this company's specific knowledge (people, processes, financials, patterns). Use scope 'system' for practitioner reference material — benchmarks, regional practice specifics, empirical patterns, red flag heuristics. The system reference library is supplementary — consult it when you need specific thresholds or practitioner insights, not as a prerequisite to thinking. Use 'all' to search both layers.",
     parameters: {
       type: "object",
       properties: {
@@ -1001,7 +1001,7 @@ async function executeReadWikiPage(
       });
       if (operator?.intelligenceAccess) {
         page = await prisma.knowledgePage.findFirst({
-          where: { scope: "system", slug, status: { in: ["verified", "stale"] } },
+          where: { scope: "system", slug, status: { in: ["verified", "stale"] }, OR: [{ stagingStatus: null }, { stagingStatus: "approved" }] },
           select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, scope: true },
         });
       }

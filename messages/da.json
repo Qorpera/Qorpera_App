@@ -48,7 +48,8 @@
     "systemHealth": "Systemstatus",
     "systemJobs": "Systemjobs",
     "account": "Konto",
-    "evaluationLog": "Evalueringslog"
+    "evaluationLog": "Evalueringslog",
+    "library": "Kildebibliotek"
   },
   "shell": {
     "aiPaused": "AI-aktivitet er sat på pause.",
