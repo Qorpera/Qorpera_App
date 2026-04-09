@@ -111,14 +111,13 @@ export function MicrosoftDelegationGuide({ adminEmail, domain, onComplete, onBac
   const canTest = tenantId && isUUID.test(tenantId) && clientSecret.length >= 10;
 
   const steps = [
-    { label: t("msStep1"), link: "https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/RegisteredApps" },
+    { label: t("msStep1"), link: "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" },
     { label: t("msStep2") },
     { label: t("msStep3") },
-    { label: t("msStep4") },
-    { label: t("msStep5"), copyValue: permissionsString, copyKey: "permissions" },
+    { label: t("msStep4"), copyValue: permissionsString, copyKey: "permissions" },
+    { label: t("msStep5") },
     { label: t("msStep6") },
     { label: t("msStep7") },
-    { label: t("msStep8") },
   ];
 
   return (
