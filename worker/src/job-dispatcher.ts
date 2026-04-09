@@ -133,8 +133,7 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
 
   async strategic_scan(payload) {
     const { operatorId } = payload as { operatorId: string };
-    const { runStrategicScan } = await import("@/lib/strategic-scan");
-    await runStrategicScan(operatorId);
+    throw new Error("Strategic scan not yet implemented");
   },
 
   async generate_deliverable(payload) {
