@@ -167,7 +167,7 @@
       "msStep3": "In the left sidebar, click 'API permissions', then click 'Add a permission'",
       "msStep4": "Select Microsoft Graph → Application permissions, and add these:",
       "msStep5": "Click 'Grant admin consent for your organization'",
-      "msStep6": "In the left sidebar, click 'Certificates & secrets' → New client secret → copy the Value",
+      "msStep6": "In the left sidebar, click 'Certificates & secrets' → 'New client secret'. Leave description empty, set expiry to 24 months, click Add. Then copy the Value (not the Secret ID)",
       "msStep7": "In the left sidebar, click 'Overview' → copy the Directory (tenant) ID, then paste both below",
       "msTenantId": "Tenant ID",
       "msClientSecret": "Client Secret",

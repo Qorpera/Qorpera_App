@@ -167,7 +167,7 @@
       "msStep3": "I venstre sidepanel, klik 'API permissions', derefter klik 'Add a permission'",
       "msStep4": "Vælg Microsoft Graph → Application permissions, og tilføj disse:",
       "msStep5": "Klik 'Grant admin consent for your organization'",
-      "msStep6": "I venstre sidepanel, klik 'Certificates & secrets' → New client secret → kopiér Value",
+      "msStep6": "I venstre sidepanel, klik 'Certificates & secrets' → 'New client secret'. Lad beskrivelse stå tom, sæt udløb til 24 måneder, klik Add. Kopiér derefter Value (ikke Secret ID)",
       "msStep7": "I venstre sidepanel, klik 'Overview' → kopiér Directory (tenant) ID, og indsæt begge nedenfor",
       "msTenantId": "Lejer-ID",
       "msClientSecret": "Klienthemmelighed",

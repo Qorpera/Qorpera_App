@@ -194,8 +194,11 @@ export function MicrosoftDelegationGuide({ adminEmail, domain, onComplete, onBac
             value={tenantId}
             onChange={(e) => setTenantId(e.target.value)}
             placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            className="w-full px-3 py-2 rounded-lg border border-border bg-hover text-sm text-foreground placeholder:text-[var(--fg3)] focus:outline-none focus:ring-1 focus:ring-accent"
+            className={`w-full px-3 py-2 rounded-lg border bg-hover text-sm text-foreground placeholder:text-[var(--fg3)] focus:outline-none focus:ring-1 focus:ring-accent ${tenantId && !isUUID.test(tenantId) ? "border-warn" : "border-border"}`}
           />
+          {tenantId && !isUUID.test(tenantId) && (
+            <p className="text-xs text-warn mt-1">Tenant ID should be a UUID (e.g. 28765880-7759-4fed-9ada-c0495e32d7fc). Find it in Azure → Overview → Directory (tenant) ID.</p>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-[var(--fg2)] mb-1">{t("msClientSecret")}</label>
