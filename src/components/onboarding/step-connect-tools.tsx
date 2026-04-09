@@ -12,7 +12,7 @@ import { MicrosoftDelegationGuide } from "@/components/onboarding/microsoft-dele
 /*  Types & constants                                                   */
 /* ------------------------------------------------------------------ */
 
-type FlowPhase = "email_input" | "detecting" | "guide_google" | "guide_microsoft" | "unknown_provider" | "connected" | "tier2";
+type FlowPhase = "email_input" | "detecting" | "choose_provider" | "guide_google" | "guide_microsoft" | "unknown_provider" | "connected" | "tier2";
 
 interface ConnectorCategory {
   labelKey: string;
@@ -186,6 +186,7 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
   const [phase, setPhase] = useState<FlowPhase>("email_input");
   const [email, setEmail] = useState("");
   const [detectedDomain, setDetectedDomain] = useState("");
+  const [detectedProvider, setDetectedProvider] = useState<"google" | "microsoft" | null>(null);
   const [connectedUserCount, setConnectedUserCount] = useState(0);
   const [primaryProvider, setPrimaryProvider] = useState<"google" | "microsoft" | null>(null);
   const [secondaryAvailable, setSecondaryAvailable] = useState(false);
@@ -268,9 +269,13 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
       });
       const data = await res.json();
 
-      if (data.provider === "google") setPhase("guide_google");
-      else if (data.provider === "microsoft") setPhase("guide_microsoft");
-      else setPhase("unknown_provider");
+      if (data.provider === "google" || data.provider === "microsoft") {
+        setDetectedProvider(data.provider);
+        setPhase("choose_provider");
+      } else {
+        setDetectedProvider(null);
+        setPhase("choose_provider");
+      }
     } catch {
       setPhase("unknown_provider");
     }
@@ -429,6 +434,62 @@ export function StepConnectTools({ onContinue, onBack, demoMode }: StepConnectTo
         <div className="flex flex-col items-center gap-3 py-8">
           <span className="h-5 w-5 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
           <p className="text-sm text-[var(--fg2)]">{t("detecting", { domain: detectedDomain || email.split("@")[1] || "" })}</p>
+        </div>
+      )}
+
+      {/* Phase: Choose Provider */}
+      {phase === "choose_provider" && (
+        <div className="max-w-md mx-auto space-y-5">
+          {detectedProvider && (
+            <p className="text-sm text-center text-[var(--fg2)]">
+              {t("detectedProvider", { provider: detectedProvider === "google" ? "Google Workspace" : "Microsoft 365" })}
+            </p>
+          )}
+          {!detectedProvider && (
+            <p className="text-sm text-center text-[var(--fg2)]">{t("chooseProvider")}</p>
+          )}
+          <div className="space-y-3">
+            <button
+              onClick={() => setPhase("guide_google")}
+              className={`w-full flex items-center gap-4 px-5 py-4 rounded-lg border text-left transition min-h-[56px] ${
+                detectedProvider === "google"
+                  ? "border-accent bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]"
+                  : "border-border bg-hover hover:bg-skeleton"
+              }`}
+            >
+              <GoogleIcon />
+              <div className="flex-1">
+                <span className="text-sm font-medium text-foreground">{t("googleWorkspace")}</span>
+                <span className="block text-xs text-[var(--fg3)]">Gmail, Drive, Calendar</span>
+              </div>
+              {detectedProvider === "google" && (
+                <span className="text-xs text-accent font-medium">{t("detected")}</span>
+              )}
+            </button>
+            <button
+              onClick={() => setPhase("guide_microsoft")}
+              className={`w-full flex items-center gap-4 px-5 py-4 rounded-lg border text-left transition min-h-[56px] ${
+                detectedProvider === "microsoft"
+                  ? "border-accent bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]"
+                  : "border-border bg-hover hover:bg-skeleton"
+              }`}
+            >
+              <MicrosoftIcon />
+              <div className="flex-1">
+                <span className="text-sm font-medium text-foreground">{t("microsoft365")}</span>
+                <span className="block text-xs text-[var(--fg3)]">Outlook, OneDrive, Teams</span>
+              </div>
+              {detectedProvider === "microsoft" && (
+                <span className="text-xs text-accent font-medium">{t("detected")}</span>
+              )}
+            </button>
+          </div>
+          <button
+            onClick={() => setPhase("email_input")}
+            className="text-sm text-[var(--fg3)] hover:text-[var(--fg2)] transition"
+          >
+            &larr; {tc("back")}
+          </button>
         </div>
       )}
 
