@@ -102,6 +102,26 @@ export async function resolveParticipantEntities(
   return [...new Set(ids)];
 }
 
+export async function resolveParticipantPages(
+  operatorId: string,
+  emails: string[],
+): Promise<string[]> {
+  if (emails.length === 0) return [];
+
+  const pages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      scope: "operator",
+      pageType: "entity_profile",
+      OR: emails.map(email => ({
+        content: { contains: email, mode: "insensitive" as const },
+      })),
+    },
+    select: { slug: true },
+  });
+  return [...new Set(pages.map(p => p.slug))];
+}
+
 // ── Data Loaders ────────────────────────────────────────────────────────
 
 async function loadRelatedCalendarEvents(
@@ -325,50 +345,63 @@ async function loadRelatedDocuments(
 async function loadActiveProjects(
   operatorId: string,
   participantEntityIds: string[],
+  participantPageSlugs?: string[],
 ): Promise<EnrichedSignalContext["activeProjects"]> {
-  if (participantEntityIds.length === 0) return [];
+  const results: EnrichedSignalContext["activeProjects"] = [];
 
-  // Map participant entity IDs to user IDs (entity → user link)
-  const users = await prisma.user.findMany({
-    where: {
-      operatorId,
-      entityId: { in: participantEntityIds },
-    },
-    select: { id: true },
-  });
-
-  const userIds = users.map((u) => u.id);
-  if (userIds.length === 0) return [];
-
-  // Find active projects with any of these users as members
-  const projects = await prisma.project.findMany({
-    where: {
-      operatorId,
-      status: { in: ["draft", "active"] },
-      members: { some: { userId: { in: userIds } } },
-    },
-    select: {
-      id: true,
-      name: true,
-      status: true,
-      dueDate: true,
-      _count: {
-        select: {
-          members: true,
-          deliverables: true,
+  // Strategy 1: Project model (entity-based, for backward compat)
+  if (participantEntityIds.length > 0) {
+    const users = await prisma.user.findMany({
+      where: { operatorId, entityId: { in: participantEntityIds } },
+      select: { id: true },
+    });
+    const userIds = users.map((u) => u.id);
+    if (userIds.length > 0) {
+      const projects = await prisma.project.findMany({
+        where: {
+          operatorId,
+          status: { in: ["draft", "active"] },
+          members: { some: { userId: { in: userIds } } },
         },
-      },
-    },
-    take: 5,
-  });
+        select: {
+          name: true, status: true, dueDate: true,
+          _count: { select: { members: true, deliverables: true } },
+        },
+        take: 5,
+      });
+      for (const p of projects) {
+        results.push({
+          name: p.name, status: p.status,
+          memberCount: p._count.members, deliverableCount: p._count.deliverables,
+          dueDate: p.dueDate?.toISOString() ?? undefined,
+        });
+      }
+    }
+  }
 
-  return projects.map((p) => ({
-    name: p.name,
-    status: p.status,
-    memberCount: p._count.members,
-    deliverableCount: p._count.deliverables,
-    dueDate: p.dueDate?.toISOString() ?? undefined,
-  }));
+  // Strategy 2: Wiki project pages that cross-reference participant pages
+  if (participantPageSlugs && participantPageSlugs.length > 0 && results.length < 5) {
+    const wikiProjects = await prisma.knowledgePage.findMany({
+      where: {
+        operatorId,
+        scope: "operator",
+        pageType: "project",
+        crossReferences: { hasSome: participantPageSlugs },
+      },
+      select: { title: true },
+      take: 5 - results.length,
+    });
+    for (const p of wikiProjects) {
+      if (!results.some(r => r.name === p.title)) {
+        results.push({
+          name: p.title, status: "active",
+          memberCount: 0, deliverableCount: 0,
+        });
+      }
+    }
+  }
+
+  return results;
 }
 
 // ── Subject keyword extraction ──────────────────────────────────────────
@@ -405,7 +438,10 @@ export async function enrichSignalContext(
   actorEntityId: string,
 ): Promise<EnrichedSignalContext> {
   const emails = extractAllParticipantEmails(item);
-  const participantEntityIds = await resolveParticipantEntities(operatorId, emails);
+  const [participantEntityIds, participantPageSlugs] = await Promise.all([
+    resolveParticipantEntities(operatorId, emails),
+    resolveParticipantPages(operatorId, emails),
+  ]);
 
   // Ensure the actor is included
   if (!participantEntityIds.includes(actorEntityId)) {
@@ -441,7 +477,7 @@ export async function enrichSignalContext(
         return [] as EnrichedSignalContext["relatedDocuments"];
       },
     ),
-    loadActiveProjects(operatorId, participantEntityIds).catch((err) => {
+    loadActiveProjects(operatorId, participantEntityIds, participantPageSlugs).catch((err) => {
       console.warn("[detection-enrichment] Projects loader failed:", err);
       return [] as EnrichedSignalContext["activeProjects"];
     }),

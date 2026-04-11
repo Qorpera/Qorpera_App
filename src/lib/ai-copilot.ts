@@ -1,14 +1,11 @@
 import { prisma } from "@/lib/db";
 import { callLLM, streamLLM, getModel, type AIMessage, type AITool, type LLMMessage } from "@/lib/ai-provider";
-import { getEntityContext, searchEntities } from "@/lib/entity-resolution";
-import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
 import { listEntityTypes } from "@/lib/entity-model-store";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { buildOrientationSystemPrompt, buildDomainDataContext } from "@/lib/orientation-prompts";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
-import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
 import { canAccessEntity } from "@/lib/domain-scope";
 import { getWorkStreamContext, canMemberAccessWorkStream } from "@/lib/workstreams";
 
@@ -23,40 +20,14 @@ export type OrientationInfo = {
 
 const COPILOT_TOOLS: AITool[] = [
   {
-    name: "lookup_entity",
-    description: "Look up a specific entity by name or ID, returning its full context including properties, relationships, and recent mentions.",
+    name: "get_related_pages",
+    description: "Get all pages linked from a wiki page. Shows connections, relationships, and related context.",
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Entity name or ID to look up" },
-        typeSlug: { type: "string", description: "Optional entity type slug to narrow the search" },
+        slug: { type: "string", description: "Wiki page slug to explore connections from" },
       },
-      required: ["query"],
-    },
-  },
-  {
-    name: "search_entities",
-    description: "Search across all entities by keyword. Returns matching entities with their properties.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search keyword" },
-        typeSlug: { type: "string", description: "Optional entity type slug to filter by" },
-        limit: { type: "number", description: "Max results (default 10)" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "search_around",
-    description: "Explore the entity graph around a specific entity. Returns connected entities within a given number of hops.",
-    parameters: {
-      type: "object",
-      properties: {
-        entityId: { type: "string", description: "Starting entity ID" },
-        maxHops: { type: "number", description: "Max relationship hops (default 2)" },
-      },
-      required: ["entityId"],
+      required: ["slug"],
     },
   },
   {
@@ -72,28 +43,17 @@ const COPILOT_TOOLS: AITool[] = [
     },
   },
   {
-    name: "create_internal_entity",
-    description: "Create an internal entity (team member, department, organization, process, etc.) in the knowledge graph. Optionally link it to other entities via relationships.",
+    name: "create_wiki_page",
+    description: "Create a new wiki page for a person, process, project, or other organizational object.",
     parameters: {
       type: "object",
       properties: {
-        type: { type: "string", description: "Entity type slug (e.g. team-member, department, organization, role, process)" },
-        displayName: { type: "string", description: "Display name for the entity" },
-        properties: { type: "object", description: "Key-value properties for the entity" },
-        relationships: {
-          type: "array",
-          description: "Optional relationships to other entities",
-          items: {
-            type: "object",
-            properties: {
-              targetName: { type: "string", description: "Display name of the target entity" },
-              relationshipType: { type: "string", description: "Relationship type slug (e.g. has-member, has-department, manages, reports-to)" },
-            },
-            required: ["targetName", "relationshipType"],
-          },
-        },
+        slug: { type: "string", description: "URL-safe slug (e.g., person-mark-jensen, process-invoice-approval)" },
+        title: { type: "string", description: "Page title" },
+        page_type: { type: "string", enum: ["entity_profile", "process_description", "project", "domain_hub", "domain_overview", "topic_synthesis", "situation_type", "relationship_map"], description: "Page type" },
+        content: { type: "string", description: "Page content in markdown. Use [[slug]] for cross-references to other pages." },
       },
-      required: ["type", "displayName"],
+      required: ["slug", "title", "page_type", "content"],
     },
   },
   {
@@ -139,14 +99,14 @@ const COPILOT_TOOLS: AITool[] = [
   },
   {
     name: "search_department_knowledge",
-    description: "Search uploaded documents across departments for relevant information. Use when the user asks about processes, policies, procedures, or any topic that might be covered in uploaded documents.",
+    description: "Search wiki pages within a department. Finds pages that cross-reference the department hub, optionally filtered by keyword.",
     parameters: {
       type: "object",
       properties: {
-        query: { type: "string", description: "What to search for" },
-        domainName: { type: "string", description: "Optional: limit search to a specific department" },
+        department_slug: { type: "string", description: "Department wiki page slug (domain hub)" },
+        query: { type: "string", description: "Optional: keyword to filter results" },
       },
-      required: ["query"],
+      required: ["department_slug"],
     },
   },
   {
@@ -512,12 +472,12 @@ ${pendingSituations.length > 0
 ${unreadNotifCount > 0 ? "When the user greets you or asks how things are going, proactively mention pending situations that need their attention." : ""}
 
 CAPABILITIES:
-- Look up entities by name or ID to see their full context, properties, and relationships
-- Search across entities by keyword
-- Explore the entity graph to discover connections
+- Use search_wiki and read_wiki_page to find information about people, departments, processes, and other organizational objects. Each person, department, and process has their own wiki page.
+- Use get_related_pages to explore connections from any wiki page via [[cross-references]]
+- Create new wiki pages for people, processes, projects with create_wiki_page
+- Search department knowledge: find wiki pages within a specific department
 - List departments and get detailed department context
 - Get operational briefings: use when user asks "how are things", "what's happening", "give me an update"
-- Search department knowledge: use when user asks about policies, processes, or procedures
 - Execute connector actions (e.g., send email, update contact, change deal stage in HubSpot)
 - Search emails: use when user asks about emails or correspondence (searches Gmail + Outlook)
 - Get email thread: retrieve the full conversation for a specific thread ID
@@ -653,105 +613,24 @@ export async function executeTool(
 ): Promise<string> {
   const domainVisFilter = visibleDomains && visibleDomains !== "all" ? { id: { in: visibleDomains } } : {};
   switch (toolName) {
-    case "lookup_entity": {
-      const query = String(args.query ?? "");
-      const typeSlug = args.typeSlug ? String(args.typeSlug) : undefined;
-      const context = await getEntityContext(operatorId, query, typeSlug);
-      if (!context) return `No entity found matching "${query}".`;
+    case "get_related_pages": {
+      const slug = String(args.slug ?? "");
+      const page = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug, scope: "operator" },
+        select: { crossReferences: true, title: true },
+      });
+      if (!page) return `Page "${slug}" not found.`;
+      if (page.crossReferences.length === 0) return `Page "${page.title}" has no cross-references.`;
 
-      // Scope check
-      if (visibleDomains && visibleDomains !== "all") {
-        const allowed = await canAccessEntity(context.id, visibleDomains, operatorId);
-        if (!allowed) return `I don't have visibility into that entity's department.`;
-      }
+      const linked = await prisma.knowledgePage.findMany({
+        where: { operatorId, slug: { in: page.crossReferences }, scope: "operator" },
+        select: { slug: true, title: true, pageType: true, content: true },
+      });
 
-      const propsStr = Object.entries(context.properties)
-        .map(([k, v]) => `  ${k}: ${v}`)
-        .join("\n");
-      const relsStr = context.relationships
-        .map((r) => `  ${r.direction === "from" ? "-->" : "<--"} [${r.relationshipType}] ${r.entityName}`)
-        .join("\n");
-      const mentionsStr = context.recentMentions.slice(0, 5)
-        .map((m) => `  ${m.sourceType}/${m.sourceId}${m.snippet ? `: "${m.snippet}"` : ""}`)
-        .join("\n");
+      if (linked.length === 0) return `Page "${page.title}" references ${page.crossReferences.length} pages, but none were found.`;
 
-      return [
-        `Entity: ${context.displayName} [${context.typeName}]`,
-        `ID: ${context.id}`,
-        `Status: ${context.status}`,
-        context.sourceSystem ? `Source: ${context.sourceSystem} (${context.externalId})` : null,
-        propsStr ? `Properties:\n${propsStr}` : null,
-        relsStr ? `Relationships:\n${relsStr}` : null,
-        mentionsStr ? `Recent Mentions:\n${mentionsStr}` : null,
-      ].filter(Boolean).join("\n");
-    }
-
-    case "search_entities": {
-      const query = String(args.query ?? "");
-      const typeSlug = args.typeSlug ? String(args.typeSlug) : undefined;
-      const limit = typeof args.limit === "number" ? args.limit : 10;
-      let results = await searchEntities(operatorId, query, typeSlug, limit);
-
-      // Post-filter by department scope
-      if (visibleDomains && visibleDomains !== "all") {
-        const visibleSet = new Set(visibleDomains);
-        results = results.filter((e: { primaryDomainId?: string | null; category?: string; id?: string }) => {
-          if (e.category === "foundational") return visibleSet.has(e.id || "");
-          if (e.category === "external") return true;
-          if (e.primaryDomainId) return visibleSet.has(e.primaryDomainId);
-          return false;
-        });
-      }
-
-      if (results.length === 0) return `No entities found matching "${query}".`;
-
-      return results.map((e) => {
-        const props = Object.entries(e.properties).slice(0, 4)
-          .map(([k, v]) => `${k}=${v}`).join(", ");
-        return `- ${e.displayName} [${e.typeName}] (${e.id})${props ? ` {${props}}` : ""}`;
-      }).join("\n");
-    }
-
-    case "search_around": {
-      const entityId = String(args.entityId ?? "");
-      const maxHops = typeof args.maxHops === "number" ? args.maxHops : 2;
-
-      // Scope check on the starting entity
-      if (visibleDomains && visibleDomains !== "all") {
-        const allowed = await canAccessEntity(entityId, visibleDomains, operatorId);
-        if (!allowed) return `I don't have visibility into that entity's department.`;
-      }
-
-      const result = await searchAround(operatorId, entityId, maxHops);
-
-      // Post-filter traversal results by department scope
-      if (visibleDomains && visibleDomains !== "all" && result.nodes.length > 0) {
-        const visibleSet = new Set(visibleDomains);
-        const nodeIds = result.nodes.map((n) => n.id);
-        const entities = await prisma.entity.findMany({
-          where: { id: { in: nodeIds } },
-          select: { id: true, primaryDomainId: true, category: true },
-        });
-        const entityMap = new Map(entities.map((e) => [e.id, e]));
-        const allowedIds = new Set(
-          result.nodes
-            .filter((n) => {
-              const e = entityMap.get(n.id);
-              if (!e) return false;
-              if (e.category === "foundational") return visibleSet.has(e.id);
-              if (e.category === "external") return true;
-              if (e.primaryDomainId) return visibleSet.has(e.primaryDomainId);
-              return false;
-            })
-            .map((n) => n.id),
-        );
-        result.nodes = result.nodes.filter((n) => allowedIds.has(n.id));
-        result.edges = result.edges.filter((e) => allowedIds.has(e.source) && allowedIds.has(e.target));
-      }
-
-      if (result.nodes.length === 0) return "No entities found in graph traversal.";
-
-      return formatTraversalForAgent(result);
+      return `Pages linked from "${page.title}":\n\n` +
+        linked.map(p => `- [[${p.slug}]] "${p.title}" [${p.pageType}]\n  ${p.content.slice(0, 200).replace(/\n/g, " ")}...`).join("\n\n");
     }
 
     case "execute_connector_action": {
@@ -787,82 +666,41 @@ export async function executeTool(
       return `Action "${actionName}" failed: ${result.error}`;
     }
 
-    // ── Internal Entity Tools ───────────────────────────────────────────────
+    // ── Wiki Tools ──────────────────────────────────────────────────────────
 
-    case "create_internal_entity": {
-      const typeSlug = String(args.type ?? "");
-      const displayName = String(args.displayName ?? "");
-      const properties = (args.properties ?? {}) as Record<string, string>;
-      const relationships = Array.isArray(args.relationships) ? args.relationships as Array<{ targetName: string; relationshipType: string }> : [];
+    case "create_wiki_page": {
+      const slug = String(args.slug ?? "");
+      const title = String(args.title ?? "");
+      const pageType = String(args.page_type ?? "entity_profile");
+      const content = String(args.content ?? "");
 
-      // Find or create entity type
-      let entityType = await prisma.entityType.findFirst({
-        where: { operatorId, slug: typeSlug },
-      });
-      if (!entityType) {
-        const def = HARDCODED_TYPE_DEFS[typeSlug];
-        entityType = await prisma.entityType.create({
+      if (!slug || !title || !content) return "Please provide slug, title, and content.";
+
+      const crossRefs = [...content.matchAll(/\[\[([^\]]+)\]\]/g)].map(m => m[1]);
+
+      try {
+        await prisma.knowledgePage.create({
           data: {
             operatorId,
-            slug: typeSlug,
-            name: def?.name ?? typeSlug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-            icon: def?.icon ?? "box",
-            color: def?.color ?? "#a855f7",
-            defaultCategory: def?.defaultCategory ?? "digital",
+            slug,
+            title,
+            pageType,
+            content,
+            scope: "operator",
+            status: "draft",
+            confidence: 0.5,
+            synthesisPath: "copilot",
+            synthesizedByModel: "copilot",
+            lastSynthesizedAt: new Date(),
+            crossReferences: crossRefs,
           },
         });
+      } catch (e: any) {
+        if (e?.code === "P2002") return `A wiki page with slug "${slug}" already exists. Use a different slug.`;
+        throw e;
       }
 
-      // Create entity
-      const entity = await prisma.entity.create({
-        data: {
-          operatorId,
-          entityTypeId: entityType.id,
-          displayName,
-          sourceSystem: "manual",
-        },
-      });
-
-      // Create properties
-      for (const [key, value] of Object.entries(properties)) {
-        let prop = await prisma.entityProperty.findFirst({
-          where: { entityTypeId: entityType.id, slug: key },
-        });
-        if (!prop) {
-          prop = await prisma.entityProperty.create({
-            data: {
-              entityTypeId: entityType.id,
-              slug: key,
-              name: key.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-              dataType: "STRING",
-            },
-          });
-        }
-        await prisma.propertyValue.create({
-          data: { entityId: entity.id, propertyId: prop.id, value: String(value) },
-        });
-      }
-
-      // Create relationships
-      const relResults: string[] = [];
-      for (const rel of relationships) {
-        const target = await prisma.entity.findFirst({
-          where: { operatorId, displayName: { contains: rel.targetName }, status: "active" },
-          select: { id: true, displayName: true, entityTypeId: true },
-        });
-        if (!target) {
-          relResults.push(`Target "${rel.targetName}" not found — skipped.`);
-          continue;
-        }
-        const { relateEntities } = await import("@/lib/entity-resolution");
-        await relateEntities(operatorId, entity.id, target.id, rel.relationshipType);
-        relResults.push(`${displayName} --[${rel.relationshipType}]--> ${target.displayName}`);
-      }
-
-      return [
-        `Created entity "${displayName}" [${typeSlug}] (ID: ${entity.id})`,
-        relResults.length > 0 ? `Relationships:\n${relResults.map((r) => `  ${r}`).join("\n")}` : null,
-      ].filter(Boolean).join("\n");
+      return `Created wiki page "${title}" ([[${slug}]]) [${pageType}] with ${crossRefs.length} cross-reference(s).`;
     }
 
     case "set_situation_scope": {
@@ -1511,48 +1349,38 @@ export async function executeTool(
     }
 
     case "search_department_knowledge": {
-      const query = String(args.query ?? "");
-      if (!query) return "Please provide a search query.";
+      const departmentSlug = String(args.department_slug ?? args.department ?? "");
+      const query = args.query ? String(args.query) : undefined;
 
-      let searchDeptIds: string[] = [];
+      if (!departmentSlug) return "Please provide a department_slug.";
 
-      if (args.domainName) {
-        const dept = await prisma.entity.findFirst({
+      if (query) {
+        const pages = await prisma.knowledgePage.findMany({
           where: {
-            operatorId, category: "foundational", entityType: { slug: "domain" },
-            displayName: { contains: String(args.domainName) },
-            ...domainVisFilter,
+            operatorId,
+            scope: "operator",
+            crossReferences: { has: departmentSlug },
+            OR: [
+              { content: { contains: query, mode: "insensitive" } },
+              { title: { contains: query, mode: "insensitive" } },
+            ],
           },
-          select: { id: true },
+          select: { slug: true, title: true, pageType: true, content: true },
         });
-        if (dept) searchDeptIds = [dept.id];
-        else return `Department "${args.domainName}" not found or not accessible.`;
-      } else {
-        const depts = await prisma.entity.findMany({
-          where: {
-            operatorId, category: "foundational", entityType: { slug: "domain" },
-            ...domainVisFilter,
-          },
-          select: { id: true },
-        });
-        searchDeptIds = depts.map(d => d.id);
+        if (pages.length === 0) return `No pages matching "${query}" in department "${departmentSlug}".`;
+        return pages.map(p => `- [[${p.slug}]] "${p.title}" [${p.pageType}]\n  ${p.content.slice(0, 200).replace(/\n/g, " ")}...`).join("\n\n");
       }
 
-      if (searchDeptIds.length === 0) return "No departments available to search.";
-
-      try {
-        const { retrieveRelevantContext } = await import("@/lib/rag/retriever");
-        const results = await retrieveRelevantContext(query, operatorId, searchDeptIds, 5,
-          userId ? { userId, skipUserFilter: false } : undefined);
-
-        if (results.length === 0) return "No relevant documents found for this query.";
-
-        return results
-          .map(r => `From "${r.documentName}" (${r.domainName}, relevance: ${r.score.toFixed(2)}):\n${r.content.slice(0, 500)}`)
-          .join("\n\n---\n\n");
-      } catch {
-        return "Document search is not available — embeddings may not be configured.";
-      }
+      const pages = await prisma.knowledgePage.findMany({
+        where: {
+          operatorId,
+          scope: "operator",
+          crossReferences: { has: departmentSlug },
+        },
+        select: { slug: true, title: true, pageType: true },
+      });
+      if (pages.length === 0) return `No wiki pages found referencing department "${departmentSlug}".`;
+      return pages.map(p => `- [[${p.slug}]] "${p.title}" [${p.pageType}]`).join("\n");
     }
 
     case "search_emails": {

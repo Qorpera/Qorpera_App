@@ -1,3 +1,8 @@
+// TODO: Replace entity-pattern detection with wiki-based detection.
+// Entity patterns (property thresholds, status changes) should be defined
+// in situation_type wiki pages. This detector becomes less relevant as
+// content-situation-detector.ts handles the primary detection path.
+
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { getEntityContext } from "@/lib/entity-resolution";
@@ -202,6 +207,17 @@ async function detectSituationsForEntity(
     properties: entityCtx.properties,
   };
 
+  // Pre-load wiki page content for all situation types (invariant across entities)
+  const wikiSlugs = situationTypes.map(st => st.wikiPageSlug).filter((s): s is string => !!s);
+  const wikiContentMap = new Map<string, string>();
+  if (wikiSlugs.length > 0) {
+    const wikiPages = await prisma.knowledgePage.findMany({
+      where: { operatorId, slug: { in: wikiSlugs }, scope: "operator" },
+      select: { slug: true, content: true },
+    });
+    for (const p of wikiPages) wikiContentMap.set(p.slug, p.content);
+  }
+
   for (const st of situationTypes) {
     try {
       const detection: DetectionLogic = safeParseDetection(st.detectionLogic);
@@ -216,7 +232,13 @@ async function detectSituationsForEntity(
         if (!inScope) continue;
       }
 
-      const match = await evaluateCandidate(candidate, detection, st.description);
+      let enrichedDescription = st.description;
+      const wikiContent = st.wikiPageSlug ? wikiContentMap.get(st.wikiPageSlug) : undefined;
+      if (wikiContent) {
+        enrichedDescription += `\n\nDetailed playbook:\n${wikiContent.slice(0, 500)}`;
+      }
+
+      const match = await evaluateCandidate(candidate, detection, enrichedDescription);
       if (!match) continue;
 
       // Dedup check
@@ -780,11 +802,15 @@ async function createDetectedSituation(
     }
   }
 
+  // Resolve wiki page slug for the trigger entity
+  const triggerPage = await getPageForEntity(operatorId, triggerEntityId).catch(() => null);
+
   const situation = await prisma.situation.create({
     data: {
       operatorId,
       situationTypeId: situationType.id,
       triggerEntityId,
+      triggerPageSlug: triggerPage?.slug ?? null,
       triggerEventId: triggerEventId ?? null,
       source: "detected",
       status: "detected",

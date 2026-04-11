@@ -13,6 +13,59 @@ import { getPageForEntity, searchPages } from "@/lib/wiki-engine";
 // Re-export so existing consumers don't break
 export { ensureActionRequiredType, ensureAwarenessType };
 
+// ── Wiki Page Resolution ────────────────────────────────────────────────────
+
+async function resolvePageSlug(operatorId: string, email?: string, name?: string): Promise<string | null> {
+  if (!email && !name) return null;
+
+  if (email) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: {
+        operatorId,
+        scope: "operator",
+        pageType: "entity_profile",
+        content: { contains: email, mode: "insensitive" },
+      },
+      select: { slug: true },
+    });
+    if (page) return page.slug;
+  }
+
+  if (name) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: {
+        operatorId,
+        scope: "operator",
+        pageType: "entity_profile",
+        title: { contains: name, mode: "insensitive" },
+      },
+      select: { slug: true },
+    });
+    if (page) return page.slug;
+  }
+
+  return null;
+}
+
+async function findDomainRefFromPage(operatorId: string, slug: string): Promise<string | null> {
+  const page = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug, scope: "operator" },
+    select: { crossReferences: true },
+  });
+  return page?.crossReferences.find(ref => ref.startsWith("domain-")) ?? null;
+}
+
+async function resolveDomainPageSlug(operatorId: string, situationTypeSlug?: string, actorPageSlug?: string | null): Promise<string | null> {
+  if (situationTypeSlug) {
+    const result = await findDomainRefFromPage(operatorId, situationTypeSlug);
+    if (result) return result;
+  }
+  if (actorPageSlug) {
+    return findDomainRefFromPage(operatorId, actorPageSlug);
+  }
+  return null;
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type CommunicationItem = {
@@ -58,6 +111,8 @@ type EvaluationResult = {
 
 type ActorBatch = {
   actorEntityId: string;
+  actorPageSlug: string | null;
+  domainPageSlug: string | null;
   actorName: string;
   actorRole: string | null;
   domainId: string | null;
@@ -856,6 +911,8 @@ async function handleActionRequired(
       operatorId,
       situationTypeId,
       triggerEntityId: batch.actorEntityId,
+      triggerPageSlug: batch.actorPageSlug,
+      domainPageSlug: batch.domainPageSlug,
       source: "content_detected",
       status: "detected",
       investigationDepth: result.investigationDepth,
@@ -1091,6 +1148,8 @@ async function handleAwareness(
         operatorId,
         situationTypeId,
         triggerEntityId: batch.actorEntityId,
+        triggerPageSlug: batch.actorPageSlug,
+        domainPageSlug: batch.domainPageSlug,
         source: "content_detected",
         status: "resolved",
         resolvedAt: new Date(),
@@ -1261,8 +1320,14 @@ export async function evaluateContentForSituations(
         domainName = dept?.displayName ?? null;
       }
 
+      const actorEmail = allEmails.find(e => e.includes("@"));
+      const actorPageSlug = await resolvePageSlug(operatorId, actorEmail, actor.name);
+      const domainPageSlug = await resolveDomainPageSlug(operatorId, undefined, actorPageSlug);
+
       const batch: ActorBatch = {
         actorEntityId: entityId,
+        actorPageSlug,
+        domainPageSlug,
         actorName: actor.name,
         actorRole: actor.role,
         domainId,

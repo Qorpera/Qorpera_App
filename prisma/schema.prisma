@@ -560,9 +560,10 @@ model Situation {
   triggerEvidence String? // JSON - the raw evidence that caused detection
   triggerSummary  String? // Human-readable 1-2 sentence headline
   resumeSummary   String? // Haiku-generated cumulative situation briefing (only for 2+ cycle situations)
-  triggerEntityId String? // the primary entity this situation is about
-  triggerEventId  String?
-  assignedUserId  String?
+  triggerEntityId  String? // the primary entity this situation is about
+  triggerPageSlug  String? // wiki page slug of the entity/object this situation is about
+  triggerEventId   String?
+  assignedUserId   String?
 
   // Wiki page slug references
   assignedPageSlug    String?  // wiki page slug of the assigned person/team

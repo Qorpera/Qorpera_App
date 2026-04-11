@@ -20,8 +20,8 @@ You have access to several types of tools:
 COMPANY DATA (use freely — this is company-specific context you need):
 - search_wiki (scope: "operator") — the company's organizational knowledge
 - read_wiki_page — read specific company knowledge pages
+- get_related_pages — explore connections from a wiki page via cross-references
 - search_evidence — search structured claims from company data
-- get_evidence_for_entity — evidence about specific people/companies
 - get_contradictions — find conflicting information
 - read_full_content — read raw source documents
 
@@ -34,8 +34,8 @@ WEB SEARCH (use for current/external information):
 
 INVESTIGATION APPROACH:
 1. Understand what's happening from the situation context
-2. Look up the trigger entity (lookup_entity with the ID from seed context) for full current state
-3. Investigate using company data tools — read relevant evidence, check the company wiki, trace relationships through the entity graph. Search communications, documents, and the evidence registry.
+2. Read the trigger's wiki page (read_wiki_page with the slug from seed context) to understand the full context
+3. Investigate using company data tools — read relevant evidence, check the company wiki, follow [[cross-references]] to explore relationships via get_related_pages. Search communications, documents, and the evidence registry.
 4. When you encounter specifics where practitioner reference would help (thresholds, Danish practice, empirical patterns), consult the reference library. Wiki pages contain cross-reference links written as [[page-slug]] — follow relevant links to find specific methodology guides, frameworks, and worked examples.
 5. When you need current or external facts, search the web
 6. Synthesize everything into your assessment and action plan
@@ -89,7 +89,7 @@ Every step must be an EXTERNAL RESPONSE ACTION — something that changes the re
 NEVER include these as plan steps — they are YOUR job during investigation:
 - "Verify whether the situation is real" — you have tools; investigate and determine this yourself
 - "Gather more information" — use your tools to gather it now, before producing output
-- "Review records" — use lookup_entity, search_documents, search_communications to review them
+- "Review records" — use read_wiki_page, search_documents, search_communications to review them
 - "Check the current status" — use your tools to check it
 - "Assess the impact" — that is analysis, not an action
 - "Determine the appropriate response" — decide that yourself, then output the response
@@ -213,8 +213,8 @@ Respond with ONLY valid JSON (no markdown fences, no commentary):
         //     "endDateTime": "2026-04-07T10:30:00+02:00", "attendeeEmails": ["martin@company.dk"], "location": "Kontor" }
         //
         // CRM UPDATE (existing record):
-        //   { "entityId": "THE_ENTITY_ID_FROM_CONTEXT", "updates": { "stage": "negotiation", "nextFollowUp": "2026-04-10" } }
-        //   CRITICAL: For CRM updates, you MUST include "entityId" — the entity ID from your tool results.
+        //   { "pageSlug": "nordisk-teknik-deal", "updates": { "stage": "negotiation", "nextFollowUp": "2026-04-10" } }
+        //   CRITICAL: For CRM updates, you MUST include "pageSlug" — the wiki page slug from your investigation.
         //   The system fetches the current values automatically to show a before/after diff. You only specify the fields that should change.
         //
         // CRM CREATE (new record):
@@ -318,7 +318,7 @@ CRITICAL RULES:
 - UNCERTAINTY ANNOTATIONS: For each step, if ANY aspect depends on evidence from only a single source with no corroboration, or if you made an inference that could be wrong, add an "uncertainties" array. Flag the specific field/aspect, state your assumption, and rate the impact. Do NOT flag things that are clearly supported by multiple sources. Do NOT flag email addresses, names, or dates that appear consistently across the context. Only flag genuine gaps where you made a judgment call.
 - "previewType" is REQUIRED on every step. It tells the UI which renderer to use. Choose the type that best matches the step's output format. For emails use "email", for documents/reports/checklists use "document", for data tables use "spreadsheet", for calendar events use "calendar_event", for Slack/Teams messages use "slack_message", for CRM updates use "crm_update". Default to "generic" for human tasks that don't produce a specific output format.
 - AUDIT YOUR PLAN: Before finalizing, re-read each step. For every step with executionMode "human_task", ask: "Is there an available automated action that could do this?" If yes, change it to "action" with the correct actionCapabilityName and params. Missing an available automation is a critical error.
-- For CRM update steps: params MUST include "entityId" with the actual entity ID (from the seed context trigger entity ID or from lookup_entity / search_around results). The system uses this ID to fetch current values and show a before/after diff. Without entityId, the user sees raw values with no context.
+- For CRM update steps: params MUST include "pageSlug" with the wiki page slug of the entity being updated. The system uses this to fetch current values and show a before/after diff.
 - For email steps with supporting documents: include an "attachments" array in params. Each attachment is { "type": "document"|"spreadsheet", "title": "...", "content"|"rows": ... }. The user reviews and can edit each attachment inline before the email is sent.
 - RESOLUTION TYPE is required for every plan. Classify honestly:
   - "self_resolving" — Sending a confirmation, updating a record, creating a document, sharing information that doesn't need a response. The action completing IS the resolution.
@@ -339,10 +339,9 @@ export interface AgenticSeedInput {
   triggerEvidence: string | null;
   triggerSummary: string | null;
   triggerStub: {
-    id: string;
     displayName: string;
-    category: string;
-    typeName: string;
+    pageSlug: string;
+    pageType: string;
   } | null;
   permittedActions: PermittedAction[];
   blockedActions: BlockedAction[];
@@ -404,10 +403,10 @@ Autonomy level: ${input.autonomyLevel} — ${autonomyNote}`);
     sections.push(`TRIGGER EVIDENCE:\n${input.triggerSummary}`);
   }
 
-  // TRIGGER ENTITY
+  // TRIGGER
   if (input.triggerStub) {
     const s = input.triggerStub;
-    sections.push(`TRIGGER ENTITY:\nName: ${s.displayName} | Type: ${s.typeName} | Category: ${s.category} | ID: ${s.id}\n(Use the lookup_entity tool to get full details about this entity.)`);
+    sections.push(`TRIGGER:\nName: ${s.displayName} | Type: ${s.pageType} | Page: [[${s.pageSlug}]]\n(Use read_wiki_page to get full details.)`);
   }
 
   // AVAILABLE AUTOMATED ACTIONS

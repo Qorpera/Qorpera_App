@@ -14,10 +14,10 @@ import { generateSituationSummaries } from "@/lib/situation-summarizer";
 import { refineUncertainties } from "@/lib/reasoning/uncertainty-refiner";
 import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
 import { getConnectorReadTools, executeConnectorReadTool } from "@/lib/connector-read-tools";
-import { processWikiUpdates, getRelevantPagesForSeed, type WikiUpdate } from "@/lib/wiki-engine";
+import { processWikiUpdates, getRelevantPagesForSeed, getPageForEntity, type WikiUpdate } from "@/lib/wiki-engine";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
-export const REASONING_PROMPT_VERSION = 5; // v5: capability binding, email drafting, params population
+export const REASONING_PROMPT_VERSION = 6; // v6: wiki-first entity migration — entity tools replaced with wiki-based tools
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -62,10 +62,17 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
   }
 
   try {
-    // 4. Resolve governance
-    // Get trigger entity type slug
+    // 4. Resolve governance — load trigger page once (reused for stub in step 5b)
     let triggerEntityTypeSlug = "unknown";
-    if (situation.triggerEntityId) {
+    const triggerPage = situation.triggerPageSlug
+      ? await prisma.knowledgePage.findFirst({
+          where: { operatorId: situation.operatorId, slug: situation.triggerPageSlug, scope: "operator" },
+          select: { title: true, slug: true, pageType: true },
+        })
+      : null;
+    if (triggerPage) {
+      triggerEntityTypeSlug = triggerPage.pageType;
+    } else if (situation.triggerEntityId) {
       const entity = await prisma.entity.findFirst({
         where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
         include: { entityType: { select: { slug: true } } },
@@ -191,18 +198,25 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       ? priorFeedback.map((f) => `  - ${f.feedback}${f.feedbackCategory ? ` [${f.feedbackCategory}]` : ""}`)
       : null;
 
-    // 5b. Load trigger entity stub (minimal — model uses lookup_entity for full details)
-    const triggerStub = situation.triggerEntityId
-      ? await prisma.entity.findFirst({
-          where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
-          select: {
-            id: true,
-            displayName: true,
-            category: true,
-            entityType: { select: { name: true, slug: true } },
-          },
-        })
-      : null;
+    // 5b. Build trigger stub (reuses triggerPage from step 4)
+    let triggerStub: { displayName: string; pageSlug: string; pageType: string } | null = null;
+    if (triggerPage) {
+      triggerStub = { displayName: triggerPage.title, pageSlug: triggerPage.slug, pageType: triggerPage.pageType };
+    } else if (situation.triggerEntityId) {
+      // Legacy: look up entity and try to find its wiki page
+      const entity = await prisma.entity.findFirst({
+        where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
+        select: { displayName: true, entityType: { select: { name: true } } },
+      });
+      if (entity) {
+        const page = await getPageForEntity(situation.operatorId, situation.triggerEntityId);
+        triggerStub = {
+          displayName: entity.displayName,
+          pageSlug: page?.slug ?? situation.triggerEntityId,
+          pageType: page ? "entity_profile" : entity.entityType.name,
+        };
+      }
+    }
 
     // 5c. Load operational insights
     let aiEntityId: string | null = null;
@@ -303,15 +317,16 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     });
 
     // 6b. Assemble dynamic tool set (knowledge-graph + connector read tools)
+    const triggerEntityOrSlug = situation.triggerEntityId ?? situation.triggerPageSlug;
     const [
       { tools: connectorTools, availableToolNames: connectorToolNames },
       wikiPages,
     ] = await Promise.all([
       getConnectorReadTools(situation.operatorId),
-      situation.triggerEntityId
+      triggerEntityOrSlug
         ? getRelevantPagesForSeed(
             situation.operatorId,
-            situation.triggerEntityId,
+            triggerEntityOrSlug,
             situation.situationType.slug,
             undefined,
             situation.triggerSummary ?? (situation.triggerEvidence as { summary?: string } | null)?.summary ?? "",
@@ -419,12 +434,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       autonomyLevel: effectiveAutonomy,
       triggerEvidence: situation.triggerEvidence,
       triggerSummary: situation.triggerSummary,
-      triggerStub: triggerStub ? {
-        id: triggerStub.id,
-        displayName: triggerStub.displayName,
-        category: triggerStub.category,
-        typeName: triggerStub.entityType.name,
-      } : null,
+      triggerStub: triggerStub ?? null,
       permittedActions: policyResult.permitted,
       blockedActions: policyResult.blocked,
       businessContext: businessContextStr,
