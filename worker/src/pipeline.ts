@@ -72,35 +72,6 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
     // Continue without people registry — synthesis can still work with content data
   }
 
-  // ═══ PHASE 1.5: Total Ingestion — Evidence Extraction ═══════════════════════
-  await updatePhase(prisma, analysisId, "evidence_extraction");
-  await addProgressMessage(analysisId, "Reading all connected data and extracting evidence...", "evidence_extraction");
-
-  try {
-    const { runTotalIngestion } = await import("@/lib/evidence-ingestion");
-    const ingestionReport = await runTotalIngestion(operatorId, {
-      forceReExtract: true, // Always re-extract on new onboarding
-      onProgress: async (msg) => {
-        await addProgressMessage(analysisId, msg, "evidence_extraction");
-      },
-      analysisId,
-    });
-    totalCostCents += ingestionReport.costCents;
-    await addProgressMessage(
-      analysisId,
-      `Evidence extraction complete: ${ingestionReport.totalClaims} claims from ${ingestionReport.extractionsCreated} chunks ($${(ingestionReport.costCents / 100).toFixed(2)})`,
-      "evidence_extraction",
-    );
-  } catch (err) {
-    console.error("[pipeline] Total ingestion failed:", err);
-    await addProgressMessage(
-      analysisId,
-      `Evidence extraction failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-      "evidence_extraction",
-    );
-    // Non-fatal — wiki synthesis can still work with raw data
-  }
-
   // ═══ PHASE 2: Wiki Findings Pass ═══════════════════════════════════════════
   await updatePhase(prisma, analysisId, "wiki_findings");
   await addProgressMessage(analysisId, "Reading all your data and building findings...");

@@ -176,26 +176,26 @@ export async function buildPeopleRegistry(operatorId: string): Promise<PeopleReg
     });
   }
 
-  // 3. Scan ContentChunk metadata for email participants
-  // Use DISTINCT ON sourceId to get one metadata row per email thread (avoid over-counting
-  // from multiple chunks of the same email)
-  const emailChunks = await prisma.$queryRawUnsafe<
-    Array<{ metadata: string }>
+  // 3. Scan RawContent metadata for email participants
+  // Use DISTINCT ON sourceId to get one metadata row per email thread (avoid over-counting)
+  const emailRawContent = await prisma.$queryRawUnsafe<
+    Array<{ rawMetadata: string }>
   >(
-    `SELECT DISTINCT ON ("sourceId") metadata FROM "ContentChunk"
-     WHERE "operatorId" = $1 AND "sourceType" = 'email' AND metadata IS NOT NULL
-     ORDER BY "sourceId", "chunkIndex"
+    `SELECT DISTINCT ON ("sourceId") "rawMetadata"::text as "rawMetadata" FROM "RawContent"
+     WHERE "operatorId" = $1 AND "sourceType" = 'email' AND "rawMetadata" IS NOT NULL
+     ORDER BY "sourceId", "occurredAt"
      LIMIT 5000`,
     operatorId,
   );
 
-  for (const row of emailChunks) {
+  for (const row of emailRawContent) {
     try {
-      const meta = JSON.parse(row.metadata);
-      if (meta.sender) {
-        const senderEmail = extractEmail(meta.sender);
+      const meta = JSON.parse(row.rawMetadata);
+      // RawContent uses "from" (string), "to" (array), "cc" (array) from Microsoft/Google providers
+      if (meta.from) {
+        const senderEmail = extractEmail(meta.from);
         if (senderEmail) {
-          const entry = getOrCreate(senderEmail, extractName(meta.sender));
+          const entry = getOrCreate(senderEmail, extractName(meta.from));
           entry.activityMetrics.emailsSent++;
           if (!entry.sources.find((s) => s.system === "gmail")) {
             entry.sources.push({ system: "gmail" });
@@ -219,19 +219,19 @@ export async function buildPeopleRegistry(operatorId: string): Promise<PeopleReg
   }
 
   // 4. Scan Slack message metadata for authors
-  const slackChunks = await prisma.$queryRawUnsafe<
+  const slackRawContent = await prisma.$queryRawUnsafe<
     Array<{ sender: string; cnt: bigint }>
   >(
-    `SELECT metadata::jsonb->>'sender' as sender, COUNT(*) as cnt
-     FROM "ContentChunk"
+    `SELECT "rawMetadata"::jsonb->>'sender' as sender, COUNT(*) as cnt
+     FROM "RawContent"
      WHERE "operatorId" = $1 AND "sourceType" = 'slack_message'
-       AND metadata::jsonb->>'sender' IS NOT NULL
-     GROUP BY metadata::jsonb->>'sender'
+       AND "rawMetadata"::jsonb->>'sender' IS NOT NULL
+     GROUP BY "rawMetadata"::jsonb->>'sender'
      LIMIT 1000`,
     operatorId,
   );
 
-  for (const row of slackChunks) {
+  for (const row of slackRawContent) {
     const email = extractEmail(row.sender);
     if (email) {
       const entry = getOrCreate(email, extractName(row.sender));

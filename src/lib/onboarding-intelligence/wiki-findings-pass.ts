@@ -110,18 +110,13 @@ function estimateTokens(text: string): number {
 
 // ── Page writer (atomic upsert) ────────────────────────────────────────────────
 
-/**
- * In-memory tracker for pages created in this run — avoids duplicate creates
- * from concurrent batches targeting the same slug.
- */
-const createdPages = new Map<string, true>();
-
 async function appendFindingsToPage(
   operatorId: string,
   slug: string,
   pageType: string,
   title: string,
   observation: string,
+  createdPages: Map<string, true>,
   subjectEntityId?: string,
 ): Promise<void> {
   const key = `${operatorId}:${slug}`;
@@ -199,8 +194,9 @@ export async function runWikiFindingsPass(
     errors: [],
   };
 
-  // Reset the page tracker for this run
-  createdPages.clear();
+  // In-memory tracker for pages created in this run — avoids duplicate creates
+  // from concurrent batches targeting the same slug.
+  const createdPages = new Map<string, true>();
 
   // ── 1. Load people registry ──────────────────────────────────────────────────
 
@@ -396,6 +392,7 @@ Be specific — cite email subjects, meeting names, document names. These are an
           "findings_person",
           `Person Findings: ${person.displayName}`,
           response.text,
+          createdPages,
           person.entityId,
         );
         report.personPages++;
@@ -481,6 +478,7 @@ Use these page naming conventions:
               pageType,
               finding.targetPageTitle || slug,
               finding.observation,
+              createdPages,
             );
             trackPageType(report, pageType);
             report.totalObservations++;
@@ -560,6 +558,7 @@ Use these page types: findings_domain, findings_process, findings_external, find
               pageType,
               finding.targetPageTitle || slug,
               finding.observation,
+              createdPages,
             );
             trackPageType(report, pageType);
             report.totalObservations++;
@@ -665,6 +664,7 @@ Use these page types: findings_domain, findings_process, findings_external, find
               pageType,
               finding.targetPageTitle || slug,
               finding.observation,
+              createdPages,
             );
             trackPageType(report, pageType);
             report.totalObservations++;
@@ -732,6 +732,7 @@ These are analyst working notes — be specific and cite evidence.`;
       "findings_overview",
       "Company Overview Findings",
       response.text,
+      createdPages,
     );
     report.totalObservations++;
   } catch (err) {

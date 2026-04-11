@@ -167,6 +167,7 @@ model User {
   emailVerifiedAt  DateTime?
   lastDigestSentAt DateTime?
   digestEnabled    Boolean   @default(false)
+  wikiPageSlug     String?   // links user account to their person wiki page
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -531,6 +532,7 @@ model SituationType {
   promptVersion        Int       @default(1) // Reserved for post-launch reasoning prompt optimization canary system
   lastModifiedById     String?
   lastModifiedAt       DateTime?
+  wikiPageSlug         String?  // the wiki page that defines this situation type's detection and playbook
   createdAt            DateTime  @default(now())
 
   operator           Operator           @relation(fields: [operatorId], references: [id])
@@ -561,6 +563,12 @@ model Situation {
   triggerEntityId String? // the primary entity this situation is about
   triggerEventId  String?
   assignedUserId  String?
+
+  // Wiki page slug references
+  assignedPageSlug    String?  // wiki page slug of the assigned person/team
+  ownerPageSlug       String?  // wiki page slug of the situation owner
+  domainPageSlug      String?  // wiki page slug of the domain hub
+  situationTypeSlug   String?  // slug of the situation type wiki page
 
   // AI reasoning
   investigationDepth String  @default("standard") // "standard" | "thorough"
@@ -958,6 +966,11 @@ model Initiative {
   status           String   @default("proposed") // proposed, approved, executing, completed, rejected, failed, paused
   rationale        String
   impactAssessment String?
+
+  // Wiki page slug references
+  ownerPageSlug    String?
+  domainPageSlug   String?
+
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -1122,6 +1135,11 @@ model RecurringTask {
   nextTriggerAt         DateTime?
   autoApproveSteps      Boolean   @default(false)
   status                String    @default("active") // active, paused
+
+  // Wiki page slug references
+  ownerPageSlug    String?
+  domainPageSlug   String?
+
   createdAt             DateTime  @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
@@ -1147,6 +1165,7 @@ model SystemJob {
   importanceThreshold  Float     @default(0.3)
   autoDispatchFindings Boolean   @default(false) // For graduated trust — auto-create situations/initiatives
   consecutiveApprovals Int       @default(0) // Trust gradient tracking
+  targetPageSlug       String?  // wiki page slug of the target domain/entity
   lastTriggeredAt      DateTime?
   nextTriggerAt        DateTime?
   createdAt            DateTime  @default(now())
@@ -1691,6 +1710,10 @@ model KnowledgePage {
   title           String
   slug            String
 
+  // Visual map position
+  mapX    Float?   // visual map X coordinate
+  mapY    Float?   // visual map Y coordinate
+
   // Content
   content         String
   contentTokens   Int      @default(0)
@@ -2044,6 +2067,10 @@ model RawContent {
   // Timestamps
   occurredAt  DateTime // When created/sent/received in source system
   storedAt    DateTime @default(now())
+
+  // Findings pass tracking
+  processedAt    DateTime?  // when this content was processed by the findings pass
+  processedBy    String?    // which synthesis run processed it
 
   // Relations
   operator  Operator        @relation(fields: [operatorId], references: [id], onDelete: Cascade)

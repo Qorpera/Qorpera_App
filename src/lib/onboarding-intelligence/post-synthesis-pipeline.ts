@@ -1,34 +1,18 @@
 /**
- * Post-synthesis pipeline — runs entity extraction, relationship inference,
- * and full situation detection BEFORE the intelligence preview is shown.
+ * Post-synthesis pipeline — runs research planning and content-based
+ * situation detection BEFORE the intelligence preview is shown.
  *
- * This ensures the knowledge graph is populated and situations are detected
- * before the user sees results, rather than after they confirm.
+ * Entity extraction and relationship inference removed — wiki pages
+ * are now the primary representation of people, departments, and processes.
  */
 
 import { prisma } from "@/lib/db";
-import { extractEntitiesFromChunks } from "./entity-extraction";
-import { inferRelationships } from "./relationship-inference";
 
 export async function runPostSynthesisPipeline(operatorId: string): Promise<{
-  entities: number;
-  properties: number;
-  relationships: number;
   situations: number;
-  wikiPages: number;
-  initiatives: number;
+  investigations: number;
 }> {
-  console.log(`[post-synthesis] Starting entity extraction for ${operatorId}`);
-  const extraction = await extractEntitiesFromChunks(operatorId);
-
-  console.log(`[post-synthesis] Starting relationship inference for ${operatorId}`);
-  const inference = await inferRelationships(operatorId);
-
-  // Content linkage removed in v0.3.10 — RawContent doesn't carry domainIds
-
-  // ── Research Planning ──────────────────────────────────────────────
-  // Generate investigation plan from evidence registry + entity graph.
-  // The actual investigations run in the next phase (Session 3).
+  // ── Research Planning ──────────────────────────────────────────
   console.log(`[post-synthesis] Generating research plan for ${operatorId}`);
   let investigationCount = 0;
   try {
@@ -46,21 +30,12 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
         estimatedCostCents: plan.estimatedCostCents,
       },
     });
-
     console.log(`[post-synthesis] Research plan: ${investigationCount} investigations planned`);
   } catch (err) {
-    console.error(`[post-synthesis] Research planning failed for ${operatorId}:`, err);
-    // Non-fatal — wiki synthesis below still produces immediate pages
+    console.error(`[post-synthesis] Research planning failed:`, err);
   }
 
-  // Wiki pages are produced by:
-  // 1. Document intelligence pipeline (runs async per document — file uploads + connector docs)
-  // 2. Deep investigations (runs async via research plan execution below)
-  // 3. Living research (runs on cron every 2 hours for incremental updates)
-  // No synchronous wiki synthesis needed here.
-
-  // ── Execute Research Plan (async — runs in background) ───────
-  // Enqueue as a worker job so onboarding completes while deep investigations run.
+  // Enqueue research plan execution
   if (investigationCount > 0) {
     try {
       const latestPlan = await prisma.researchPlan.findFirst({
@@ -71,20 +46,15 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
       if (latestPlan) {
         const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
         await enqueueWorkerJob("execute_research_plan", operatorId, { planId: latestPlan.id });
-        console.log(`[post-synthesis] Enqueued research plan execution: ${latestPlan.id}`);
       }
     } catch (err) {
       console.error("[post-synthesis] Failed to enqueue research plan:", err);
     }
   }
 
-  console.log(`[post-synthesis] Running full situation detection for ${operatorId}`);
-
-  // Run entity-based detection
-  const { detectSituations } = await import("@/lib/situation-detector");
-  await detectSituations(operatorId);
-
-  // Run content-based detection (retroactive scan of recent communications)
+  // ── Content-Based Situation Detection ──────────────────────────
+  // TODO: Wiki-based entity detection (Session 2) — for now only content-based
+  console.log(`[post-synthesis] Running content-based situation detection for ${operatorId}`);
   try {
     const { evaluateContentForSituations, isEligibleCommunication } = await import("@/lib/content-situation-detector");
 
@@ -133,40 +103,14 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     console.error("[post-synthesis] Content detection failed:", err);
   }
 
-  // Reconcile orphaned entities (assign to departments via email/relationship matching)
-  try {
-    const { reconcileOrphanedEntities } = await import("@/lib/entity-reconciliation");
-    await reconcileOrphanedEntities(operatorId);
-  } catch (err) {
-    console.error("[post-synthesis] Entity reconciliation failed:", err);
-  }
-
-  // ── Initiative Assembly from Bookmarks ───────────────────────────
-  console.log(`[post-synthesis] Assembling initiatives from bookmarks for ${operatorId}`);
-  let initiativeCount = 0;
-  try {
-    const { assembleInitiativesFromBookmarks } = await import("@/lib/wiki-bookmark-assembly");
-    const assemblyResult = await assembleInitiativesFromBookmarks(operatorId);
-    initiativeCount = assemblyResult.initiativesCreated;
-    console.log(`[post-synthesis] Bookmark assembly: ${assemblyResult.bookmarksReviewed} reviewed, ${assemblyResult.groupsFormed} groups, ${initiativeCount} initiatives`);
-  } catch (err) {
-    console.error(`[post-synthesis] Bookmark assembly failed for ${operatorId}:`, err);
-    // Non-fatal
-  }
-
-  // Count total situations created
   const totalSituations = await prisma.situation.count({
     where: { operatorId, status: { in: ["detected", "reasoning", "proposed"] } },
   });
 
-  console.log(`[post-synthesis] Complete: ${extraction.entitiesCreated} entities, ${inference.relationshipsCreated} relationships, ${totalSituations} situations, ${initiativeCount} initiatives, ${investigationCount} investigations planned`);
+  console.log(`[post-synthesis] Complete: ${totalSituations} situations, ${investigationCount} investigations planned`);
 
   return {
-    entities: extraction.entitiesCreated,
-    properties: extraction.propertiesSet,
-    relationships: inference.relationshipsCreated,
     situations: totalSituations,
-    wikiPages: 0,
-    initiatives: initiativeCount,
+    investigations: investigationCount,
   };
 }

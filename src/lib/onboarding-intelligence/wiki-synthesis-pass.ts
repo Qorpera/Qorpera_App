@@ -5,7 +5,7 @@
  * Stage 1 (Skeleton): Single Opus agent writes hub pages.
  * Stage 2 (Domain Expansion): One Opus agent per hub, concurrent leaf pages.
  * Stage 3 (Cross-Reference Swarm): Sonnet agents knit [[links]] across pages.
- * Stage 4 (Structure Derivation): Single Opus call derives org structure from wiki.
+ * Stage 4 (Structure Derivation): Creates SituationTypes from wiki pages, assigns map positions.
  */
 
 import { prisma } from "@/lib/db";
@@ -14,14 +14,6 @@ import type { AITool, LLMMessage } from "@/lib/ai-provider";
 import { extractJSONAny } from "@/lib/json-helpers";
 import { embedChunks } from "@/lib/rag/embedder";
 import { searchRawContent } from "@/lib/storage/raw-content-store";
-import { getArchetypeTaxonomy } from "@/lib/archetype-classifier";
-import {
-  normalizeCompanyModel,
-  createEntitiesFromModel,
-  createEntityTypesFromModel,
-  createExternalEntitiesFromModel,
-  createSituationTypesFromModel,
-} from "./synthesis";
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
@@ -883,100 +875,188 @@ async function deriveStructureFromWiki(
   onProgress?: (msg: string) => Promise<void>,
 ): Promise<DerivedStructure> {
   const startTime = Date.now();
-  await onProgress?.("Stage 4: Deriving organizational structure from wiki...");
+  await onProgress?.("Stage 4: Creating situation types and assigning map positions...");
 
-  // Load all operator wiki pages
-  const pages = await prisma.knowledgePage.findMany({
-    where: { operatorId, synthesisPath: "onboarding", scope: "operator" },
-    select: { title: true, content: true, pageType: true, slug: true, contentTokens: true },
-    orderBy: { contentTokens: "desc" },
-  });
-
-  // Cap to 200 pages, hubs first, then by size
-  const sortedPages = [...pages]
-    .sort((a, b) => {
-      const aIsHub = a.pageType.includes("overview") || a.slug.startsWith("domain-") ? 0 : 1;
-      const bIsHub = b.pageType.includes("overview") || b.slug.startsWith("domain-") ? 0 : 1;
-      return aIsHub - bIsHub || b.contentTokens - a.contentTokens;
-    })
-    .slice(0, 200);
-
-  const pageSummaries = sortedPages
-    .map((p) => `## ${p.title} [${p.pageType}] — [[${p.slug}]]\n${p.content.slice(0, 200)}...`)
-    .join("\n\n");
-
-  const archetypeTaxonomy = await getArchetypeTaxonomy();
-
-  const response = await callLLM({
-    instructions: `You are reading the wiki of a company. Based on these wiki pages, derive the company's organizational structure.
-
-WIKI PAGES:
-${pageSummaries}
-
-Derive:
-
-1. DEPARTMENTS: List each department/domain with name, description, head (if identified), team size, key responsibilities. Use the hub page slugs as reference.
-2. ENTITY TYPES: Beyond the standard types (team-member, organization, domain), what entity types does this company need? (e.g., "Project", "Client", "Product", "Service", "Tool"). Only include types the wiki describes.
-3. SITUATION TYPES: What types of operational situations should the system monitor? For each: name, description, which department handles it, detection signals, archetype slug from the taxonomy below, severity level. The wiki's situation-type pages are your primary source.
-4. EXTERNAL ENTITIES: Key vendors, clients, partners to track as entities. The wiki's external relationship pages are your source.
-
-${archetypeTaxonomy}
-
-Respond with a JSON object matching this schema:
-{
-  "domains": [{ "name": "string", "description": "string", "confidence": "high|medium|low", "suggestedLeadEmail": "string?" }],
-  "people": [{ "email": "string", "displayName": "string", "primaryDomain": "string", "role": "string", "roleLevel": "ic|lead|manager|director|c_level" }],
-  "multiDomainPeople": [],
-  "processes": [{ "name": "string", "description": "string", "domain": "string", "frequency": "string", "steps": [] }],
-  "keyRelationships": [{ "contactName": "string", "contactEmail": "string", "type": "customer|prospect|partner|vendor", "healthScore": "healthy|at_risk|cold|critical", "primaryInternalContact": "string" }],
-  "financialSnapshot": { "currency": "USD", "revenueTrend": "unknown", "overdueInvoiceCount": 0, "dataCompleteness": "partial" },
-  "situationTypeRecommendations": [{ "name": "string", "description": "string", "detectionMode": "structured|content|natural", "detectionLogic": {}, "domain": "string", "severity": "high|medium|low", "expectedFrequency": "string", "archetypeSlug": "string|null" }],
-  "entityTypes": [{ "slug": "string", "name": "string", "description": "string", "category": "digital|external", "properties": [{ "slug": "string", "name": "string", "dataType": "string" }] }],
-  "uncertaintyLog": []
-}`,
-    messages: [{ role: "user", content: "Derive the organizational structure from the wiki pages above." }],
-    model: OPUS_MODEL,
-    maxTokens: 32_768,
-    thinking: true,
-    thinkingBudget: 16_384,
-  });
-
-  const costCents = response.apiCostCents;
-
-  // Parse and create structure
-  let departments = 0;
-  let entityTypes = 0;
+  let costCents = 0;
   let situationTypes = 0;
 
-  try {
-    const rawModel = extractJSONAny(response.text) as Record<string, unknown>;
-    if (rawModel) {
-      const companyModel = normalizeCompanyModel(rawModel);
+  // ── 1. Create SituationType records from situation_type wiki pages ──────────
 
-      await createEntityTypesFromModel(operatorId, companyModel);
-      entityTypes = companyModel.entityTypes?.length ?? 0;
+  const sitTypePages = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "situation_type", scope: "operator" },
+    select: { title: true, content: true, slug: true },
+  });
 
-      await createEntitiesFromModel(operatorId, companyModel);
-      departments = companyModel.domains?.length ?? 0;
+  for (const page of sitTypePages) {
+    // Minimal LLM call to extract detection config from page content
+    const response = await callLLM({
+      instructions: `Extract detection configuration from this situation type wiki page. Respond with ONLY JSON:
+{
+  "detectionMode": "structured" | "content" | "natural",
+  "detectionLogic": { "mode": "...", "naturalLanguage": "..." },
+  "severity": "high" | "medium" | "low",
+  "archetypeSlug": "string or null"
+}
 
-      await createExternalEntitiesFromModel(operatorId, companyModel);
+If the page describes specific entity property conditions, use "structured".
+If it describes communication patterns to watch for, use "content".
+Otherwise use "natural" with a naturalLanguage description of what to detect.`,
+      messages: [{ role: "user", content: `# ${page.title}\n\n${page.content.slice(0, 4000)}` }],
+      model: SONNET_MODEL,
+      maxTokens: 1000,
+    });
 
-      await createSituationTypesFromModel(operatorId, companyModel);
-      situationTypes = companyModel.situationTypeRecommendations?.length ?? 0;
+    costCents += response.apiCostCents;
 
-      await onProgress?.(
-        `Stage 4 complete: ${departments} departments, ${entityTypes} entity types, ${situationTypes} situation types`,
-      );
-    } else {
-      console.error("[wiki-synthesis] Failed to parse structure derivation output");
-    }
-  } catch (err) {
-    console.error("[wiki-synthesis] Structure creation failed:", err);
+    const parsed = extractJSONAny(response.text) as {
+      detectionMode?: string;
+      detectionLogic?: Record<string, unknown>;
+      severity?: string;
+      archetypeSlug?: string | null;
+    } | null;
+
+    const detectionLogic = parsed?.detectionLogic
+      ? JSON.stringify(parsed.detectionLogic)
+      : JSON.stringify({ mode: "natural", naturalLanguage: page.content.slice(0, 500) });
+
+    const sitSlug = page.slug
+      .replace(/^situation-type-/, "")
+      .replace(/^sit-/, "");
+
+    await prisma.situationType.upsert({
+      where: { operatorId_slug: { operatorId, slug: sitSlug } },
+      create: {
+        operatorId,
+        slug: sitSlug,
+        name: page.title.replace(/^Situation Type:\s*/i, ""),
+        description: page.content.slice(0, 2000),
+        detectionLogic,
+        autonomyLevel: "supervised",
+        wikiPageSlug: page.slug,
+        archetypeSlug: parsed?.archetypeSlug ?? null,
+      },
+      update: {
+        description: page.content.slice(0, 2000),
+        detectionLogic,
+        wikiPageSlug: page.slug,
+        archetypeSlug: parsed?.archetypeSlug ?? null,
+      },
+    });
+
+    situationTypes++;
   }
+
+  // ── 2. Assign map positions to wiki pages ──────────────────────────────────
+
+  const allPages = await prisma.knowledgePage.findMany({
+    where: { operatorId, scope: "operator", mapX: null },
+    select: { id: true, slug: true, pageType: true, domainIds: true },
+  });
+
+  // Identify company hub and department hubs separately
+  const companyHub = allPages.find(
+    (p) => p.slug.includes("company-overview") || p.pageType === "index",
+  );
+  const hubPages = allPages.filter(
+    (p) => p.id !== companyHub?.id && (p.pageType === "domain_overview" || p.pageType.includes("overview")),
+  );
+
+  // Company overview at center
+  if (companyHub) {
+    await prisma.knowledgePage.update({
+      where: { id: companyHub.id },
+      data: { mapX: 0, mapY: 0 },
+    });
+  }
+
+  // Department hubs evenly spaced in a circle
+  const hubRadius = 400;
+  const hubAngleStep = hubPages.length > 0 ? (2 * Math.PI) / hubPages.length : 0;
+  const hubPositions = new Map<string, { x: number; y: number }>();
+
+  for (let i = 0; i < hubPages.length; i++) {
+    const hub = hubPages[i];
+    const angle = hubAngleStep * i - Math.PI / 2; // start from top
+    const x = Math.round(hubRadius * Math.cos(angle));
+    const y = Math.round(hubRadius * Math.sin(angle));
+    await prisma.knowledgePage.update({
+      where: { id: hub.id },
+      data: { mapX: x, mapY: y },
+    });
+    hubPositions.set(hub.slug, { x, y });
+    // Also index by domainIds for child matching
+    for (const did of hub.domainIds) {
+      hubPositions.set(`domain:${did}`, { x, y });
+    }
+  }
+
+  // Leaf pages clustered around their department hub
+  const leafPages = allPages.filter(
+    (p) => p.id !== companyHub?.id && !hubPages.includes(p) && p.pageType !== "situation_type",
+  );
+  const externalPages = leafPages.filter((p) => p.pageType.includes("external"));
+  const internalLeaves = leafPages.filter((p) => !p.pageType.includes("external"));
+
+  // Internal leaves: cluster around their domain hub
+  const leafRadius = 150;
+  const domainLeafCounters = new Map<string, number>();
+
+  for (const leaf of internalLeaves) {
+    // Find parent hub position
+    let parentPos: { x: number; y: number } | undefined;
+    for (const did of leaf.domainIds) {
+      parentPos = hubPositions.get(`domain:${did}`);
+      if (parentPos) break;
+    }
+    if (!parentPos) {
+      // Try slug prefix matching
+      const slugPrefix = leaf.slug.split("-").slice(0, 2).join("-");
+      parentPos = hubPositions.get(slugPrefix);
+    }
+    if (!parentPos && hubPages.length > 0) {
+      // Fallback: assign to first hub
+      parentPos = hubPositions.get(hubPages[0].slug);
+    }
+    if (!parentPos) parentPos = { x: 0, y: 0 };
+
+    const key = `${parentPos.x}:${parentPos.y}`;
+    const idx = domainLeafCounters.get(key) ?? 0;
+    domainLeafCounters.set(key, idx + 1);
+
+    const leafAngle = (2 * Math.PI * idx) / Math.max(8, idx + 1);
+    const jitter = 30 + (idx % 3) * 20;
+    const x = Math.round(parentPos.x + (leafRadius + jitter) * Math.cos(leafAngle));
+    const y = Math.round(parentPos.y + (leafRadius + jitter) * Math.sin(leafAngle));
+
+    await prisma.knowledgePage.update({
+      where: { id: leaf.id },
+      data: { mapX: x, mapY: y },
+    });
+  }
+
+  // External pages: outer ring
+  const outerRadius = 700;
+  const extAngleStep = externalPages.length > 0 ? (2 * Math.PI) / externalPages.length : 0;
+  for (let i = 0; i < externalPages.length; i++) {
+    const angle = extAngleStep * i;
+    const x = Math.round(outerRadius * Math.cos(angle));
+    const y = Math.round(outerRadius * Math.sin(angle));
+    await prisma.knowledgePage.update({
+      where: { id: externalPages[i].id },
+      data: { mapX: x, mapY: y },
+    });
+  }
+
+  // Count departments from hub pages
+  const departments = hubPages.length;
+
+  await onProgress?.(
+    `Stage 4 complete: ${situationTypes} situation types, ${allPages.length} pages positioned, ${departments} department hubs`,
+  );
 
   return {
     departments,
-    entityTypes,
+    entityTypes: 0,
     situationTypes,
     costCents,
     durationMs: Date.now() - startTime,
@@ -996,11 +1076,31 @@ export async function runWikiSynthesisPass(
   const progress = options?.onProgress ?? (async () => {});
   const errors: string[] = [];
 
-  // Calculate page budget
-  const employeeCount =
-    (await prisma.entity.count({
-      where: { operatorId, entityType: { slug: "team-member" } },
-    })) || 10; // fallback for fresh onboarding
+  // Calculate page budget from people registry
+  let employeeCount = 10; // fallback
+  try {
+    const analysis = options?.analysisId
+      ? await prisma.onboardingAnalysis.findUnique({
+          where: { id: options.analysisId },
+          select: { id: true },
+        })
+      : await prisma.onboardingAnalysis.findFirst({
+          where: { operatorId },
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        });
+    if (analysis) {
+      const peopleRun = await prisma.onboardingAgentRun.findFirst({
+        where: { analysisId: analysis.id, agentName: "people_discovery", status: "complete" },
+        orderBy: { completedAt: "desc" },
+        select: { report: true },
+      });
+      if (peopleRun?.report && Array.isArray(peopleRun.report)) {
+        const registry = peopleRun.report as Array<{ isInternal?: boolean }>;
+        employeeCount = registry.filter(p => p.isInternal).length || 10;
+      }
+    }
+  } catch { /* use fallback */ }
 
   const totalBudget = Math.max(300, employeeCount * 8);
   await progress(`Wiki synthesis starting — budget: ${totalBudget} pages for ${employeeCount} employees`);

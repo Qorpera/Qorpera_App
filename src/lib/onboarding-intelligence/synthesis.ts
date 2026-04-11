@@ -100,6 +100,7 @@ export interface CompanyModel {
  * Handles common schema drift: members nested inside domains instead of
  * top-level people array, missing fields, alternative key names, etc.
  * Also handles legacy "departments" key from older LLM outputs.
+ * @deprecated v0.3.11 — entity creation replaced by wiki pages
  */
 export function normalizeCompanyModel(
   raw: Record<string, unknown>,
@@ -612,6 +613,7 @@ export async function buildRawDataSynthesisInput(
 
 // ── Entity Creation ──────────────────────────────────────────────────────────
 
+/** @deprecated v0.3.11 — entity creation replaced by wiki pages */
 export async function createEntitiesFromModel(
   operatorId: string,
   model: CompanyModel,
@@ -755,6 +757,7 @@ export async function createEntitiesFromModel(
  * Creates LLM-discovered entity types and their properties.
  * Additive: if a type already exists (from hardcoded defs or prior run),
  * only missing properties are added.
+ * @deprecated v0.3.11 — entity creation replaced by wiki pages
  */
 export async function createEntityTypesFromModel(
   operatorId: string,
@@ -835,6 +838,7 @@ export async function createEntityTypesFromModel(
 /**
  * Materializes keyRelationships from synthesis as external entities (companies, contacts)
  * and creates relationships between them and internal people.
+ * @deprecated v0.3.11 — entity creation replaced by wiki pages
  */
 export async function createExternalEntitiesFromModel(
   operatorId: string,
@@ -897,6 +901,7 @@ export async function createExternalEntitiesFromModel(
 
 // ── Situation Type Creation ──────────────────────────────────────────────────
 
+/** @deprecated v0.3.11 — SituationType creation now reads from wiki pages in deriveStructureFromWiki */
 export async function createSituationTypesFromModel(
   operatorId: string,
   model: CompanyModel,
