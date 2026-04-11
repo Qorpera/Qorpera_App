@@ -213,6 +213,7 @@ export async function runTotalIngestion(
   options?: {
     onProgress?: (msg: string) => Promise<void>;
     analysisId?: string;
+    forceReExtract?: boolean;
   },
 ): Promise<IngestionReport> {
   const startTime = Date.now();
@@ -230,6 +231,13 @@ export async function runTotalIngestion(
   };
 
   const progress = options?.onProgress ?? (async () => {});
+
+  if (options?.forceReExtract) {
+    const deleted = await prisma.evidenceExtraction.deleteMany({
+      where: { operatorId },
+    });
+    console.log(`[evidence-ingestion] Force re-extract: cleared ${deleted.count} existing extractions`);
+  }
 
   // 1. Load ALL content chunks for this operator (exclude embedding column)
   const chunks = await prisma.contentChunk.findMany({

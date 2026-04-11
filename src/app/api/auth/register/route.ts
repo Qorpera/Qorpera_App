@@ -39,8 +39,9 @@ export async function POST(req: NextRequest) {
   // Transaction: create operator, user, seed structure
   const result = await prisma.$transaction(async (tx) => {
     // Create Operator
+    const domain = email.split("@")[1]?.toLowerCase();
     const operator = await tx.operator.create({
-      data: { displayName: companyName, companyName, industry: industry || null },
+      data: { displayName: companyName, companyName, companyDomain: domain || null, industry: industry || null },
     });
 
     // Seed foundational entity types

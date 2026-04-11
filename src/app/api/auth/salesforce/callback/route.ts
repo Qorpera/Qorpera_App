@@ -80,6 +80,37 @@ export async function GET(req: NextRequest) {
 
   const tokens = await tokenResp.json();
 
+  // Domain validation: fetch authenticated user's email from Salesforce identity endpoint
+  try {
+    if (tokens.id) {
+      const idResp = await fetch(tokens.id, {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      });
+      if (idResp.ok) {
+        const identity = await idResp.json();
+        const userEmail = identity.email as string | undefined;
+        if (userEmail) {
+          const operator = await prisma.operator.findUnique({
+            where: { id: operatorId },
+            select: { companyDomain: true },
+          });
+          if (operator?.companyDomain) {
+            const emailDomain = userEmail.split("@")[1]?.toLowerCase();
+            if (emailDomain && emailDomain !== operator.companyDomain) {
+              return NextResponse.redirect(
+                new URL(`${returnBase}${sep}salesforce=error&reason=domain_mismatch&domain=${encodeURIComponent(operator.companyDomain)}`, APP_BASE),
+              );
+            }
+          } else {
+            console.warn("[salesforce-oauth] operator.companyDomain not set — skipping domain validation");
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[salesforce-oauth] Domain validation fetch failed, continuing:", err);
+  }
+
   // Salesforce returns instance_url in the token response — critical for all API calls
   const config = {
     access_token: tokens.access_token,

@@ -38,7 +38,9 @@ export function estimateMinutesRemaining(currentPhase: string): number | undefin
   const estimates: Record<string, number> = {
     people_discovery: 4,
     evidence_extraction: 10,
-    synthesis: 3,
+    wiki_findings: 8,
+    wiki_synthesis: 15,
+    synthesis: 3, // legacy
   };
   return estimates[currentPhase];
 }

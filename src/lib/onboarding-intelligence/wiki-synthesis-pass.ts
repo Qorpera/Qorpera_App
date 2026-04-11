@@ -1,0 +1,1116 @@
+/**
+ * Wiki Synthesis Pass (Pass 2) — three-stage multi-agent wiki synthesis,
+ * then structure derivation from the wiki.
+ *
+ * Stage 1 (Skeleton): Single Opus agent writes hub pages.
+ * Stage 2 (Domain Expansion): One Opus agent per hub, concurrent leaf pages.
+ * Stage 3 (Cross-Reference Swarm): Sonnet agents knit [[links]] across pages.
+ * Stage 4 (Structure Derivation): Single Opus call derives org structure from wiki.
+ */
+
+import { prisma } from "@/lib/db";
+import { callLLM, getModel, getMaxOutputTokens, getThinkingBudget } from "@/lib/ai-provider";
+import type { AITool, LLMMessage } from "@/lib/ai-provider";
+import { extractJSONAny } from "@/lib/json-helpers";
+import { embedChunks } from "@/lib/rag/embedder";
+import { retrieveRelevantChunks } from "@/lib/rag/retriever";
+import { getArchetypeTaxonomy } from "@/lib/archetype-classifier";
+import {
+  normalizeCompanyModel,
+  createEntitiesFromModel,
+  createEntityTypesFromModel,
+  createExternalEntitiesFromModel,
+  createSituationTypesFromModel,
+} from "./synthesis";
+
+// ── Configuration ──────────────────────────────────────────────────────────────
+
+const OPUS_MODEL = getModel("agenticReasoning"); // claude-opus-4-6
+const SONNET_MODEL = "claude-sonnet-4-6";
+const SKELETON_MAX_ITERATIONS = 30;
+const DOMAIN_MAX_ITERATIONS = 50;
+const XREF_CONCURRENCY = 5;
+const DOMAIN_CONCURRENCY = 8; // max concurrent domain agents
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface SynthesisPassReport {
+  hubPagesWritten: number;
+  leafPagesWritten: number;
+  totalPagesWritten: number;
+  crossReferencesAdded: number;
+  departments: number;
+  entityTypes: number;
+  situationTypes: number;
+  totalCostCents: number;
+  durationMs: number;
+  stages: {
+    skeleton: { pages: number; costCents: number; durationMs: number };
+    expansion: { pages: number; costCents: number; durationMs: number; agentsRun: number };
+    crossRef: { pagesUpdated: number; linksAdded: number; costCents: number; durationMs: number };
+    derivation: { costCents: number; durationMs: number };
+  };
+  errors: string[];
+}
+
+interface DerivedStructure {
+  departments: number;
+  entityTypes: number;
+  situationTypes: number;
+  costCents: number;
+  durationMs: number;
+}
+
+// ── Concurrency helper ─────────────────────────────────────────────────────────
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  const executing: Promise<void>[] = [];
+  for (const item of items) {
+    const p = fn(item).then(() => {
+      executing.splice(executing.indexOf(p), 1);
+    });
+    executing.push(p);
+    if (executing.length >= concurrency) {
+      await Promise.race(executing);
+    }
+  }
+  await Promise.all(executing);
+}
+
+// ── Shared Tool Implementations ────────────────────────────────────────────────
+
+async function toolListFindingsPages(operatorId: string): Promise<string> {
+  const pages = await prisma.knowledgePage.findMany({
+    where: { operatorId, synthesisPath: "findings" },
+    select: { slug: true, title: true, pageType: true, contentTokens: true },
+    orderBy: { contentTokens: "desc" },
+  });
+  if (pages.length === 0) return "No findings pages found.";
+  return pages
+    .map((p) => `- ${p.slug}: "${p.title}" [${p.pageType}] (~${p.contentTokens} tokens)`)
+    .join("\n");
+}
+
+async function toolReadFindingsPage(operatorId: string, slug: string): Promise<string> {
+  const page = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug, synthesisPath: "findings" },
+    select: { title: true, content: true, pageType: true },
+  });
+  if (!page) return `No findings page found with slug "${slug}"`;
+  return `# ${page.title} [${page.pageType}]\n\n${page.content}`;
+}
+
+async function toolSearchRawContent(
+  operatorId: string,
+  query: string,
+  sourceType?: string,
+): Promise<string> {
+  const [queryEmbedding] = await embedChunks([query]);
+  if (!queryEmbedding) return "Embedding generation failed — cannot search.";
+
+  const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
+    limit: 10,
+    sourceTypes: sourceType ? [sourceType] : undefined,
+    minScore: 0.2,
+    skipUserFilter: true,
+  });
+
+  if (results.length === 0) return "No matching content found.";
+
+  // Load full content for each matched sourceId
+  const sourceIds = [...new Set(results.map((r) => r.sourceId))];
+  const fullChunks = await prisma.contentChunk.findMany({
+    where: { operatorId, sourceId: { in: sourceIds } },
+    select: { sourceId: true, content: true, metadata: true, chunkIndex: true },
+    orderBy: { chunkIndex: "asc" },
+  });
+
+  const bySourceId = new Map<string, { content: string; meta: Record<string, unknown> }>();
+  for (const chunk of fullChunks) {
+    const existing = bySourceId.get(chunk.sourceId);
+    if (existing) {
+      existing.content += "\n" + chunk.content;
+    } else {
+      const meta = chunk.metadata ? JSON.parse(chunk.metadata) : {};
+      bySourceId.set(chunk.sourceId, { content: chunk.content, meta });
+    }
+  }
+
+  return sourceIds
+    .slice(0, 10)
+    .map((sid) => {
+      const item = bySourceId.get(sid);
+      if (!item) return "";
+      const meta = item.meta;
+      const header = `Source: ${sid}\nType: ${meta.sourceType || "unknown"}\nSubject: ${meta.subject || meta.fileName || "N/A"}\nFrom: ${meta.from || "N/A"}`;
+      return `${header}\n${item.content.slice(0, 3000)}`;
+    })
+    .filter(Boolean)
+    .join("\n\n════════════════════════════════════════\n\n");
+}
+
+async function toolReadRawEmail(operatorId: string, sourceId: string): Promise<string> {
+  const chunks = await prisma.contentChunk.findMany({
+    where: { operatorId, sourceId },
+    orderBy: { chunkIndex: "asc" },
+    select: { content: true, metadata: true, chunkIndex: true },
+  });
+  if (chunks.length === 0) return `No content found for sourceId "${sourceId}"`;
+  const meta = chunks[0].metadata ? JSON.parse(chunks[0].metadata) : {};
+  const header = `From: ${meta.from || "unknown"}\nTo: ${meta.to || "unknown"}\nSubject: ${meta.subject || "unknown"}\nDate: ${meta.date || "unknown"}`;
+  const body = chunks.map((c) => c.content).join("\n");
+  return `${header}\n\n${body}`;
+}
+
+async function toolWriteWikiPage(
+  operatorId: string,
+  args: {
+    slug: string;
+    title: string;
+    pageType: string;
+    content: string;
+    isHub: boolean;
+    confidence: number;
+  },
+): Promise<string> {
+  const crossRefs = [...args.content.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1]);
+  const contentTokens = Math.ceil(args.content.length / 4);
+  const model = OPUS_MODEL;
+
+  const existing = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug: args.slug, scope: "operator" },
+    select: { id: true, version: true },
+  });
+
+  if (existing) {
+    await prisma.knowledgePage.update({
+      where: { id: existing.id },
+      data: {
+        title: args.title,
+        pageType: args.pageType,
+        content: args.content,
+        contentTokens,
+        crossReferences: crossRefs,
+        confidence: args.confidence,
+        version: existing.version + 1,
+        synthesisPath: "onboarding",
+        synthesizedByModel: model,
+        lastSynthesizedAt: new Date(),
+      },
+    });
+    embedPageAsync(existing.id, args.content);
+    return `Updated page "${args.title}" (v${existing.version + 1})`;
+  }
+
+  const page = await prisma.knowledgePage.create({
+    data: {
+      operatorId,
+      scope: "operator",
+      pageType: args.pageType,
+      title: args.title,
+      slug: args.slug,
+      content: args.content,
+      contentTokens,
+      crossReferences: crossRefs,
+      sources: [],
+      sourceCount: 0,
+      sourceTypes: ["onboarding"],
+      status: "draft",
+      confidence: args.confidence,
+      version: 1,
+      synthesisPath: "onboarding",
+      synthesizedByModel: model,
+      lastSynthesizedAt: new Date(),
+    },
+  });
+  embedPageAsync(page.id, args.content);
+  return `Created page "${args.title}"`;
+}
+
+async function toolReadWikiPage(operatorId: string, slug: string): Promise<string> {
+  const page = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug, scope: "operator", synthesisPath: "onboarding" },
+    select: { title: true, content: true, pageType: true },
+  });
+  if (!page) return `No wiki page found with slug "${slug}"`;
+  return `# ${page.title} [${page.pageType}]\n\n${page.content}`;
+}
+
+function embedPageAsync(pageId: string, content: string): void {
+  embedChunks([content])
+    .then((embeddings) => {
+      if (embeddings[0]) {
+        const embStr = `[${embeddings[0].join(",")}]`;
+        prisma
+          .$executeRawUnsafe(
+            `UPDATE "KnowledgePage" SET embedding = $1::vector WHERE id = $2`,
+            embStr,
+            pageId,
+          )
+          .catch((err) => console.error(`[wiki-synthesis] Embedding failed for ${pageId}:`, err));
+      }
+    })
+    .catch(() => {});
+}
+
+// ── Tool Definitions ───────────────────────────────────────────────────────────
+
+const BASE_TOOLS: AITool[] = [
+  {
+    name: "list_findings_pages",
+    description: "List all findings pages from the data analysis phase, sorted by size.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "read_findings_page",
+    description: "Read the full content of a findings page by slug.",
+    parameters: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "The slug of the findings page to read" },
+      },
+      required: ["slug"],
+    },
+  },
+  {
+    name: "search_raw_content",
+    description:
+      "Search the company's raw content (emails, documents, messages) by semantic similarity. Returns full content for top matches.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        source_type: {
+          type: "string",
+          description: "Optional: filter by source type (email, drive_doc, slack_message, etc.)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "read_raw_email",
+    description: "Read the full content of a specific email or document by its sourceId.",
+    parameters: {
+      type: "object",
+      properties: {
+        source_id: { type: "string", description: "The sourceId of the content to read" },
+      },
+      required: ["source_id"],
+    },
+  },
+  {
+    name: "write_wiki_page",
+    description:
+      "Create or update a wiki page. Use [[slug]] cross-references in content. Returns confirmation.",
+    parameters: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "URL-safe page slug (e.g. domain-engineering, person-sarah-chen)" },
+        title: { type: "string", description: "Page title" },
+        page_type: {
+          type: "string",
+          description: "Page type: company_overview, domain_hub, person_profile, process, project, situation_type, external_relationship, tool_system",
+        },
+        content: { type: "string", description: "Full page content in markdown. Use [[slug]] for cross-references." },
+        is_hub: { type: "boolean", description: "true for hub pages (company overview, department overviews)" },
+        confidence: { type: "number", description: "Confidence 0-1 in the page content accuracy" },
+      },
+      required: ["slug", "title", "page_type", "content", "is_hub", "confidence"],
+    },
+  },
+  {
+    name: "read_wiki_page",
+    description: "Read an already-written wiki page by slug.",
+    parameters: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "The slug of the wiki page to read" },
+      },
+      required: ["slug"],
+    },
+  },
+];
+
+// ── Simple Agentic Loop ────────────────────────────────────────────────────────
+
+interface AgenticResult {
+  costCents: number;
+  iterations: number;
+}
+
+async function runSimpleAgenticLoop(params: {
+  operatorId: string;
+  systemPrompt: string;
+  initialMessage: string;
+  tools: AITool[];
+  dispatchTool: (name: string, args: Record<string, unknown>) => Promise<string>;
+  maxIterations: number;
+  model: string;
+  useThinking?: boolean;
+}): Promise<AgenticResult> {
+  const messages: LLMMessage[] = [{ role: "user", content: params.initialMessage }];
+  let costCents = 0;
+  let iterations = 0;
+  const thinkingBudget = params.useThinking ? (getThinkingBudget("agenticReasoning") ?? 16_384) : undefined;
+  const maxTokens = params.useThinking ? getMaxOutputTokens(params.model) : 16_384;
+
+  while (iterations < params.maxIterations) {
+    const response = await callLLM({
+      instructions: params.systemPrompt,
+      messages,
+      tools: params.tools,
+      model: params.model,
+      operatorId: params.operatorId,
+      temperature: 0.2,
+      thinking: !!thinkingBudget,
+      thinkingBudget,
+      maxTokens,
+    });
+
+    costCents += response.apiCostCents;
+    iterations++;
+
+    // No tool calls → agent is done
+    if (!response.toolCalls?.length) {
+      break;
+    }
+
+    // Push assistant message with tool calls
+    messages.push({
+      role: "assistant",
+      content: response.text || "",
+      tool_calls: response.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: "function" as const,
+        function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+      })),
+    });
+
+    // Execute each tool call
+    for (const toolCall of response.toolCalls) {
+      const result = await params.dispatchTool(toolCall.name, toolCall.arguments);
+      messages.push({
+        role: "tool",
+        content: result,
+        tool_call_id: toolCall.id,
+        name: toolCall.name,
+      });
+    }
+  }
+
+  return { costCents, iterations };
+}
+
+// ── Stage 1: Skeleton ──────────────────────────────────────────────────────────
+
+async function runSkeletonStage(
+  operatorId: string,
+  totalBudget: number,
+  onProgress?: (msg: string) => Promise<void>,
+): Promise<{ hubSlugs: string[]; costCents: number; durationMs: number }> {
+  const startTime = Date.now();
+  await onProgress?.("Stage 1: Building company structure — writing hub pages...");
+
+  const pagesWrittenBefore = await prisma.knowledgePage.count({
+    where: { operatorId, synthesisPath: "onboarding", scope: "operator" },
+  });
+
+  const systemPrompt = `You are building the structural skeleton of a company wiki. You have access to ALL findings from the data analysis phase.
+
+Your job: write the COMPANY OVERVIEW HUB and one DEPARTMENT HUB per functional area you identify.
+
+## What a Hub Page Is
+
+A hub page is the entry point for a domain. It should be comprehensive on its own — an AI agent reading ONLY this hub should understand the domain well enough to route decisions correctly. A hub links DOWN to specific knowledge pages that will be written later.
+
+Hub page structure:
+- Overview of the domain (purpose, scope, how it fits into the company)
+- Team summary (who works here, who leads, team size)
+- Key processes (what recurring workflows exist)
+- Current priorities/projects
+- Tools and systems used
+- Key external relationships (vendors, clients relevant to this domain)
+- Situation types (what kinds of issues/decisions arise here)
+- ## Pages in this Domain (planned leaf pages — list slugs that domain agents will write)
+- ## Related Pages (cross-references to other hubs)
+
+## Company Overview Hub
+
+The company-overview page is the TOP-LEVEL entry. It should cover:
+- What the company does, its industry, size, structure
+- List of all departments with brief descriptions and links to their hubs
+- Key company-wide processes
+- Major external relationships
+- Overall organizational culture/communication patterns observed
+
+## Your Process
+
+1. Call list_findings_pages to see all available findings
+2. Read each findings page (especially findings-company-overview, and all findings-domain-* pages)
+3. Decide how many departments/domains exist
+4. Write the company-overview hub first
+5. Write each department hub
+6. When done writing all hubs, end your turn — the domain expansion agents take over next
+
+## Budget
+
+Total wiki budget: ${totalBudget} pages. You should write 5-15 hub pages (company overview + departments). The remaining budget goes to domain expansion agents.
+
+Write as KNOWLEDGE, not as observations. "The engineering team has 8 members" not "Findings suggest approximately 8 people in engineering."`;
+
+  const dispatchTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
+    switch (name) {
+      case "list_findings_pages":
+        return toolListFindingsPages(operatorId);
+      case "read_findings_page":
+        return toolReadFindingsPage(operatorId, args.slug as string);
+      case "search_raw_content":
+        return toolSearchRawContent(operatorId, args.query as string, args.source_type as string | undefined);
+      case "read_raw_email":
+        return toolReadRawEmail(operatorId, args.source_id as string);
+      case "write_wiki_page":
+        return toolWriteWikiPage(operatorId, {
+          slug: args.slug as string,
+          title: args.title as string,
+          pageType: args.page_type as string,
+          content: args.content as string,
+          isHub: args.is_hub as boolean,
+          confidence: (args.confidence as number) ?? 0.7,
+        });
+      case "read_wiki_page":
+        return toolReadWikiPage(operatorId, args.slug as string);
+      default:
+        return `Unknown tool: "${name}"`;
+    }
+  };
+
+  const result = await runSimpleAgenticLoop({
+    operatorId,
+    systemPrompt,
+    initialMessage: "Begin building the company wiki skeleton. Start by listing the findings pages.",
+    tools: BASE_TOOLS,
+    dispatchTool,
+    maxIterations: SKELETON_MAX_ITERATIONS,
+    model: OPUS_MODEL,
+    useThinking: true,
+  });
+
+  // Collect hub slugs
+  const hubPages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      synthesisPath: "onboarding",
+      scope: "operator",
+      pageType: { in: ["company_overview", "domain_hub"] },
+    },
+    select: { slug: true },
+  });
+  const hubSlugs = hubPages.map((p) => p.slug);
+
+  const pagesWrittenAfter = await prisma.knowledgePage.count({
+    where: { operatorId, synthesisPath: "onboarding", scope: "operator" },
+  });
+
+  const durationMs = Date.now() - startTime;
+  await onProgress?.(
+    `Stage 1 complete: ${pagesWrittenAfter - pagesWrittenBefore} hub pages written (${hubSlugs.length} hubs, ${result.iterations} iterations, $${(result.costCents / 100).toFixed(2)})`,
+  );
+
+  return { hubSlugs, costCents: result.costCents, durationMs };
+}
+
+// ── Stage 2: Domain Expansion ──────────────────────────────────────────────────
+
+async function calculateDomainWeights(
+  operatorId: string,
+  hubSlugs: string[],
+): Promise<Record<string, number>> {
+  // Weight by findings volume per domain
+  const findingsPages = await prisma.knowledgePage.findMany({
+    where: { operatorId, synthesisPath: "findings" },
+    select: { slug: true, contentTokens: true },
+  });
+
+  const weights: Record<string, number> = {};
+  let totalTokens = 0;
+
+  for (const hubSlug of hubSlugs) {
+    // Match findings pages to hubs by domain name overlap
+    const domainName = hubSlug.replace(/^domain-/, "").replace(/-/g, " ");
+    const matchingTokens = findingsPages
+      .filter(
+        (fp) =>
+          fp.slug.includes(domainName.split(" ")[0]) ||
+          fp.slug.includes(hubSlug.replace("domain-", "")),
+      )
+      .reduce((sum, fp) => sum + fp.contentTokens, 0);
+    weights[hubSlug] = Math.max(matchingTokens, 1000); // minimum weight
+    totalTokens += weights[hubSlug];
+  }
+
+  // Normalize to proportions
+  if (totalTokens > 0) {
+    for (const slug of hubSlugs) {
+      weights[slug] = weights[slug] / totalTokens;
+    }
+  } else {
+    const even = 1 / hubSlugs.length;
+    for (const slug of hubSlugs) {
+      weights[slug] = even;
+    }
+  }
+
+  return weights;
+}
+
+async function runSingleDomainAgent(
+  operatorId: string,
+  hubSlug: string,
+  budget: number,
+  onProgress?: (msg: string) => Promise<void>,
+): Promise<{ pagesWritten: number; costCents: number }> {
+  // Read the hub page to get domain context
+  const hub = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug: hubSlug, synthesisPath: "onboarding" },
+    select: { title: true, content: true },
+  });
+  const domainName = hub?.title?.replace(" Hub", "").replace("Department: ", "") || hubSlug;
+
+  // Track pages written by this agent
+  let pagesWritten = 0;
+  const plannedPages: Array<{ slug: string; title: string; pageType: string; done: boolean }> = [];
+
+  const budgetWarning = (remaining: number) =>
+    remaining <= 10
+      ? "\n\nYOU ARE NEAR YOUR BUDGET LIMIT. Complete your most important unwritten pages. Do not start new discovery threads. Focus on polishing and ensuring coverage of the essentials."
+      : "";
+
+  const systemPrompt = `You are building the wiki for the "${domainName}" domain of a company. The department hub has already been written — read it to understand the framework.
+
+Your job: write ALL leaf pages for this domain:
+- Person profiles for each team member in this domain
+- Process descriptions for each recurring workflow
+- Project pages for active projects/initiatives
+- External relationship pages for vendors/clients relevant to this domain
+- Situation type pages describing decision types that arise here — what triggers them, who handles them, what the playbook is
+- Tool/system pages if this domain uses specific tools worth documenting
+
+## Page Guidelines
+
+Each leaf page should be 1-4 pages of dense content. No filler.
+- Person profiles should cover: role, responsibilities, expertise areas, key relationships, communication patterns, involvement in processes.
+- Process descriptions should cover: what triggers the process, who's involved, what steps, what tools, what cadence, what outputs, what can go wrong.
+- Situation type pages should cover: what the situation looks like when it arises, detection signals (data patterns), who handles it, the playbook, escalation path, historical examples if visible.
+
+## Cross-References
+
+Use [[slug]] when mentioning anything that has or will have its own page. Link to:
+- The department hub: [[${hubSlug}]]
+- People mentioned: [[person-{name}]]
+- Processes mentioned: [[process-{name}]]
+- Other department hubs if relevant: [[domain-{name}]]
+
+## Budget
+
+You have ${budget} pages to write for this domain.${budgetWarning(budget)}
+
+## Tools
+
+You can plan your pages with add_pages_to_plan, and mark them done with mark_page_complete. This helps you track progress.
+
+Start by reading the hub page for your domain, then read relevant findings pages, then write pages.`;
+
+  // Domain-specific extra tools
+  const domainTools: AITool[] = [
+    ...BASE_TOOLS,
+    {
+      name: "add_pages_to_plan",
+      description: "Register pages you plan to write for this domain. Helps track your progress.",
+      parameters: {
+        type: "object",
+        properties: {
+          pages: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                slug: { type: "string" },
+                title: { type: "string" },
+                page_type: { type: "string" },
+                reason: { type: "string" },
+              },
+              required: ["slug", "title", "page_type"],
+            },
+          },
+        },
+        required: ["pages"],
+      },
+    },
+    {
+      name: "mark_page_complete",
+      description: "Mark a planned page as complete after writing it.",
+      parameters: {
+        type: "object",
+        properties: {
+          slug: { type: "string", description: "Slug of the completed page" },
+        },
+        required: ["slug"],
+      },
+    },
+  ];
+
+  const dispatchTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
+    switch (name) {
+      case "list_findings_pages":
+        return toolListFindingsPages(operatorId);
+      case "read_findings_page":
+        return toolReadFindingsPage(operatorId, args.slug as string);
+      case "search_raw_content":
+        return toolSearchRawContent(operatorId, args.query as string, args.source_type as string | undefined);
+      case "read_raw_email":
+        return toolReadRawEmail(operatorId, args.source_id as string);
+      case "write_wiki_page": {
+        if (pagesWritten >= budget) {
+          return `Budget exhausted (${budget} pages). Cannot write more pages. Focus on completing your most important work.`;
+        }
+        const result = await toolWriteWikiPage(operatorId, {
+          slug: args.slug as string,
+          title: args.title as string,
+          pageType: args.page_type as string,
+          content: args.content as string,
+          isHub: args.is_hub as boolean,
+          confidence: (args.confidence as number) ?? 0.7,
+        });
+        pagesWritten++;
+        return `${result}\n\n[Budget: ${pagesWritten}/${budget} pages used${budgetWarning(budget - pagesWritten)}]`;
+      }
+      case "read_wiki_page":
+        return toolReadWikiPage(operatorId, args.slug as string);
+      case "add_pages_to_plan": {
+        const pages = args.pages as Array<{ slug: string; title: string; page_type: string; reason?: string }>;
+        for (const p of pages) {
+          plannedPages.push({ slug: p.slug, title: p.title, pageType: p.page_type, done: false });
+        }
+        return `Added ${pages.length} pages to plan. Total planned: ${plannedPages.length}, completed: ${plannedPages.filter((p) => p.done).length}`;
+      }
+      case "mark_page_complete": {
+        const slug = args.slug as string;
+        const planned = plannedPages.find((p) => p.slug === slug);
+        if (planned) planned.done = true;
+        const remaining = plannedPages.filter((p) => !p.done);
+        return `Marked "${slug}" as complete. Remaining: ${remaining.length} pages (${remaining.map((p) => p.slug).join(", ")})`;
+      }
+      default:
+        return `Unknown tool: "${name}"`;
+    }
+  };
+
+  const result = await runSimpleAgenticLoop({
+    operatorId,
+    systemPrompt,
+    initialMessage: `Begin building leaf pages for the "${domainName}" domain. Start by reading your hub page at [[${hubSlug}]], then read relevant findings.`,
+    tools: domainTools,
+    dispatchTool,
+    maxIterations: DOMAIN_MAX_ITERATIONS,
+    model: OPUS_MODEL,
+    useThinking: true,
+  });
+
+  await onProgress?.(
+    `Domain "${domainName}": ${pagesWritten} pages written (${result.iterations} iterations)`,
+  );
+
+  return { pagesWritten, costCents: result.costCents };
+}
+
+async function runDomainExpansionStage(
+  operatorId: string,
+  hubSlugs: string[],
+  totalBudget: number,
+  pagesWrittenSoFar: number,
+  onProgress?: (msg: string) => Promise<void>,
+): Promise<{ pagesWritten: number; costCents: number; durationMs: number; agentsRun: number }> {
+  const startTime = Date.now();
+  await onProgress?.(`Stage 2: Expanding ${hubSlugs.length} domains in parallel...`);
+
+  const remainingBudget = totalBudget - pagesWrittenSoFar;
+  const domainWeights = await calculateDomainWeights(operatorId, hubSlugs);
+
+  const perDomainBudget = hubSlugs.map((slug) => ({
+    slug,
+    budget: Math.max(10, Math.round(remainingBudget * (domainWeights[slug] ?? 1 / hubSlugs.length))),
+  }));
+
+  let totalPagesWritten = 0;
+  let totalCost = 0;
+  let agentsRun = 0;
+
+  // Run all domain agents concurrently with controlled concurrency
+  await runWithConcurrency(perDomainBudget, DOMAIN_CONCURRENCY, async ({ slug, budget }) => {
+    try {
+      const result = await runSingleDomainAgent(operatorId, slug, budget, onProgress);
+      totalPagesWritten += result.pagesWritten;
+      totalCost += result.costCents;
+      agentsRun++;
+    } catch (err) {
+      console.error(`[wiki-synthesis] Domain agent failed for ${slug}:`, err);
+      agentsRun++;
+    }
+  });
+
+  const durationMs = Date.now() - startTime;
+  await onProgress?.(
+    `Stage 2 complete: ${totalPagesWritten} leaf pages across ${agentsRun} domains ($${(totalCost / 100).toFixed(2)}, ${Math.round(durationMs / 1000)}s)`,
+  );
+
+  return { pagesWritten: totalPagesWritten, costCents: totalCost, durationMs, agentsRun };
+}
+
+// ── Stage 3: Cross-Reference Swarm ─────────────────────────────────────────────
+
+async function runCrossReferenceSwarm(
+  operatorId: string,
+  onProgress?: (msg: string) => Promise<void>,
+): Promise<{ pagesUpdated: number; linksAdded: number; costCents: number; durationMs: number }> {
+  const startTime = Date.now();
+  await onProgress?.("Stage 3: Linking pages together with cross-references...");
+
+  // Load all wiki pages
+  const allPages = await prisma.knowledgePage.findMany({
+    where: { operatorId, synthesisPath: "onboarding", scope: "operator" },
+    select: { id: true, slug: true, title: true, content: true, pageType: true },
+    orderBy: { contentTokens: "desc" },
+  });
+
+  if (allPages.length === 0) {
+    return { pagesUpdated: 0, linksAdded: 0, costCents: 0, durationMs: Date.now() - startTime };
+  }
+
+  // Build page index (slug, title, preview)
+  const pageIndex = allPages.map((p) => ({
+    slug: p.slug,
+    title: p.title,
+    preview: p.content.slice(0, 100).replace(/\n/g, " "),
+  }));
+
+  const pageIndexStr = pageIndex
+    .map((p) => `- [[${p.slug}]]: "${p.title}" — ${p.preview}`)
+    .join("\n");
+
+  // Split into batches (smaller batches for large wikis to fit output tokens)
+  const xrefBatchSize = allPages.length > 200 ? 10 : 20;
+  const batches: typeof allPages[] = [];
+  for (let i = 0; i < allPages.length; i += xrefBatchSize) {
+    batches.push(allPages.slice(i, i + xrefBatchSize));
+  }
+
+  let totalPagesUpdated = 0;
+  let totalLinksAdded = 0;
+  let totalCost = 0;
+
+  await runWithConcurrency(batches, XREF_CONCURRENCY, async (batch) => {
+    try {
+      const batchContent = batch
+        .map((p) => `=== PAGE: ${p.slug} ===\n${p.content}\n=== END PAGE ===`)
+        .join("\n\n");
+
+      const response = await callLLM({
+        instructions: `You are adding cross-reference links to wiki pages. You have access to the full page index below.
+
+Page Index (all pages in this wiki):
+${pageIndexStr}
+
+Your Pages (add [[links]] to these):
+${batchContent}
+
+Instructions:
+1. For EACH page above, scan the content for mentions of people, processes, projects, tools, departments, or concepts that have their own page in the index.
+2. Replace plain-text mentions with [[slug]] links. Example: "Sarah Chen leads the team" → "[[person-sarah-chen]] leads the team"
+3. Do NOT change the substance of any page — only add links.
+4. Ensure the "## Related Pages" section at the bottom lists the most important cross-references (5-15 links). If one doesn't exist, add one.
+5. Do NOT re-link things that are already [[linked]].
+
+Respond with ONLY JSON:
+{
+  "updates": [
+    {
+      "slug": "the-page-slug",
+      "content": "the full updated page content with [[links]] added",
+      "linksAdded": 5
+    }
+  ]
+}`,
+        messages: [{ role: "user", content: "Add cross-reference links to the pages above." }],
+        model: SONNET_MODEL,
+        maxTokens: 65_536,
+      });
+
+      totalCost += response.apiCostCents;
+
+      const parsed = extractJSONAny(response.text) as { updates?: Array<{ slug: string; content: string; linksAdded: number }> } | null;
+      if (parsed?.updates && Array.isArray(parsed.updates)) {
+        for (const update of parsed.updates) {
+          if (!update.slug || !update.content) continue;
+          const page = batch.find((p) => p.slug === update.slug);
+          if (!page) continue;
+
+          const crossRefs = [...update.content.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1]);
+          await prisma.knowledgePage.update({
+            where: { id: page.id },
+            data: {
+              content: update.content,
+              contentTokens: Math.ceil(update.content.length / 4),
+              crossReferences: crossRefs,
+              lastSynthesizedAt: new Date(),
+            },
+          });
+          totalPagesUpdated++;
+          totalLinksAdded += update.linksAdded || 0;
+        }
+      }
+    } catch (err) {
+      console.error("[wiki-synthesis] Cross-reference batch failed:", err);
+    }
+  });
+
+  const durationMs = Date.now() - startTime;
+  await onProgress?.(
+    `Stage 3 complete: ${totalLinksAdded} links added across ${totalPagesUpdated} pages ($${(totalCost / 100).toFixed(2)})`,
+  );
+
+  return { pagesUpdated: totalPagesUpdated, linksAdded: totalLinksAdded, costCents: totalCost, durationMs };
+}
+
+// ── Stage 4: Structure Derivation ──────────────────────────────────────────────
+
+async function deriveStructureFromWiki(
+  operatorId: string,
+  onProgress?: (msg: string) => Promise<void>,
+): Promise<DerivedStructure> {
+  const startTime = Date.now();
+  await onProgress?.("Stage 4: Deriving organizational structure from wiki...");
+
+  // Load all operator wiki pages
+  const pages = await prisma.knowledgePage.findMany({
+    where: { operatorId, synthesisPath: "onboarding", scope: "operator" },
+    select: { title: true, content: true, pageType: true, slug: true, contentTokens: true },
+    orderBy: { contentTokens: "desc" },
+  });
+
+  // Cap to 200 pages, hubs first, then by size
+  const sortedPages = [...pages]
+    .sort((a, b) => {
+      const aIsHub = a.pageType.includes("overview") || a.slug.startsWith("domain-") ? 0 : 1;
+      const bIsHub = b.pageType.includes("overview") || b.slug.startsWith("domain-") ? 0 : 1;
+      return aIsHub - bIsHub || b.contentTokens - a.contentTokens;
+    })
+    .slice(0, 200);
+
+  const pageSummaries = sortedPages
+    .map((p) => `## ${p.title} [${p.pageType}] — [[${p.slug}]]\n${p.content.slice(0, 200)}...`)
+    .join("\n\n");
+
+  const archetypeTaxonomy = await getArchetypeTaxonomy();
+
+  const response = await callLLM({
+    instructions: `You are reading the wiki of a company. Based on these wiki pages, derive the company's organizational structure.
+
+WIKI PAGES:
+${pageSummaries}
+
+Derive:
+
+1. DEPARTMENTS: List each department/domain with name, description, head (if identified), team size, key responsibilities. Use the hub page slugs as reference.
+2. ENTITY TYPES: Beyond the standard types (team-member, organization, domain), what entity types does this company need? (e.g., "Project", "Client", "Product", "Service", "Tool"). Only include types the wiki describes.
+3. SITUATION TYPES: What types of operational situations should the system monitor? For each: name, description, which department handles it, detection signals, archetype slug from the taxonomy below, severity level. The wiki's situation-type pages are your primary source.
+4. EXTERNAL ENTITIES: Key vendors, clients, partners to track as entities. The wiki's external relationship pages are your source.
+
+${archetypeTaxonomy}
+
+Respond with a JSON object matching this schema:
+{
+  "domains": [{ "name": "string", "description": "string", "confidence": "high|medium|low", "suggestedLeadEmail": "string?" }],
+  "people": [{ "email": "string", "displayName": "string", "primaryDomain": "string", "role": "string", "roleLevel": "ic|lead|manager|director|c_level" }],
+  "multiDomainPeople": [],
+  "processes": [{ "name": "string", "description": "string", "domain": "string", "frequency": "string", "steps": [] }],
+  "keyRelationships": [{ "contactName": "string", "contactEmail": "string", "type": "customer|prospect|partner|vendor", "healthScore": "healthy|at_risk|cold|critical", "primaryInternalContact": "string" }],
+  "financialSnapshot": { "currency": "USD", "revenueTrend": "unknown", "overdueInvoiceCount": 0, "dataCompleteness": "partial" },
+  "situationTypeRecommendations": [{ "name": "string", "description": "string", "detectionMode": "structured|content|natural", "detectionLogic": {}, "domain": "string", "severity": "high|medium|low", "expectedFrequency": "string", "archetypeSlug": "string|null" }],
+  "entityTypes": [{ "slug": "string", "name": "string", "description": "string", "category": "digital|external", "properties": [{ "slug": "string", "name": "string", "dataType": "string" }] }],
+  "uncertaintyLog": []
+}`,
+    messages: [{ role: "user", content: "Derive the organizational structure from the wiki pages above." }],
+    model: OPUS_MODEL,
+    maxTokens: 32_768,
+    thinking: true,
+    thinkingBudget: 16_384,
+  });
+
+  const costCents = response.apiCostCents;
+
+  // Parse and create structure
+  let departments = 0;
+  let entityTypes = 0;
+  let situationTypes = 0;
+
+  try {
+    const rawModel = extractJSONAny(response.text) as Record<string, unknown>;
+    if (rawModel) {
+      const companyModel = normalizeCompanyModel(rawModel);
+
+      await createEntityTypesFromModel(operatorId, companyModel);
+      entityTypes = companyModel.entityTypes?.length ?? 0;
+
+      await createEntitiesFromModel(operatorId, companyModel);
+      departments = companyModel.domains?.length ?? 0;
+
+      await createExternalEntitiesFromModel(operatorId, companyModel);
+
+      await createSituationTypesFromModel(operatorId, companyModel);
+      situationTypes = companyModel.situationTypeRecommendations?.length ?? 0;
+
+      await onProgress?.(
+        `Stage 4 complete: ${departments} departments, ${entityTypes} entity types, ${situationTypes} situation types`,
+      );
+    } else {
+      console.error("[wiki-synthesis] Failed to parse structure derivation output");
+    }
+  } catch (err) {
+    console.error("[wiki-synthesis] Structure creation failed:", err);
+  }
+
+  return {
+    departments,
+    entityTypes,
+    situationTypes,
+    costCents,
+    durationMs: Date.now() - startTime,
+  };
+}
+
+// ── Main Entry Point ───────────────────────────────────────────────────────────
+
+export async function runWikiSynthesisPass(
+  operatorId: string,
+  options?: {
+    onProgress?: (msg: string) => Promise<void>;
+    analysisId?: string;
+  },
+): Promise<SynthesisPassReport> {
+  const startTime = Date.now();
+  const progress = options?.onProgress ?? (async () => {});
+  const errors: string[] = [];
+
+  // Calculate page budget
+  const employeeCount =
+    (await prisma.entity.count({
+      where: { operatorId, entityType: { slug: "team-member" } },
+    })) || 10; // fallback for fresh onboarding
+
+  const totalBudget = Math.max(300, employeeCount * 8);
+  await progress(`Wiki synthesis starting — budget: ${totalBudget} pages for ${employeeCount} employees`);
+
+  // Stage 1: Skeleton
+  let skeleton: { hubSlugs: string[]; costCents: number; durationMs: number };
+  try {
+    skeleton = await runSkeletonStage(operatorId, totalBudget, options?.onProgress);
+  } catch (err) {
+    const msg = `Stage 1 failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[wiki-synthesis] ${msg}`);
+    errors.push(msg);
+    skeleton = { hubSlugs: [], costCents: 0, durationMs: 0 };
+  }
+
+  const hubPagesWritten = skeleton.hubSlugs.length;
+  let totalCost = skeleton.costCents;
+
+  // Stage 2: Domain Expansion
+  let expansion: { pagesWritten: number; costCents: number; durationMs: number; agentsRun: number };
+  try {
+    expansion = await runDomainExpansionStage(
+      operatorId,
+      skeleton.hubSlugs,
+      totalBudget,
+      hubPagesWritten,
+      options?.onProgress,
+    );
+  } catch (err) {
+    const msg = `Stage 2 failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[wiki-synthesis] ${msg}`);
+    errors.push(msg);
+    expansion = { pagesWritten: 0, costCents: 0, durationMs: 0, agentsRun: 0 };
+  }
+  totalCost += expansion.costCents;
+
+  // Stage 3: Cross-Reference Swarm
+  let crossRef: { pagesUpdated: number; linksAdded: number; costCents: number; durationMs: number };
+  try {
+    crossRef = await runCrossReferenceSwarm(operatorId, options?.onProgress);
+  } catch (err) {
+    const msg = `Stage 3 failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[wiki-synthesis] ${msg}`);
+    errors.push(msg);
+    crossRef = { pagesUpdated: 0, linksAdded: 0, costCents: 0, durationMs: 0 };
+  }
+  totalCost += crossRef.costCents;
+
+  // Stage 4: Structure Derivation
+  let derivation: DerivedStructure;
+  try {
+    derivation = await deriveStructureFromWiki(operatorId, options?.onProgress);
+  } catch (err) {
+    const msg = `Stage 4 failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[wiki-synthesis] ${msg}`);
+    errors.push(msg);
+    derivation = { departments: 0, entityTypes: 0, situationTypes: 0, costCents: 0, durationMs: 0 };
+  }
+  totalCost += derivation.costCents;
+
+  const totalPagesWritten = hubPagesWritten + expansion.pagesWritten;
+  const durationMs = Date.now() - startTime;
+
+  await progress(
+    `Wiki synthesis complete: ${totalPagesWritten} pages, ${crossRef.linksAdded} cross-references, ${derivation.departments} departments ($${(totalCost / 100).toFixed(2)}, ${Math.round(durationMs / 1000)}s)`,
+  );
+
+  return {
+    hubPagesWritten,
+    leafPagesWritten: expansion.pagesWritten,
+    totalPagesWritten,
+    crossReferencesAdded: crossRef.linksAdded,
+    departments: derivation.departments,
+    entityTypes: derivation.entityTypes,
+    situationTypes: derivation.situationTypes,
+    totalCostCents: totalCost,
+    durationMs,
+    stages: {
+      skeleton: {
+        pages: hubPagesWritten,
+        costCents: skeleton.costCents,
+        durationMs: skeleton.durationMs,
+      },
+      expansion: {
+        pages: expansion.pagesWritten,
+        costCents: expansion.costCents,
+        durationMs: expansion.durationMs,
+        agentsRun: expansion.agentsRun,
+      },
+      crossRef: {
+        pagesUpdated: crossRef.pagesUpdated,
+        linksAdded: crossRef.linksAdded,
+        costCents: crossRef.costCents,
+        durationMs: crossRef.durationMs,
+      },
+      derivation: {
+        costCents: derivation.costCents,
+        durationMs: derivation.durationMs,
+      },
+    },
+    errors,
+  };
+}

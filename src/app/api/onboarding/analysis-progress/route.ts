@@ -102,10 +102,69 @@ export async function GET() {
     response.initiativeCount = initiativeCount;
   }
 
-  // Include synthesis output when available — transform CompanyModel to UI shape
+  // Include synthesis output when available
   if (analysis.status === "confirming" || analysis.status === "complete") {
     const raw = analysis.synthesisOutput as Record<string, unknown> | null;
-    if (raw) {
+
+    // New wiki-first format: derive UI shape from actual database entities
+    if (raw && "wikiPages" in raw) {
+      const [domainEntities, teamMembers, sitTypes, externalEntities] = await Promise.all([
+        prisma.entity.findMany({
+          where: { operatorId: session.operatorId, category: "foundational", status: "active" },
+          select: { id: true, displayName: true, description: true },
+        }),
+        prisma.entity.findMany({
+          where: { operatorId: session.operatorId, entityType: { slug: "team-member" }, status: "active" },
+          select: {
+            displayName: true,
+            primaryDomainId: true,
+            description: true,
+            propertyValues: { select: { value: true, property: { select: { identityRole: true } } } },
+          },
+        }),
+        prisma.situationType.findMany({
+          where: { operatorId: session.operatorId },
+          select: { name: true, description: true },
+        }),
+        prisma.entity.findMany({
+          where: { operatorId: session.operatorId, category: "external", status: "active" },
+          select: { displayName: true, description: true },
+          take: 20,
+        }),
+      ]);
+
+      const domains = domainEntities.map((d) => ({
+        name: d.displayName,
+        headCount: teamMembers.filter((tm) => tm.primaryDomainId === d.id).length,
+        keyPeople: teamMembers.filter((tm) => tm.primaryDomainId === d.id).map((tm) => tm.displayName),
+        functions: d.description ? [d.description] : [],
+      }));
+      const people = teamMembers.map((p) => {
+        const emailProp = p.propertyValues?.find((pv) => pv.property?.identityRole === "email");
+        return {
+          name: p.displayName,
+          email: emailProp?.value ?? undefined,
+          department: domainEntities.find((d) => d.id === p.primaryDomainId)?.displayName,
+          role: p.description ?? undefined,
+          relationships: [],
+        };
+      });
+      const situationRecommendations = sitTypes.map((s) => ({
+        name: s.name,
+        description: s.description ?? "",
+        priority: "medium" as "high" | "medium" | "low",
+      }));
+      const relationships = externalEntities.map((e) => ({
+        from: "",
+        to: e.displayName,
+        type: "customer",
+        strength: "moderate" as const,
+      }));
+
+      response.synthesisOutput = { domains, people, processes: [], relationships, knowledgeInventory: [], situationRecommendations } as any;
+    }
+    // Legacy CompanyModel format (pre-v0.3.09 analyses)
+    else if (raw && "departments" in raw) {
       const domains = (raw.departments as Array<Record<string, unknown>> ?? []).map((d) => ({
         name: d.name as string,
         headCount: ((raw.people as Array<Record<string, unknown>> ?? []).filter((p) => p.primaryDepartment === d.name)).length,
@@ -131,15 +190,15 @@ export async function GET() {
         type: (r.type as string) ?? "customer",
         strength: r.healthScore === "critical" || r.healthScore === "at_risk" ? "weak" as const : r.healthScore === "cold" ? "moderate" as const : "strong" as const,
       }));
-      const knowledgeInventory: Array<{ topic: string; sources: string[]; coverage: string }> = [];
       const processes = (raw.processes as Array<Record<string, unknown>> ?? []).map((proc) => ({
         name: proc.name as string,
         department: proc.department as string | undefined,
         description: proc.description as string,
         tools: [],
       }));
-      response.synthesisOutput = { domains, people, processes, relationships, knowledgeInventory, situationRecommendations } as any;
+      response.synthesisOutput = { domains, people, processes, relationships, knowledgeInventory: [], situationRecommendations } as any;
     }
+
     response.uncertaintyLog = (raw?.uncertaintyLog ?? analysis.uncertaintyLog) as any;
   }
 

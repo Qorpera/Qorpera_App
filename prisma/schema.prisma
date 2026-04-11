@@ -44,6 +44,7 @@ model Operator {
   email           String?
   passwordHash    String?
   companyName     String?
+  companyDomain   String? // e.g. "qorpera.com" — extracted from admin email at registration
   industry        String?
   isTestOperator  Boolean  @default(false)
   aiResponseStore Boolean  @default(false)

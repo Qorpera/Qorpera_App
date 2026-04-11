@@ -75,6 +75,37 @@ export async function GET(req: NextRequest) {
 
   const tokens = await tokenResp.json();
 
+  // Domain validation: fetch connected Stripe account email
+  try {
+    if (tokens.stripe_user_id) {
+      const acctResp = await fetch(`https://api.stripe.com/v1/accounts/${tokens.stripe_user_id}`, {
+        headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` },
+      });
+      if (acctResp.ok) {
+        const acct = await acctResp.json();
+        const userEmail = (acct.email || acct.business_profile?.support_email) as string | undefined;
+        if (userEmail) {
+          const operator = await prisma.operator.findUnique({
+            where: { id: operatorId },
+            select: { companyDomain: true },
+          });
+          if (operator?.companyDomain) {
+            const emailDomain = userEmail.split("@")[1]?.toLowerCase();
+            if (emailDomain && emailDomain !== operator.companyDomain) {
+              return NextResponse.redirect(
+                new URL(`${returnBase}${sep}stripe=error&reason=domain_mismatch&domain=${encodeURIComponent(operator.companyDomain)}`, APP_BASE),
+              );
+            }
+          } else {
+            console.warn("[stripe-oauth] operator.companyDomain not set — skipping domain validation");
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[stripe-oauth] Domain validation fetch failed, continuing:", err);
+  }
+
   const config = {
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,

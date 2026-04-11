@@ -78,6 +78,41 @@ export async function GET(req: NextRequest) {
 
   const tokens = await tokenResp.json();
 
+  // Domain validation: fetch authenticated admin's email from Intercom
+  try {
+    const accessToken = tokens.token || tokens.access_token;
+    if (accessToken) {
+      const meResp = await fetch("https://api.intercom.io/me", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+      });
+      if (meResp.ok) {
+        const meData = await meResp.json();
+        const userEmail = meData.email as string | undefined;
+        if (userEmail) {
+          const operator = await prisma.operator.findUnique({
+            where: { id: operatorId },
+            select: { companyDomain: true },
+          });
+          if (operator?.companyDomain) {
+            const emailDomain = userEmail.split("@")[1]?.toLowerCase();
+            if (emailDomain && emailDomain !== operator.companyDomain) {
+              return NextResponse.redirect(
+                new URL(`${returnBase}${sep}intercom=error&reason=domain_mismatch&domain=${encodeURIComponent(operator.companyDomain)}`, APP_BASE),
+              );
+            }
+          } else {
+            console.warn("[intercom-oauth] operator.companyDomain not set — skipping domain validation");
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[intercom-oauth] Domain validation fetch failed, continuing:", err);
+  }
+
   // Intercom tokens don't expire — store access_token and admin ID
   const config: Record<string, unknown> = {
     access_token: tokens.token || tokens.access_token,

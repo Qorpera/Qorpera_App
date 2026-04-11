@@ -44,8 +44,15 @@ function getPhaseLabel(phase: string, t: ReturnType<typeof useTranslations>, mes
     case "idle":
     case "syncing":
       return t("syncing");
+    case "people_discovery":
     case "round_0":
       return t("discovering");
+    case "evidence_extraction":
+      return "Reading all connected data...";
+    case "wiki_findings":
+      return "Building organizational findings...";
+    case "wiki_synthesis":
+      return "Writing your company wiki...";
     case "round_1":
       return messageCount && messageCount > 3
         ? `${messageCount} AI calls completed — researching your company...`
@@ -68,10 +75,17 @@ function getEstimateLabel(phase: string, chunkCount: number | undefined, t: Retu
   switch (phase) {
     case "idle":
     case "syncing":
+    case "people_discovery":
     case "round_0":
       return chunkCount
         ? t("estimateWithData", { count: chunkCount })
         : t("estimateRound0");
+    case "evidence_extraction":
+      return "Analyzing all your connected data...";
+    case "wiki_findings":
+      return "Building findings from raw data — a few minutes...";
+    case "wiki_synthesis":
+      return "Writing wiki pages — this takes the longest...";
     case "round_1":
       return t("estimateRound1");
     case "organizer_1":
@@ -90,9 +104,13 @@ function getPhaseProgress(phase: string): number {
   switch (phase) {
     case "idle": return 0;
     case "syncing": return 5;
-    case "round_0": return 15;
+    case "people_discovery":
+    case "round_0": return 10;
+    case "evidence_extraction": return 20;
+    case "wiki_findings":
     case "round_1": return 35;
-    case "organizer_1": return 60;
+    case "wiki_synthesis":
+    case "organizer_1": return 55;
     case "round_2": return 70;
     case "organizer_2": return 80;
     case "round_3": return 85;

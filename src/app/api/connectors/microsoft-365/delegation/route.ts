@@ -41,10 +41,28 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Create per-employee Microsoft connectors
+  // Load operator's companyDomain for filtering
+  const operator = await prisma.operator.findUnique({
+    where: { id: operatorId },
+    select: { companyDomain: true },
+  });
+  const companyDomain = operator?.companyDomain;
+
+  // Create per-employee Microsoft connectors (skip non-matching domains)
   let connectorCount = 0;
+  const skippedUsers: Array<{ email: string; reason: string }> = [];
   for (const user of users) {
     if (!user.email) continue;
+
+    // Domain scoping: skip users whose email domain doesn't match the operator's
+    if (companyDomain) {
+      const userDomain = user.email.split("@")[1]?.toLowerCase();
+      if (userDomain && userDomain !== companyDomain) {
+        console.log(`[delegation] Skipping ${user.email} — domain mismatch (${userDomain} ≠ ${companyDomain})`);
+        skippedUsers.push({ email: user.email, reason: `domain mismatch (${userDomain} ≠ ${companyDomain})` });
+        continue;
+      }
+    }
 
     const existing = await prisma.sourceConnector.findFirst({
       where: { operatorId, provider: "microsoft", name: `Microsoft 365 (${user.email})` },
@@ -125,5 +143,6 @@ export async function POST(req: NextRequest) {
     connectorCount,
     employeeCount: users.length,
     entityCount,
+    ...(skippedUsers.length > 0 ? { skippedUsers } : {}),
   });
 }

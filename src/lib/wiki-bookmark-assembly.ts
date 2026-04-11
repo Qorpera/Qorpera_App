@@ -35,18 +35,27 @@ export async function assembleInitiativesFromBookmarks(
   };
 
   // Load unresolved bookmarks
-  const bookmarks = await prisma.wikiBookmark.findMany({
-    where: { operatorId, resolved: false },
-    select: {
-      id: true,
-      pageSlug: true,
-      bookmarkType: true,
-      reason: true,
-      confidence: true,
-      subjectHint: true,
-    },
-    orderBy: { confidence: "desc" },
-  });
+  let bookmarks;
+  try {
+    bookmarks = await prisma.wikiBookmark.findMany({
+      where: { operatorId, resolved: false },
+      select: {
+        id: true,
+        pageSlug: true,
+        bookmarkType: true,
+        reason: true,
+        confidence: true,
+        subjectHint: true,
+      },
+      orderBy: { confidence: "desc" },
+    });
+  } catch (err: any) {
+    if (err?.code === "P2021") {
+      console.log("[wiki-bookmark-assembly] WikiBookmark table not yet migrated, skipping");
+      return { bookmarksReviewed: 0, groupsFormed: 0, initiativesCreated: 0, bookmarksDismissed: 0, durationMs: 0 };
+    }
+    throw err;
+  }
 
   report.bookmarksReviewed = bookmarks.length;
 

@@ -78,6 +78,33 @@ export async function GET(req: NextRequest) {
 
   const tokens = await tokenResp.json();
 
+  // Domain validation: fetch authenticated user's email from HubSpot
+  try {
+    const tokenInfo = await fetch(`https://api.hubapi.com/oauth/v1/access-tokens/${tokens.access_token}`);
+    if (tokenInfo.ok) {
+      const info = await tokenInfo.json();
+      const userEmail = info.user as string | undefined;
+      if (userEmail) {
+        const operator = await prisma.operator.findUnique({
+          where: { id: operatorId },
+          select: { companyDomain: true },
+        });
+        if (operator?.companyDomain) {
+          const emailDomain = userEmail.split("@")[1]?.toLowerCase();
+          if (emailDomain && emailDomain !== operator.companyDomain) {
+            return NextResponse.redirect(
+              new URL(`${returnBase}${sep}hubspot=error&reason=domain_mismatch&domain=${encodeURIComponent(operator.companyDomain)}`, APP_BASE),
+            );
+          }
+        } else {
+          console.warn("[hubspot-oauth] operator.companyDomain not set — skipping domain validation");
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[hubspot-oauth] Domain validation fetch failed, continuing:", err);
+  }
+
   // HubSpot doesn't need additional config — token gives full CRM access
   const config = {
     access_token: tokens.access_token,
