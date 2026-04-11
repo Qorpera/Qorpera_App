@@ -1,4 +1,8 @@
 /**
+ * @deprecated v0.3.10 — ContentChunk-based pipeline replaced by RawContent storage.
+ * This file is no longer called from any active code path.
+ * Scheduled for removal in v0.4.x.
+ *
  * Universal content ingestion pipeline.
  *
  * Any source with text content (uploaded docs, emails, Slack messages, Drive docs,

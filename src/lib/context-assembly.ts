@@ -1,8 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getEntityContext } from "@/lib/entity-resolution";
 import { searchAround } from "@/lib/graph-traversal";
-import { retrieveRelevantChunks } from "@/lib/rag/retriever";
-import { embedChunks } from "@/lib/rag/embedder";
+import { searchRawContent } from "@/lib/storage/raw-content-store";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -482,72 +481,37 @@ export async function loadCommunicationContext(
   limit: number,
 ): Promise<CommunicationContext> {
   try {
-    const [queryEmbedding] = await embedChunks([situationDescription]);
-    if (!queryEmbedding) return { excerpts: [], sourceBreakdown: {} };
-
     const sourceTypes = ["email", "slack_message", "teams_message"];
 
-    // Resolve related entities so we find content tagged with communication
-    // counterparts (e.g. trigger entity is the recipient, content is tagged
-    // with the sender's entityId)
-    const relatedEntityIds = await prisma.relationship.findMany({
-      where: {
-        OR: [{ fromEntityId: entityId }, { toEntityId: entityId }],
-      },
-      select: { fromEntityId: true, toEntityId: true },
-      take: 20,
-    });
-    const participantIds = [
-      entityId,
-      ...new Set(
-        relatedEntityIds.flatMap((r) =>
-          [r.fromEntityId, r.toEntityId].filter((id) => id !== entityId),
-        ),
-      ),
-    ];
+    // Extract keywords from situation description for text search
+    const keywords = situationDescription
+      .replace(/[^a-zA-Z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+      .slice(0, 5);
 
-    // Primary: entity-scoped results (trigger entity + related entities)
-    // Reasoning needs full department context for situation analysis, not user-scoped content
-    const entityResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
-      limit,
-      sourceTypes,
-      entityIds: participantIds,
-      domainIds: domainIds.length > 0 ? domainIds : undefined,
-      minScore: 0.3,
-      skipUserFilter: true,
-    });
+    const query = keywords.join(" ");
+    if (!query) return { excerpts: [], sourceBreakdown: {} };
 
-    // Secondary: broader departmental results without entity filter
-    let allResults = entityResults;
-    if (entityResults.length < limit) {
-      const broaderResults = await retrieveRelevantChunks(operatorId, queryEmbedding, {
-        limit,
-        sourceTypes,
-        domainIds: domainIds.length > 0 ? domainIds : undefined,
-        minScore: 0.3,
-        skipUserFilter: true,
+    const allResults = await searchRawContent(operatorId, query, { limit });
+
+    const excerpts: CommunicationExcerpt[] = allResults
+      .filter((r) => sourceTypes.includes(r.sourceType))
+      .map((r) => {
+        const meta = r.rawMetadata ?? {};
+        return {
+          sourceType: r.sourceType,
+          content: r.rawBody ?? "",
+          metadata: {
+            subject: meta.subject as string | undefined,
+            sender: (meta.from as string) ?? (meta.sender as string) ?? undefined,
+            channel: meta.channel as string | undefined,
+            timestamp: meta.timestamp as string | undefined,
+            direction: meta.direction as string | undefined,
+          },
+          score: 0.5,
+        };
       });
-      // Merge, preferring entity-matched, dedup by id
-      const seenIds = new Set(entityResults.map((r) => r.id));
-      const additional = broaderResults.filter((r) => !seenIds.has(r.id));
-      allResults = [...entityResults, ...additional].slice(0, limit);
-    }
-
-    const excerpts: CommunicationExcerpt[] = allResults.map((r) => {
-      const meta = r.metadata ?? {};
-      return {
-        sourceType: r.sourceType,
-        content: r.content,
-        metadata: {
-          subject: meta.subject as string | undefined,
-          sender: meta.sender as string | undefined,
-          channel: meta.channel as string | undefined,
-          timestamp: meta.timestamp as string | undefined,
-          direction: meta.direction as string | undefined,
-        },
-        score: r.score,
-      };
-    });
 
     const sourceBreakdown: Record<string, number> = {};
     for (const e of excerpts) {

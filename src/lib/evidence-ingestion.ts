@@ -9,7 +9,7 @@ import {
 import { extractJSON } from "@/lib/json-helpers";
 
 // ── Configuration ──────────────────────────────────────────────────────────────
-const BATCH_SIZE = 15; // chunks per LLM call
+const BATCH_SIZE = 8; // raw items per LLM call (full content, larger than chunks)
 const CONCURRENCY = 5; // parallel extraction batches
 
 // ── Source-type extraction prompts ─────────────────────────────────────────────
@@ -239,27 +239,37 @@ export async function runTotalIngestion(
     console.log(`[evidence-ingestion] Force re-extract: cleared ${deleted.count} existing extractions`);
   }
 
-  // 1. Load ALL content chunks for this operator (exclude embedding column)
-  const chunks = await prisma.contentChunk.findMany({
-    where: { operatorId },
+  // 1. Load ALL raw content for this operator
+  const rawItems = await prisma.rawContent.findMany({
+    where: { operatorId, rawBody: { not: null } },
     select: {
       id: true,
       sourceType: true,
       sourceId: true,
-      content: true,
-      metadata: true,
-      chunkIndex: true,
-      createdAt: true,
+      rawBody: true,
+      rawMetadata: true,
+      occurredAt: true,
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { occurredAt: "asc" },
   });
 
+  // Map to chunk-compatible shape for downstream processing
+  const chunks = rawItems.map((r) => ({
+    id: r.id,
+    sourceType: r.sourceType,
+    sourceId: r.sourceId,
+    content: r.rawBody!,
+    metadata: r.rawMetadata as unknown,
+    chunkIndex: 0,
+    createdAt: r.occurredAt,
+  }));
+
   report.totalChunks = chunks.length;
-  await progress(`Found ${chunks.length} content chunks to extract evidence from`);
+  await progress(`Found ${chunks.length} raw content items to extract evidence from`);
 
   if (chunks.length === 0) return report;
 
-  // 2. Skip chunks that already have extractions (idempotent re-run)
+  // 2. Skip items that already have extractions (idempotent re-run)
   const existingExtractions = await prisma.evidenceExtraction.findMany({
     where: { operatorId },
     select: { sourceChunkId: true },
@@ -269,7 +279,7 @@ export async function runTotalIngestion(
 
   if (unprocessedChunks.length < chunks.length) {
     await progress(
-      `Skipping ${chunks.length - unprocessedChunks.length} already-extracted chunks`,
+      `Skipping ${chunks.length - unprocessedChunks.length} already-extracted items`,
     );
   }
 

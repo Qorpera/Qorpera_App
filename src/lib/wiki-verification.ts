@@ -52,12 +52,12 @@ export async function verifyPage(pageId: string): Promise<VerificationResult> {
   for (const src of sources.slice(0, 20)) {
     try {
       if (src.type === "chunk") {
-        const chunk = await prisma.contentChunk.findUnique({
-          where: { id: src.id },
-          select: { content: true, sourceType: true, sourceId: true },
+        const raw = await prisma.rawContent.findFirst({
+          where: { OR: [{ id: src.id }, { sourceId: src.id }], rawBody: { not: null } },
+          select: { rawBody: true, sourceType: true, sourceId: true },
         });
-        if (chunk) {
-          sourceTexts.push({ id: src.id, type: "chunk", content: `[${chunk.sourceType}/${chunk.sourceId}] ${chunk.content.slice(0, 1500)}` });
+        if (raw) {
+          sourceTexts.push({ id: src.id, type: "chunk", content: `[${raw.sourceType}/${raw.sourceId}] ${(raw.rawBody ?? "").slice(0, 1500)}` });
         }
       } else if (src.type === "signal") {
         const signal = await prisma.activitySignal.findUnique({

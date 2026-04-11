@@ -49,16 +49,26 @@ export async function compileProjectKnowledge(projectId: string): Promise<void> 
       return;
     }
 
-    // Load document summary chunks (chunkIndex 0 = summary created by content pipeline)
-    const summaryChunks = await prisma.contentChunk.findMany({
+    // Load raw content for project documents
+    const docIds = documents.map((d) => d.id);
+    const rawItems = await prisma.rawContent.findMany({
       where: {
-        projectId,
         operatorId: project.operatorId,
-        chunkIndex: 0,
+        sourceId: { in: docIds },
+        rawBody: { not: null },
       },
-      select: { id: true, sourceId: true, content: true, tokenCount: true, metadata: true },
-      orderBy: { createdAt: "asc" },
+      select: { id: true, sourceId: true, rawBody: true, rawMetadata: true, sizeBytes: true },
+      orderBy: { occurredAt: "asc" },
     });
+
+    // Map to chunk-compatible shape for downstream
+    const summaryChunks = rawItems.map((r) => ({
+      id: r.id,
+      sourceId: r.sourceId,
+      content: (r.rawBody ?? "").slice(0, 4000), // Cap per-doc for compilation context
+      tokenCount: Math.ceil(r.sizeBytes / 4), // Rough token estimate
+      metadata: r.rawMetadata,
+    }));
 
     // Build file name lookup from documents
     const docNameMap = new Map(documents.map((d) => [d.id, { fileName: d.fileName, mimeType: d.mimeType }]));

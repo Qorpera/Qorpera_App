@@ -73,21 +73,8 @@ async function resolveDepartmentIds(
       .filter(c => c.sourceType === "chunk")
       .map(c => c.sourceId);
 
-    if (chunkIds.length > 0) {
-      const chunks = await prisma.contentChunk.findMany({
-        where: { id: { in: chunkIds.slice(0, 50) }, operatorId },
-        select: { domainIds: true },
-      });
-      for (const chunk of chunks) {
-        // ContentChunk.domainIds is String? (JSON array), not String[]
-        if (chunk.domainIds) {
-          try {
-            const ids = JSON.parse(chunk.domainIds) as string[];
-            for (const id of ids) deptIds.add(id);
-          } catch { /* malformed JSON, skip */ }
-        }
-      }
-    }
+    // RawContent doesn't carry domainIds — wiki pages derive scope from entity relations
+    void chunkIds;
   }
 
   return [...deptIds];

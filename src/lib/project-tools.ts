@@ -7,8 +7,7 @@
 
 import { prisma } from "@/lib/db";
 import type { AITool } from "@/lib/ai-provider";
-import { embedChunks } from "@/lib/rag/embedder";
-import { retrieveRelevantChunks } from "@/lib/rag/retriever";
+import { searchRawContent } from "@/lib/storage/raw-content-store";
 
 // ── Tool Definitions ────────────���───────────────────────────────────────────
 
@@ -122,25 +121,26 @@ async function executeSearchProjectDocuments(
   const query = String(args.query ?? "");
   const maxResults = typeof args.maxResults === "number" ? Math.min(args.maxResults, 20) : 10;
 
-  const [embedding] = await embedChunks([query]);
-  if (!embedding) return "Could not process search query.";
-
-  const chunks = await retrieveRelevantChunks(operatorId, embedding, {
-    limit: maxResults,
-    projectId,
-    skipUserFilter: true,
+  // Get project document IDs for scoping
+  const projectDocs = await prisma.fileUpload.findMany({
+    where: { projectId, operatorId },
+    select: { id: true },
   });
+  if (projectDocs.length === 0) return `No project documents found matching "${query}".`;
 
-  if (chunks.length === 0) return `No project documents found matching "${query}".`;
+  const results = await searchRawContent(operatorId, query, { limit: maxResults });
+  const projectDocIds = new Set(projectDocs.map((d) => d.id));
+  const filtered = results.filter((r) => projectDocIds.has(r.sourceId));
 
-  const lines: string[] = [`Found ${chunks.length} matching chunks:`];
-  for (const chunk of chunks) {
-    const sourceName = chunk.metadata && typeof chunk.metadata === "object" && "name" in chunk.metadata
-      ? String(chunk.metadata.name)
-      : chunk.sourceId;
-    lines.push(`\n[${chunk.sourceType}] ${sourceName} (chunk ${chunk.chunkIndex}) — Score: ${chunk.score.toFixed(2)}`);
-    lines.push(`Chunk ID: ${chunk.id}`);
-    lines.push(chunk.content.slice(0, 800));
+  if (filtered.length === 0) return `No project documents found matching "${query}".`;
+
+  const lines: string[] = [`Found ${filtered.length} matching documents:`];
+  for (const r of filtered) {
+    const meta = r.rawMetadata;
+    const sourceName = (meta.name as string) ?? (meta.fileName as string) ?? r.sourceId;
+    lines.push(`\n[${r.sourceType}] ${sourceName}`);
+    lines.push(`ID: ${r.id}`);
+    lines.push((r.rawBody ?? "").slice(0, 800));
   }
 
   return lines.join("\n");
@@ -151,24 +151,29 @@ async function executeReadDocumentChunk(
   projectId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const chunkId = String(args.chunkId ?? "");
+  const contentId = String(args.chunkId ?? args.sourceId ?? "");
 
-  const chunk = await prisma.contentChunk.findFirst({
-    where: { id: chunkId, operatorId, projectId },
-    select: { id: true, content: true, sourceType: true, sourceId: true, chunkIndex: true, metadata: true },
+  // Verify the content belongs to this project via FileUpload
+  const projectFile = await prisma.fileUpload.findFirst({
+    where: { id: contentId, operatorId, projectId },
+    select: { id: true },
+  });
+  if (!projectFile) return `Content "${contentId}" not found in this project.`;
+
+  const raw = await prisma.rawContent.findFirst({
+    where: { OR: [{ id: contentId }, { sourceId: contentId }], operatorId, rawBody: { not: null } },
+    select: { rawBody: true, sourceType: true, sourceId: true, rawMetadata: true },
   });
 
-  if (!chunk) return `Chunk "${chunkId}" not found in this project.`;
+  if (!raw) return `Content "${contentId}" not found in this project.`;
 
-  const sourceName = chunk.metadata && typeof chunk.metadata === "object" && "name" in (chunk.metadata as Record<string, unknown>)
-    ? String((chunk.metadata as Record<string, unknown>).name)
-    : chunk.sourceId;
+  const meta = (raw.rawMetadata ?? {}) as Record<string, unknown>;
+  const sourceName = (meta.name as string) ?? (meta.fileName as string) ?? raw.sourceId;
 
   return [
-    `Source: ${sourceName} [${chunk.sourceType}]`,
-    `Chunk: ${chunk.chunkIndex}`,
+    `Source: ${sourceName} [${raw.sourceType}]`,
     `---`,
-    chunk.content,
+    raw.rawBody!,
   ].join("\n");
 }
 
@@ -184,18 +189,9 @@ async function executeListProjectDocuments(
 
   if (docs.length === 0) return "No documents uploaded to this project.";
 
-  // Get chunk counts per document
-  const chunkCounts = await prisma.contentChunk.groupBy({
-    by: ["sourceId"],
-    where: { projectId, operatorId },
-    _count: { id: true },
-  });
-  const countMap = new Map(chunkCounts.map((c) => [c.sourceId, c._count.id]));
-
   const lines: string[] = [`${docs.length} documents in this project:`];
   for (const doc of docs) {
-    const chunks = countMap.get(doc.id) ?? 0;
-    lines.push(`- ${doc.fileName} (${doc.mimeType}) — ${chunks} chunks — ID: ${doc.id} — Uploaded: ${doc.createdAt.toISOString().split("T")[0]}`);
+    lines.push(`- ${doc.fileName} (${doc.mimeType}) — ID: ${doc.id} — Uploaded: ${doc.createdAt.toISOString().split("T")[0]}`);
   }
 
   return lines.join("\n");
@@ -208,25 +204,28 @@ async function executeReadDocumentFull(
 ): Promise<string> {
   const documentId = String(args.documentId ?? "");
 
-  const chunks = await prisma.contentChunk.findMany({
-    where: { sourceId: documentId, operatorId, projectId },
-    select: { content: true, chunkIndex: true, metadata: true },
-    orderBy: { chunkIndex: "asc" },
+  // Verify the document belongs to this project via FileUpload
+  const docFile = await prisma.fileUpload.findFirst({
+    where: { id: documentId, operatorId, projectId },
+    select: { id: true },
+  });
+  if (!docFile) return `No content found for document "${documentId}" in this project.`;
+
+  const raw = await prisma.rawContent.findFirst({
+    where: { sourceId: documentId, operatorId, rawBody: { not: null } },
+    select: { rawBody: true, rawMetadata: true },
   });
 
-  if (chunks.length === 0) return `No content found for document "${documentId}" in this project.`;
+  if (!raw) return `No content found for document "${documentId}" in this project.`;
 
-  const sourceName = chunks[0].metadata && typeof chunks[0].metadata === "object" && "name" in (chunks[0].metadata as Record<string, unknown>)
-    ? String((chunks[0].metadata as Record<string, unknown>).name)
-    : documentId;
+  const meta = (raw.rawMetadata ?? {}) as Record<string, unknown>;
+  const sourceName = (meta.name as string) ?? (meta.fileName as string) ?? documentId;
 
-  const lines: string[] = [
-    `Document: ${sourceName} (${chunks.length} chunks)`,
+  return [
+    `Document: ${sourceName}`,
     `---`,
-    ...chunks.map((c) => c.content),
-  ];
-
-  return lines.join("\n\n");
+    raw.rawBody!,
+  ].join("\n\n");
 }
 
 async function executeGetKnowledgeIndex(projectId: string): Promise<string> {

@@ -1,4 +1,8 @@
 /**
+ * @deprecated v0.3.10 — ContentChunk-based pipeline replaced by RawContent storage.
+ * This file is no longer called from any active code path.
+ * Scheduled for removal in v0.4.x.
+ *
  * RAG retriever: finds relevant content chunks via pgvector native similarity search.
  *
  * Uses HNSW index on ContentChunk.embedding for fast cosine similarity.

@@ -1,3 +1,8 @@
+/**
+ * @deprecated v0.3.10 — ContentChunk-based pipeline replaced by RawContent storage.
+ * This file is no longer called from any active code path.
+ * Scheduled for removal in v0.4.x.
+ */
 import { prisma } from "@/lib/db";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { getModel } from "@/lib/ai-provider";

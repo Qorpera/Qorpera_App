@@ -2,8 +2,7 @@ import { prisma } from "@/lib/db";
 import type { AITool } from "@/lib/ai-provider";
 import { getEntityContext, searchEntities } from "@/lib/entity-resolution";
 import { searchAround, formatTraversalForAgent } from "@/lib/graph-traversal";
-import { retrieveRelevantChunks } from "@/lib/rag/retriever";
-import { embedChunks } from "@/lib/rag/embedder";
+import { searchRawContent } from "@/lib/storage/raw-content-store";
 import {
   loadActivityTimeline,
   loadCommunicationContext,
@@ -692,10 +691,6 @@ async function executeSearchCommunications(
   const domainIds = Array.isArray(args.domainIds) ? args.domainIds.map(String) : [];
   const limit = typeof args.limit === "number" ? args.limit : 8;
 
-  // Pre-validate that embedding works before calling the heavier loader
-  const [embedding] = await embedChunks([query]);
-  if (!embedding) return "Could not process search query.";
-
   const comms = await loadCommunicationContext(operatorId, entityId ?? "", query, domainIds, limit);
 
   if (comms.excerpts.length === 0) return `No communications found matching "${query}".`;
@@ -727,26 +722,17 @@ async function executeSearchDocuments(
   const domainIds = Array.isArray(args.domainIds) ? args.domainIds.map(String) : undefined;
   const limit = typeof args.limit === "number" ? args.limit : 8;
 
-  const [embedding] = await embedChunks([query]);
-  if (!embedding) return "Could not process search query.";
+  const results = await searchRawContent(operatorId, query, { limit });
 
-  const chunks = await retrieveRelevantChunks(operatorId, embedding, {
-    limit,
-    sourceTypes: ["document", "drive_file", "spreadsheet", "slide_presentation"],
-    domainIds,
-    skipUserFilter: true,
-  });
+  if (results.length === 0) return `No documents found matching "${query}".`;
 
-  if (chunks.length === 0) return `No documents found matching "${query}".`;
+  const lines: string[] = [`Found ${results.length} documents:`];
 
-  const lines: string[] = [`Found ${chunks.length} document chunks:`];
-
-  for (const chunk of chunks) {
-    const sourceName = chunk.metadata && typeof chunk.metadata === "object" && "name" in chunk.metadata
-      ? String(chunk.metadata.name)
-      : chunk.sourceId;
-    lines.push(`\n[${chunk.sourceType}] ${sourceName} — Score: ${chunk.score.toFixed(2)}`);
-    lines.push(chunk.content.slice(0, 500));
+  for (const r of results) {
+    const meta = r.rawMetadata;
+    const sourceName = (meta.name as string) ?? (meta.fileName as string) ?? r.sourceId;
+    lines.push(`\n[${r.sourceType}] ${sourceName}`);
+    lines.push((r.rawBody ?? "").slice(0, 500));
   }
 
   return lines.join("\n");
@@ -1268,37 +1254,31 @@ async function executeReadFullContent(
   operatorId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const chunkId = String(args.chunkId ?? "");
+  const sourceId = String(args.chunkId ?? args.sourceId ?? "");
 
-  const chunk = await prisma.contentChunk.findFirst({
-    where: { id: chunkId, operatorId },
+  const raw = await prisma.rawContent.findFirst({
+    where: { operatorId, OR: [{ id: sourceId }, { sourceId }] },
     select: {
-      id: true,
       sourceType: true,
       sourceId: true,
-      content: true,
-      metadata: true,
-      chunkIndex: true,
-      createdAt: true,
+      rawBody: true,
+      rawMetadata: true,
+      occurredAt: true,
     },
   });
 
-  if (!chunk) return "Chunk not found or access denied.";
+  if (!raw?.rawBody) return "Content not found or access denied.";
 
-  const meta =
-    chunk.metadata && typeof chunk.metadata === "string"
-      ? JSON.parse(chunk.metadata)
-      : (chunk.metadata as Record<string, unknown> | null) ?? {};
+  const meta = (raw.rawMetadata ?? {}) as Record<string, unknown>;
 
   const header = [
-    `Source: ${chunk.sourceType}/${chunk.sourceId}`,
-    `Chunk index: ${chunk.chunkIndex}`,
-    `Created: ${chunk.createdAt.toISOString().split("T")[0]}`,
-    (meta as any).subject ? `Subject: ${(meta as any).subject}` : null,
-    (meta as any).from ? `From: ${(meta as any).from}` : null,
-    (meta as any).channel ? `Channel: ${(meta as any).channel}` : null,
-    (meta as any).fileName ? `File: ${(meta as any).fileName}` : null,
+    `Source: ${raw.sourceType}/${raw.sourceId}`,
+    `Date: ${raw.occurredAt.toISOString().split("T")[0]}`,
+    meta.subject ? `Subject: ${meta.subject}` : null,
+    meta.from ? `From: ${meta.from}` : null,
+    meta.channel ? `Channel: ${meta.channel}` : null,
+    meta.fileName ? `File: ${meta.fileName}` : null,
   ].filter(Boolean).join(" | ");
 
-  return `${header}\n\n${chunk.content}`;
+  return `${header}\n\n${raw.rawBody}`;
 }

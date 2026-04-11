@@ -147,6 +147,9 @@ model Operator {
   deletionRequestedAt     DateTime?
   deletionScheduledFor    DateTime?
   foundationalDocStatuses FoundationalDocStatus[]
+  // v7: Raw content archive
+  rawContent              RawContent[]
+  discoveredAccounts      DiscoveredAccount[]
 }
 
 model User {
@@ -402,6 +405,8 @@ model SourceConnector {
   contentChunks        ContentChunk[]
   slackChannelMappings SlackChannelMapping[]
   projectConnectors    ProjectConnector[]
+  rawContent           RawContent[]
+  discoveredAccount    DiscoveredAccount?
 
   @@index([projectId])
 }
@@ -2013,4 +2018,61 @@ model SystemIntelligenceLog {
   @@index([pageSlug])
   @@index([action])
   @@index([createdAt])
+}
+
+// ── Layer 7: Raw Content Archive ──────────────────────────────────────────────
+
+model RawContent {
+  id          String   @id @default(cuid())
+  operatorId  String
+  accountId   String?  // FK to SourceConnector — which account produced this (null for direct uploads)
+  userId      String?
+
+  // Identity
+  sourceType  String   // "email" | "document" | "calendar_event" | "slack_message" | "teams_message" | "file"
+  sourceId    String   // provider-specific unique ID
+  contentHash String?  // SHA-256 of rawBody for dedup
+
+  // Content — stored WHOLE, never chunked
+  rawBody     String?  // Full text content. Null for binary-only files.
+  rawMetadata Json     @default("{}")
+  sizeBytes   Int      @default(0)
+
+  // For binary files (future: move to object storage)
+  mimeType    String?
+
+  // Timestamps
+  occurredAt  DateTime // When created/sent/received in source system
+  storedAt    DateTime @default(now())
+
+  // Relations
+  operator  Operator        @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  account   SourceConnector? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([operatorId, sourceType, sourceId])
+  @@index([operatorId, sourceType])
+  @@index([operatorId, accountId])
+  @@index([operatorId, occurredAt])
+  @@index([contentHash])
+}
+
+model DiscoveredAccount {
+  id              String   @id @default(cuid())
+  operatorId      String
+  email           String
+  displayName     String?
+  title           String?
+  department      String?
+  domain          String
+  status          String   @default("pending") // "pending" | "approved" | "excluded" | "connected"
+  exclusionReason String?  // "consumer_domain" | "domain_mismatch" | "user_excluded"
+  connectorId     String?  @unique
+  discoveredAt    DateTime @default(now())
+  approvedAt      DateTime?
+
+  operator  Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  connector SourceConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+
+  @@unique([operatorId, email])
+  @@index([operatorId, status])
 }

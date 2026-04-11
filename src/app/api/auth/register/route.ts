@@ -38,10 +38,15 @@ export async function POST(req: NextRequest) {
 
   // Transaction: create operator, user, seed structure
   const result = await prisma.$transaction(async (tx) => {
-    // Create Operator
+    // Create Operator — skip companyDomain for consumer email providers
     const domain = email.split("@")[1]?.toLowerCase();
+    const { isConsumerDomain } = await import("@/lib/provider-discovery");
+    const isConsumer = domain ? isConsumerDomain(domain) : false;
+    if (isConsumer) {
+      console.log(`[register] User registered with consumer domain ${domain} — company domain needs manual configuration`);
+    }
     const operator = await tx.operator.create({
-      data: { displayName: companyName, companyName, companyDomain: domain || null, industry: industry || null },
+      data: { displayName: companyName, companyName, companyDomain: isConsumer ? null : (domain || null), industry: industry || null },
     });
 
     // Seed foundational entity types

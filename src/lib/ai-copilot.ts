@@ -591,6 +591,58 @@ async function getVisibleAiEntityIds(
   return entities.map(e => e.id);
 }
 
+/**
+ * Check if any participant in a set of RawContent items belongs to a visible department.
+ * Returns true if the user has access (admin, or at least one participant in scope).
+ */
+async function checkParticipantScope(
+  operatorId: string,
+  rawItems: Array<{ rawMetadata: unknown }>,
+  visibleDomains: string[] | "all" | undefined,
+): Promise<boolean> {
+  if (!visibleDomains || visibleDomains === "all") return true;
+  if (rawItems.length === 0) return true;
+
+  // Extract all participant emails from rawMetadata
+  const emails = new Set<string>();
+  for (const r of rawItems) {
+    const meta = (r.rawMetadata ?? {}) as Record<string, unknown>;
+    for (const field of ["from", "to", "cc", "sender", "authorEmail"]) {
+      const val = meta[field];
+      if (typeof val === "string") {
+        for (const part of val.split(/[,;]\s*/)) {
+          const trimmed = part.trim().toLowerCase();
+          if (trimmed.includes("@")) emails.add(trimmed);
+        }
+      } else if (Array.isArray(val)) {
+        for (const v of val) {
+          if (typeof v === "string" && v.includes("@")) emails.add(v.trim().toLowerCase());
+        }
+      }
+    }
+  }
+
+  if (emails.size === 0) return true; // No participants to check — allow
+
+  // Find entities matching participant emails that belong to a visible department
+  const matchingEntities = await prisma.entity.findMany({
+    where: {
+      operatorId,
+      propertyValues: {
+        some: {
+          property: { identityRole: "email" },
+          value: { in: [...emails] },
+        },
+      },
+      primaryDomainId: { in: visibleDomains },
+    },
+    select: { id: true },
+    take: 1,
+  });
+
+  return matchingEntities.length > 0;
+}
+
 export async function executeTool(
   operatorId: string,
   toolName: string,
@@ -1683,52 +1735,46 @@ export async function executeTool(
       const msgThreadDeptIds = new Set(msgThreadDepts.map(d => d.id));
 
       try {
-        // Query ContentChunks that match the thread
-        const metadataFilter = sourceType === "slack_message"
-          ? { path: ["threadTs"], equals: threadId }
-          : { path: ["messageId"], equals: threadId };
-
-        let chunks = await prisma.contentChunk.findMany({
+        // Query RawContent that match the thread
+        let rawItems = await prisma.rawContent.findMany({
           where: {
             operatorId,
             sourceType,
-            metadata: metadataFilter,
+            rawBody: { not: null },
+            rawMetadata: sourceType === "slack_message"
+              ? { path: ["threadTs"], equals: threadId }
+              : { path: ["messageId"], equals: threadId },
           },
-          select: { content: true, metadata: true, sourceId: true, domainIds: true },
-          orderBy: { createdAt: "asc" },
+          select: { rawBody: true, rawMetadata: true, sourceId: true },
+          orderBy: { occurredAt: "asc" },
           take: 20,
         });
 
         // Also check for standalone messages where sourceId matches
-        if (chunks.length === 0) {
-          chunks = await prisma.contentChunk.findMany({
+        if (rawItems.length === 0) {
+          rawItems = await prisma.rawContent.findMany({
             where: {
               operatorId,
               sourceType,
               sourceId: threadId,
+              rawBody: { not: null },
             },
-            select: { content: true, metadata: true, sourceId: true, domainIds: true },
-            orderBy: { createdAt: "asc" },
+            select: { rawBody: true, rawMetadata: true, sourceId: true },
+            orderBy: { occurredAt: "asc" },
             take: 20,
           });
         }
 
-        if (chunks.length === 0) return "No messages found for this thread ID.";
+        if (rawItems.length === 0) return "No messages found for this thread ID.";
 
-        // Department scope check on chunks
-        if (visibleDomains && visibleDomains !== "all" && msgThreadDeptIds.size > 0) {
-          const beforeCount = chunks.length;
-          chunks = chunks.filter((c) => {
-            const dIds: string[] = c.domainIds ? JSON.parse(c.domainIds) : [];
-            return dIds.length === 0 || dIds.some((d) => msgThreadDeptIds.has(d));
-          });
-          if (chunks.length === 0 && beforeCount > 0) {
-            return "I don't have visibility into that message thread's department.";
-          }
+        // Department scope: check if any participant belongs to user's visible departments
+        const hasAccess = await checkParticipantScope(operatorId, rawItems, visibleDomains);
+        if (!hasAccess) {
+          return "I don't have visibility into that message thread's department.";
         }
 
-        return chunks
-          .map((c) => c.content.slice(0, 1000))
+        return rawItems
+          .map((r) => (r.rawBody ?? "").slice(0, 1000))
           .join("\n\n---\n\n");
       } catch {
         return "Failed to retrieve message thread.";
@@ -2394,42 +2440,36 @@ export async function executeTool(
       });
       const threadDeptIds = new Set(threadDepts.map(d => d.id));
 
-      // First, find ContentChunks for this thread (targeted query via sourceType + operator)
-      // Use chunks to identify which message IDs belong to this thread
-      const chunks = await prisma.contentChunk.findMany({
-        where: { operatorId, sourceType: "email" },
-        select: { sourceId: true, content: true, metadata: true, chunkIndex: true, domainIds: true },
+      // Find RawContent for this email thread via metadata threadId
+      const rawEmails = await prisma.rawContent.findMany({
+        where: {
+          operatorId,
+          sourceType: "email",
+          rawBody: { not: null },
+          rawMetadata: { path: ["threadId"], equals: threadId },
+        },
+        select: { sourceId: true, rawBody: true, rawMetadata: true },
+        orderBy: { occurredAt: "asc" },
       });
 
-      const threadChunks = chunks.filter((c) => {
-        try {
-          const meta = c.metadata ? JSON.parse(c.metadata) : {};
-          return meta.threadId === threadId;
-        } catch { return false; }
-      });
-
-      // Department scope check on chunks
-      if (visibleDomains && visibleDomains !== "all" && threadDeptIds.size > 0) {
-        const beforeCount = threadChunks.length;
-        const filtered = threadChunks.filter((c) => {
-          const dIds: string[] = c.domainIds ? JSON.parse(c.domainIds) : [];
-          return dIds.length === 0 || dIds.some((d) => threadDeptIds.has(d));
-        });
-        if (filtered.length === 0 && beforeCount > 0) {
-          return "I don't have visibility into that email thread's department.";
-        }
+      if (rawEmails.length === 0) {
+        return "No emails found for this thread ID.";
       }
 
-      // Build body lookup from first chunks
+      // Department scope: check if any participant belongs to user's visible departments
+      const hasThreadAccess = await checkParticipantScope(operatorId, rawEmails, visibleDomains);
+      if (!hasThreadAccess) {
+        return "I don't have visibility into that email thread's department.";
+      }
+
+      // Build body lookup from raw content
       const chunksBySourceId = new Map<string, string>();
-      for (const c of threadChunks) {
-        if (c.chunkIndex === 0) {
-          chunksBySourceId.set(c.sourceId, c.content);
-        }
+      for (const r of rawEmails) {
+        chunksBySourceId.set(r.sourceId, r.rawBody ?? "");
       }
 
       // Fetch events only for the known message IDs in this thread
-      const messageIds = [...new Set(threadChunks.map((c) => c.sourceId))];
+      const messageIds = [...new Set(rawEmails.map((r) => r.sourceId))];
       let threadEvents: Array<{ eventType: string; payload: string; createdAt: Date }> = [];
 
       if (messageIds.length > 0) {
@@ -2451,7 +2491,7 @@ export async function executeTool(
         });
       }
 
-      if (threadEvents.length === 0 && threadChunks.length === 0) {
+      if (threadEvents.length === 0 && rawEmails.length === 0) {
         return `No messages found for thread ${threadId}.`;
       }
 
@@ -2471,13 +2511,11 @@ export async function executeTool(
         return `Thread ${threadId} (${threadEvents.length} messages):\n\n${formatted.join("\n\n---\n\n")}`;
       }
 
-      // Fallback: format from chunks alone
-      const formatted = threadChunks
-        .filter((c) => c.chunkIndex === 0)
-        .map((c) => {
-          const m = c.metadata ? JSON.parse(c.metadata) : {};
-          return `[${(m.direction || "unknown").toUpperCase()}] ${m.date ? new Date(m.date).toLocaleString() : "unknown"}\nFrom: ${m.from || "unknown"} | To: ${Array.isArray(m.to) ? m.to.join(", ") : m.to || "unknown"}\nSubject: ${m.subject || "(no subject)"}\n\n${c.content.slice(0, 500)}`;
-        });
+      // Fallback: format from raw content alone
+      const formatted = rawEmails.map((r) => {
+        const m = (r.rawMetadata ?? {}) as Record<string, unknown>;
+        return `[${((m.direction as string) || "unknown").toUpperCase()}] ${m.date ? new Date(m.date as string).toLocaleString() : "unknown"}\nFrom: ${m.from || "unknown"} | To: ${Array.isArray(m.to) ? (m.to as string[]).join(", ") : m.to || "unknown"}\nSubject: ${m.subject || "(no subject)"}\n\n${(r.rawBody ?? "").slice(0, 500)}`;
+      });
       return `Thread ${threadId} (${formatted.length} messages):\n\n${formatted.join("\n\n---\n\n")}`;
     }
 

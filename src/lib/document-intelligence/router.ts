@@ -55,9 +55,9 @@ export async function registerDocument(
     },
   });
 
-  // Find associated chunk IDs
-  const chunks = await prisma.contentChunk.findMany({
-    where: { fileUploadId, operatorId },
+  // Find associated RawContent IDs
+  const rawItems = await prisma.rawContent.findMany({
+    where: { operatorId, sourceId: fileUploadId, rawBody: { not: null } },
     select: { id: true },
   });
 
@@ -70,7 +70,7 @@ export async function registerDocument(
     fullText,
     textLength: fullText.length,
     estimatedTokens: Math.ceil(fullText.length / 4),
-    chunkIds: chunks.map((c) => c.id),
+    chunkIds: rawItems.map((r) => r.id),
     fileUploadId: file.id,
     projectId: file.projectId ?? undefined,
   };

@@ -48,20 +48,29 @@ export async function extractEntitiesFromChunks(
     return `- ${et.slug} [${et.defaultCategory}]: ${et.description}. Properties: ${propsStr}`;
   }).join("\n");
 
-  // 2. Load all content chunks with actual content
-  const chunks = await prisma.contentChunk.findMany({
-    where: { operatorId, content: { not: "" } },
-    select: { id: true, content: true, sourceType: true, metadata: true },
-    orderBy: { createdAt: "desc" },
+  // 2. Load all raw content with actual content
+  const rawItems = await prisma.rawContent.findMany({
+    where: { operatorId, rawBody: { not: null } },
+    select: { id: true, rawBody: true, sourceType: true, rawMetadata: true },
+    orderBy: { occurredAt: "desc" },
+    take: 1000,
   });
 
+  // Map to chunk-compatible shape
+  const chunks = rawItems.map((r) => ({
+    id: r.id,
+    content: r.rawBody!,
+    sourceType: r.sourceType,
+    metadata: r.rawMetadata as unknown,
+  }));
+
   if (chunks.length === 0) {
-    console.log("[entity-extraction] No content chunks found");
+    console.log("[entity-extraction] No raw content found");
     return { entitiesCreated: 0, propertiesSet: 0, totalChunks: 0 };
   }
 
-  // 3. Batch chunks (8 per LLM call to balance cost vs context)
-  const BATCH_SIZE = 8;
+  // 3. Batch items (5 per LLM call — full documents are larger than chunks)
+  const BATCH_SIZE = 5;
   const batches: typeof chunks[] = [];
   for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
     batches.push(chunks.slice(i, i + BATCH_SIZE));

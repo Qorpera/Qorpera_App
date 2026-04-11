@@ -178,19 +178,7 @@ export async function runAnalysisPipeline(analysisId: string, prisma: PrismaClie
   // Send email notification
   await sendAnalysisCompleteEmail(operatorId);
 
-  // Enqueue chunk classification
-  try {
-    await prisma.workerJob.create({
-      data: {
-        jobType: "classify_chunks",
-        operatorId,
-        payload: { operatorId } as any,
-      },
-    });
-    console.log(`[pipeline] Enqueued classify_chunks for operator ${operatorId}`);
-  } catch (err) {
-    console.error("[pipeline] Failed to enqueue classify_chunks:", err);
-  }
+  // Chunk classification removed in v0.3.10 — RawContent replaces ContentChunk pipeline
 
   // Enqueue post-synthesis pipeline
   try {

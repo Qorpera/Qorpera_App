@@ -13,7 +13,7 @@ import { callLLM, getModel, getMaxOutputTokens, getThinkingBudget } from "@/lib/
 import type { AITool, LLMMessage } from "@/lib/ai-provider";
 import { extractJSONAny } from "@/lib/json-helpers";
 import { embedChunks } from "@/lib/rag/embedder";
-import { retrieveRelevantChunks } from "@/lib/rag/retriever";
+import { searchRawContent } from "@/lib/storage/raw-content-store";
 import { getArchetypeTaxonomy } from "@/lib/archetype-classifier";
 import {
   normalizeCompanyModel,
@@ -109,35 +109,27 @@ async function toolSearchRawContent(
   query: string,
   sourceType?: string,
 ): Promise<string> {
-  const [queryEmbedding] = await embedChunks([query]);
-  if (!queryEmbedding) return "Embedding generation failed — cannot search.";
-
-  const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
+  const results = await searchRawContent(operatorId, query, {
     limit: 10,
-    sourceTypes: sourceType ? [sourceType] : undefined,
-    minScore: 0.2,
-    skipUserFilter: true,
+    sourceType,
   });
 
   if (results.length === 0) return "No matching content found.";
 
   // Load full content for each matched sourceId
   const sourceIds = [...new Set(results.map((r) => r.sourceId))];
-  const fullChunks = await prisma.contentChunk.findMany({
-    where: { operatorId, sourceId: { in: sourceIds } },
-    select: { sourceId: true, content: true, metadata: true, chunkIndex: true },
-    orderBy: { chunkIndex: "asc" },
+  const rawItems = await prisma.rawContent.findMany({
+    where: { operatorId, sourceId: { in: sourceIds }, rawBody: { not: null } },
+    select: { sourceId: true, sourceType: true, rawBody: true, rawMetadata: true },
   });
 
-  const bySourceId = new Map<string, { content: string; meta: Record<string, unknown> }>();
-  for (const chunk of fullChunks) {
-    const existing = bySourceId.get(chunk.sourceId);
-    if (existing) {
-      existing.content += "\n" + chunk.content;
-    } else {
-      const meta = chunk.metadata ? JSON.parse(chunk.metadata) : {};
-      bySourceId.set(chunk.sourceId, { content: chunk.content, meta });
-    }
+  const bySourceId = new Map<string, { content: string; meta: Record<string, unknown>; sourceType: string }>();
+  for (const raw of rawItems) {
+    bySourceId.set(raw.sourceId, {
+      content: raw.rawBody!,
+      meta: (raw.rawMetadata ?? {}) as Record<string, unknown>,
+      sourceType: raw.sourceType,
+    });
   }
 
   return sourceIds
@@ -146,7 +138,7 @@ async function toolSearchRawContent(
       const item = bySourceId.get(sid);
       if (!item) return "";
       const meta = item.meta;
-      const header = `Source: ${sid}\nType: ${meta.sourceType || "unknown"}\nSubject: ${meta.subject || meta.fileName || "N/A"}\nFrom: ${meta.from || "N/A"}`;
+      const header = `Source: ${sid}\nType: ${item.sourceType}\nSubject: ${meta.subject || meta.fileName || "N/A"}\nFrom: ${meta.from || "N/A"}`;
       return `${header}\n${item.content.slice(0, 3000)}`;
     })
     .filter(Boolean)
@@ -154,16 +146,14 @@ async function toolSearchRawContent(
 }
 
 async function toolReadRawEmail(operatorId: string, sourceId: string): Promise<string> {
-  const chunks = await prisma.contentChunk.findMany({
-    where: { operatorId, sourceId },
-    orderBy: { chunkIndex: "asc" },
-    select: { content: true, metadata: true, chunkIndex: true },
+  const raw = await prisma.rawContent.findFirst({
+    where: { operatorId, sourceId, rawBody: { not: null } },
+    select: { rawBody: true, rawMetadata: true },
   });
-  if (chunks.length === 0) return `No content found for sourceId "${sourceId}"`;
-  const meta = chunks[0].metadata ? JSON.parse(chunks[0].metadata) : {};
+  if (!raw) return `No content found for sourceId "${sourceId}"`;
+  const meta = (raw.rawMetadata ?? {}) as Record<string, unknown>;
   const header = `From: ${meta.from || "unknown"}\nTo: ${meta.to || "unknown"}\nSubject: ${meta.subject || "unknown"}\nDate: ${meta.date || "unknown"}`;
-  const body = chunks.map((c) => c.content).join("\n");
-  return `${header}\n\n${body}`;
+  return `${header}\n\n${raw.rawBody}`;
 }
 
 async function toolWriteWikiPage(

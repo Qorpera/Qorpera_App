@@ -24,17 +24,7 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
   console.log(`[post-synthesis] Starting relationship inference for ${operatorId}`);
   const inference = await inferRelationships(operatorId);
 
-  // Backfill content/activity linkage BEFORE detection — chunks need department IDs
-  // for department-scoped situation types and System Health knowledge metrics
-  console.log(`[post-synthesis] Running content linkage for ${operatorId}`);
-  try {
-    const { backfillContentLinkage } = await import("./content-linkage");
-    const linkResult = await backfillContentLinkage(operatorId);
-    console.log(`[post-synthesis] Content linkage: ${linkResult.chunksUpdated} chunks, ${linkResult.signalsUpdated} signals`);
-  } catch (err) {
-    console.error("[post-synthesis] Content linkage failed:", err);
-    // Non-fatal — detection proceeds with degraded department context
-  }
+  // Content linkage removed in v0.3.10 — RawContent doesn't carry domainIds
 
   // ── Research Planning ──────────────────────────────────────────────
   // Generate investigation plan from evidence registry + entity graph.
@@ -99,36 +89,34 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     const { evaluateContentForSituations, isEligibleCommunication } = await import("@/lib/content-situation-detector");
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
-    const chunks = await prisma.contentChunk.findMany({
+    const rawItems = await prisma.rawContent.findMany({
       where: {
         operatorId,
-        createdAt: { gte: thirtyDaysAgo },
+        occurredAt: { gte: thirtyDaysAgo },
         sourceType: { in: ["email", "slack_message", "teams_message"] },
-        chunkIndex: 0,
+        rawBody: { not: null },
       },
-      select: { sourceType: true, sourceId: true, content: true, metadata: true },
-      orderBy: { createdAt: "desc" },
+      select: { sourceType: true, sourceId: true, rawBody: true, rawMetadata: true },
+      orderBy: { occurredAt: "desc" },
       take: 500,
     });
 
     const items: Array<{ sourceType: string; sourceId: string; content: string; metadata?: Record<string, unknown>; participantEmails?: string[] }> = [];
-    for (const chunk of chunks) {
-      const meta = chunk.metadata ? JSON.parse(chunk.metadata) as Record<string, unknown> : undefined;
-      if (!isEligibleCommunication({ sourceType: chunk.sourceType, metadata: meta })) continue;
+    for (const raw of rawItems) {
+      const meta = (raw.rawMetadata ?? {}) as Record<string, unknown>;
+      if (!isEligibleCommunication({ sourceType: raw.sourceType, metadata: meta })) continue;
 
       const emails: string[] = [];
-      if (meta) {
-        if (typeof meta.from === "string") emails.push(meta.from);
-        if (Array.isArray(meta.to)) emails.push(...(meta.to as string[]));
-        else if (typeof meta.to === "string") emails.push(...meta.to.split(/[,;]\s*/));
-        if (Array.isArray(meta.cc)) emails.push(...(meta.cc as string[]));
-        else if (typeof meta.cc === "string") emails.push(...meta.cc.split(/[,;]\s*/));
-      }
+      if (typeof meta.from === "string") emails.push(meta.from);
+      if (Array.isArray(meta.to)) emails.push(...(meta.to as string[]));
+      else if (typeof meta.to === "string") emails.push(...meta.to.split(/[,;]\s*/));
+      if (Array.isArray(meta.cc)) emails.push(...(meta.cc as string[]));
+      else if (typeof meta.cc === "string") emails.push(...meta.cc.split(/[,;]\s*/));
 
       items.push({
-        sourceType: chunk.sourceType,
-        sourceId: chunk.sourceId,
-        content: chunk.content,
+        sourceType: raw.sourceType,
+        sourceId: raw.sourceId,
+        content: raw.rawBody!,
         metadata: meta,
         participantEmails: emails.length > 0 ? emails : undefined,
       });

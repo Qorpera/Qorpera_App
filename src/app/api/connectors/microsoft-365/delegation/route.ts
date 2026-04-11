@@ -13,6 +13,9 @@ export async function POST(req: NextRequest) {
   if (session.user.role === "member") return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   const { operatorId } = session;
 
+  const url = new URL(req.url);
+  const legacy = url.searchParams.get("legacy") === "true";
+
   let { tenantId } = await req.json().catch(() => ({ tenantId: null }));
 
   // Fall back to saved meta connector config
@@ -41,60 +44,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Load operator's companyDomain for filtering
-  const operator = await prisma.operator.findUnique({
-    where: { id: operatorId },
-    select: { companyDomain: true },
-  });
-  const companyDomain = operator?.companyDomain;
-
-  // Create per-employee Microsoft connectors (skip non-matching domains)
-  let connectorCount = 0;
-  const skippedUsers: Array<{ email: string; reason: string }> = [];
-  for (const user of users) {
-    if (!user.email) continue;
-
-    // Domain scoping: skip users whose email domain doesn't match the operator's
-    if (companyDomain) {
-      const userDomain = user.email.split("@")[1]?.toLowerCase();
-      if (userDomain && userDomain !== companyDomain) {
-        console.log(`[delegation] Skipping ${user.email} — domain mismatch (${userDomain} ≠ ${companyDomain})`);
-        skippedUsers.push({ email: user.email, reason: `domain mismatch (${userDomain} ≠ ${companyDomain})` });
-        continue;
-      }
-    }
-
-    const existing = await prisma.sourceConnector.findFirst({
-      where: { operatorId, provider: "microsoft", name: `Microsoft 365 (${user.email})` },
-    });
-
-    const config = encryptConfig({
-      delegation_type: "app-permissions",
-      tenant_id: tenantId,
-      target_user_email: user.email,
-    });
-
-    if (existing) {
-      await prisma.sourceConnector.update({
-        where: { id: existing.id },
-        data: { config, status: "active" },
-      });
-    } else {
-      await prisma.sourceConnector.create({
-        data: {
-          operatorId,
-          provider: "microsoft",
-          name: `Microsoft 365 (${user.email})`,
-          status: "active",
-          config,
-          userId: null,
-        },
-      });
-      connectorCount++;
-    }
-  }
-
-  // Create team-member entities
+  // Create team-member entities (always)
   const entityCount = await createTeamMemberEntities(operatorId, users, "microsoft-graph");
 
   // Update delegation-meta connector (preserve tenantId/clientSecret, add user data)
@@ -138,11 +88,79 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Legacy path: create connectors directly (backward compatibility) ──────
+  if (legacy) {
+    const operator = await prisma.operator.findUnique({
+      where: { id: operatorId },
+      select: { companyDomain: true },
+    });
+    const companyDomain = operator?.companyDomain;
+
+    let connectorCount = 0;
+    const skippedUsers: Array<{ email: string; reason: string }> = [];
+    for (const user of users) {
+      if (!user.email) continue;
+
+      if (companyDomain) {
+        const userDomain = user.email.split("@")[1]?.toLowerCase();
+        if (userDomain && userDomain !== companyDomain) {
+          skippedUsers.push({ email: user.email, reason: `domain mismatch (${userDomain} ≠ ${companyDomain})` });
+          continue;
+        }
+      }
+
+      const existing = await prisma.sourceConnector.findFirst({
+        where: { operatorId, provider: "microsoft", name: `Microsoft 365 (${user.email})` },
+      });
+
+      const config = encryptConfig({
+        delegation_type: "app-permissions",
+        tenant_id: tenantId,
+        target_user_email: user.email,
+      });
+
+      if (existing) {
+        await prisma.sourceConnector.update({
+          where: { id: existing.id },
+          data: { config, status: "active" },
+        });
+      } else {
+        await prisma.sourceConnector.create({
+          data: {
+            operatorId,
+            provider: "microsoft",
+            name: `Microsoft 365 (${user.email})`,
+            status: "active",
+            config,
+            userId: null,
+          },
+        });
+        connectorCount++;
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      connectorCount,
+      employeeCount: users.length,
+      entityCount,
+      ...(skippedUsers.length > 0 ? { skippedUsers } : {}),
+    });
+  }
+
+  // ── New path: discovery-based flow ────────────────────────────────────────
+  const { discoverOrganizationAccounts } = await import("@/lib/account-discovery");
+  const accounts = await discoverOrganizationAccounts(operatorId);
+
+  const approved = accounts.filter((a) => a.status === "approved");
+  const excluded = accounts.filter((a) => a.status === "excluded");
+
   return NextResponse.json({
-    success: true,
-    connectorCount,
-    employeeCount: users.length,
+    accounts,
+    totalDiscovered: accounts.length,
+    approved: approved.length,
+    excluded: excluded.length,
     entityCount,
-    ...(skippedUsers.length > 0 ? { skippedUsers } : {}),
+    message: `Discovered ${accounts.length} accounts. ${approved.length} approved, ${excluded.length} excluded. Call POST /api/onboarding/create-connectors to create connectors for approved accounts.`,
   });
 }

@@ -46,22 +46,32 @@ export async function runLivingResearch(
     durationMs: 0,
   };
 
-  // 1. Load new unprocessed chunks (since last run)
-  //    Uses wikiProcessedAt as the marker — same as background synthesis
-  const newChunks = await prisma.contentChunk.findMany({
-    where: { operatorId, wikiProcessedAt: null },
+  // 1. Load recent raw content (last 7 days — downstream dedup skips already-extracted)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000);
+  const rawItems = await prisma.rawContent.findMany({
+    where: { operatorId, rawBody: { not: null }, storedAt: { gte: sevenDaysAgo } },
     select: {
       id: true,
       sourceType: true,
       sourceId: true,
-      content: true,
-      metadata: true,
-      chunkIndex: true,
-      createdAt: true,
+      rawBody: true,
+      rawMetadata: true,
+      occurredAt: true,
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { occurredAt: "asc" },
     take: 200,
   });
+
+  // Map to chunk-compatible shape
+  const newChunks = rawItems.map((r) => ({
+    id: r.id,
+    sourceType: r.sourceType,
+    sourceId: r.sourceId,
+    content: r.rawBody!,
+    metadata: r.rawMetadata as unknown,
+    chunkIndex: 0,
+    createdAt: r.occurredAt,
+  }));
 
   if (newChunks.length === 0) {
     report.durationMs = Date.now() - startTime;
@@ -439,12 +449,8 @@ Respond ONLY with JSON:
 
 // ── Helpers ────────────────────────────────────────────────
 
-async function markChunksProcessed(operatorId: string, chunkIds: string[]): Promise<void> {
-  if (chunkIds.length === 0) return;
-  await prisma.contentChunk.updateMany({
-    where: { id: { in: chunkIds }, operatorId },
-    data: { wikiProcessedAt: new Date() },
-  });
+async function markChunksProcessed(_operatorId: string, _chunkIds: string[]): Promise<void> {
+  // No-op: RawContent uses time-based cursoring instead of per-record markers
 }
 
 // ── Prompts ────────────────────────────────────────────────

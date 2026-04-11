@@ -239,19 +239,29 @@ export async function runWikiFindingsPass(
 
   await progress("Loading raw content chunks and activity signals...");
 
-  const allChunks = await prisma.contentChunk.findMany({
-    where: { operatorId },
+  const rawItems = await prisma.rawContent.findMany({
+    where: { operatorId, rawBody: { not: null } },
     select: {
       id: true,
       sourceType: true,
       sourceId: true,
-      chunkIndex: true,
-      content: true,
-      metadata: true,
-      createdAt: true,
+      rawBody: true,
+      rawMetadata: true,
+      occurredAt: true,
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { occurredAt: "asc" },
   });
+
+  // Map to chunk-compatible shape for downstream processing
+  const allChunks = rawItems.map((r) => ({
+    id: r.id,
+    sourceType: r.sourceType,
+    sourceId: r.sourceId,
+    chunkIndex: 0,
+    content: r.rawBody!,
+    metadata: r.rawMetadata as unknown,
+    createdAt: r.occurredAt,
+  }));
 
   const calendarSignals = await prisma.activitySignal.findMany({
     where: { operatorId, signalType: { in: ["meeting_held"] } },
@@ -283,7 +293,7 @@ export async function runWikiFindingsPass(
     } else {
       docsBySourceId.set(chunk.sourceId, {
         content: chunk.content,
-        meta: parseMeta(chunk.metadata),
+        meta: parseMeta(chunk.metadata as string | null),
         sourceType: chunk.sourceType,
       });
     }
@@ -305,7 +315,7 @@ export async function runWikiFindingsPass(
 
         // Gather all emails involving this person
         const personEmails = emailChunks.filter((c) => {
-          const meta = parseMeta(c.metadata);
+          const meta = parseMeta(c.metadata as string | null);
           const participants = [meta.from, meta.to, meta.cc, meta.sender]
             .filter(Boolean)
             .join(" ")
@@ -331,7 +341,7 @@ export async function runWikiFindingsPass(
 
         // Build context for LLM
         const emailSummaries = personEmails.slice(0, 30).map((c) => {
-          const meta = parseMeta(c.metadata);
+          const meta = parseMeta(c.metadata as string | null);
           return `From: ${meta.from || meta.sender || "unknown"}\nTo: ${meta.to || "unknown"}\nSubject: ${meta.subject || "(no subject)"}\nDate: ${meta.date || meta.timestamp || "unknown"}\nBody: ${c.content.slice(0, 1000)}`;
         });
 
@@ -414,7 +424,7 @@ Be specific — cite email subjects, meeting names, document names. These are an
     await runWithConcurrency(emailBatches, BATCH_CONCURRENCY, async (batch) => {
       try {
         const formatted = batch.map((c) => {
-          const meta = parseMeta(c.metadata);
+          const meta = parseMeta(c.metadata as string | null);
           return `From: ${meta.from || meta.sender || "unknown"}
 To: ${meta.to || "unknown"}
 Subject: ${meta.subject || "(no subject)"}
@@ -569,7 +579,7 @@ Use these page types: findings_domain, findings_process, findings_external, find
 
   const calendarItems = [
     ...calendarChunks.map((c) => {
-      const meta = parseMeta(c.metadata);
+      const meta = parseMeta(c.metadata as string | null);
       return {
         subject: meta.subject || "(no subject)",
         date: meta.date || meta.timestamp || c.createdAt.toISOString(),

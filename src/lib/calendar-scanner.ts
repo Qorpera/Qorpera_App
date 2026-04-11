@@ -70,21 +70,22 @@ async function findQualifyingEvents(operatorId: string): Promise<CalendarEvent[]
   const from = new Date(now.getTime() + 3 * 86_400_000);
   const to = new Date(now.getTime() + 14 * 86_400_000);
 
-  // Source A: ContentChunk calendar notes (load recent, filter in JS for future dates)
-  const calChunks = await prisma.contentChunk.findMany({
+  // Source A: RawContent calendar notes (load recent, filter in JS for future dates)
+  const calItems = await prisma.rawContent.findMany({
     where: {
       operatorId,
       sourceType: "calendar_note",
-      createdAt: { gte: new Date(now.getTime() - 90 * 86_400_000) },
+      occurredAt: { gte: new Date(now.getTime() - 90 * 86_400_000) },
+      rawBody: { not: null },
     },
-    select: { id: true, content: true, metadata: true, createdAt: true },
+    select: { id: true, rawBody: true, rawMetadata: true, occurredAt: true },
   });
 
   const events: CalendarEvent[] = [];
   const seen = new Set<string>(); // dedup key: "title|date"
 
-  for (const chunk of calChunks) {
-    const meta = parseMeta(chunk.metadata);
+  for (const chunk of calItems) {
+    const meta = (chunk.rawMetadata ?? {}) as Record<string, unknown>;
     const dateStr = (meta.date as string) ?? (meta.start as string) ?? null;
     if (!dateStr) continue;
 
@@ -108,7 +109,7 @@ async function findQualifyingEvents(operatorId: string): Promise<CalendarEvent[]
       date: eventDate.toISOString(),
       daysUntil,
       attendees,
-      description: chunk.content.slice(0, 500),
+      description: (chunk.rawBody ?? "").slice(0, 500),
       source: "content_chunk",
     });
   }
@@ -212,32 +213,32 @@ async function hasPreparation(operatorId: string, event: CalendarEvent): Promise
   // Check 1: Emails with subject matching event title (last 14 days)
   const fourteenDaysAgo = new Date(Date.now() - 14 * 86_400_000);
   for (const kw of keywords.slice(0, 2)) {
-    const emailChunk = await prisma.contentChunk.findFirst({
+    const emailMatch = await prisma.rawContent.findFirst({
       where: {
         operatorId,
         sourceType: { in: ["email", "slack_message", "teams_message"] },
-        createdAt: { gte: fourteenDaysAgo },
-        metadata: { contains: kw },
+        occurredAt: { gte: fourteenDaysAgo },
+        rawMetadata: { string_contains: kw },
       },
       select: { id: true },
     });
-    if (emailChunk) {
+    if (emailMatch) {
       signals++;
-      break; // One email match is enough for this signal type
+      break;
     }
   }
 
   // Check 2: Documents modified recently with matching filename
   const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000);
   for (const kw of keywords.slice(0, 2)) {
-    const doc = await prisma.contentChunk.findFirst({
+    const doc = await prisma.rawContent.findFirst({
       where: {
         operatorId,
-        sourceType: { in: ["drive_doc", "onedrive_doc", "document"] },
-        createdAt: { gte: sevenDaysAgo },
+        sourceType: { in: ["drive_doc", "onedrive_doc", "document", "file"] },
+        occurredAt: { gte: sevenDaysAgo },
         OR: [
-          { metadata: { contains: kw } },
-          { content: { contains: kw } },
+          { rawMetadata: { string_contains: kw } },
+          { rawBody: { contains: kw, mode: "insensitive" } },
         ],
       },
       select: { id: true },

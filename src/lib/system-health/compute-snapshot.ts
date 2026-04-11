@@ -182,17 +182,17 @@ async function computeDataPipeline(
   });
   const boundConnectorIds = new Set(slackBindings.map((b) => b.connectorId));
 
-  // Count content chunks per source connector (more meaningful than entity counts)
-  const chunkCountsByConnector = await prisma.contentChunk.groupBy({
-    by: ["connectorId"],
+  // Count raw content per source connector
+  const rawCountsByConnector = await prisma.rawContent.groupBy({
+    by: ["accountId"],
     where: {
       operatorId,
-      connectorId: { not: null },
+      accountId: { not: null },
     },
     _count: true,
   });
   const connectorChunkMap = new Map(
-    chunkCountsByConnector.map((g) => [g.connectorId, g._count]),
+    rawCountsByConnector.map((g) => [g.accountId, g._count]),
   );
 
   const allConnectors: ConnectorHealth[] = connectors.map((c) => {

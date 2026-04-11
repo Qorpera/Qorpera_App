@@ -1,4 +1,8 @@
 /**
+ * @deprecated v0.3.10 — ContentChunk-based pipeline replaced by RawContent storage.
+ * This file is no longer called from any active code path.
+ * Scheduled for removal in v0.4.x.
+ *
  * Document processing pipeline: text extraction → universal content ingestion.
  *
  * Called fire-and-forget after document upload.

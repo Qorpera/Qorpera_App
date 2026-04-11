@@ -489,30 +489,30 @@ export async function buildRawDataSynthesisInput(
   }
 
   // 2. Content Inventory
-  const contentGroups = await prisma.contentChunk.groupBy({
+  const contentGroups = await prisma.rawContent.groupBy({
     by: ["sourceType"],
     where: { operatorId },
     _count: true,
   });
   parts.push("\n## Content Inventory\n");
   for (const g of contentGroups) {
-    parts.push(`- ${g.sourceType}: ${g._count} chunks`);
+    parts.push(`- ${g.sourceType}: ${g._count} items`);
   }
 
   // 3. Content Samples (50 most recent)
-  const recentChunks = await prisma.contentChunk.findMany({
-    where: { operatorId },
-    select: { sourceType: true, metadata: true, content: true },
-    orderBy: { createdAt: "desc" },
+  const recentItems = await prisma.rawContent.findMany({
+    where: { operatorId, rawBody: { not: null } },
+    select: { sourceType: true, rawMetadata: true, rawBody: true },
+    orderBy: { occurredAt: "desc" },
     take: 50,
   });
   parts.push("\n## Content Samples (50 most recent)\n");
-  for (const c of recentChunks) {
-    const meta = (c.metadata ?? {}) as Record<string, unknown>;
+  for (const c of recentItems) {
+    const meta = (c.rawMetadata ?? {}) as Record<string, unknown>;
     const sender = (meta.from ?? meta.authorEmail ?? "") as string;
     const subject = (meta.subject ?? "") as string;
     parts.push(`### ${c.sourceType}${sender ? ` | From: ${sender}` : ""}${subject ? ` | Subject: ${subject}` : ""}`);
-    parts.push(c.content.slice(0, 500));
+    parts.push((c.rawBody ?? "").slice(0, 500));
     parts.push("");
   }
 
@@ -528,13 +528,13 @@ export async function buildRawDataSynthesisInput(
   }
 
   // 5. Communication Patterns (top 20 senders)
-  const emailChunks = await prisma.contentChunk.findMany({
+  const emailItems = await prisma.rawContent.findMany({
     where: { operatorId, sourceType: { in: ["email", "gmail", "outlook"] } },
-    select: { metadata: true },
+    select: { rawMetadata: true },
   });
   const senderCounts = new Map<string, number>();
-  for (const c of emailChunks) {
-    const meta = (c.metadata ?? {}) as Record<string, unknown>;
+  for (const c of emailItems) {
+    const meta = (c.rawMetadata ?? {}) as Record<string, unknown>;
     const sender = ((meta.from ?? meta.authorEmail ?? "") as string).toLowerCase();
     if (sender) senderCounts.set(sender, (senderCounts.get(sender) ?? 0) + 1);
   }
@@ -547,13 +547,13 @@ export async function buildRawDataSynthesisInput(
   }
 
   // 6. Document Inventory
-  const docChunks = await prisma.contentChunk.findMany({
-    where: { operatorId, sourceType: { in: ["drive", "sharepoint", "document"] } },
-    select: { metadata: true },
+  const docItems = await prisma.rawContent.findMany({
+    where: { operatorId, sourceType: { in: ["drive_doc", "document", "file"] } },
+    select: { rawMetadata: true },
   });
   const docTitles = new Set<string>();
-  for (const c of docChunks) {
-    const meta = (c.metadata ?? {}) as Record<string, unknown>;
+  for (const c of docItems) {
+    const meta = (c.rawMetadata ?? {}) as Record<string, unknown>;
     const title = (meta.title ?? meta.fileName ?? meta.subject ?? "") as string;
     if (title) docTitles.add(title);
   }
@@ -566,24 +566,25 @@ export async function buildRawDataSynthesisInput(
   }
 
   // 7. Financial Data Samples
-  const financialChunks = await prisma.contentChunk.findMany({
+  const financialItems = await prisma.rawContent.findMany({
     where: {
       operatorId,
+      rawBody: { not: null },
       OR: [
         { sourceType: { in: ["dinero", "economic", "stripe", "hubspot"] } },
-        { content: { contains: "invoice", mode: "insensitive" } },
-        { content: { contains: "faktura", mode: "insensitive" } },
+        { rawBody: { contains: "invoice", mode: "insensitive" } },
+        { rawBody: { contains: "faktura", mode: "insensitive" } },
       ],
     },
-    select: { sourceType: true, content: true, metadata: true },
-    orderBy: { createdAt: "desc" },
+    select: { sourceType: true, rawBody: true, rawMetadata: true },
+    orderBy: { occurredAt: "desc" },
     take: 20,
   });
-  if (financialChunks.length > 0) {
+  if (financialItems.length > 0) {
     parts.push("\n## Financial Data Samples\n");
-    for (const c of financialChunks) {
+    for (const c of financialItems) {
       parts.push(`### ${c.sourceType}`);
-      parts.push(c.content.slice(0, 500));
+      parts.push((c.rawBody ?? "").slice(0, 500));
       parts.push("");
     }
   }

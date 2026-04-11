@@ -146,22 +146,23 @@ async function loadRelatedCalendarEvents(
     });
   }
 
-  // Approach 2: Calendar content chunks with future dates
+  // Approach 2: Calendar raw content with future dates
   if (events.length < 10) {
-    const calChunks = await prisma.contentChunk.findMany({
+    const calItems = await prisma.rawContent.findMany({
       where: {
         operatorId,
         sourceType: { in: ["calendar_note", "calendar_event"] },
-        createdAt: { gte: new Date(now.getTime() - 90 * 86_400_000) },
+        occurredAt: { gte: new Date(now.getTime() - 90 * 86_400_000) },
+        rawBody: { not: null },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { occurredAt: "desc" },
       take: 50,
-      select: { id: true, content: true, metadata: true, createdAt: true },
+      select: { id: true, rawBody: true, rawMetadata: true, occurredAt: true },
     });
 
-    for (const chunk of calChunks) {
-      const meta = parseMeta(chunk.metadata);
-      const date = (meta.date as string) ?? (meta.start as string) ?? chunk.createdAt.toISOString();
+    for (const item of calItems) {
+      const meta = (item.rawMetadata ?? {}) as Record<string, unknown>;
+      const date = (meta.date as string) ?? (meta.start as string) ?? item.occurredAt.toISOString();
       const eventDate = new Date(date);
       const daysUntil = Math.ceil((eventDate.getTime() - now.getTime()) / 86_400_000);
 
@@ -172,7 +173,7 @@ async function loadRelatedCalendarEvents(
           attendees: Array.isArray(meta.attendees)
             ? (meta.attendees as string[])
             : [],
-          description: chunk.content.slice(0, 300) || undefined,
+          description: (item.rawBody ?? "").slice(0, 300) || undefined,
           daysUntil,
         });
       }
@@ -193,20 +194,24 @@ async function loadThreadHistory(
 
   if (!threadId && !subject) return [];
 
-  let chunks: Array<{ content: string; metadata: string | null; createdAt: Date }>;
+  let rawItems: Array<{ rawBody: string | null; rawMetadata: unknown; occurredAt: Date }>;
 
   if (threadId) {
-    // Find chunks whose metadata JSON contains the same threadId
-    chunks = await prisma.contentChunk.findMany({
+    // Find raw content whose metadata JSON contains the same threadId
+    rawItems = await prisma.rawContent.findMany({
       where: {
         operatorId,
         sourceType: { in: ["email", "slack_message", "teams_message"] },
         sourceId: { not: item.sourceId },
-        metadata: { contains: threadId },
+        rawBody: { not: null },
+        OR: [
+          { rawMetadata: { path: ["threadId"], equals: threadId } },
+          { rawMetadata: { string_contains: threadId } },
+        ],
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { occurredAt: "desc" },
       take: limit,
-      select: { content: true, metadata: true, createdAt: true },
+      select: { rawBody: true, rawMetadata: true, occurredAt: true },
     });
   } else {
     // Fall back to subject matching: strip RE:/FW: prefixes
@@ -216,26 +221,27 @@ async function loadThreadHistory(
 
     if (cleanSubject.length < 3) return [];
 
-    chunks = await prisma.contentChunk.findMany({
+    rawItems = await prisma.rawContent.findMany({
       where: {
         operatorId,
         sourceType: { in: ["email", "slack_message", "teams_message"] },
         sourceId: { not: item.sourceId },
-        metadata: { contains: cleanSubject },
+        rawBody: { not: null },
+        rawMetadata: { string_contains: cleanSubject },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { occurredAt: "desc" },
       take: limit,
-      select: { content: true, metadata: true, createdAt: true },
+      select: { rawBody: true, rawMetadata: true, occurredAt: true },
     });
   }
 
-  return chunks.map((c) => {
-    const m = parseMeta(c.metadata);
+  return rawItems.map((r) => {
+    const m = (r.rawMetadata ?? {}) as Record<string, unknown>;
     return {
       from: (m.from as string) ?? (m.sender as string) ?? (m.authorEmail as string) ?? "unknown",
-      date: c.createdAt.toISOString(),
+      date: r.occurredAt.toISOString(),
       subject: (m.subject as string) ?? undefined,
-      contentSnippet: c.content.slice(0, 500),
+      contentSnippet: (r.rawBody ?? "").slice(0, 500),
     };
   });
 }
@@ -277,58 +283,41 @@ async function loadRelatedDocuments(
   participantEntityIds: string[],
   subjectKeywords: string[],
 ): Promise<EnrichedSignalContext["relatedDocuments"]> {
-  const docSourceTypes = ["drive_doc", "onedrive_doc", "document"];
+  const docSourceTypes = ["drive_doc", "onedrive_doc", "document", "file"];
 
-  // Strategy 1: Documents authored by participants
-  const authorChunks = participantEntityIds.length > 0
-    ? await prisma.contentChunk.findMany({
-        where: {
-          operatorId,
-          sourceType: { in: docSourceTypes },
-          entityId: { in: participantEntityIds },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 8,
-        select: { id: true, content: true, metadata: true, createdAt: true },
-      })
-    : [];
-
-  // Strategy 2: Documents matching subject keywords (if we need more)
-  let keywordChunks: typeof authorChunks = [];
-  if (authorChunks.length < 8 && subjectKeywords.length > 0) {
-    const remaining = 8 - authorChunks.length;
-    const authorChunkIds = authorChunks.map((c) => c.id);
-
-    // Find docs matching any keyword
+  // Strategy 1: Documents matching subject keywords
+  let keywordDocs: Array<{ id: string; rawBody: string | null; rawMetadata: unknown; occurredAt: Date }> = [];
+  if (subjectKeywords.length > 0) {
     for (const kw of subjectKeywords.slice(0, 3)) {
-      if (keywordChunks.length >= remaining) break;
-      const found = await prisma.contentChunk.findMany({
+      if (keywordDocs.length >= 8) break;
+      const found = await prisma.rawContent.findMany({
         where: {
           operatorId,
           sourceType: { in: docSourceTypes },
-          id: { notIn: [...authorChunkIds, ...keywordChunks.map((c) => c.id)] },
+          id: { notIn: keywordDocs.map((c) => c.id) },
+          rawBody: { not: null },
           OR: [
-            { content: { contains: kw } },
-            { metadata: { contains: kw } },
+            { rawBody: { contains: kw, mode: "insensitive" } },
+            { rawMetadata: { string_contains: kw } },
           ],
         },
-        orderBy: { createdAt: "desc" },
-        take: remaining - keywordChunks.length,
-        select: { id: true, content: true, metadata: true, createdAt: true },
+        orderBy: { occurredAt: "desc" },
+        take: 8 - keywordDocs.length,
+        select: { id: true, rawBody: true, rawMetadata: true, occurredAt: true },
       });
-      keywordChunks.push(...found);
+      keywordDocs.push(...found);
     }
   }
 
-  const allDocs = [...authorChunks, ...keywordChunks].slice(0, 8);
+  const allDocs = keywordDocs.slice(0, 8);
 
-  return allDocs.map((c) => {
-    const m = parseMeta(c.metadata);
+  return allDocs.map((r) => {
+    const m = (r.rawMetadata ?? {}) as Record<string, unknown>;
     return {
       fileName: (m.fileName as string) ?? (m.file_name as string) ?? (m.title as string) ?? "Untitled",
       author: (m.author as string) ?? (m.authorEmail as string) ?? "unknown",
-      lastModified: (m.lastModified as string) ?? c.createdAt.toISOString(),
-      contentSnippet: c.content.slice(0, 300) || undefined,
+      lastModified: (m.lastModified as string) ?? r.occurredAt.toISOString(),
+      contentSnippet: (r.rawBody ?? "").slice(0, 300) || undefined,
     };
   });
 }

@@ -1,16 +1,15 @@
 /**
  * Worker-side file processing.
  *
- * Extracts text from uploaded files and feeds through the existing
- * ingestContent() pipeline (chunking, embedding, pgvector storage).
+ * Extracts text from uploaded files and stores as RawContent (whole document).
  * Then routes through the document intelligence pipeline (Layers 2-4)
- * asynchronously — chunking completes immediately, intelligence runs after.
+ * asynchronously.
  */
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getStorageProvider } from "@/lib/file-storage";
-import { ingestContent } from "@/lib/content-pipeline";
+import { storeRawContent } from "@/lib/storage/raw-content-store";
 import type { DocumentRegistration } from "@/lib/document-intelligence/types";
 
 export async function processFileUpload(fileUploadId: string): Promise<void> {
@@ -49,37 +48,26 @@ export async function processFileUpload(fileUploadId: string): Promise<void> {
       data: { extractedFullText: text },
     });
 
-    // 4. Chunk and embed (existing pipeline — needed for retrieval regardless of intelligence depth)
-    const result = await ingestContent({
+    // 4. Store as RawContent (whole document, no chunking)
+    await storeRawContent({
       operatorId: file.operatorId,
-      userId: file.uploadedBy,
-      sourceType: "file_upload",
+      userId: file.uploadedBy ?? undefined,
+      sourceType: "file",
       sourceId: file.id,
       content: text,
-      projectId: file.projectId ?? undefined,
       metadata: {
         fileName: file.filename,
         mimeType: file.mimeType,
         fileUploadId: file.id,
       },
+      occurredAt: new Date(),
     });
 
-    // 5. Link ContentChunks to the FileUpload
-    await prisma.contentChunk.updateMany({
-      where: {
-        operatorId: file.operatorId,
-        sourceType: "file_upload",
-        sourceId: file.id,
-      },
-      data: { fileUploadId: file.id },
-    });
-
-    // 6. Mark file as ready — chunking is done, retrieval works immediately
+    // 5. Mark file as ready
     await prisma.fileUpload.update({
       where: { id: file.id },
       data: {
         status: "ready",
-        chunkCount: result.chunksCreated,
         metadata: { extractedTextLength: text.length },
       },
     });
@@ -137,7 +125,7 @@ export async function processFileUpload(fileUploadId: string): Promise<void> {
     // message_extraction route → handled by evidence ingestion, not here
 
     console.log(
-      `[file-processor] Processed ${file.filename}: ${result.chunksCreated} chunks, route: ${route}`,
+      `[file-processor] Processed ${file.filename}, route: ${route}`,
     );
   } catch (error) {
     console.error(

@@ -2,8 +2,8 @@ import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
 import { materializeUnprocessed } from "@/lib/event-materializer";
 import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
-import { ingestContent } from "@/lib/content-pipeline";
-import { ingestActivity, resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
+import { storeRawContent } from "@/lib/storage/raw-content-store";
+import { ingestActivity } from "@/lib/activity-pipeline";
 import {
   isEligibleCommunication,
   type CommunicationItem,
@@ -132,14 +132,16 @@ export async function runConnectorSync(
 
         case "content": {
           try {
-            // Email dedup: skip if same Message-ID already ingested (dual-provider scenario)
             const meta = item.data.metadata as Record<string, unknown> | undefined;
+            const occurredAt = meta?.date ? new Date(meta.date as string) : new Date();
+
+            // Email dedup: skip if same Message-ID already stored
             if (item.data.sourceType === "email" && meta?.messageId) {
               const [existing] = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
-                `SELECT id FROM "ContentChunk"
+                `SELECT id FROM "RawContent"
                  WHERE "operatorId" = $1
                    AND "sourceType" = 'email'
-                   AND metadata::jsonb->>'messageId' = $2
+                   AND "rawMetadata"::jsonb->>'messageId' = $2
                  LIMIT 1`,
                 operatorId,
                 meta.messageId as string,
@@ -149,36 +151,17 @@ export async function runConnectorSync(
               }
             }
 
-            const deptIds = await resolveDepartmentsFromEmails(
+            await storeRawContent({
               operatorId,
-              item.data.participantEmails,
-            );
-            // Merge channel-mapped domainId if present (Slack channel→department mapping)
-            const mappedDeptId = (meta as Record<string, unknown> | undefined)?.domainId as string | null;
-            if (mappedDeptId && !deptIds.includes(mappedDeptId)) {
-              deptIds.push(mappedDeptId);
-            }
-            await ingestContent({
-              operatorId,
-              userId: connector.userId ?? null,
-              connectorId: connector.id,
+              accountId: connector.id,
+              userId: connector.userId ?? undefined,
               sourceType: item.data.sourceType,
               sourceId: item.data.sourceId,
               content: item.data.content,
-              entityId: item.data.entityId,
-              domainIds: deptIds,
-              metadata: item.data.metadata,
+              metadata: (meta || {}) as Record<string, unknown>,
+              occurredAt,
             });
             contentIngested++;
-
-            // Inline classification of new chunks (algorithmic only, no LLM)
-            try {
-              const { classifyNewChunks } = await import("@/lib/knowledge/chunk-classifier");
-              await classifyNewChunks(operatorId, item.data.sourceType, item.data.sourceId);
-            } catch (err) {
-              // Non-fatal — chunks will be classified by the next cron or full classification run
-              console.warn("[connector-sync] Inline chunk classification failed:", err);
-            }
 
             // Document intelligence: route drive_doc content >3000 chars through the pipeline
             if (item.data.sourceType === "drive_doc" && item.data.content.length > 3000) {
@@ -209,21 +192,6 @@ export async function runConnectorSync(
                     select: { id: true },
                   });
 
-                  // Link existing ContentChunks to this FileUpload
-                  const chunkResult = await prisma.contentChunk.updateMany({
-                    where: {
-                      operatorId,
-                      sourceType: "drive_doc",
-                      sourceId: item.data.sourceId,
-                    },
-                    data: { fileUploadId: docRecord.id },
-                  });
-
-                  await prisma.fileUpload.update({
-                    where: { id: docRecord.id },
-                    data: { chunkCount: chunkResult.count },
-                  });
-
                   // Enqueue intelligence pipeline (async — doesn't block sync)
                   enqueueWorkerJob("process_document_intelligence", operatorId, {
                     fileUploadId: docRecord.id,
@@ -232,7 +200,6 @@ export async function runConnectorSync(
                   );
                 }
               } catch (err) {
-                // Non-fatal — document is already chunked and searchable
                 console.warn(
                   `[connector-sync] Document intelligence setup failed for ${item.data.sourceId}:`,
                   err,

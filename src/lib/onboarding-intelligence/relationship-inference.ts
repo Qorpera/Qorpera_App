@@ -39,14 +39,15 @@ export async function inferRelationships(
 
   // 3. Load recent communication excerpts that mention these entities
   const entityNames = entities.map(e => e.displayName);
-  const relevantChunks = await prisma.contentChunk.findMany({
+  const relevantChunks = await prisma.rawContent.findMany({
     where: {
       operatorId,
+      rawBody: { not: null },
       OR: entityNames.slice(0, 50).map(name => ({
-        content: { contains: name },
+        rawBody: { contains: name, mode: "insensitive" as const },
       })),
     },
-    select: { content: true, sourceType: true, metadata: true },
+    select: { rawBody: true, sourceType: true, rawMetadata: true },
     take: 100,
   });
 
@@ -63,9 +64,8 @@ export async function inferRelationships(
   }).join("\n");
 
   const evidenceExcerpts = relevantChunks.slice(0, 50).map((c, i) => {
-    let meta: Record<string, unknown> = {};
-    try { meta = c.metadata ? JSON.parse(c.metadata as string) : {}; } catch { /* */ }
-    return `[${i + 1}] ${c.sourceType}${meta.subject ? `: ${meta.subject}` : ""}\n${c.content.slice(0, 300)}`;
+    const meta = (c.rawMetadata ?? {}) as Record<string, unknown>;
+    return `[${i + 1}] ${c.sourceType}${meta.subject ? `: ${meta.subject}` : ""}\n${(c.rawBody ?? "").slice(0, 300)}`;
   }).join("\n\n");
 
   if (!evidenceExcerpts) {
