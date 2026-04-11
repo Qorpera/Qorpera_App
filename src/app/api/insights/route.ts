@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   // Member scoping: own personal + visible department + operator-scoped
   if (visibleDomains !== "all") {
-    // Find the member's AI entity
+    // Find the member's AI entity for personal insight filtering
     const aiEntity = await prisma.entity.findFirst({
       where: { operatorId, ownerUserId: user.id, entityType: { slug: "ai-agent" } },
       select: { id: true },

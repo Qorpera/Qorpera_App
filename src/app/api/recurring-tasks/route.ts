@@ -53,8 +53,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "AI entity not found" }, { status: 400 });
   }
 
-  // Validate domainId if provided
-  if (contextHints?.domainId) {
+  // Validate domain — accept either domainId (entity) or domainPageSlug (wiki)
+  if (contextHints?.domainPageSlug) {
+    const hub = await prisma.knowledgePage.findFirst({
+      where: { operatorId: su.operatorId, slug: contextHints.domainPageSlug, scope: "operator", pageType: "domain_hub" },
+    });
+    if (!hub) {
+      return NextResponse.json({ error: "Domain page not found" }, { status: 400 });
+    }
+  } else if (contextHints?.domainId) {
     const dept = await prisma.entity.findFirst({
       where: { id: contextHints.domainId, operatorId: su.operatorId, category: "foundational" },
     });

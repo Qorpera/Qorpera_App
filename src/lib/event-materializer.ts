@@ -1,3 +1,4 @@
+/** @deprecated v0.3.13 — entity materialization will be replaced with wiki page updates */
 import { prisma } from "@/lib/db";
 import { upsertEntity, resolveEntity, relateEntities } from "@/lib/entity-resolution";
 import { getEntityType } from "@/lib/entity-model-store";

@@ -20,10 +20,15 @@ export async function GET(
   });
   if (!initiative) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const aiEntity = await prisma.entity.findFirst({
-    where: { id: initiative.aiEntityId, operatorId },
-    select: { displayName: true },
-  });
+  // Resolve owner wiki page title
+  let ownerName: string | null = null;
+  if (initiative.ownerPageSlug) {
+    const ownerPage = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: initiative.ownerPageSlug, scope: "operator" },
+      select: { title: true },
+    });
+    ownerName = ownerPage?.title ?? null;
+  }
 
   const parseJson = (val: unknown) => {
     if (!val) return null;
@@ -34,7 +39,8 @@ export async function GET(
   return NextResponse.json({
     id: initiative.id,
     aiEntityId: initiative.aiEntityId,
-    aiEntityName: aiEntity?.displayName ?? null,
+    ownerPageSlug: initiative.ownerPageSlug,
+    ownerName,
     proposalType: initiative.proposalType,
     triggerSummary: initiative.triggerSummary,
     evidence: parseJson(initiative.evidence),

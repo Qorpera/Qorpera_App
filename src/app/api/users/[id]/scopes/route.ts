@@ -34,6 +34,12 @@ export async function POST(
     return NextResponse.json({ error: "Domain not found" }, { status: 404 });
   }
 
+  // Look up the corresponding wiki domain_hub page slug
+  const hubPage = await prisma.knowledgePage.findFirst({
+    where: { operatorId: su.operatorId, scope: "operator", pageType: "domain_hub", title: { equals: dept.displayName, mode: "insensitive" } },
+    select: { slug: true, title: true },
+  });
+
   // Check if scope already exists
   const existing = await prisma.userScope.findUnique({
     where: { userId_domainEntityId: { userId, domainEntityId } },
@@ -53,6 +59,7 @@ export async function POST(
   return NextResponse.json({
     id: scope.id,
     domainEntityId: scope.domainEntityId,
-    domainName: dept.displayName,
+    domainPageSlug: hubPage?.slug ?? null,
+    domainName: hubPage?.title ?? dept.displayName,
   }, { status: 201 });
 }

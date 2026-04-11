@@ -13,7 +13,8 @@ import { formatRelativeTime } from "@/lib/format-helpers";
 interface InitiativeItem {
   id: string;
   aiEntityId: string;
-  aiEntityName: string | null;
+  ownerPageSlug: string | null;
+  ownerName: string | null;
   proposalType: string;
   triggerSummary: string;
   status: string;
@@ -27,7 +28,8 @@ interface InitiativeItem {
 interface InitiativeDetail {
   id: string;
   aiEntityId: string;
-  aiEntityName: string | null;
+  ownerPageSlug: string | null;
+  ownerName: string | null;
   proposalType: string;
   triggerSummary: string;
   evidence: Array<{ source: string; claim: string }> | null;
@@ -215,7 +217,7 @@ export default function InitiativesPage() {
                     {item.triggerSummary || "Untitled initiative"}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--fg4)" }} className="pl-[15px] mt-0.5 truncate">
-                    {item.aiEntityName ?? "AI"}
+                    {item.ownerName ?? "AI"}
                   </div>
                 </button>
               );
@@ -307,7 +309,7 @@ function DetailPane({
           <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: `color-mix(in srgb, ${typeConfig.color} 12%, transparent)`, color: typeConfig.color, textTransform: "uppercase", letterSpacing: "0.04em" }}>
             {typeConfig.label}
           </span>
-          <span style={{ fontSize: 12, color: "var(--fg3)" }}>{d.aiEntityName ?? "AI"}</span>
+          <span style={{ fontSize: 12, color: "var(--fg3)" }}>{d.ownerName ?? "AI"}</span>
           <span style={{ fontSize: 12, color: "var(--fg4)" }}>{formatRelativeTime(d.createdAt, locale)}</span>
         </div>
 

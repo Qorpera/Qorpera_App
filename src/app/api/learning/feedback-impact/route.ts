@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
     take: 50,
   });
 
-  // Resolve department names for scoped situation types
+  // Resolve department names — prefer wiki page titles
   const scopeEntityIds = [
     ...new Set(
       feedbackSituations
@@ -57,7 +57,19 @@ export async function GET(req: NextRequest) {
         select: { id: true, displayName: true },
       })
     : [];
-  const deptNameMap = new Map(scopeEntities.map((e) => [e.id, e.displayName]));
+  // Try to resolve better names from wiki domain_hub pages
+  const deptNames = scopeEntities.map(e => e.displayName);
+  const hubPages = deptNames.length > 0
+    ? await prisma.knowledgePage.findMany({
+        where: { operatorId, scope: "operator", pageType: "domain_hub", title: { in: deptNames, mode: "insensitive" } },
+        select: { title: true },
+      })
+    : [];
+  const hubTitleMap = new Map(hubPages.map(p => [p.title.toLowerCase(), p.title]));
+  const deptNameMap = new Map(scopeEntities.map((e) => [
+    e.id,
+    hubTitleMap.get(e.displayName.toLowerCase()) ?? e.displayName,
+  ]));
 
   // Calculate before/after approval rates for each feedback entry
   const recentFeedback = await Promise.all(

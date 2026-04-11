@@ -43,8 +43,11 @@ interface SituationItem {
   status: string;
   source: string;
   triggerEntityId: string | null;
-  triggerEntityName: string | null;
+  triggerPageSlug: string | null;
+  triggerName: string | null;
+  triggerPageType: string | null;
   triggerSummary: string | null;
+  domainPageSlug: string | null;
   domainName: string | null;
   editInstruction: string | null;
   createdAt: string;
@@ -139,7 +142,7 @@ interface SituationDetail {
     };
     departments?: Array<{ id: string; name: string; description: string | null; lead: { name: string; role: string } | null; memberCount: number }>;
     recentEvents?: Array<{ id: string; source: string; eventType: string; createdAt: string }>;
-    priorSituations?: Array<{ id: string; triggerEntityName: string; status: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>;
+    priorSituations?: Array<{ id: string; triggerName: string; status: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>;
   } | null;
   triggerEvidence: {
     type: "content" | "structured" | "natural" | "hybrid";
@@ -567,7 +570,7 @@ export default function SituationsPage() {
                     <span style={{ fontSize: 13, fontWeight: isUnread ? 600 : 500, color: "var(--foreground)" }} className="truncate flex-1">
                       {s.triggerSummary
                         ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
-                        : s.triggerEntityName ?? "Unknown"
+                        : s.triggerName ?? "Unknown"
                       }
                     </span>
                     <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
@@ -1262,7 +1265,7 @@ function DetailPane({
           <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
             {s.triggerSummary
               ? s.triggerSummary.slice(0, 80) + (s.triggerSummary.length > 80 ? "..." : "")
-              : `${s.triggerEntityName ?? "Unknown"} — ${s.situationType.name}`
+              : `${s.triggerName ?? "Unknown"} — ${s.situationType.name}`
             }
           </h1>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -1302,7 +1305,7 @@ function DetailPane({
                         const meData = meRes.ok ? await meRes.json() : null;
                         if (!meData?.id) { setCreatingProject(false); return; }
 
-                        const title = `${s.triggerEntityName ?? "Unknown"} — ${s.situationType.name}`;
+                        const title = `${s.triggerName ?? "Unknown"} — ${s.situationType.name}`;
                         const wsRes = await fetch("/api/workstreams", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
@@ -2060,7 +2063,7 @@ function DetailPane({
                             {ps.outcome === "positive" ? "\u2713" : ps.outcome === "negative" ? "\u2717" : "\u25CB"}
                           </span>
                           <div>
-                            <span style={{ color: "var(--fg2)" }}>{ps.triggerEntityName}</span>
+                            <span style={{ color: "var(--fg2)" }}>{ps.triggerName}</span>
                             <span style={{ color: "var(--fg4)", marginLeft: 6 }}>{ps.status}</span>
                             {ps.feedback && <p style={{ color: "var(--fg3)", marginTop: 2, fontSize: 11 }}>{ps.feedback}</p>}
                           </div>

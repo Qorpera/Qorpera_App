@@ -17,19 +17,21 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  const aiEntityIds = [...new Set(initiatives.map(i => i.aiEntityId))];
-  const aiEntities = aiEntityIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: aiEntityIds }, operatorId },
-        select: { id: true, displayName: true },
+  // Resolve owner wiki page titles
+  const ownerSlugs = [...new Set(initiatives.map(i => i.ownerPageSlug).filter(Boolean))] as string[];
+  const ownerPages = ownerSlugs.length > 0
+    ? await prisma.knowledgePage.findMany({
+        where: { operatorId, slug: { in: ownerSlugs }, scope: "operator" },
+        select: { slug: true, title: true },
       })
     : [];
-  const aiEntityMap = new Map(aiEntities.map(e => [e.id, e.displayName]));
+  const ownerPageMap = new Map(ownerPages.map(p => [p.slug, p.title]));
 
   const items = initiatives.map(i => ({
     id: i.id,
     aiEntityId: i.aiEntityId,
-    aiEntityName: aiEntityMap.get(i.aiEntityId) ?? null,
+    ownerPageSlug: i.ownerPageSlug,
+    ownerName: i.ownerPageSlug ? ownerPageMap.get(i.ownerPageSlug) ?? null : null,
     proposalType: i.proposalType,
     triggerSummary: i.triggerSummary,
     status: i.status,

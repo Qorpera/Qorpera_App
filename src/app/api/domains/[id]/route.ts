@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 import { updateDepartmentSchema, parseBody } from "@/lib/api-validation";
 
 export async function GET(
@@ -11,79 +11,37 @@ export async function GET(
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const { id } = await params;
+  const { id: slug } = await params;
 
-  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
-  if (visibleDomains !== "all" && !visibleDomains.includes(id)) {
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, user.id);
+  if (visibleDomains !== "all" && !visibleDomains.includes(slug)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 
-  const dept = await prisma.entity.findFirst({
-    where: { id, operatorId, category: "foundational", status: "active" },
-    include: {
-      entityType: { select: { slug: true, name: true, icon: true, color: true } },
+  const page = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug, scope: "operator", pageType: "domain_hub" },
+    select: {
+      slug: true, title: true, content: true, crossReferences: true,
+      confidence: true, mapX: true, mapY: true,
     },
   });
-  if (!dept) {
+
+  if (!page) {
     return NextResponse.json({ error: "Domain not found" }, { status: 404 });
   }
 
-  const [members, documents, digitalEntities] = await Promise.all([
-    prisma.entity.findMany({
-      where: { primaryDomainId: id, category: "base", status: "active" },
-      include: {
-        entityType: { select: { slug: true, name: true, icon: true, color: true } },
-        propertyValues: {
-          include: { property: { select: { slug: true, name: true, dataType: true } } },
-        },
-      },
-      orderBy: { displayName: "asc" },
-    }),
-    prisma.entity.findMany({
-      where: { primaryDomainId: id, category: "internal", status: "active" },
-      include: {
-        entityType: { select: { slug: true, name: true, icon: true, color: true } },
-        propertyValues: {
-          include: { property: { select: { slug: true, name: true, dataType: true } } },
-        },
-      },
-      orderBy: { displayName: "asc" },
-    }),
-    prisma.relationship.findMany({
-      where: {
-        toEntityId: id,
-        relationshipType: { slug: "domain-member" },
-      },
-      include: {
-        fromEntity: {
-          select: {
-            id: true,
-            displayName: true,
-            category: true,
-            entityType: { select: { slug: true, name: true, icon: true, color: true } },
-          },
-        },
-      },
-    }),
-  ]);
-
-  return NextResponse.json({
-    id: dept.id,
-    displayName: dept.displayName,
-    description: dept.description,
-    category: dept.category,
-    mapX: dept.mapX,
-    mapY: dept.mapY,
-    entityType: dept.entityType,
-    primaryDomainId: dept.primaryDomainId,
-    createdAt: dept.createdAt,
-    members,
-    documents,
-    digitalEntities: digitalEntities.map((r) => r.fromEntity),
-    memberCount: members.length,
-    documentCount: documents.length,
-    digitalCount: digitalEntities.length,
+  // Load member pages (person_profile pages that cross-reference this hub)
+  const members = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      scope: "operator",
+      pageType: "person_profile",
+      crossReferences: { has: slug },
+    },
+    select: { slug: true, title: true, pageType: true },
   });
+
+  return NextResponse.json({ ...page, members });
 }
 
 export async function PATCH(
@@ -93,10 +51,10 @@ export async function PATCH(
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const { id } = await params;
+  const { id: slug } = await params;
 
-  const patchVisibleDepts = await getVisibleDomainIds(operatorId, user.id);
-  if (patchVisibleDepts !== "all" && !patchVisibleDepts.includes(id)) {
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, user.id);
+  if (visibleDomains !== "all" && !visibleDomains.includes(slug)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 
@@ -106,35 +64,36 @@ export async function PATCH(
     return NextResponse.json({ error: parsed.error }, { status: 400 });
   }
 
-  const dept = await prisma.entity.findFirst({
-    where: { id, operatorId, category: "foundational", status: "active" },
+  const page = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug, scope: "operator", pageType: "domain_hub" },
+    select: { id: true },
   });
-  if (!dept) {
+  if (!page) {
     return NextResponse.json({ error: "Domain not found" }, { status: 404 });
   }
 
   const data: Record<string, unknown> = {};
-  if (parsed.data.displayName !== undefined) data.displayName = parsed.data.displayName;
-  if (parsed.data.description !== undefined) data.description = parsed.data.description;
+  if (parsed.data.displayName !== undefined) data.title = parsed.data.displayName;
+  if (parsed.data.description !== undefined) data.content = parsed.data.description;
   if (parsed.data.mapX !== undefined) data.mapX = parsed.data.mapX;
   if (parsed.data.mapY !== undefined) data.mapY = parsed.data.mapY;
 
-  const updated = await prisma.entity.update({
-    where: { id },
+  const updated = await prisma.knowledgePage.update({
+    where: { id: page.id },
     data,
-    include: {
-      entityType: { select: { slug: true, name: true, icon: true, color: true } },
+    select: {
+      slug: true, title: true, content: true,
+      confidence: true, mapX: true, mapY: true, pageType: true,
     },
   });
 
   return NextResponse.json({
-    id: updated.id,
-    displayName: updated.displayName,
-    description: updated.description,
-    category: updated.category,
+    slug: updated.slug,
+    name: updated.title,
+    description: updated.content.slice(0, 300),
+    confidence: updated.confidence,
     mapX: updated.mapX,
     mapY: updated.mapY,
-    entityType: updated.entityType,
   });
 }
 
@@ -148,36 +107,39 @@ export async function DELETE(
   if (user.role === "member") {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
-  const { id } = await params;
+  const { id: slug } = await params;
 
-  const delVisibleDepts = await getVisibleDomainIds(operatorId, user.id);
-  if (delVisibleDepts !== "all" && !delVisibleDepts.includes(id)) {
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, user.id);
+  if (visibleDomains !== "all" && !visibleDomains.includes(slug)) {
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 
-  const dept = await prisma.entity.findFirst({
-    where: { id, operatorId, category: "foundational", status: "active" },
-    include: { entityType: { select: { slug: true } } },
+  const page = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug, scope: "operator", pageType: "domain_hub" },
+    select: { id: true, slug: true },
   });
-  if (!dept) {
+  if (!page) {
     return NextResponse.json({ error: "Domain not found" }, { status: 404 });
   }
 
-  // Guard: cannot delete CompanyHQ
-  if (dept.entityType.slug === "organization") {
-    return NextResponse.json(
-      { error: "Cannot delete the company headquarters" },
-      { status: 403 },
-    );
-  }
-
-  // Orphan children, then delete
-  await prisma.entity.updateMany({
-    where: { primaryDomainId: id },
-    data: { primaryDomainId: null },
+  // Remove cross-references to this domain from all person pages
+  const personPages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      scope: "operator",
+      crossReferences: { has: slug },
+    },
+    select: { id: true, crossReferences: true },
   });
 
-  await prisma.entity.delete({ where: { id } });
+  for (const pp of personPages) {
+    await prisma.knowledgePage.update({
+      where: { id: pp.id },
+      data: { crossReferences: pp.crossReferences.filter(ref => ref !== slug) },
+    });
+  }
+
+  await prisma.knowledgePage.delete({ where: { id: page.id } });
 
   return NextResponse.json({ ok: true });
 }

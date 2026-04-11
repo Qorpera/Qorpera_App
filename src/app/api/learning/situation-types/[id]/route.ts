@@ -49,15 +49,24 @@ export async function GET(
     return NextResponse.json({ error: "Access denied" }, { status: 403 });
   }
 
-  // Load scoped department
-  let department: { id: string; name: string } | null = null;
+  // Load scoped department — prefer wiki page title
+  let department: { id: string; name: string; pageSlug?: string } | null = null;
   if (situationType.scopeEntityId) {
     const dept = await prisma.entity.findUnique({
       where: { id: situationType.scopeEntityId },
       select: { id: true, displayName: true },
     });
     if (dept) {
-      department = { id: dept.id, name: dept.displayName };
+      // Try to find the corresponding wiki domain_hub page for a better display name
+      const hubPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId, scope: "operator", pageType: "domain_hub", title: { equals: dept.displayName, mode: "insensitive" } },
+        select: { slug: true, title: true },
+      });
+      department = {
+        id: dept.id,
+        name: hubPage?.title ?? dept.displayName,
+        pageSlug: hubPage?.slug ?? undefined,
+      };
     }
   }
 

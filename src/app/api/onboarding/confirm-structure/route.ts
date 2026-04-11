@@ -39,6 +39,24 @@ export async function POST(request: Request) {
   // Apply edits if provided
   if (body.edits) {
     await applyStructureEdits(operatorId, body.edits);
+    await applyWikiEdits(operatorId, body.edits);
+  }
+
+  // Mark all onboarding wiki pages as verified
+  const verified = await prisma.knowledgePage.updateMany({
+    where: {
+      operatorId,
+      scope: "operator",
+      synthesisPath: "onboarding",
+      status: "draft",
+    },
+    data: {
+      status: "verified",
+      verifiedAt: new Date(),
+    },
+  });
+  if (verified.count > 0) {
+    console.log(`[confirm-structure] Verified ${verified.count} onboarding wiki pages`);
   }
 
   // Store uncertainty answers alongside the analysis record
@@ -280,6 +298,169 @@ async function applyStructureEdits(operatorId: string, edits: CompanyModelEdits)
             },
           });
         }
+      }
+    }
+  }
+}
+
+// ── Wiki Edit Application ───────────────────────────────────────────────────
+
+async function applyWikiEdits(operatorId: string, edits: CompanyModelEdits): Promise<void> {
+  // Rename domain_hub wiki pages
+  if (edits.renamedDepartments) {
+    for (const { oldName, newName } of edits.renamedDepartments) {
+      const hubPage = await prisma.knowledgePage.findFirst({
+        where: {
+          operatorId,
+          scope: "operator",
+          pageType: "domain_hub",
+          title: { equals: oldName, mode: "insensitive" },
+        },
+        select: { id: true, slug: true },
+      });
+      if (hubPage) {
+        const oldSlug = hubPage.slug;
+        const newSlug = "domain-" + newName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+        // Update the hub page title and slug
+        await prisma.knowledgePage.update({
+          where: { id: hubPage.id },
+          data: { title: newName, slug: newSlug },
+        });
+
+        // Update cross-references in all pages that referenced the old slug
+        if (oldSlug !== newSlug) {
+          const referencing = await prisma.knowledgePage.findMany({
+            where: { operatorId, scope: "operator", crossReferences: { has: oldSlug } },
+            select: { id: true, crossReferences: true },
+          });
+          for (const page of referencing) {
+            await prisma.knowledgePage.update({
+              where: { id: page.id },
+              data: { crossReferences: page.crossReferences.map(ref => ref === oldSlug ? newSlug : ref) },
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Archive deleted domain_hub wiki pages
+  if (edits.deletedDepartments) {
+    for (const name of edits.deletedDepartments) {
+      const hubPage = await prisma.knowledgePage.findFirst({
+        where: {
+          operatorId,
+          scope: "operator",
+          pageType: "domain_hub",
+          title: { equals: name, mode: "insensitive" },
+        },
+        select: { id: true, slug: true },
+      });
+      if (hubPage) {
+        await prisma.knowledgePage.update({
+          where: { id: hubPage.id },
+          data: { status: "archived" },
+        });
+        // Remove cross-references to this domain from all pages
+        const referencing = await prisma.knowledgePage.findMany({
+          where: { operatorId, scope: "operator", crossReferences: { has: hubPage.slug } },
+          select: { id: true, crossReferences: true },
+        });
+        for (const page of referencing) {
+          await prisma.knowledgePage.update({
+            where: { id: page.id },
+            data: { crossReferences: page.crossReferences.filter(ref => ref !== hubPage.slug) },
+          });
+        }
+      }
+    }
+  }
+
+  // Move people: update person_profile cross-references
+  if (edits.movedPeople) {
+    for (const { email, toDepartment } of edits.movedPeople) {
+      // Find person wiki page by searching content for the email
+      const personPage = await prisma.knowledgePage.findFirst({
+        where: {
+          operatorId,
+          scope: "operator",
+          pageType: "person_profile",
+          content: { contains: email.toLowerCase(), mode: "insensitive" },
+        },
+        select: { id: true, crossReferences: true },
+      });
+
+      // Find target domain hub slug
+      const targetHub = await prisma.knowledgePage.findFirst({
+        where: {
+          operatorId,
+          scope: "operator",
+          pageType: "domain_hub",
+          title: { equals: toDepartment, mode: "insensitive" },
+        },
+        select: { slug: true },
+      });
+
+      if (personPage && targetHub) {
+        // Remove old domain-* refs, add the new one
+        const newRefs = personPage.crossReferences.filter(ref => !ref.startsWith("domain-"));
+        newRefs.push(targetHub.slug);
+        await prisma.knowledgePage.update({
+          where: { id: personPage.id },
+          data: { crossReferences: newRefs },
+        });
+      }
+    }
+  }
+
+  // Archive deleted people wiki pages
+  if (edits.deletedPeople) {
+    for (const email of edits.deletedPeople) {
+      const personPage = await prisma.knowledgePage.findFirst({
+        where: {
+          operatorId,
+          scope: "operator",
+          pageType: "person_profile",
+          content: { contains: email.toLowerCase(), mode: "insensitive" },
+        },
+        select: { id: true },
+      });
+      if (personPage) {
+        await prisma.knowledgePage.update({
+          where: { id: personPage.id },
+          data: { status: "archived" },
+        });
+      }
+    }
+  }
+
+  // Add new domain_hub wiki pages
+  if (edits.addedDepartments) {
+    for (const { name, description } of edits.addedDepartments) {
+      const slug = "domain-" + name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const existing = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug, scope: "operator" },
+      });
+      if (!existing) {
+        await prisma.knowledgePage.create({
+          data: {
+            operatorId,
+            scope: "operator",
+            pageType: "domain_hub",
+            title: name.trim(),
+            slug,
+            content: description || "",
+            confidence: 0.5,
+            status: "draft",
+            trustLevel: "provisional",
+            crossReferences: [],
+            synthesisPath: "onboarding",
+            synthesizedByModel: "manual",
+            lastSynthesizedAt: new Date(),
+            sourceAuthority: "foundational",
+          },
+        });
       }
     }
   }

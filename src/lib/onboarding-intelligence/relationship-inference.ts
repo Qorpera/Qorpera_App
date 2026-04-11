@@ -1,3 +1,4 @@
+/** @deprecated v0.3.11 — relationship inference removed from onboarding pipeline; wiki cross-references replace entity relationships */
 /**
  * Relationship inference — cross-references extracted entities with communication
  * evidence to infer entity-to-entity relationships during onboarding.

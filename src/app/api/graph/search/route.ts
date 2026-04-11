@@ -1,30 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { searchEntities } from "@/lib/entity-resolution";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { prisma } from "@/lib/db";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { operatorId } = su;
-  const visibleDomains = await getVisibleDomainIds(operatorId, su.user.id);
-  const url = new URL(req.url);
-  const q = url.searchParams.get("q") ?? "";
-  const type = url.searchParams.get("type") ?? undefined;
-  if (!q) return NextResponse.json([]);
 
-  let results = await searchEntities(operatorId, q, type);
+  const query = req.nextUrl.searchParams.get("q") || "";
+  if (!query) return NextResponse.json({ results: [] });
 
-  // Post-filter by department scope
+  const pages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId: su.operatorId,
+      scope: "operator",
+      OR: [
+        { title: { contains: query, mode: "insensitive" } },
+        { slug: { contains: query, mode: "insensitive" } },
+      ],
+    },
+    select: { slug: true, title: true, pageType: true, mapX: true, mapY: true, crossReferences: true },
+    take: 50,
+  });
+
+  const visibleDomains = await getVisibleDomainSlugs(su.operatorId, su.user.id);
+
+  let results = pages;
   if (visibleDomains !== "all") {
     const visibleSet = new Set(visibleDomains);
-    results = results.filter((e: { primaryDomainId?: string | null; category?: string; id?: string }) => {
-      if (e.category === "foundational") return visibleSet.has(e.id || "");
-      if (e.category === "external") return true;
-      if (e.primaryDomainId) return visibleSet.has(e.primaryDomainId);
-      return false;
-    });
+    results = pages.filter(p => visibleSet.has(p.slug) || p.crossReferences.some(ref => visibleSet.has(ref)));
   }
 
-  return NextResponse.json(results);
+  return NextResponse.json({
+    results: results.slice(0, 20).map(({ crossReferences: _, ...rest }) => rest),
+  });
 }

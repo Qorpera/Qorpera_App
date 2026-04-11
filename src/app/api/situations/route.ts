@@ -67,17 +67,17 @@ export async function GET(req: NextRequest) {
     prisma.situation.count({ where }),
   ]);
 
-  // Resolve trigger entity + department display names
+  // Resolve trigger + domain display names via wiki pages
   const situationIds = situations.map((s) => s.id);
-  const triggerIds = situations.map((s) => s.triggerEntityId).filter(Boolean) as string[];
-  const scopeIds = situations.map((s) => s.situationType.scopeEntityId).filter(Boolean) as string[];
-  const allIds = [...new Set([...triggerIds, ...scopeIds])];
+  const triggerSlugs = situations.map((s) => s.triggerPageSlug).filter(Boolean) as string[];
+  const domainSlugs = situations.map((s) => s.domainPageSlug).filter(Boolean) as string[];
+  const allSlugs = [...new Set([...triggerSlugs, ...domainSlugs])];
 
-  const [entities, views] = await Promise.all([
-    allIds.length > 0
-      ? prisma.entity.findMany({
-          where: { id: { in: allIds }, operatorId },
-          select: { id: true, displayName: true },
+  const [wikiPages, views] = await Promise.all([
+    allSlugs.length > 0
+      ? prisma.knowledgePage.findMany({
+          where: { operatorId, slug: { in: allSlugs }, scope: "operator" },
+          select: { slug: true, title: true, pageType: true },
         })
       : Promise.resolve([]),
     situationIds.length > 0
@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
         })
       : Promise.resolve([]),
   ]);
-  const entityMap = new Map(entities.map((e) => [e.id, e.displayName]));
+  const pageMap = new Map(wikiPages.map((p) => [p.slug, p]));
   const viewMap = new Map(views.map((v) => [v.situationId, v.viewedAt]));
 
   const items = situations.map((s) => {
@@ -104,9 +104,12 @@ export async function GET(req: NextRequest) {
       status: s.status,
       source: s.source,
       triggerEntityId: s.triggerEntityId,
-      triggerEntityName: s.triggerEntityId ? entityMap.get(s.triggerEntityId) ?? null : null,
-      domainName: s.situationType.scopeEntityId
-        ? entityMap.get(s.situationType.scopeEntityId) ?? null
+      triggerPageSlug: s.triggerPageSlug,
+      triggerName: s.triggerPageSlug ? pageMap.get(s.triggerPageSlug)?.title ?? null : null,
+      triggerPageType: s.triggerPageSlug ? pageMap.get(s.triggerPageSlug)?.pageType ?? null : null,
+      domainPageSlug: s.domainPageSlug,
+      domainName: s.domainPageSlug
+        ? pageMap.get(s.domainPageSlug)?.title ?? null
         : null,
       reasoning,
       proposedAction,

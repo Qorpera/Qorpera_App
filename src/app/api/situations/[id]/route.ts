@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getEntityContext } from "@/lib/entity-resolution";
 import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
 import { resumeAfterSituationResolution } from "@/lib/execution-engine";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
@@ -49,18 +48,15 @@ export async function GET(
   let triggerEvidence = null;
   try { triggerEvidence = situation.triggerEvidence ? JSON.parse(situation.triggerEvidence) : null; } catch { triggerEvidence = null; }
 
-  // Fetch current entity state (may differ from snapshot)
-  let currentEntityState = null;
-  if (situation.triggerEntityId) {
-    const ctx = await getEntityContext(operatorId, situation.triggerEntityId);
-    if (ctx) {
-      currentEntityState = {
-        id: ctx.id,
-        displayName: ctx.displayName,
-        typeName: ctx.typeName,
-        properties: ctx.properties,
-        relationships: ctx.relationships,
-      };
+  // Fetch trigger wiki page (may have been updated since situation creation)
+  let triggerPage = null;
+  if (situation.triggerPageSlug) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: situation.triggerPageSlug, scope: "operator" },
+      select: { slug: true, title: true, pageType: true, content: true, crossReferences: true, confidence: true },
+    });
+    if (page) {
+      triggerPage = page;
     }
   }
 
@@ -78,12 +74,15 @@ export async function GET(
     status: situation.status,
     source: situation.source,
     triggerEntityId: situation.triggerEntityId,
+    triggerPageSlug: situation.triggerPageSlug,
+    triggerPage,
     triggerEventId: situation.triggerEventId,
     contextSnapshot,
     triggerEvidence,
     triggerSummary: situation.triggerSummary ?? null,
     resumeSummary: situation.resumeSummary ?? null,
-    currentEntityState,
+    domainPageSlug: situation.domainPageSlug,
+    assignedPageSlug: situation.assignedPageSlug,
     investigationDepth: situation.investigationDepth,
     analysisDocument: situation.analysisDocument ?? null,
     reasoning: situation.reasoning ? JSON.parse(situation.reasoning) : null,
@@ -401,6 +400,18 @@ export async function PATCH(
       // Store approving user so executor can resolve their personal connector token
       updates.assignedUserId = user.id;
     }
+  }
+  if (body.assignedPageSlug !== undefined) {
+    if (body.assignedPageSlug !== null) {
+      const assignedPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug: body.assignedPageSlug, scope: "operator" },
+        select: { slug: true },
+      });
+      if (!assignedPage) {
+        return NextResponse.json({ error: "Assigned page not found" }, { status: 400 });
+      }
+    }
+    updates.assignedPageSlug = body.assignedPageSlug;
   }
   if (body.feedback !== undefined) updates.feedback = body.feedback;
   if (body.feedbackRating !== undefined) updates.feedbackRating = body.feedbackRating;

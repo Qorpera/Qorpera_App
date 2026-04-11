@@ -106,57 +106,52 @@ export async function GET() {
   if (analysis.status === "confirming" || analysis.status === "complete") {
     const raw = analysis.synthesisOutput as Record<string, unknown> | null;
 
-    // New wiki-first format: derive UI shape from actual database entities
+    // Wiki-first format: derive UI shape from wiki pages
     if (raw && "wikiPages" in raw) {
-      const [domainEntities, teamMembers, sitTypes, externalEntities] = await Promise.all([
-        prisma.entity.findMany({
-          where: { operatorId: session.operatorId, category: "foundational", status: "active" },
-          select: { id: true, displayName: true, description: true },
+      const [domainPages, personPages, sitTypes, externalPages] = await Promise.all([
+        prisma.knowledgePage.findMany({
+          where: { operatorId: session.operatorId, scope: "operator", pageType: "domain_hub", synthesisPath: "onboarding" },
+          select: { slug: true, title: true, content: true, crossReferences: true },
         }),
-        prisma.entity.findMany({
-          where: { operatorId: session.operatorId, entityType: { slug: "team-member" }, status: "active" },
-          select: {
-            displayName: true,
-            primaryDomainId: true,
-            description: true,
-            propertyValues: { select: { value: true, property: { select: { identityRole: true } } } },
-          },
+        prisma.knowledgePage.findMany({
+          where: { operatorId: session.operatorId, scope: "operator", pageType: "person_profile", synthesisPath: "onboarding" },
+          select: { slug: true, title: true, content: true, crossReferences: true },
         }),
         prisma.situationType.findMany({
           where: { operatorId: session.operatorId },
           select: { name: true, description: true },
         }),
-        prisma.entity.findMany({
-          where: { operatorId: session.operatorId, category: "external", status: "active" },
-          select: { displayName: true, description: true },
+        prisma.knowledgePage.findMany({
+          where: { operatorId: session.operatorId, scope: "operator", pageType: "external_relationship", synthesisPath: "onboarding" },
+          select: { slug: true, title: true },
           take: 20,
         }),
       ]);
 
-      const domains = domainEntities.map((d) => ({
-        name: d.displayName,
-        headCount: teamMembers.filter((tm) => tm.primaryDomainId === d.id).length,
-        keyPeople: teamMembers.filter((tm) => tm.primaryDomainId === d.id).map((tm) => tm.displayName),
-        functions: d.description ? [d.description] : [],
-      }));
-      const people = teamMembers.map((p) => {
-        const emailProp = p.propertyValues?.find((pv) => pv.property?.identityRole === "email");
+      const domains = domainPages.map((d) => {
+        const members = personPages.filter(p => p.crossReferences.includes(d.slug));
         return {
-          name: p.displayName,
-          email: emailProp?.value ?? undefined,
-          department: domainEntities.find((d) => d.id === p.primaryDomainId)?.displayName,
-          role: p.description ?? undefined,
-          relationships: [],
+          name: d.title,
+          headCount: members.length,
+          keyPeople: members.map(m => m.title),
+          functions: d.content ? [d.content.slice(0, 200)] : [],
         };
       });
+      const people = personPages.map((p) => ({
+        name: p.title,
+        email: undefined,
+        department: domainPages.find(d => p.crossReferences.includes(d.slug))?.title,
+        role: p.content?.slice(0, 100) ?? undefined,
+        relationships: [],
+      }));
       const situationRecommendations = sitTypes.map((s) => ({
         name: s.name,
         description: s.description ?? "",
         priority: "medium" as "high" | "medium" | "low",
       }));
-      const relationships = externalEntities.map((e) => ({
+      const relationships = externalPages.map((e) => ({
         from: "",
-        to: e.displayName,
+        to: e.title,
         type: "customer",
         strength: "moderate" as const,
       }));

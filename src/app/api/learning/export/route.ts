@@ -32,37 +32,37 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Resolve trigger entity display names
-  const entityIds = [
+  // Resolve trigger names via wiki pages
+  const triggerSlugs = [
     ...new Set(
       situations
-        .map((s) => s.triggerEntityId)
-        .filter((id): id is string => id !== null),
+        .map((s) => s.triggerPageSlug)
+        .filter((s): s is string => s !== null),
     ),
   ];
-  const entities = entityIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: entityIds } },
-        select: { id: true, displayName: true },
+  const triggerPages = triggerSlugs.length > 0
+    ? await prisma.knowledgePage.findMany({
+        where: { operatorId, slug: { in: triggerSlugs }, scope: "operator" },
+        select: { slug: true, title: true },
       })
     : [];
-  const entityNameMap = new Map(entities.map((e) => [e.id, e.displayName]));
+  const triggerNameMap = new Map(triggerPages.map((p) => [p.slug, p.title]));
 
-  // Resolve department names
-  const scopeIds = [
+  // Resolve department names via wiki pages
+  const domainSlugs = [
     ...new Set(
       situations
-        .map((s) => s.situationType.scopeEntityId)
-        .filter((id): id is string => id !== null),
+        .map((s) => s.domainPageSlug)
+        .filter((s): s is string => s !== null),
     ),
   ];
-  const deptEntities = scopeIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: scopeIds } },
-        select: { id: true, displayName: true },
+  const domainPages = domainSlugs.length > 0
+    ? await prisma.knowledgePage.findMany({
+        where: { operatorId, slug: { in: domainSlugs }, scope: "operator" },
+        select: { slug: true, title: true },
       })
     : [];
-  const deptNameMap = new Map(deptEntities.map((e) => [e.id, e.displayName]));
+  const deptNameMap = new Map(domainPages.map((p) => [p.slug, p.title]));
 
   // Build CSV
   const header = "date,situation_type,department,entity,status,outcome,severity,confidence,reasoning_summary,feedback_category,feedback_text";
@@ -70,13 +70,13 @@ export async function GET(req: NextRequest) {
     const date = s.createdAt.toISOString().slice(0, 10);
     const sitType = csvEscape(s.situationType.name);
     const dept = csvEscape(
-      s.situationType.scopeEntityId
-        ? deptNameMap.get(s.situationType.scopeEntityId) ?? ""
+      s.domainPageSlug
+        ? deptNameMap.get(s.domainPageSlug) ?? ""
         : "",
     );
     const entity = csvEscape(
-      s.triggerEntityId
-        ? entityNameMap.get(s.triggerEntityId) ?? s.triggerEntityId
+      s.triggerPageSlug
+        ? triggerNameMap.get(s.triggerPageSlug) ?? s.triggerPageSlug
         : "",
     );
     const status = s.status;

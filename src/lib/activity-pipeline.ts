@@ -1,3 +1,4 @@
+/** @deprecated v0.3.13 — entity resolution via resolveEntity will be replaced with wiki page resolution */
 /**
  * ActivitySignal ingestion pipeline.
  *

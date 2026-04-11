@@ -112,11 +112,19 @@ interface WikiPageDetail {
 }
 
 const PAGE_TYPE_LABELS: Record<string, string> = {
-  entity_profile: "Entity Profile",
+  company_overview: "Company",
+  domain_hub: "Domain",
   domain_overview: "Domain",
+  person_profile: "Person",
+  entity_profile: "Entity",
+  process: "Process",
+  process_description: "Process",
+  project: "Project",
+  situation_type: "Situation Type",
+  external_relationship: "External",
+  tool_system: "Tool",
   financial_pattern: "Financial",
   communication_pattern: "Communication",
-  process_description: "Process",
   topic_synthesis: "Topic",
   relationship_map: "Relationship",
   contradiction_log: "Contradiction",

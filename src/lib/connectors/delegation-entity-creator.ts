@@ -1,3 +1,4 @@
+/** @deprecated v0.3.13 — wiki synthesis creates person pages; entity creation from delegations will be removed */
 import { prisma } from "@/lib/db";
 import { ensureHardcodedEntityType } from "@/lib/event-materializer";
 import { upsertEntity } from "@/lib/entity-resolution";

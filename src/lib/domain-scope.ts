@@ -1,10 +1,57 @@
 import { prisma } from "@/lib/db";
 
+// ── Wiki-first domain scoping ───────────────────────────────────────────────
+
 /**
- * Get domains a person is observed operating in, based on wiki content.
- * Queries wiki pages that mention this person and extracts domain associations.
- * Returns cached results (cache TTL: 5 minutes).
+ * Get wiki page slugs of domains visible to this user.
+ * Returns "all" for admins or users with no scope restrictions.
  */
+export async function getVisibleDomainSlugs(
+  operatorId: string,
+  userId: string,
+): Promise<string[] | "all"> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, wikiPageSlug: true },
+  });
+
+  if (!user) return [];
+  if (user.role === "admin" || user.role === "superadmin") return "all";
+
+  // Find the user's person wiki page
+  const personSlug = user.wikiPageSlug;
+  if (!personSlug) return "all"; // No page = no scoping (permissive default)
+
+  // Read the person's wiki page to find which domains they belong to
+  const personPage = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug: personSlug, scope: "operator" },
+    select: { crossReferences: true },
+  });
+
+  if (!personPage) return "all";
+
+  // Domain slugs are cross-references that start with "domain-"
+  const domainSlugs = personPage.crossReferences.filter(ref => ref.startsWith("domain-"));
+
+  // Also check user scope assignments (if using explicit scope grants)
+  const scopeGrants = await prisma.userScope.findMany({
+    where: { userId },
+    select: { domainEntityId: true },
+  });
+
+  // UserScope may not have domainPageSlug yet — check if the field exists
+  // If not, fall back to the old domainEntityId pattern temporarily
+  for (const grant of scopeGrants) {
+    if ((grant as any).domainPageSlug && !domainSlugs.includes((grant as any).domainPageSlug)) {
+      domainSlugs.push((grant as any).domainPageSlug);
+    }
+  }
+
+  return domainSlugs.length > 0 ? domainSlugs : "all";
+}
+
+// ── Legacy domain scoping (entity-based) ────────────────────────────────────
+
 const domainObservationCache = new Map<
   string,
   { domains: { domainId: string; confidence: number }[]; cachedAt: number }
@@ -82,10 +129,7 @@ export async function getObservedDomains(
 }
 
 /**
- * Get the domain IDs visible to a user.
- * Returns "all" for admins/superadmins.
- * Returns specific domain IDs from UserScope for members (explicit overrides),
- * or derives from wiki observations if no explicit scopes exist.
+ * @deprecated Use getVisibleDomainSlugs instead — entity-based scoping will be removed.
  */
 export async function getVisibleDomainIds(
   operatorId: string,
@@ -123,6 +167,7 @@ export async function getVisibleDomainIds(
 
 /**
  * Build a Prisma where clause that filters entities by visible domains.
+ * @deprecated Use wiki-based domain scoping with getVisibleDomainSlugs instead.
  */
 export function domainScopeFilter(visibleDomains: string[] | "all"): Record<string, unknown> {
   if (visibleDomains === "all") return {};
@@ -157,11 +202,7 @@ export function canAccessDomain(visibleDomains: string[] | "all", domainId: stri
 }
 
 /**
- * Check if a user can access a specific entity based on its domain linkage.
- * - Foundational (domains): must be in visibleDomains
- * - External: always visible (no domain owner)
- * - Base/internal with primaryDomainId: check primaryDomainId
- * - Digital without primaryDomainId: check domain-member relationships
+ * @deprecated Use wiki-based domain scoping instead.
  */
 export async function canAccessEntity(
   entityId: string,

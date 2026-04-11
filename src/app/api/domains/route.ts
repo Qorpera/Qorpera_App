@@ -1,79 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { HARDCODED_TYPE_DEFS } from "@/lib/hardcoded-type-defs";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 import { createDomainSchema, parseBody } from "@/lib/api-validation";
 
 export async function GET() {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
 
-  const departments = await prisma.entity.findMany({
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, user.id);
+
+  const hubs = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
-      category: "foundational",
-      status: "active",
-      entityType: { slug: { in: ["domain", "organization"] } },
-      ...(visibleDomains !== "all" ? {
-        OR: [
-          { id: { in: visibleDomains } },
-          { entityType: { slug: "organization" } },
-        ],
-      } : {}),
+      scope: "operator",
+      pageType: "domain_hub",
+      ...(visibleDomains !== "all" ? { slug: { in: visibleDomains } } : {}),
     },
-    include: {
-      entityType: { select: { slug: true, name: true, icon: true, color: true } },
+    select: {
+      slug: true, title: true, content: true, confidence: true,
+      crossReferences: true, mapX: true, mapY: true,
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { title: "asc" },
   });
 
-  const results = await Promise.all(
-    departments.map(async (dept) => {
-      const [memberCount, documentCount, digitalCount, filledSlotDocs] = await Promise.all([
-        prisma.entity.count({
-          where: { primaryDomainId: dept.id, category: "base", status: "active" },
-        }),
-        prisma.entity.count({
-          where: { primaryDomainId: dept.id, category: "internal", status: "active" },
-        }),
-        prisma.relationship.count({
-          where: {
-            toEntityId: dept.id,
-            relationshipType: { slug: "domain-member" },
-          },
-        }),
-        prisma.internalDocument.findMany({
-          where: {
-            domainId: dept.id,
-            documentType: { not: "context" },
-            status: { not: "replaced" },
-          },
-          select: { documentType: true },
-          distinct: ["documentType"],
-        }),
-      ]);
-      const filledSlots = filledSlotDocs.map((d) => d.documentType);
+  // Count members (person_profile pages that cross-reference each hub)
+  const results = await Promise.all(hubs.map(async (hub) => {
+    const memberCount = await prisma.knowledgePage.count({
+      where: {
+        operatorId,
+        scope: "operator",
+        pageType: "person_profile",
+        crossReferences: { has: hub.slug },
+      },
+    });
 
-      return {
-        id: dept.id,
-        displayName: dept.displayName,
-        description: dept.description,
-        category: dept.category,
-        mapX: dept.mapX,
-        mapY: dept.mapY,
-        entityType: dept.entityType,
-        primaryDomainId: dept.primaryDomainId,
-        createdAt: dept.createdAt,
-        memberCount,
-        documentCount,
-        digitalCount,
-        filledSlots,
-      };
-    }),
-  );
+    return {
+      slug: hub.slug,
+      name: hub.title,
+      description: hub.content.slice(0, 300),
+      memberCount,
+      confidence: hub.confidence,
+    };
+  }));
 
   return NextResponse.json(results);
 }
@@ -92,57 +62,47 @@ export async function POST(req: NextRequest) {
   }
   const { name, description, mapX, mapY } = parsed.data;
 
-  // Ensure department entity type exists
-  let deptType = await prisma.entityType.findFirst({
-    where: { operatorId, slug: "domain" },
+  // Generate a slug from the name
+  const slug = "domain-" + name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+  // Check uniqueness
+  const existing = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug, scope: "operator" },
   });
-  if (!deptType) {
-    const def = HARDCODED_TYPE_DEFS["domain"];
-    deptType = await prisma.entityType.create({
-      data: {
-        operatorId,
-        slug: def.slug,
-        name: def.name,
-        description: def.description,
-        icon: def.icon,
-        color: def.color,
-        defaultCategory: def.defaultCategory,
-      },
-    });
+  if (existing) {
+    return NextResponse.json({ error: "A domain with this name already exists" }, { status: 409 });
   }
 
-  // Auto-calculate position if not provided
-  const posX = typeof mapX === "number" ? mapX : 0;
-  const posY = typeof mapY === "number" ? mapY : 0;
-
-  const entity = await prisma.entity.create({
+  const page = await prisma.knowledgePage.create({
     data: {
       operatorId,
-      entityTypeId: deptType.id,
-      displayName: name,
-      category: "foundational",
-      description,
-      mapX: posX,
-      mapY: posY,
+      scope: "operator",
+      pageType: "domain_hub",
+      title: name.trim(),
+      slug,
+      content: description || "",
+      mapX: typeof mapX === "number" ? mapX : 0,
+      mapY: typeof mapY === "number" ? mapY : 0,
+      confidence: 0.5,
+      status: "draft",
+      trustLevel: "provisional",
+      crossReferences: [],
+      synthesisPath: "onboarding",
+      synthesizedByModel: "manual",
+      lastSynthesizedAt: new Date(),
+      sourceAuthority: "foundational",
     },
-    include: {
-      entityType: { select: { slug: true, name: true, icon: true, color: true } },
+    select: {
+      slug: true, title: true, content: true, confidence: true,
+      mapX: true, mapY: true, pageType: true,
     },
   });
 
   return NextResponse.json({
-    id: entity.id,
-    displayName: entity.displayName,
-    description: entity.description,
-    category: entity.category,
-    mapX: entity.mapX,
-    mapY: entity.mapY,
-    entityType: entity.entityType,
-    primaryDomainId: entity.primaryDomainId,
-    createdAt: entity.createdAt,
+    slug: page.slug,
+    name: page.title,
+    description: page.content.slice(0, 300),
     memberCount: 0,
-    documentCount: 0,
-    digitalCount: 0,
-    filledSlots: [],
+    confidence: page.confidence,
   }, { status: 201 });
 }

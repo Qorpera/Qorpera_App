@@ -1,3 +1,5 @@
+/** @deprecated v0.3.12 — graph data now comes from wiki pages with mapX/mapY. Entity CRUD routes removed. */
+
 import { prisma } from "@/lib/db";
 import { ensureDepartmentAi } from "@/lib/ai-entity-helpers";
 

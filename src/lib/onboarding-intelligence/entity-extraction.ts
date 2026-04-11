@@ -1,3 +1,4 @@
+/** @deprecated v0.3.11 — entity extraction removed from onboarding pipeline; wiki synthesis creates pages directly */
 /**
  * Chunk-level entity extraction — populates the knowledge graph with entities
  * and properties extracted from ingested content chunks during onboarding.

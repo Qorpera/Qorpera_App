@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
+import { getVisibleDomainIds, getVisibleDomainSlugs, situationScopeFilter } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
@@ -18,7 +18,20 @@ export async function GET(req: NextRequest) {
   const { days } = parsed.data;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  // Load departments (foundational entities with type "domain"), filtered to visible
+  // Load departments from wiki domain_hub pages
+  const visibleDomainSlugs = await getVisibleDomainSlugs(operatorId, user.id);
+  const domainHubs = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      scope: "operator",
+      pageType: "domain_hub",
+      ...(visibleDomainSlugs !== "all" ? { slug: { in: visibleDomainSlugs } } : {}),
+    },
+    select: { slug: true, title: true },
+  });
+
+  // Map wiki slugs to entity IDs for scope matching (situation types still use scopeEntityId)
+  // Also keep entity-based departments for backward compat with situation type scoping
   const departments = await prisma.entity.findMany({
     where: {
       operatorId,
@@ -29,6 +42,12 @@ export async function GET(req: NextRequest) {
     },
     select: { id: true, displayName: true },
   });
+  // Prefer wiki page titles for display names
+  const hubNameMap = new Map(domainHubs.map(h => [h.title.toLowerCase(), h.title]));
+  for (const dept of departments) {
+    const hubTitle = hubNameMap.get(dept.displayName.toLowerCase());
+    if (hubTitle) dept.displayName = hubTitle;
+  }
 
   // Load all situation types with scope info
   const situationTypes = await prisma.situationType.findMany({

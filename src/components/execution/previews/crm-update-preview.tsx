@@ -247,6 +247,10 @@ function CrmUpdateCard({
 
   useEffect(() => {
     if (!entityId) { setLoading(false); return; }
+    // Entity CRUD routes were removed in v0.3.13 — this fetch will 404.
+    // The component falls through to the raw-values fallback below.
+    // TODO: Replace with wiki page lookup via /api/wiki/[slug] when
+    // action plans include pageSlug instead of entityId.
     let cancelled = false;
     fetch(`/api/entities/${entityId}`)
       .then(res => res.ok ? res.json() : Promise.reject())

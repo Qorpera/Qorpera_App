@@ -1,3 +1,4 @@
+/** @deprecated v0.3.13 — use domain-scope.ts with wiki page slugs instead */
 import { prisma } from "@/lib/db";
 
 /**

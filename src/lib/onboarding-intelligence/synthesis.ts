@@ -1,3 +1,4 @@
+/** @deprecated v0.3.11 — replaced by wiki-synthesis-pass.ts */
 /**
  * Synthesis layer — transforms multi-agent findings into real database entities.
  *
