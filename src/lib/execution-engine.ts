@@ -584,7 +584,7 @@ async function executeActionStep(
         where: { id: step.plan.sourceId },
         select: { aiEntityId: true },
       });
-      planOwnerAiEntityId = initiative?.aiEntityId;
+      planOwnerAiEntityId = initiative?.aiEntityId ?? undefined;
     }
 
     const { executeInternalCapability } = await import("@/lib/internal-capabilities");

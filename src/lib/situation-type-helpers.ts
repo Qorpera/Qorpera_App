@@ -9,6 +9,7 @@ const actionRequiredTypeCache = new Map<string, string>();
 export async function ensureActionRequiredType(
   operatorId: string,
   domainId: string,
+  domainPageSlug?: string | null,
 ): Promise<string> {
   const cacheKey = `${operatorId}:${domainId}`;
   const cached = actionRequiredTypeCache.get(cacheKey);
@@ -33,9 +34,6 @@ export async function ensureActionRequiredType(
       name: "Action Required",
       description:
         "Communication-detected situations requiring action from team members in this department.",
-      // mode: "content" is deliberately unrecognized by the cron detector's
-      // safeParseDetection(), so these types are skipped during cron detection.
-      // Content-detected situations are created inline by this module, not by the cron.
       detectionLogic: JSON.stringify({
         mode: "content",
         description: "Detected from incoming communications",
@@ -43,8 +41,9 @@ export async function ensureActionRequiredType(
       autonomyLevel: "supervised",
       scopeEntityId: domainId,
       enabled: true,
+      ...(domainPageSlug ? { wikiPageSlug: `situation-type-action-required-${domainPageSlug}` } : {}),
     },
-    update: {}, // no-op if exists
+    update: {},
   });
 
   actionRequiredTypeCache.set(cacheKey, sitType.id);
@@ -56,6 +55,7 @@ const awarenessTypeCache = new Map<string, string>();
 export async function ensureAwarenessType(
   operatorId: string,
   domainId: string,
+  domainPageSlug?: string | null,
 ): Promise<string> {
   const cacheKey = `${operatorId}:${domainId}`;
   const cached = awarenessTypeCache.get(cacheKey);
@@ -85,6 +85,7 @@ export async function ensureAwarenessType(
       autonomyLevel: "supervised",
       scopeEntityId: domainId,
       enabled: true,
+      ...(domainPageSlug ? { wikiPageSlug: `situation-type-awareness-${domainPageSlug}` } : {}),
     },
     update: {},
   });

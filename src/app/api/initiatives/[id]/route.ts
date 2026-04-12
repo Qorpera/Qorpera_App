@@ -144,7 +144,7 @@ export async function PATCH(
         const job = await prisma.systemJob.create({
           data: {
             operatorId,
-            aiEntityId: aiEntity?.id ?? initiative.aiEntityId,
+            aiEntityId: aiEntity?.id ?? initiative.aiEntityId ?? "",
             domainEntityId,
             title: (proposal.title as string) ?? "New System Job",
             description: (proposal.description as string) ?? "",

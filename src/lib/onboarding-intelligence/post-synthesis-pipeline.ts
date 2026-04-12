@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db";
 export async function runPostSynthesisPipeline(operatorId: string): Promise<{
   situations: number;
   investigations: number;
+  initiatives: number;
 }> {
   // ── Research Planning ──────────────────────────────────────────
   console.log(`[post-synthesis] Generating research plan for ${operatorId}`);
@@ -103,14 +104,27 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     console.error("[post-synthesis] Content detection failed:", err);
   }
 
+  // ── Wiki Strategic Scanner ──────────────────────────
+  console.log(`[post-synthesis] Running strategic wiki scan for ${operatorId}`);
+  let initiativeCount = 0;
+  try {
+    const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
+    const scanResult = await runWikiStrategicScan(operatorId);
+    initiativeCount = scanResult.initiativesCreated;
+    console.log(`[post-synthesis] Strategic scan: ${initiativeCount} initiatives, ${scanResult.situationsCreated} situations`);
+  } catch (err) {
+    console.error("[post-synthesis] Strategic scan failed:", err);
+  }
+
   const totalSituations = await prisma.situation.count({
     where: { operatorId, status: { in: ["detected", "reasoning", "proposed"] } },
   });
 
-  console.log(`[post-synthesis] Complete: ${totalSituations} situations, ${investigationCount} investigations planned`);
+  console.log(`[post-synthesis] Complete: ${totalSituations} situations, ${investigationCount} investigations, ${initiativeCount} initiatives`);
 
   return {
     situations: totalSituations,
     investigations: investigationCount,
+    initiatives: initiativeCount,
   };
 }

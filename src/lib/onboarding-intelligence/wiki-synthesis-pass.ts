@@ -1161,6 +1161,15 @@ export async function runWikiSynthesisPass(
   }
   totalCost += derivation.costCents;
 
+  // Archive findings pages — they've been synthesized into proper wiki pages
+  const archivedCount = await prisma.knowledgePage.updateMany({
+    where: { operatorId, synthesisPath: "findings", status: "draft" },
+    data: { status: "archived", synthesisPath: "findings_archived" },
+  });
+  if (archivedCount.count > 0) {
+    console.log(`[wiki-synthesis] Archived ${archivedCount.count} findings pages`);
+  }
+
   const totalPagesWritten = hubPagesWritten + expansion.pagesWritten;
   const durationMs = Date.now() - startTime;
 

@@ -959,7 +959,7 @@ model PersonalAutonomy {
 model Initiative {
   id               String   @id @default(cuid())
   operatorId       String
-  aiEntityId       String // the domain-ai or hq-ai that proposed this
+  aiEntityId       String? // @deprecated — legacy AI entity attribution. Use ownerPageSlug instead.
   proposalType     String // "project_creation" | "policy_change" | "autonomy_graduation" | "system_job_creation" | "strategy_revision" | "wiki_update" | "resource_recommendation" | "general"
   triggerSummary   String // one-line description of what was detected
   evidence         Json? // array of {source: string, claim: string} showing what triggered this

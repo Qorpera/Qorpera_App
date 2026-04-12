@@ -128,7 +128,8 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
 
   async strategic_scan(payload) {
     const { operatorId } = payload as { operatorId: string };
-    throw new Error("Strategic scan not yet implemented");
+    const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
+    return runWikiStrategicScan(operatorId);
   },
 
   async generate_deliverable(payload) {

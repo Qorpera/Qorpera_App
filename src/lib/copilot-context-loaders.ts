@@ -174,12 +174,14 @@ export async function loadInitiativeContext(
 
   if (!initiative) return null;
 
-  // Resolve AI entity name
+  // Resolve AI entity name (if available — deprecated in wiki-first)
   let aiEntityInfo = "";
-  const aiEntity = await prisma.entity.findFirst({
-    where: { id: initiative.aiEntityId, operatorId },
-    select: { displayName: true, primaryDomainId: true },
-  });
+  const aiEntity = initiative.aiEntityId
+    ? await prisma.entity.findFirst({
+        where: { id: initiative.aiEntityId, operatorId },
+        select: { displayName: true, primaryDomainId: true },
+      })
+    : null;
   if (aiEntity) {
     let deptName = "";
     if (aiEntity.primaryDomainId) {

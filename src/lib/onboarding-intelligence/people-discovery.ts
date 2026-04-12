@@ -309,11 +309,14 @@ async function getInternalDomains(operatorId: string): Promise<Set<string>> {
     if (domain) domains.add(domain.toLowerCase());
   }
 
-  // Also check operator's email
+  // companyDomain is the authoritative internal domain
   const operator = await prisma.operator.findUnique({
     where: { id: operatorId },
-    select: { email: true },
+    select: { email: true, companyDomain: true },
   });
+  if (operator?.companyDomain) {
+    domains.add(operator.companyDomain.toLowerCase());
+  }
   if (operator?.email) {
     const domain = operator.email.split("@")[1];
     if (domain) domains.add(domain.toLowerCase());

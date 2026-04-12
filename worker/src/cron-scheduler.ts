@@ -191,10 +191,11 @@ export function startCronScheduler() {
     }, 24 * 60 * 60 * 1000),
   );
 
-  // ── Wiki Strategic Scanner: every 2 hours (replaces old strategic-scan) ──
-  // Reads synthesized wiki pages to identify patterns → routes to initiatives or situations
-  // wiki-bookmark-assembly: periodically converts bookmark clusters into initiative proposals
-  // wiki-strategic-scanner: handles pattern-driven initiative discovery from wiki
+  // ── Wiki Strategic Scanner: activity-aware interval ──
+  // Checks activity level per operator and adjusts scan frequency:
+  // < 5 active items → scan every 1 hour (deep, Opus)
+  // >= 5 active items → scan every 4 hours (light, Sonnet)
+  const SCANNER_CHECK_INTERVAL = 60 * 60 * 1000; // Check every hour
   timers.push(
     setInterval(async () => {
       try {
@@ -204,9 +205,13 @@ export function startCronScheduler() {
         });
         for (const op of operators) {
           try {
-            const result = await assembleInitiativesFromBookmarks(op.id);
-            if (result.initiativesCreated > 0) {
-              console.log(`[cron:bookmark-assembly] Operator ${op.id}: ${result.initiativesCreated} initiatives from ${result.bookmarksReviewed} bookmarks`);
+            const { shouldRunScan, runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
+            const shouldScan = await shouldRunScan(op.id);
+            if (!shouldScan) continue;
+
+            const result = await runWikiStrategicScan(op.id);
+            if (result.initiativesCreated > 0 || result.situationsCreated > 0) {
+              console.log(`[cron:wiki-scanner] Operator ${op.id}: ${result.initiativesCreated} initiatives, ${result.situationsCreated} situations (${result.scanDepth} scan)`);
             }
           } catch (err) {
             console.error(`[cron:wiki-scanner] Operator ${op.id} failed:`, err);
@@ -215,7 +220,7 @@ export function startCronScheduler() {
       } catch (err) {
         console.error("[cron:wiki-scanner] Error:", err);
       }
-    }, 2 * 60 * 60 * 1000),
+    }, SCANNER_CHECK_INTERVAL),
   );
 
   // ── Calendar Scanner: every 4 hours ─────────────────────────────────
