@@ -145,20 +145,9 @@ async function resolveAiEntityId(plan: {
       });
       return initiative?.aiEntityId ?? null;
     }
-    case "recurring": {
-      const task = await prisma.recurringTask.findUnique({
-        where: { id: plan.sourceId },
-        select: { aiEntityId: true },
-      });
-      return task?.aiEntityId ?? null;
-    }
-    case "delegation": {
-      const delegation = await prisma.delegation.findUnique({
-        where: { id: plan.sourceId },
-        select: { toAiEntityId: true },
-      });
-      return delegation?.toAiEntityId ?? null;
-    }
+    case "recurring":
+    case "delegation":
+      return null;
     default:
       return null;
   }

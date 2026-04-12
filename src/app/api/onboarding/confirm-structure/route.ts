@@ -267,30 +267,8 @@ async function applyStructureEdits(operatorId: string, edits: CompanyModelEdits)
     }
   }
 
-  // Add new departments
-  if (edits.addedDepartments) {
-    const deptType = await prisma.entityType.findFirst({
-      where: { operatorId, slug: "domain" },
-    });
-    if (deptType) {
-      for (const { name, description } of edits.addedDepartments) {
-        const existing = await prisma.entity.findFirst({
-          where: { operatorId, displayName: name, entityTypeId: deptType.id, status: "active" },
-        });
-        if (!existing) {
-          await prisma.entity.create({
-            data: {
-              operatorId,
-              entityTypeId: deptType.id,
-              displayName: name,
-              category: "foundational",
-              sourceSystem: "onboarding-intelligence",
-            },
-          });
-        }
-      }
-    }
-  }
+  // Add new departments — entity creation removed (wiki pages handle this via applyWikiEdits)
+  // Legacy entity creation skipped in v0.3.21
 }
 
 // ── Wiki Edit Application ───────────────────────────────────────────────────

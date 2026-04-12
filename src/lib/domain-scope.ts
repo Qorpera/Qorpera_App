@@ -147,12 +147,12 @@ export async function getVisibleDomainIds(
   // Check explicit UserScope overrides first
   const scopes = await prisma.userScope.findMany({
     where: { userId },
-    select: { domainEntityId: true },
+    select: { domainEntityId: true, domainPageSlug: true },
   });
 
   if (scopes.length > 0) {
     // Explicit overrides exist — use them
-    return scopes.map((s) => s.domainEntityId);
+    return scopes.map((s) => s.domainEntityId ?? s.domainPageSlug ?? "").filter(Boolean);
   }
 
   // No explicit scopes — derive from wiki observations

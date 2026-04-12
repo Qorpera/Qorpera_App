@@ -683,7 +683,8 @@ interface InsightItem {
   confidence: number;
   shareScope: string;
   status: string;
-  aiEntityName: string | null;
+  domainName: string | null;
+  domainPageSlug: string | null;
 }
 
 const SCOPE_STYLES: Record<string, { bg: string; color: string }> = {
@@ -783,7 +784,7 @@ function InsightsSection({ isAdmin, toast }: { isAdmin: boolean; toast: (msg: st
                     {insight.evidence?.sampleSize && <span>Sample: {insight.evidence.sampleSize}</span>}
                     {insight.evidence?.successRate != null && <span>Success: {(insight.evidence.successRate * 100).toFixed(0)}%</span>}
                     <span>Confidence: {(insight.confidence * 100).toFixed(0)}%</span>
-                    {insight.aiEntityName && <span>{insight.aiEntityName}</span>}
+                    {insight.domainName && <span>{insight.domainName}</span>}
                   </div>
                   {isAdmin && insight.status === "active" && (
                     <div className="flex items-center gap-2 mt-2">

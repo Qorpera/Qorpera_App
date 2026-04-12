@@ -30,15 +30,28 @@ export async function GET(req: NextRequest) {
   const items = hasMore ? logs.slice(0, limit) : logs;
   const nextCursor = hasMore ? items[items.length - 1].id : null;
 
-  // Enrich with entity display names
+  // Enrich with display names — try wiki pages first, fall back to entities
   const actorIds = [...new Set(items.filter((l) => l.actorEntityId).map((l) => l.actorEntityId!))];
-  const actors = actorIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: actorIds } },
+  const actorMap = new Map<string, string>();
+  if (actorIds.length > 0) {
+    // Try wiki pages (by subjectEntityId)
+    const pages = await prisma.knowledgePage.findMany({
+      where: { operatorId: su.operatorId, scope: "operator", subjectEntityId: { in: actorIds } },
+      select: { subjectEntityId: true, title: true },
+    });
+    for (const p of pages) {
+      if (p.subjectEntityId) actorMap.set(p.subjectEntityId, p.title);
+    }
+    // Fall back to entity for any unresolved
+    const unresolved = actorIds.filter(id => !actorMap.has(id));
+    if (unresolved.length > 0) {
+      const entities = await prisma.entity.findMany({
+        where: { id: { in: unresolved } },
         select: { id: true, displayName: true },
-      })
-    : [];
-  const actorMap = new Map(actors.map((a) => [a.id, a.displayName]));
+      });
+      for (const e of entities) actorMap.set(e.id, e.displayName);
+    }
+  }
 
   // Aggregate stats for the header
   const stats = await prisma.evaluationLog.groupBy({

@@ -27,22 +27,7 @@ export async function GET() {
           orderBy: { createdAt: "desc" },
           select: { phase: true },
         }),
-        prisma.entityMergeLog.groupBy({
-          by: ["mergeType"],
-          where: { operatorId: op.id },
-          _count: true,
-        }).then(async (groups) => {
-          const byType: Record<string, number> = {};
-          let total = 0;
-          for (const g of groups) {
-            byType[g.mergeType] = g._count;
-            if (g.mergeType !== "ml_suggestion") total += g._count;
-          }
-          const pending = await prisma.entityMergeLog.count({
-            where: { operatorId: op.id, mergeType: "ml_suggestion", reversedAt: null },
-          });
-          return { total, byType, pending };
-        }),
+        Promise.resolve({ total: 0, byType: {}, pending: 0 }),
         (async () => {
           const aiCount = await prisma.entity.count({
             where: { operatorId: op.id, entityType: { slug: "ai-agent" }, status: "active" },

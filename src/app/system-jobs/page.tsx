@@ -15,10 +15,10 @@ interface SystemJobItem {
   title: string;
   description: string;
   scope: string;
-  domainEntityId: string;
-  domainName: string;
-  assigneeEntityId: string | null;
-  assigneeName: string | null;
+  domainPageSlug: string | null;
+  ownerPageSlug: string | null;
+  domainName: string | null;
+  ownerName: string | null;
   cronExpression: string;
   status: string;
   importanceThreshold: number;
@@ -50,10 +50,12 @@ interface JobDetail {
   title: string;
   description: string;
   scope: string;
-  domainEntityId: string;
-  domainName: string;
-  assigneeEntityId: string | null;
-  assigneeName: string | null;
+  domainPageSlug: string | null;
+  ownerPageSlug: string | null;
+  domainName: string | null;
+  ownerName: string | null;
+  wikiPageSlug: string | null;
+  wikiPageContent: string | null;
   cronExpression: string;
   status: string;
   importanceThreshold: number;
@@ -203,13 +205,13 @@ export default function SystemJobsPage() {
                       </span>
                     </div>
 
-                    {/* Domain + assignee */}
+                    {/* Domain + owner */}
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, paddingLeft: 16 }}>
-                      <span style={{ fontSize: 11, color: "var(--fg3)" }}>{job.domainName}</span>
-                      {job.assigneeName && (
+                      {job.domainName && <span style={{ fontSize: 11, color: "var(--fg3)" }}>{job.domainName}</span>}
+                      {job.ownerName && (
                         <>
-                          <span style={{ fontSize: 11, color: "var(--fg4)" }}>/</span>
-                          <span style={{ fontSize: 11, color: "var(--fg3)" }}>{job.assigneeName}</span>
+                          {job.domainName && <span style={{ fontSize: 11, color: "var(--fg4)" }}>/</span>}
+                          <span style={{ fontSize: 11, color: "var(--fg3)" }}>{job.ownerName}</span>
                         </>
                       )}
                     </div>
@@ -280,14 +282,16 @@ export default function SystemJobsPage() {
                               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Importance threshold</div>
                               <div style={{ fontSize: 13, color: "var(--foreground)" }}>{(detail.importanceThreshold * 100).toFixed(0)}%</div>
                             </div>
-                            <div>
-                              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Domain</div>
-                              <div style={{ fontSize: 13, color: "var(--foreground)" }}>{detail.domainName}</div>
-                            </div>
-                            {detail.assigneeName && (
+                            {detail.domainName && (
                               <div>
-                                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Assignee</div>
-                                <div style={{ fontSize: 13, color: "var(--foreground)" }}>{detail.assigneeName}</div>
+                                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Domain</div>
+                                <div style={{ fontSize: 13, color: "var(--foreground)" }}>{detail.domainName}</div>
+                              </div>
+                            )}
+                            {detail.ownerName && (
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Owner</div>
+                                <div style={{ fontSize: 13, color: "var(--foreground)" }}>{detail.ownerName}</div>
                               </div>
                             )}
                             <div>

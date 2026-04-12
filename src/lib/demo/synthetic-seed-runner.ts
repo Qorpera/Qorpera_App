@@ -551,7 +551,6 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     await tx.$executeRaw`DELETE FROM "ContentChunk" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "ActivitySignal" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "OperationalInsight" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "EntityMergeLog" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "KnowledgePage" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Entity" WHERE "operatorId" = ${operatorId}`;
     // Group C: reference SituationType or EntityType via FK — must go before those

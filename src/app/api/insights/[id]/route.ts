@@ -18,38 +18,29 @@ export async function GET(
   });
   if (!insight) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Scope check for members
+  // Scope check for members — operator-scoped insights visible to all
   const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
-  if (visibleDomains !== "all") {
-    if (insight.shareScope === "personal") {
-      const aiEntity = await prisma.entity.findFirst({
-        where: { operatorId, ownerUserId: user.id, entityType: { slug: "ai-agent" } },
-        select: { id: true },
-      });
-      if (!aiEntity || aiEntity.id !== insight.aiEntityId) {
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
-    } else if (insight.shareScope === "domain" && insight.domainId) {
-      if (!visibleDomains.includes(insight.domainId)) {
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
-    }
+  if (visibleDomains !== "all" && insight.shareScope !== "operator") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Resolve AI entity name
-  const aiEntity = await prisma.entity.findUnique({
-    where: { id: insight.aiEntityId },
-    select: { displayName: true },
-  });
+  // Resolve domain name from wiki page
+  let domainName: string | null = null;
+  if (insight.domainPageSlug) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: insight.domainPageSlug, scope: "operator" },
+      select: { title: true },
+    });
+    domainName = page?.title ?? null;
+  }
 
   let evidence = null;
   try { evidence = JSON.parse(insight.evidence); } catch {}
 
   return NextResponse.json({
     id: insight.id,
-    aiEntityId: insight.aiEntityId,
-    aiEntityName: aiEntity?.displayName ?? null,
-    domainId: insight.domainId,
+    domainPageSlug: insight.domainPageSlug ?? null,
+    domainName,
     insightType: insight.insightType,
     description: insight.description,
     evidence,

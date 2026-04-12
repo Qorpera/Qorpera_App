@@ -358,8 +358,6 @@ export async function loadSystemJobsContext(
     where: { operatorId },
     orderBy: { createdAt: "desc" },
     include: {
-      domain: { select: { displayName: true } },
-      assignee: { select: { displayName: true } },
       runs: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -370,12 +368,16 @@ export async function loadSystemJobsContext(
 
   if (jobs.length === 0) return null;
 
-  // Load available domains (foundational entities) for context
-  const domains = await prisma.entity.findMany({
-    where: { operatorId, category: "foundational", status: "active" },
-    select: { id: true, displayName: true },
-    orderBy: { displayName: "asc" },
-  });
+  // Resolve domain names from wiki pages
+  const domainSlugs = jobs.map(j => j.domainPageSlug).filter(Boolean) as string[];
+  const pageNameMap = new Map<string, string>();
+  if (domainSlugs.length > 0) {
+    const pages = await prisma.knowledgePage.findMany({
+      where: { operatorId, slug: { in: [...new Set(domainSlugs)] }, scope: "operator" },
+      select: { slug: true, title: true },
+    });
+    for (const p of pages) pageNameMap.set(p.slug, p.title);
+  }
 
   const lines: string[] = ["SYSTEM JOBS CONTEXT:\n"];
 
@@ -384,8 +386,8 @@ export async function loadSystemJobsContext(
   for (const job of jobs) {
     const latestRun = job.runs[0];
     lines.push(`## ${job.title} [${job.status}]`);
-    lines.push(`  Domain: ${job.domain.displayName}`);
-    if (job.assignee) lines.push(`  Assignee: ${job.assignee.displayName}`);
+    const domainName = job.domainPageSlug ? pageNameMap.get(job.domainPageSlug) : null;
+    if (domainName) lines.push(`  Domain: ${domainName}`);
     lines.push(`  Schedule: ${job.cronExpression}`);
     lines.push(`  Importance threshold: ${(job.importanceThreshold * 100).toFixed(0)}%`);
     lines.push(`  Description: ${job.description}`);
@@ -402,13 +404,6 @@ export async function loadSystemJobsContext(
       }
     }
     lines.push("");
-  }
-
-  if (domains.length > 0) {
-    lines.push("Available domains for new jobs:");
-    for (const d of domains) {
-      lines.push(`  - ${d.displayName} (${d.id})`);
-    }
   }
 
   return lines.join("\n");

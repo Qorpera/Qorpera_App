@@ -121,36 +121,48 @@ export async function PATCH(
     case "system_job_creation": {
       await prisma.initiative.update({ where: { id }, data: { status: "approved" } });
       try {
-        const aiEntity = await prisma.entity.findFirst({
-          where: { operatorId, entityType: { slug: { in: ["ai-agent", "hq-ai"] } }, status: "active" },
-          select: { id: true, primaryDomainId: true },
-        });
-        // Resolve domain: from proposal, AI entity's domain, or first foundational entity
-        let domainEntityId: string | undefined = (proposal.domainEntityId as string) ?? aiEntity?.primaryDomainId ?? undefined;
-        if (!domainEntityId) {
-          const firstDomain = await prisma.entity.findFirst({
-            where: { operatorId, category: "foundational", status: "active" },
-            select: { id: true },
-          });
-          domainEntityId = firstDomain?.id ?? undefined;
-        }
-        if (!domainEntityId) {
-          console.error("[initiative-api] No domain found for system job creation");
-          return NextResponse.json({ id, status: "approved" });
-        }
         const { CronExpressionParser } = await import("cron-parser");
+        const { buildSystemJobWikiContent } = await import("@/lib/system-job-wiki");
         const cronExpr = (proposal.cronExpression as string) ?? "0 0 * * *";
         const interval = CronExpressionParser.parse(cronExpr);
+        const title = (proposal.title as string) ?? "New System Job";
+        const description = (proposal.description as string) ?? "";
+        const scope = (proposal.scope as string) ?? "company_wide";
+        const domainPageSlug = initiative.domainPageSlug ?? null;
+
+        // Create wiki page
+        const slug = `system-job-${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+        const now = new Date();
+        await prisma.knowledgePage.create({
+          data: {
+            operatorId,
+            slug,
+            title: `System Job: ${title}`,
+            pageType: "system_job",
+            scope: "operator",
+            status: "verified",
+            content: buildSystemJobWikiContent({ description, cronExpression: cronExpr, scope, domainPageSlug }),
+            crossReferences: domainPageSlug ? [domainPageSlug] : [],
+            synthesisPath: "manual",
+            synthesizedByModel: "manual",
+            confidence: 1.0,
+            contentTokens: 0,
+            lastSynthesizedAt: now,
+          },
+        });
+
         const job = await prisma.systemJob.create({
           data: {
             operatorId,
-            aiEntityId: aiEntity?.id ?? initiative.aiEntityId ?? "",
-            domainEntityId,
-            title: (proposal.title as string) ?? "New System Job",
-            description: (proposal.description as string) ?? "",
+            title,
+            description,
             cronExpression: cronExpr,
-            scope: (proposal.scope as string) ?? "company_wide",
+            scope,
+            wikiPageSlug: slug,
+            domainPageSlug,
+            ownerPageSlug: initiative.ownerPageSlug,
             status: "active",
+            source: "initiative",
             importanceThreshold: 0.3,
             nextTriggerAt: interval.next().toDate(),
           },

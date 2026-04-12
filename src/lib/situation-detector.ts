@@ -1,7 +1,7 @@
-// TODO: Replace entity-pattern detection with wiki-based detection.
-// Entity patterns (property thresholds, status changes) should be defined
-// in situation_type wiki pages. This detector becomes less relevant as
-// content-situation-detector.ts handles the primary detection path.
+/** @deprecated v0.3.18 — entity-pattern detection replaced by content-based detection.
+ * The 15-min cron now sweeps unprocessed RawContent through content-situation-detector.ts instead.
+ * This file is kept for backward compat but is no longer called by any cron. */
+// TODO: Remove once all entity-pattern references are cleaned up.
 
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";

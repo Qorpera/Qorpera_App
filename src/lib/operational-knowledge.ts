@@ -447,6 +447,7 @@ function buildUserPrompt(data: ExtractionData): string {
   return prompt;
 }
 
+/** @deprecated Use extractOperatorInsights instead */
 export async function extractInsights(
   operatorId: string,
   aiEntityId: string,
@@ -553,23 +554,156 @@ export async function extractInsights(
   return { created, superseded, skipped };
 }
 
+// ── Wiki-Based Insight Extraction ────────────────────────────────────────────
+
+export async function extractOperatorInsights(operatorId: string): Promise<{
+  insightsCreated: number;
+  costCents: number;
+}> {
+  const { extractJSONAny } = await import("@/lib/json-helpers");
+  let costCents = 0;
+
+  // 1. Load domain hubs
+  const domains = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      scope: "operator",
+      pageType: "domain_hub",
+      status: { in: ["draft", "verified"] },
+    },
+    select: { slug: true, title: true, content: true },
+  });
+
+  // 2. Load situation type performance
+  const sitTypes = await prisma.situationType.findMany({
+    where: { operatorId, enabled: true },
+    select: {
+      id: true, name: true, slug: true, wikiPageSlug: true,
+      totalProposed: true, totalApproved: true, approvalRate: true,
+      consecutiveApprovals: true, autonomyLevel: true,
+      detectedCount: true, confirmedCount: true, dismissedCount: true,
+    },
+  });
+
+  // 3. Load recent situation history (last 30 days)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+  const recentSituations = await prisma.situation.findMany({
+    where: { operatorId, createdAt: { gte: thirtyDaysAgo } },
+    select: {
+      status: true, triggerSummary: true, createdAt: true, resolvedAt: true,
+      severity: true, confidence: true,
+      situationType: { select: { name: true, slug: true } },
+      domainPageSlug: true, triggerPageSlug: true,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+
+  // 4. Total communication volume (30d)
+  const totalComms = await prisma.rawContent.count({
+    where: {
+      operatorId,
+      occurredAt: { gte: thirtyDaysAgo },
+      sourceType: { in: ["email", "slack_message", "teams_message"] },
+    },
+  });
+
+  // 5. Generate insights per domain
+  let insightsCreated = 0;
+
+  for (const domain of domains) {
+    const domainSituations = recentSituations.filter(s => s.domainPageSlug === domain.slug);
+
+    if (domainSituations.length === 0 && sitTypes.length === 0) continue;
+
+    const response = await callLLM({
+      operatorId,
+      instructions: `You are an operational analyst generating insights for a specific department. Read the department's wiki page, its situation history, and situation type performance. Generate 1-3 specific, actionable insights.
+
+An insight is an observation about an operational pattern — something the team should know, optimize, or investigate. Examples:
+- "Invoice processing has slowed 40% this month — 8 situations vs 5 average"
+- "Client communication situations resolve 2x faster when assigned to Sarah vs auto-handling"
+- "The weekly-report situation type has 95% approval rate — consider graduating to autonomous"
+
+NOT generic advice. Must be grounded in the data provided.`,
+      messages: [{
+        role: "user",
+        content: `Generate operational insights for this department:
+
+DEPARTMENT: ${domain.title}
+${domain.content.slice(0, 800)}
+
+RECENT SITUATIONS FOR THIS DOMAIN (${domainSituations.length}):
+${domainSituations.slice(0, 20).map(s => {
+  const resolutionTime = s.resolvedAt && s.createdAt
+    ? Math.round((s.resolvedAt.getTime() - s.createdAt.getTime()) / (1000 * 60 * 60)) + "h"
+    : "unresolved";
+  return `- [${s.status}] ${s.situationType.name}: ${s.triggerSummary?.slice(0, 80)} (${resolutionTime})`;
+}).join("\n")}
+
+SITUATION TYPE PERFORMANCE:
+${sitTypes.map(st => `- ${st.name}: detected=${st.detectedCount}, confirmed=${st.confirmedCount}, dismissed=${st.dismissedCount}, approval=${(st.approvalRate * 100).toFixed(0)}%, autonomy=${st.autonomyLevel}`).join("\n") || "No situation types yet."}
+
+TOTAL COMMUNICATION VOLUME (30d): ${totalComms} messages
+
+Generate insights. Respond with ONLY JSON:
+{
+  "insights": [
+    {
+      "type": "trend | efficiency | graduation_candidate | workload | pattern",
+      "description": "The specific insight — what's happening and why it matters",
+      "confidence": 0.8
+    }
+  ]
+}`,
+      }],
+      model: getModel("agenticReasoning"),
+      maxTokens: 4000,
+    });
+
+    costCents += response.apiCostCents;
+
+    const parsed = extractJSONAny(response.text) as { insights?: Array<{ type: string; description: string; confidence: number }> } | null;
+
+    if (parsed?.insights) {
+      for (const insight of parsed.insights) {
+        if (!insight.description || insight.confidence < 0.5) continue;
+
+        await prisma.operationalInsight.create({
+          data: {
+            operatorId,
+            domainPageSlug: domain.slug,
+            insightType: insight.type || "pattern",
+            description: insight.description,
+            evidence: JSON.stringify({ domain: domain.slug, situationCount: domainSituations.length, confidence: insight.confidence }),
+            confidence: insight.confidence,
+            shareScope: "operator",
+            status: "active",
+          },
+        });
+        insightsCreated++;
+      }
+    }
+  }
+
+  return { insightsCreated, costCents };
+}
+
 // ── Extraction Trigger ───────────────────────────────────────────────────────
 
 export async function checkInsightExtractionTrigger(
   operatorId: string,
-  userId: string | null,
+  _userId: string | null,
 ): Promise<void> {
-  if (!userId) return;
-
-  const aiEntity = await prisma.entity.findFirst({
-    where: {
-      operatorId,
-      ownerUserId: userId,
-      entityType: { slug: "ai-agent" },
-    },
-    select: { id: true },
+  // Check if insights are due based on last extraction time
+  const lastInsight = await prisma.operationalInsight.findFirst({
+    where: { operatorId },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
   });
-  if (!aiEntity) return;
+
+  // Skip if last extraction was within 1 hour
+  if (lastInsight && (Date.now() - lastInsight.createdAt.getTime()) < 60 * 60 * 1000) return;
 
   // Determine threshold based on operator age
   const operator = await prisma.operator.findUnique({
@@ -578,21 +712,17 @@ export async function checkInsightExtractionTrigger(
   });
   if (!operator) return;
 
-  const operatorAgeDays = (Date.now() - operator.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+  const ageDays = (Date.now() - operator.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+  if (ageDays <= 7) return; // First week: daily cron handles it
 
-  if (operatorAgeDays <= 7) {
-    // First week: daily cron handles extraction, skip event-driven
-    return;
-  }
+  // Count recent situations as trigger
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+  const recentCount = await prisma.situation.count({
+    where: { operatorId, createdAt: { gte: thirtyDaysAgo } },
+  });
 
-  const threshold = operatorAgeDays <= 28 ? 20 : 40;
+  const threshold = ageDays <= 28 ? 20 : 40;
+  if (recentCount < threshold) return;
 
-  const count = await getSituationsSinceLastExtraction(operatorId, aiEntity.id);
-  if (count < threshold) return;
-
-  // Check extraction lock: skip if last extraction was within 1 hour
-  const lastExtraction = await getLastExtractionTime(aiEntity.id);
-  if (lastExtraction && (Date.now() - lastExtraction.getTime()) < 60 * 60 * 1000) return;
-
-  await extractInsights(operatorId, aiEntity.id);
+  await extractOperatorInsights(operatorId);
 }

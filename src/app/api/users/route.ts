@@ -12,26 +12,28 @@ export async function GET() {
   const users = await prisma.user.findMany({
     where: { operatorId: su.operatorId, ...excludeSuperadmin() },
     include: {
-      entity: { select: { displayName: true, primaryDomainId: true } },
-      scopes: { select: { id: true, domainEntityId: true } },
+      scopes: { select: { id: true, domainEntityId: true, domainPageSlug: true } },
       sessions: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
     },
     orderBy: { createdAt: "asc" },
   });
 
-  // Get department names for scopes and entity parents
-  const deptIds = new Set<string>();
+  // Resolve wiki page titles for users + scopes
+  const allSlugs = new Set<string>();
   for (const u of users) {
-    for (const s of u.scopes) deptIds.add(s.domainEntityId);
-    if (u.entity?.primaryDomainId) deptIds.add(u.entity.primaryDomainId);
+    if (u.wikiPageSlug) allSlugs.add(u.wikiPageSlug);
+    for (const s of u.scopes) {
+      if (s.domainPageSlug) allSlugs.add(s.domainPageSlug);
+    }
   }
-  const depts = deptIds.size > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: [...deptIds] } },
-        select: { id: true, displayName: true },
-      })
-    : [];
-  const deptMap = new Map(depts.map((d) => [d.id, d.displayName]));
+  const pageMap = new Map<string, string>();
+  if (allSlugs.size > 0) {
+    const pages = await prisma.knowledgePage.findMany({
+      where: { operatorId: su.operatorId, slug: { in: [...allSlugs] }, scope: "operator" },
+      select: { slug: true, title: true },
+    });
+    for (const p of pages) pageMap.set(p.slug, p.title);
+  }
 
   return NextResponse.json(
     users.map((u) => ({
@@ -39,13 +41,12 @@ export async function GET() {
       name: u.name,
       email: u.email,
       role: u.role,
-      entityId: u.entityId,
-      entityName: u.entity?.displayName ?? null,
-      domainName: u.entity?.primaryDomainId ? deptMap.get(u.entity.primaryDomainId) ?? null : null,
+      wikiPageSlug: u.wikiPageSlug ?? null,
+      wikiPageTitle: u.wikiPageSlug ? pageMap.get(u.wikiPageSlug) ?? null : null,
       scopes: u.scopes.map((s) => ({
         id: s.id,
-        domainEntityId: s.domainEntityId,
-        domainName: deptMap.get(s.domainEntityId) ?? "Unknown",
+        domainPageSlug: s.domainPageSlug ?? null,
+        domainName: s.domainPageSlug ? pageMap.get(s.domainPageSlug) ?? null : null,
       })),
       lastActive: u.sessions[0]?.createdAt ?? null,
       createdAt: u.createdAt,

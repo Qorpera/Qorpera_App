@@ -373,9 +373,6 @@ export async function mergeEntities(
   confidence?: number,
   signals?: Record<string, unknown>,
 ): Promise<void> {
-  // Capture snapshot before merge
-  const snapshot = await captureSnapshot(absorbedId);
-
   await prisma.$transaction(async (tx) => {
     // 1. Copy PropertyValues (additive — skip conflicts)
     const survivorProps = await tx.propertyValue.findMany({
@@ -500,19 +497,6 @@ export async function mergeEntities(
       },
     });
 
-    // 7. Create EntityMergeLog
-    await tx.entityMergeLog.create({
-      data: {
-        operatorId,
-        survivorId,
-        absorbedId,
-        mergeType,
-        confidence: confidence ?? null,
-        signals: signals ? JSON.stringify(signals) : null,
-        snapshot: JSON.stringify(snapshot),
-        reversible: true,
-      },
-    });
   });
 
   // 8. Update survivor embedding (outside transaction — non-critical)
@@ -525,141 +509,9 @@ export async function mergeEntities(
 
 // ── 3b. Reverse merge ───────────────────────────────────────────────────────
 
-export async function reverseMerge(mergeLogId: string): Promise<void> {
-  const log = await prisma.entityMergeLog.findUnique({
-    where: { id: mergeLogId },
-  });
-
-  if (!log) throw new Error("Merge log entry not found");
-  if (!log.reversible) throw new Error("This merge is not reversible");
-  if (log.reversedAt) throw new Error("This merge has already been reversed");
-  if (!log.snapshot) throw new Error("No snapshot available for reversal");
-
-  const snapshot: AbsorbedSnapshot = JSON.parse(log.snapshot);
-
-  await prisma.$transaction(async (tx) => {
-    // 1. Restore absorbed entity status
-    await tx.entity.update({
-      where: { id: log.absorbedId },
-      data: {
-        status: snapshot.status,
-        mergedIntoId: snapshot.mergedIntoId,
-      },
-    });
-
-    // 2. Restore property values — remove ones that were added during merge
-    // Properties from snapshot that weren't on the survivor before merge
-    for (const pv of snapshot.propertyValues) {
-      // Check if this property was copied to survivor during merge
-      const onSurvivor = await tx.propertyValue.findFirst({
-        where: { entityId: log.survivorId, propertyId: pv.propertyId },
-      });
-      if (onSurvivor) {
-        // If absorbed originally had this property, move it back
-        await tx.propertyValue.upsert({
-          where: { entityId_propertyId: { entityId: log.absorbedId, propertyId: pv.propertyId } },
-          create: { entityId: log.absorbedId, propertyId: pv.propertyId, value: pv.value },
-          update: { value: pv.value },
-        });
-
-        // If this was an additive copy (didn't exist on survivor before), remove from survivor
-        // We know it was additive if the absorbed entity owned it in the snapshot
-        // and the survivor has it now. To be safe, only remove if values match.
-        if (onSurvivor.value === pv.value) {
-          await tx.propertyValue.delete({ where: { id: onSurvivor.id } });
-        }
-      } else {
-        // Property no longer on survivor — just restore on absorbed
-        await tx.propertyValue.upsert({
-          where: { entityId_propertyId: { entityId: log.absorbedId, propertyId: pv.propertyId } },
-          create: { entityId: log.absorbedId, propertyId: pv.propertyId, value: pv.value },
-          update: { value: pv.value },
-        });
-      }
-    }
-
-    // 3. Restore relationships from snapshot
-    for (const rel of snapshot.fromRelationships) {
-      // Check if this was redirected (now points from survivor)
-      const redirected = await tx.relationship.findFirst({
-        where: {
-          relationshipTypeId: rel.relationshipTypeId,
-          fromEntityId: log.survivorId,
-          toEntityId: rel.toEntityId,
-        },
-      });
-      if (redirected) {
-        await tx.relationship.update({
-          where: { id: redirected.id },
-          data: { fromEntityId: log.absorbedId },
-        });
-      } else {
-        // Re-create it
-        await tx.relationship.create({
-          data: {
-            relationshipTypeId: rel.relationshipTypeId,
-            fromEntityId: log.absorbedId,
-            toEntityId: rel.toEntityId,
-            metadata: rel.metadata,
-          },
-        }).catch(() => {
-          // Duplicate — skip
-        });
-      }
-    }
-
-    for (const rel of snapshot.toRelationships) {
-      const redirected = await tx.relationship.findFirst({
-        where: {
-          relationshipTypeId: rel.relationshipTypeId,
-          fromEntityId: rel.fromEntityId,
-          toEntityId: log.survivorId,
-        },
-      });
-      if (redirected) {
-        await tx.relationship.update({
-          where: { id: redirected.id },
-          data: { toEntityId: log.absorbedId },
-        });
-      } else {
-        await tx.relationship.create({
-          data: {
-            relationshipTypeId: rel.relationshipTypeId,
-            fromEntityId: rel.fromEntityId,
-            toEntityId: log.absorbedId,
-            metadata: rel.metadata,
-          },
-        }).catch(() => {
-          // Duplicate — skip
-        });
-      }
-    }
-
-    // 4. Revert ContentChunks
-    // We can't perfectly distinguish which chunks were redirected vs originally survivor's,
-    // but snapshot captures the absorbed entity's state before merge.
-    // Conservative: any chunk pointing to survivor that was created before the merge
-    // and might have been absorbed's — we leave them. The snapshot doesn't track chunk IDs.
-    // For simplicity, leave ContentChunks as-is (minor data denormalization).
-
-    // 5. Revert ActivitySignals — actorEntityId
-    // Same conservative approach: we don't track which signals were redirected.
-    // Leave as-is.
-
-    // 6. Mark merge log as reversed
-    await tx.entityMergeLog.update({
-      where: { id: mergeLogId },
-      data: { reversedAt: new Date() },
-    });
-  });
-
-  // Update embeddings for both entities
-  try {
-    await updateEntityEmbedding(log.survivorId);
-    await updateEntityEmbedding(log.absorbedId);
-  } catch (err) {
-    console.warn("[identity-resolution] Failed to update embeddings after reversal:", err);
-  }
+/** @deprecated EntityMergeLog table dropped in v0.3.17 — merge reversal no longer supported */
+export async function reverseMerge(_mergeLogId: string): Promise<void> {
+  throw new Error("Merge reversal is no longer supported (EntityMergeLog dropped in v0.3.17)");
 }
 
 // ── 4. Deterministic email merge ─────────────────────────────────────────────
@@ -793,13 +645,6 @@ export async function runDeterministicMerges(
         alreadyMerged.add(absorbed.id);
         mergesExecuted++;
 
-        // Get the merge log ID (most recent for this pair)
-        const log = await prisma.entityMergeLog.findFirst({
-          where: { operatorId, survivorId: survivor.id, absorbedId: absorbed.id },
-          orderBy: { createdAt: "desc" },
-          select: { id: true },
-        });
-        if (log) mergeLogIds.push(log.id);
 
         if (activeSituationCount > 0) {
           await sendNotificationToAdmins({
@@ -901,18 +746,6 @@ export async function runIdentityResolution(
         // Only auto-merge the top candidate per entity
         break;
       } else {
-        // Suggestion — store for admin review
-        await prisma.entityMergeLog.create({
-          data: {
-            operatorId,
-            survivorId: entityId,
-            absorbedId: candidate.entityId,
-            mergeType: "ml_suggestion",
-            confidence: candidate.score,
-            signals: JSON.stringify(candidate.signals),
-            reversible: false, // not executed yet
-          },
-        });
         suggested++;
       }
     }

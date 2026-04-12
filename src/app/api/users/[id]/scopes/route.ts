@@ -13,11 +13,8 @@ export async function POST(
   }
 
   const { id: userId } = await params;
-  const { domainEntityId } = await req.json().catch(() => ({ domainEntityId: null }));
-
-  if (!domainEntityId) {
-    return NextResponse.json({ error: "domainEntityId is required" }, { status: 400 });
-  }
+  const body = await req.json().catch(() => ({}));
+  const { domainPageSlug, domainEntityId } = body as { domainPageSlug?: string; domainEntityId?: string };
 
   // Validate user in same operator
   const user = await prisma.user.findFirst({ where: { id: userId, operatorId: su.operatorId } });
@@ -25,7 +22,37 @@ export async function POST(
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  // Validate department exists and is foundational
+  if (domainPageSlug) {
+    // Wiki-first path: validate domain page exists
+    const domainPage = await prisma.knowledgePage.findFirst({
+      where: { operatorId: su.operatorId, slug: domainPageSlug, scope: "operator", pageType: "domain_hub" },
+      select: { slug: true, title: true },
+    });
+    if (!domainPage) {
+      return NextResponse.json({ error: "Domain not found" }, { status: 404 });
+    }
+
+    const scope = await prisma.userScope.create({
+      data: {
+        userId,
+        domainEntityId: domainEntityId ?? null,
+        domainPageSlug,
+        grantedById: su.user.id,
+      },
+    });
+
+    return NextResponse.json({
+      id: scope.id,
+      domainPageSlug: scope.domainPageSlug,
+      domainName: domainPage.title,
+    }, { status: 201 });
+  }
+
+  // Legacy path: domainEntityId
+  if (!domainEntityId) {
+    return NextResponse.json({ error: "domainPageSlug or domainEntityId is required" }, { status: 400 });
+  }
+
   const dept = await prisma.entity.findFirst({
     where: { id: domainEntityId, operatorId: su.operatorId, category: "foundational" },
     select: { id: true, displayName: true },
@@ -34,15 +61,8 @@ export async function POST(
     return NextResponse.json({ error: "Domain not found" }, { status: 404 });
   }
 
-  // Look up the corresponding wiki domain_hub page slug
-  const hubPage = await prisma.knowledgePage.findFirst({
-    where: { operatorId: su.operatorId, scope: "operator", pageType: "domain_hub", title: { equals: dept.displayName, mode: "insensitive" } },
-    select: { slug: true, title: true },
-  });
-
-  // Check if scope already exists
-  const existing = await prisma.userScope.findUnique({
-    where: { userId_domainEntityId: { userId, domainEntityId } },
+  const existing = await prisma.userScope.findFirst({
+    where: { userId, domainEntityId },
   });
   if (existing) {
     return NextResponse.json({ error: "User already has access to this department" }, { status: 409 });
@@ -58,8 +78,7 @@ export async function POST(
 
   return NextResponse.json({
     id: scope.id,
-    domainEntityId: scope.domainEntityId,
-    domainPageSlug: hubPage?.slug ?? null,
-    domainName: hubPage?.title ?? dept.displayName,
+    domainPageSlug: null,
+    domainName: dept.displayName,
   }, { status: 201 });
 }

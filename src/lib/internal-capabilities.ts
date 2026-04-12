@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { StepOutput } from "@/lib/execution-engine";
+import { buildSystemJobWikiContent } from "@/lib/system-job-wiki";
 
 // ── Capability Definitions ──────────────────────────────────────────────────
 
@@ -16,22 +17,8 @@ export const INTERNAL_CAPABILITIES = [
     sideEffects: ["Creates a new SituationType that the detection engine will monitor"],
   },
   {
-    name: "create_recurring_task",
-    description: "Create a recurring task that executes on a schedule. Used when the AI identifies repeating work patterns (weekly reports, monthly reviews, daily digests).",
-    inputSchema: {
-      title: { type: "string", required: true },
-      description: { type: "string", required: true },
-      cronExpression: { type: "string", required: true },
-      autoApproveSteps: { type: "boolean", required: false },
-      domainId: { type: "string", required: false },
-      outputFormat: { type: "string", required: false },
-      additionalInstructions: { type: "string", required: false },
-    },
-    sideEffects: ["Creates a RecurringTask that triggers on the given cron schedule"],
-  },
-  {
     name: "create_system_job",
-    description: "Create a System Job — a recurring intelligence analysis that runs on a schedule, performing deep contextual reasoning about an organizational domain. Unlike RecurringTasks (which execute fixed plans), System Jobs analyze cross-system data, identify patterns and anomalies, and propose situations and initiatives based on their findings. Used when the AI identifies a domain that would benefit from periodic deep analysis.",
+    description: "Create a System Job — an autonomous work agent that runs on a schedule, performing deep contextual reasoning about an organizational domain. System Jobs analyze cross-system data, identify patterns and anomalies, and propose situations and initiatives based on their findings. Used when the AI identifies a domain that would benefit from periodic deep analysis.",
     inputSchema: {
       title: { type: "string", required: true },
       description: { type: "string", required: true },
@@ -103,16 +90,12 @@ export async function executeInternalCapability(
   switch (name) {
     case "create_situation_type":
       return executeCreateSituationType(params, operatorId);
-    case "create_recurring_task":
-      return executeCreateRecurringTask(params, operatorId, planOwnerAiEntityId);
     case "create_system_job":
       return executeCreateSystemJob(params, operatorId, planOwnerAiEntityId);
     case "request_meeting": {
       const { handleRequestMeeting } = await import("@/lib/meeting-coordination");
       return handleRequestMeeting(params, operatorId);
     }
-    case "create_delegation":
-      return executeCreateDelegation(params, operatorId, planOwnerAiEntityId);
     default:
       throw new Error(`Unknown internal capability: ${name}`);
   }
@@ -164,86 +147,6 @@ async function executeCreateSituationType(
   };
 }
 
-async function executeCreateRecurringTask(
-  params: Record<string, unknown>,
-  operatorId: string,
-  planOwnerAiEntityId?: string,
-): Promise<StepOutput> {
-  const title = String(params.title ?? "");
-  const description = String(params.description ?? "");
-  const cronExpression = String(params.cronExpression ?? "");
-
-  if (!title || !description || !cronExpression) {
-    throw new Error("create_recurring_task requires title, description, and cronExpression");
-  }
-
-  const aiEntityId = planOwnerAiEntityId;
-  if (!aiEntityId) throw new Error("Cannot determine aiEntityId for recurring task");
-
-  const { createRecurringTask } = await import("@/lib/recurring-tasks");
-  const task = await createRecurringTask({
-    operatorId,
-    aiEntityId,
-    title,
-    description,
-    cronExpression,
-    autoApproveSteps: params.autoApproveSteps === true,
-    contextHints: {
-      domainId: params.domainId ? String(params.domainId) : undefined,
-      outputFormat: params.outputFormat ? String(params.outputFormat) : undefined,
-      additionalInstructions: params.additionalInstructions ? String(params.additionalInstructions) : undefined,
-    },
-  });
-
-  return {
-    type: "data",
-    payload: {
-      recurringTaskId: task.id,
-      title: task.title,
-      cronExpression: task.cronExpression,
-      nextTriggerAt: task.nextTriggerAt?.toISOString() ?? null,
-    },
-    description: `Created recurring task: ${title}`,
-  };
-}
-
-async function executeCreateDelegation(
-  params: Record<string, unknown>,
-  operatorId: string,
-  planOwnerAiEntityId?: string,
-): Promise<StepOutput> {
-  const instruction = String(params.instruction ?? "");
-  if (!instruction) throw new Error("create_delegation requires instruction");
-
-  const toAiEntityId = params.toAiEntityId ? String(params.toAiEntityId) : undefined;
-  const toUserId = params.toUserId ? String(params.toUserId) : undefined;
-  const context = (params.context ?? {}) as Record<string, unknown>;
-
-  // Resolve fromAiEntityId from params, plan context, or fail
-  const fromAiEntityId = (params.fromAiEntityId ? String(params.fromAiEntityId) : null)
-    ?? planOwnerAiEntityId
-    ?? null;
-
-  if (!fromAiEntityId) throw new Error("Cannot determine fromAiEntityId for delegation");
-
-  const { createDelegation } = await import("@/lib/delegations");
-  const delegation = await createDelegation({
-    operatorId,
-    fromAiEntityId,
-    toAiEntityId,
-    toUserId,
-    instruction,
-    context,
-  });
-
-  return {
-    type: "delegation",
-    delegationId: delegation.id,
-    targetType: toUserId ? "human" : "ai",
-    targetId: toUserId ?? toAiEntityId ?? "",
-  };
-}
-
 async function executeCreateSystemJob(
   params: Record<string, unknown>,
   operatorId: string,
@@ -261,31 +164,8 @@ async function executeCreateSystemJob(
   const { CronExpressionParser } = await import("cron-parser");
   CronExpressionParser.parse(cronExpression); // throws on invalid
 
-  const aiEntityId = planOwnerAiEntityId;
-  if (!aiEntityId) throw new Error("Cannot determine aiEntityId for system job");
-
-  const scope = params.scope ? String(params.scope) : (params.scopeDepartmentId ? "domain" : "company_wide");
-  const scopeEntityId = params.scopeDepartmentId ? String(params.scopeDepartmentId) : null;
-
-  // Resolve domain entity: use scopeDepartmentId, AI entity's domain, or first foundational entity
-  let domainEntityId = scopeEntityId;
-  if (!domainEntityId) {
-    const aiEnt = await prisma.entity.findFirst({
-      where: { id: aiEntityId, operatorId },
-      select: { primaryDomainId: true },
-    });
-    domainEntityId = aiEnt?.primaryDomainId ?? null;
-  }
-  if (!domainEntityId) {
-    const firstDomain = await prisma.entity.findFirst({
-      where: { operatorId, category: "foundational", status: "active" },
-      select: { id: true },
-    });
-    domainEntityId = firstDomain?.id ?? null;
-  }
-  if (!domainEntityId) {
-    throw new Error("No department found for system job. Create a department first.");
-  }
+  const scope = params.scope ? String(params.scope) : "company_wide";
+  const domainPageSlug = params.domainPageSlug ? String(params.domainPageSlug) : null;
 
   // Dedup check
   const existing = await prisma.systemJob.findFirst({
@@ -308,16 +188,35 @@ async function executeCreateSystemJob(
   const interval = CronExpressionParser.parse(cronExpression, { currentDate: now });
   const nextTriggerAt = interval.next().toDate();
 
+  // Create wiki page for the job
+  const slug = `system-job-${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+  await prisma.knowledgePage.create({
+    data: {
+      operatorId,
+      slug,
+      title: `System Job: ${title}`,
+      pageType: "system_job",
+      scope: "operator",
+      status: "verified",
+      content: buildSystemJobWikiContent({ description, cronExpression, scope, domainPageSlug }),
+      crossReferences: domainPageSlug ? [domainPageSlug] : [],
+      synthesisPath: "manual",
+      synthesizedByModel: "manual",
+      confidence: 1.0,
+      contentTokens: 0,
+      lastSynthesizedAt: now,
+    },
+  });
+
   const systemJob = await prisma.systemJob.create({
     data: {
       operatorId,
-      aiEntityId,
-      domainEntityId,
       title,
       description,
       cronExpression,
       scope,
-      scopeEntityId,
+      wikiPageSlug: slug,
+      domainPageSlug,
       status: "proposed",
       source: "initiative",
       nextTriggerAt,

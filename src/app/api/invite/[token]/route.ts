@@ -16,25 +16,21 @@ export async function GET(
   }
 
   const operator = await prisma.operator.findUnique({ where: { id: invite.operatorId } });
-  const entity = await prisma.entity.findUnique({
-    where: { id: invite.entityId },
-    select: { displayName: true, primaryDomainId: true },
-  });
 
-  let domainName: string | null = null;
-  if (entity?.primaryDomainId) {
-    const dept = await prisma.entity.findUnique({
-      where: { id: entity.primaryDomainId },
-      select: { displayName: true },
+  // Resolve person name from wiki page or invite name
+  let personName = invite.name ?? "Unknown";
+  if (invite.wikiPageSlug) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId: invite.operatorId, slug: invite.wikiPageSlug, scope: "operator" },
+      select: { title: true },
     });
-    domainName = dept?.displayName ?? null;
+    if (page) personName = page.title;
   }
 
   return NextResponse.json({
     companyName: operator?.companyName || operator?.displayName || "Unknown",
-    personName: entity?.displayName ?? "Unknown",
+    personName,
     role: invite.role,
-    domainName,
     email: invite.email,
   });
 }

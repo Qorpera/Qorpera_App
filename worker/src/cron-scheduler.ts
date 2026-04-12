@@ -1,9 +1,7 @@
 import { prisma } from "@/lib/db";
-import { detectSituations } from "@/lib/situation-detector";
 import { auditPreFilters } from "@/lib/situation-audit";
-import { extractInsights, getLastExtractionTime } from "@/lib/operational-knowledge";
 import { computePriorityScores } from "@/lib/prioritization-engine";
-import { processRecurringTasks } from "@/lib/recurring-tasks";
+
 import { processSystemJobs } from "@/lib/system-job-reasoning";
 import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
 import { assembleInitiativesFromBookmarks } from "@/lib/wiki-bookmark-assembly";
@@ -12,7 +10,7 @@ import { checkSituationTimeouts } from "@/lib/situation-timeout-detector";
 const timers: ReturnType<typeof setInterval>[] = [];
 
 export function startCronScheduler() {
-  // ── Situation Detection: every 15 minutes ──────────────────────────────
+  // ── Content Detection Sweep: every 15 minutes ──────────────────────────
   timers.push(
     setInterval(async () => {
       try {
@@ -21,9 +19,62 @@ export function startCronScheduler() {
           select: { id: true },
         });
         for (const op of operators) {
-          const results = await detectSituations(op.id);
-          if (results.length > 0) {
-            console.log(`[cron:detection] Operator ${op.id}: ${results.length} situations detected`);
+          try {
+            const { evaluateContentForSituations, isEligibleCommunication } = await import("@/lib/content-situation-detector");
+
+            // Sweep unprocessed RawContent — catches anything sync-time detection missed
+            const unprocessed = await prisma.rawContent.findMany({
+              where: {
+                operatorId: op.id,
+                processedAt: null,
+                sourceType: { in: ["email", "slack_message", "teams_message", "calendar_event"] },
+                rawBody: { not: null },
+              },
+              select: { id: true, sourceType: true, sourceId: true, rawBody: true, rawMetadata: true },
+              orderBy: { occurredAt: "desc" },
+              take: 100,
+            });
+
+            if (unprocessed.length === 0) continue;
+
+            // Filter eligible communications
+            const items = unprocessed
+              .filter(raw => {
+                const meta = (raw.rawMetadata ?? {}) as Record<string, unknown>;
+                return isEligibleCommunication({ sourceType: raw.sourceType, metadata: meta });
+              })
+              .map(raw => {
+                const meta = (raw.rawMetadata ?? {}) as Record<string, unknown>;
+                const emails: string[] = [];
+                if (typeof meta.from === "string") emails.push(meta.from);
+                if (Array.isArray(meta.to)) emails.push(...(meta.to as string[]));
+                else if (typeof meta.to === "string") emails.push(...meta.to.split(/[,;]\s*/));
+                if (Array.isArray(meta.cc)) emails.push(...(meta.cc as string[]));
+                else if (typeof meta.cc === "string") emails.push(...meta.cc.split(/[,;]\s*/));
+                return {
+                  sourceType: raw.sourceType,
+                  sourceId: raw.sourceId,
+                  content: raw.rawBody!,
+                  metadata: meta,
+                  participantEmails: emails.length > 0 ? emails : undefined,
+                };
+              });
+
+            if (items.length > 0) {
+              const BATCH = 20;
+              for (let i = 0; i < items.length; i += BATCH) {
+                await evaluateContentForSituations(op.id, items.slice(i, i + BATCH));
+              }
+              console.log(`[cron:detection] Operator ${op.id}: evaluated ${items.length} unprocessed items`);
+            }
+
+            // Mark all fetched items as processed (including ineligible ones)
+            await prisma.rawContent.updateMany({
+              where: { id: { in: unprocessed.map(u => u.id) } },
+              data: { processedAt: new Date() },
+            });
+          } catch (err) {
+            console.error(`[cron:detection] Operator ${op.id} failed:`, err);
           }
         }
       } catch (err) {
@@ -58,42 +109,37 @@ export function startCronScheduler() {
   timers.push(
     setInterval(async () => {
       try {
-        const aiEntities = await prisma.entity.findMany({
-          where: {
-            entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
-            status: "active",
-            operator: { isTestOperator: false },
-          },
-          select: { id: true, operatorId: true },
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false },
+          select: { id: true, createdAt: true },
         });
 
-        let processed = 0;
-        for (const entity of aiEntities) {
-          const operator = await prisma.operator.findUnique({
-            where: { id: entity.operatorId },
+        for (const op of operators) {
+          const lastInsight = await prisma.operationalInsight.findFirst({
+            where: { operatorId: op.id },
+            orderBy: { createdAt: "desc" },
             select: { createdAt: true },
           });
-          if (!operator) continue;
 
-          const operatorAgeDays = (Date.now() - operator.createdAt.getTime()) / (1000 * 60 * 60 * 24);
-          const lastExtraction = await getLastExtractionTime(entity.id);
+          const hoursSince = lastInsight
+            ? (Date.now() - lastInsight.createdAt.getTime()) / (1000 * 60 * 60)
+            : Infinity;
 
-          if (operatorAgeDays <= 7) {
-            if (lastExtraction && (Date.now() - lastExtraction.getTime()) < 20 * 60 * 60 * 1000) continue;
-          } else {
-            if (lastExtraction && (Date.now() - lastExtraction.getTime()) < 6 * 24 * 60 * 60 * 1000) continue;
-          }
+          // New operators (<7 days): every 20 hours. Established: every 6 days.
+          const ageDays = (Date.now() - op.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+          const intervalHours = ageDays <= 7 ? 20 : 144;
+
+          if (hoursSince < intervalHours) continue;
 
           try {
-            await extractInsights(entity.operatorId, entity.id);
-            processed++;
+            const { extractOperatorInsights } = await import("@/lib/operational-knowledge");
+            const result = await extractOperatorInsights(op.id);
+            if (result.insightsCreated > 0) {
+              console.log(`[cron:insights] Operator ${op.id}: ${result.insightsCreated} insights ($${(result.costCents / 100).toFixed(2)})`);
+            }
           } catch (err) {
-            console.error(`[cron:insights] Entity ${entity.id} failed:`, err);
+            console.error(`[cron:insights] Operator ${op.id} failed:`, err);
           }
-        }
-
-        if (processed > 0) {
-          console.log(`[cron:insights] Processed ${processed} AI entities`);
         }
       } catch (err) {
         console.error("[cron:insights] Error:", err);
@@ -143,20 +189,6 @@ export function startCronScheduler() {
         console.error("[cron:stale-jobs] Error:", err);
       }
     }, 5 * 60 * 1000),
-  );
-
-  // ── Recurring Tasks: every 15 minutes ───────────────────────────────
-  timers.push(
-    setInterval(async () => {
-      try {
-        const result = await processRecurringTasks();
-        if (result.triggered > 0) {
-          console.log(`[cron:recurring-tasks] Processed ${result.processed}, triggered ${result.triggered}, errors ${result.errors}`);
-        }
-      } catch (err) {
-        console.error("[cron:recurring-tasks] Error:", err);
-      }
-    }, 15 * 60 * 1000),
   );
 
   // ── System Jobs: every 15 minutes ────────────────────────────────
@@ -379,7 +411,7 @@ export function startCronScheduler() {
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), insights(24h), priorities(6h), stale-jobs(5m), recurring-tasks(15m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d)");
+  console.log("[cron] Started: detection(15m), audit(24h), insights(24h), priorities(6h), stale-jobs(5m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d)");
 }
 
 export function stopCronScheduler() {

@@ -2,51 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { CronExpressionParser } from "cron-parser";
-
-type JobWithRelations = {
-  id: string;
-  title: string;
-  description: string;
-  scope: string;
-  domainEntityId: string;
-  assigneeEntityId: string | null;
-  cronExpression: string;
-  status: string;
-  importanceThreshold: number;
-  lastTriggeredAt: Date | null;
-  nextTriggerAt: Date | null;
-  domain: { id: string; displayName: string };
-  assignee: { id: string; displayName: string } | null;
-  runs: Array<{ summary: string | null; importanceScore: number | null; status: string; createdAt: Date }>;
-};
-
-function formatJobResponse(j: JobWithRelations) {
-  return {
-    id: j.id,
-    title: j.title,
-    description: j.description,
-    scope: j.scope,
-    domainEntityId: j.domainEntityId,
-    domainName: j.domain.displayName,
-    assigneeEntityId: j.assigneeEntityId,
-    assigneeName: j.assignee?.displayName ?? null,
-    cronExpression: j.cronExpression,
-    status: j.status,
-    importanceThreshold: j.importanceThreshold,
-    lastTriggeredAt: j.lastTriggeredAt?.toISOString() ?? null,
-    nextTriggerAt: j.nextTriggerAt?.toISOString() ?? null,
-    latestRun: j.runs[0] ? {
-      summary: j.runs[0].summary,
-      importanceScore: j.runs[0].importanceScore,
-      status: j.runs[0].status,
-      createdAt: j.runs[0].createdAt.toISOString(),
-    } : null,
-  };
-}
+import { buildSystemJobWikiContent } from "@/lib/system-job-wiki";
 
 const JOB_INCLUDE = {
-  domain: { select: { id: true, displayName: true } },
-  assignee: { select: { id: true, displayName: true } },
   runs: {
     orderBy: { createdAt: "desc" as const },
     take: 1,
@@ -65,7 +23,43 @@ export async function GET(req: NextRequest) {
     include: JOB_INCLUDE,
   });
 
-  return NextResponse.json({ items: jobs.map(formatJobResponse) });
+  // Resolve domain/owner names from wiki pages
+  const domainSlugs = jobs.map(j => j.domainPageSlug).filter(Boolean) as string[];
+  const ownerSlugs = jobs.map(j => j.ownerPageSlug).filter(Boolean) as string[];
+  const allSlugs = [...new Set([...domainSlugs, ...ownerSlugs])];
+
+  const pageMap = new Map<string, string>();
+  if (allSlugs.length > 0) {
+    const pages = await prisma.knowledgePage.findMany({
+      where: { operatorId, slug: { in: allSlugs }, scope: "operator" },
+      select: { slug: true, title: true },
+    });
+    for (const p of pages) pageMap.set(p.slug, p.title);
+  }
+
+  const items = jobs.map(j => ({
+    id: j.id,
+    title: j.title,
+    description: j.description,
+    scope: j.scope,
+    domainPageSlug: j.domainPageSlug ?? null,
+    ownerPageSlug: j.ownerPageSlug ?? null,
+    domainName: j.domainPageSlug ? pageMap.get(j.domainPageSlug) ?? null : null,
+    ownerName: j.ownerPageSlug ? pageMap.get(j.ownerPageSlug) ?? null : null,
+    cronExpression: j.cronExpression,
+    status: j.status,
+    importanceThreshold: j.importanceThreshold,
+    lastTriggeredAt: j.lastTriggeredAt?.toISOString() ?? null,
+    nextTriggerAt: j.nextTriggerAt?.toISOString() ?? null,
+    latestRun: j.runs[0] ? {
+      summary: j.runs[0].summary,
+      importanceScore: j.runs[0].importanceScore,
+      status: j.runs[0].status,
+      createdAt: j.runs[0].createdAt.toISOString(),
+    } : null,
+  }));
+
+  return NextResponse.json({ items });
 }
 
 export async function POST(req: NextRequest) {
@@ -78,10 +72,10 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { title, description, cronExpression, domainEntityId, assigneeEntityId, scope, importanceThreshold } = body;
+  const { title, description, cronExpression, domainPageSlug, ownerPageSlug, scope, importanceThreshold } = body;
 
-  if (!title || !description || !cronExpression || !domainEntityId) {
-    return NextResponse.json({ error: "title, description, cronExpression, and domainEntityId are required" }, { status: 400 });
+  if (!title || !description || !cronExpression) {
+    return NextResponse.json({ error: "title, description, and cronExpression are required" }, { status: 400 });
   }
 
   // Validate cron expression and compute next trigger
@@ -93,40 +87,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid cron expression" }, { status: 400 });
   }
 
-  // Validate domain belongs to operator
-  const domain = await prisma.entity.findFirst({
-    where: { id: domainEntityId, operatorId, category: "foundational", status: "active" },
+  // Create wiki page for this job
+  const slug = `system-job-${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+  const now = new Date();
+  await prisma.knowledgePage.create({
+    data: {
+      operatorId,
+      slug,
+      title: `System Job: ${title}`,
+      pageType: "system_job",
+      scope: "operator",
+      status: "verified",
+      content: buildSystemJobWikiContent({ description, cronExpression, scope: scope ?? "domain", domainPageSlug, ownerPageSlug }),
+      crossReferences: [domainPageSlug, ownerPageSlug].filter(Boolean) as string[],
+      synthesisPath: "manual",
+      synthesizedByModel: "manual",
+      confidence: 1.0,
+      contentTokens: 0,
+      lastSynthesizedAt: now,
+    },
   });
-  if (!domain) {
-    return NextResponse.json({ error: "Domain not found" }, { status: 400 });
-  }
-
-  // Find HQ AI entity for aiEntityId
-  const hqAi = await prisma.entity.findFirst({
-    where: { operatorId, entityType: { slug: { in: ["hq-ai", "ai-agent"] } }, status: "active" },
-    select: { id: true },
-  });
-
-  if (!hqAi) {
-    return NextResponse.json({ error: "No AI entity found. Complete onboarding first." }, { status: 400 });
-  }
 
   const job = await prisma.systemJob.create({
     data: {
       operatorId,
-      aiEntityId: hqAi.id,
       title,
       description,
       cronExpression,
-      domainEntityId,
-      assigneeEntityId: assigneeEntityId ?? null,
       scope: scope ?? "domain",
-      importanceThreshold: importanceThreshold ?? 0.3,
+      wikiPageSlug: slug,
+      domainPageSlug: domainPageSlug ?? null,
+      ownerPageSlug: ownerPageSlug ?? null,
       status: "active",
+      source: "manual",
+      importanceThreshold: importanceThreshold ?? 0.3,
       nextTriggerAt,
     },
-    include: JOB_INCLUDE,
   });
 
-  return NextResponse.json(formatJobResponse(job), { status: 201 });
+  return NextResponse.json({ id: job.id, title: job.title, wikiPageSlug: slug }, { status: 201 });
 }

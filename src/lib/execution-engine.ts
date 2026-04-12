@@ -1353,8 +1353,8 @@ async function getDepartmentAdminId(
 
     if (scopes.length > 0) {
       // Find an admin in one of those departments
-      const deptIds = scopes.map((s) => s.domainEntityId);
-      const adminScope = await prisma.userScope.findFirst({
+      const deptIds = scopes.map((s) => s.domainEntityId).filter(Boolean) as string[];
+      const adminScope = deptIds.length > 0 ? await prisma.userScope.findFirst({
         where: {
           domainEntityId: { in: deptIds },
           user: {
@@ -1363,7 +1363,7 @@ async function getDepartmentAdminId(
           },
         },
         select: { userId: true },
-      });
+      }) : null;
       if (adminScope) return adminScope.userId;
     }
   }

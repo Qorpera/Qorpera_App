@@ -11,7 +11,6 @@ import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evalu
 import {
   runIdentityResolution,
   updateEntityEmbedding,
-  reverseMerge,
 } from "@/lib/identity-resolution";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
 
@@ -345,19 +344,6 @@ export async function POST(req: NextRequest) {
             select: { status: true, mergedIntoId: true },
           });
 
-          const mergeLog = await prisma.entityMergeLog.findFirst({
-            where: {
-              operatorId,
-              absorbedId: { in: [entity1.id, entity2.id] },
-            },
-            select: { id: true, mergeType: true, confidence: true },
-            orderBy: { createdAt: "desc" },
-          });
-
-          if (mergeLog) {
-            createdMergeLogIds.push(mergeLog.id);
-          }
-
           const wasMerged = mergedEntity?.status === "merged";
           const hasSuggestion = result.suggested > 0;
 
@@ -366,7 +352,7 @@ export async function POST(req: NextRequest) {
             "Pipeline found the match (merge or suggestion)",
             wasMerged || hasSuggestion || result.autoMerged > 0,
             wasMerged
-              ? `auto-merged (${mergeLog?.mergeType}, confidence: ${mergeLog?.confidence})`
+              ? `auto-merged`
               : hasSuggestion
                 ? `suggestion created (${result.suggested})`
                 : `autoMerged=${result.autoMerged}, suggested=${result.suggested}`,
@@ -375,16 +361,6 @@ export async function POST(req: NextRequest) {
           data.autoMerged = result.autoMerged;
           data.suggested = result.suggested;
           data.testEntityIds = [entity1.id, entity2.id];
-
-          // Cleanup: reverse merge if it happened
-          if (mergeLog && wasMerged) {
-            try {
-              await reverseMerge(mergeLog.id);
-              data.mergeReversed = true;
-            } catch {
-              data.mergeReversed = false;
-            }
-          }
         }, LAYER_TIMEOUT_MS);
       } catch (err) {
         status = "failed";

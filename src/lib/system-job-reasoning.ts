@@ -78,6 +78,14 @@ export async function processSystemJobs(): Promise<{
       status: "active",
       nextTriggerAt: { lte: now },
     },
+    select: {
+      id: true, operatorId: true, title: true, description: true,
+      cronExpression: true, scope: true,
+      wikiPageSlug: true, ownerPageSlug: true, domainPageSlug: true,
+      importanceThreshold: true, autoDispatchFindings: true,
+      executionPlanTemplate: true, autoApproveSteps: true,
+      aiEntityId: true, scopeEntityId: true,
+    },
   });
 
   for (const job of jobs) {
@@ -126,14 +134,20 @@ export async function processSystemJobs(): Promise<{
 type SystemJobRow = {
   id: string;
   operatorId: string;
-  aiEntityId: string;
   title: string;
   description: string;
   cronExpression: string;
   scope: string;
-  scopeEntityId: string | null;
+  wikiPageSlug: string | null;
+  ownerPageSlug: string | null;
+  domainPageSlug: string | null;
   importanceThreshold: number;
   autoDispatchFindings: boolean;
+  executionPlanTemplate: string | null;
+  autoApproveSteps: boolean;
+  // Deprecated entity fields — kept for compat
+  aiEntityId: string | null;
+  scopeEntityId: string | null;
 };
 
 async function executeSystemJob(
@@ -152,6 +166,11 @@ async function executeSystemJob(
   });
 
   try {
+    // Execution plan branch — runs as a recurring task instead of agentic reasoning
+    if (job.executionPlanTemplate) {
+      return executeAsRecurringTask(job, run);
+    }
+
     await ensureInternalCapabilities(job.operatorId);
 
     const operator = await prisma.operator.findUnique({
@@ -189,12 +208,37 @@ async function executeSystemJob(
       take: 20,
     });
 
+    // Load job's wiki page for detailed instructions
+    let jobInstructions = job.description;
+    if (job.wikiPageSlug) {
+      const jobPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId: job.operatorId, slug: job.wikiPageSlug, scope: "operator" },
+        select: { content: true },
+      });
+      if (jobPage) {
+        jobInstructions = jobPage.content;
+      }
+    }
+
+    // Load domain context from wiki hub
+    let domainContext = "";
+    if (job.domainPageSlug) {
+      const domainPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId: job.operatorId, slug: job.domainPageSlug, scope: "operator" },
+        select: { title: true, content: true },
+      });
+      if (domainPage) {
+        domainContext = `\nDOMAIN: ${domainPage.title}\n${domainPage.content.slice(0, 1500)}`;
+      }
+    }
+
     // Build seed context
     const seedParts: string[] = [];
     seedParts.push(`SYSTEM JOB: ${job.title}`);
-    seedParts.push(`DESCRIPTION: ${job.description ?? "No description"}`);
+    seedParts.push(`\nJOB INSTRUCTIONS:\n${jobInstructions}`);
+    if (domainContext) seedParts.push(domainContext);
     seedParts.push(`COMPANY: ${operator?.companyName ?? "Unknown"}`);
-    seedParts.push(`SCOPE: ${job.scope}${job.scopeEntityId ? ` (entity: ${job.scopeEntityId})` : ""}`);
+    seedParts.push(`SCOPE: ${job.scope}`);
 
     if (priorRuns.length > 0) {
       seedParts.push("\nPRIOR CYCLES:");
@@ -352,20 +396,25 @@ async function dispatchOutput(
       }
       if (!situationTypeId) continue;
 
-      let triggerEntityId: string | null = null;
+      let triggerPageSlug: string | null = null;
       if (proposed.triggerEntityName) {
-        const entity = await prisma.entity.findFirst({
-          where: { operatorId: job.operatorId, displayName: { contains: proposed.triggerEntityName, mode: "insensitive" }, status: "active" },
-          select: { id: true },
+        const page = await prisma.knowledgePage.findFirst({
+          where: {
+            operatorId: job.operatorId,
+            scope: "operator",
+            title: { contains: proposed.triggerEntityName, mode: "insensitive" },
+            status: { in: ["draft", "verified"] },
+          },
+          select: { slug: true },
         });
-        triggerEntityId = entity?.id ?? null;
+        triggerPageSlug = page?.slug ?? null;
       }
 
       await prisma.situation.create({
         data: {
           operatorId: job.operatorId,
           situationTypeId,
-          triggerEntityId,
+          triggerPageSlug,
           triggerSummary: proposed.description,
           status: "detected",
           severity: { high: 0.9, medium: 0.6, low: 0.3 }[proposed.urgency] ?? 0.5,
@@ -386,6 +435,8 @@ async function dispatchOutput(
         data: {
           operatorId: job.operatorId,
           aiEntityId: job.aiEntityId,
+          ownerPageSlug: job.ownerPageSlug,
+          domainPageSlug: job.domainPageSlug,
           proposalType: proposed.proposalType,
           triggerSummary: proposed.triggerSummary,
           evidence: JSON.stringify([{ source: "system_job", claim: proposed.triggerSummary }]),
@@ -420,19 +471,26 @@ async function dispatchOutput(
 // ── System Prompt ──────────────────────────────────────────────────────────
 
 function buildAgenticSystemJobPrompt(job: SystemJobRow, companyName: string): string {
-  return `You are an intelligence analyst for ${companyName}. Your role: ${job.title}.
+  const wikiHint = job.wikiPageSlug
+    ? `\nYour detailed instructions are in wiki page [[${job.wikiPageSlug}]]. Read it first.`
+    : "";
+  const domainHint = job.domainPageSlug
+    ? `\nYour domain context is in wiki page [[${job.domainPageSlug}]]. Read it to understand the area you monitor.`
+    : "";
 
-${job.description ?? ""}
+  return `You are an autonomous work agent for ${companyName}. Your role: ${job.title}.
+${wikiHint}${domainHint}
 
-You have access to organizational tools to investigate. Start by reading relevant wiki pages to understand the current state, then search for external information if needed, then produce your assessment.
+You have access to organizational tools to investigate. Start by reading your job's wiki page for detailed instructions, then explore the domain wiki pages, then search for external information if needed.
 
 INVESTIGATION PROCESS:
-1. Use search_wiki and read_wiki_page to understand the company's current state relevant to your role
-2. Use web_search if you need external intelligence (competitors, market, legal, technology)
-3. Use search_entities, lookup_entity, get_activity_timeline for operational data
-4. Use search_communications, search_documents for detailed evidence
-5. Compare what you find against what SHOULD be happening (per wiki strategy/operational pages)
-6. Identify gaps — things the wiki says should happen that aren't happening
+1. Use read_wiki_page to read your job's wiki page and domain hub page for instructions and context
+2. Use search_wiki to find related wiki pages about the area you monitor
+3. Use web_search if you need external intelligence (competitors, market, legal, technology)
+4. Use search_entities, lookup_entity, get_activity_timeline for operational data
+5. Use search_communications, search_documents for detailed evidence
+6. Compare what you find against what SHOULD be happening (per wiki strategy/operational pages)
+7. Identify gaps — things the wiki says should happen that aren't happening
 
 YOUR OUTPUT:
 After investigation, produce a JSON assessment with:
@@ -440,6 +498,7 @@ After investigation, produce a JSON assessment with:
 - importanceScore: 0.0-1.0 — be honest. If nothing changed, score low.
 - analysisNarrative: full analysis with evidence
 - proposedSituations: things that need decisions NOW (each becomes a real situation)
+  When naming triggerEntityName, use the wiki page title of the relevant person/domain/entity.
 - proposedInitiatives: proposed actions for the operator to approve or reject. These are the actual deliverables — not just "we should do X" but "here is X, should we implement it?"
   Each initiative has a proposalType:
   - "project_creation": propose creating a project with specific config (title, description, deliverables, team)
@@ -462,4 +521,91 @@ RULES:
 - For proposedInitiatives: the proposal field must contain ACTIONABLE content the operator can approve directly
 
 Respond with ONLY valid JSON (no markdown fences).`;
+}
+
+// ── Execution Plan Branch (merged from RecurringTask) ─────────────────────
+
+async function executeAsRecurringTask(
+  job: SystemJobRow,
+  run: { id: string },
+): Promise<"completed" | "compressed"> {
+  const startTime = Date.now();
+
+  try {
+    const template = JSON.parse(job.executionPlanTemplate!);
+    const steps: Array<{ title: string; description?: string; capabilityName?: string; params?: Record<string, unknown> }> =
+      Array.isArray(template.steps) ? template.steps : [];
+
+    if (steps.length === 0) {
+      await prisma.systemJobRun.update({
+        where: { id: run.id },
+        data: { status: "compressed", summary: "Empty execution plan template", durationMs: Date.now() - startTime },
+      });
+      return "compressed";
+    }
+
+    // Load domain context from wiki page
+    const deptPage = job.domainPageSlug
+      ? await prisma.knowledgePage.findFirst({
+          where: { operatorId: job.operatorId, slug: job.domainPageSlug, scope: "operator" },
+          select: { title: true, content: true },
+        })
+      : null;
+    const departmentContext = deptPage
+      ? `\nDepartment: ${deptPage.title}\n${deptPage.content.slice(0, 800)}`
+      : "";
+
+    // Load job wiki page for additional instructions
+    let jobContext = job.description;
+    if (job.wikiPageSlug) {
+      const jobPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId: job.operatorId, slug: job.wikiPageSlug, scope: "operator" },
+        select: { content: true },
+      });
+      if (jobPage) jobContext = jobPage.content;
+    }
+
+    // Build step definitions for execution plan
+    const { createExecutionPlan } = await import("@/lib/execution-engine");
+    const stepDefs = steps.map((s) => ({
+      title: s.title,
+      description: s.description ?? s.title,
+      executionMode: (s.capabilityName ? "action" : "generate") as "action" | "generate",
+      actionCapabilityId: s.capabilityName ?? undefined,
+      inputContext: { params: s.params ?? {}, departmentContext, jobContext },
+    }));
+
+    const planId = await createExecutionPlan(
+      job.operatorId,
+      "recurring",
+      job.id,
+      stepDefs,
+    );
+
+    await prisma.systemJobRun.update({
+      where: { id: run.id },
+      data: {
+        status: "completed",
+        summary: `Created execution plan with ${steps.length} step(s)`,
+        durationMs: Date.now() - startTime,
+        rawReasoning: JSON.stringify({ planId, steps: steps.length }),
+      },
+    });
+
+    return "completed";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[system-job] Recurring task execution failed for job ${job.id}:`, err);
+
+    await prisma.systemJobRun.update({
+      where: { id: run.id },
+      data: {
+        status: "failed",
+        errorMessage: message.slice(0, 2000),
+        durationMs: Date.now() - startTime,
+      },
+    });
+
+    throw err;
+  }
 }

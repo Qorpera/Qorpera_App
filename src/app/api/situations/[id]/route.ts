@@ -7,7 +7,7 @@ import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { handleMeetingRequestResolution } from "@/lib/meeting-coordination";
 import { getVisibleDomainIds } from "@/lib/domain-scope";
 import { recheckWorkStreamStatus } from "@/lib/workstreams";
-import { completeDelegation } from "@/lib/delegations";
+
 import { checkInsightExtractionTrigger } from "@/lib/operational-knowledge";
 import { updateWikiOutcomeSignals } from "@/lib/wiki-engine";
 
@@ -471,11 +471,6 @@ export async function PATCH(
     }).catch(console.error);
   }
 
-  // Auto-complete linked delegation when situation is resolved/dismissed
-  if ((body.status === "resolved" || body.status === "dismissed") && situation.delegationId) {
-    completeDelegation(situation.delegationId, user.id, `Situation ${body.status}`)
-      .catch(console.error);
-  }
 
   // Fire-and-forget: check if insight extraction should run
   if (body.status === "resolved") {

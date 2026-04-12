@@ -8,6 +8,7 @@ import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 import { canAccessEntity } from "@/lib/domain-scope";
 import { getWorkStreamContext, canMemberAccessWorkStream } from "@/lib/workstreams";
+import { buildSystemJobWikiContent } from "@/lib/system-job-wiki";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -249,17 +250,6 @@ const COPILOT_TOOLS: AITool[] = [
     },
   },
   {
-    name: "get_delegations",
-    description: "Get delegations — work assigned between AIs or from AI to humans. Use when the user asks 'what's been delegated to me', 'what tasks are assigned', or about AI-to-AI coordination.",
-    parameters: {
-      type: "object",
-      properties: {
-        status: { type: "string", enum: ["pending", "accepted", "completed", "returned"], description: "Delegation status filter." },
-        assignedToMe: { type: "boolean", description: "If true, filter to delegations targeting the current user's AI entity or the user directly. Default: false." },
-      },
-    },
-  },
-  {
     name: "create_system_job",
     description: "Create a new system job that runs on a schedule to monitor and analyze a specific area. Use when the user wants to set up automated monitoring, intelligence gathering, or periodic analysis.",
     parameters: {
@@ -272,17 +262,6 @@ const COPILOT_TOOLS: AITool[] = [
         domainEntityId: { type: "string", description: "ID of the department (foundational entity) this job is scoped to. If not provided, uses the first available department." },
       },
       required: ["title", "description", "cronExpression"],
-    },
-  },
-  {
-    name: "get_recurring_tasks",
-    description: "Get recurring automated tasks. Use when the user asks 'what runs automatically', 'scheduled tasks', or about recurring work.",
-    parameters: {
-      type: "object",
-      properties: {
-        domainId: { type: "string", description: "Filter to a specific department." },
-        activeOnly: { type: "boolean", description: "Only show active tasks. Default: true." },
-      },
     },
   },
   {
@@ -379,9 +358,10 @@ const ORIENTATION_TOOLS: AITool[] = [
 // ── Context-Scoped Tool Selection ────────────────────────────────────────────
 
 const CONTEXT_EXCLUDED_TOOLS: Record<string, Set<string>> = {
-  situation: new Set(["get_recurring_tasks", "create_situation_type", "list_departments", "get_org_structure"]),
-  initiative: new Set(["get_recurring_tasks", "get_delegations", "create_situation_type", "list_departments", "get_org_structure"]),
-  workstream: new Set(["get_recurring_tasks", "create_situation_type", "list_departments", "get_org_structure"]),
+  situation: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
+  initiative: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
+  workstream: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
+
 };
 
 export function getToolsForContext(contextType: string | null): typeof COPILOT_TOOLS {
@@ -487,8 +467,6 @@ CAPABILITIES:
 - Get activity summary: use when user asks about activity levels, trends, communication volume, or what's been happening
 - Get initiatives: use when user asks about objectives, targets, strategic work, or AI proposals
 - Get work streams: use when user asks about projects, grouped work, or progress
-- Get delegations: use when user asks about assigned work, AI-to-AI coordination, or human tasks
-- Get recurring tasks: use when user asks about scheduled or automated work
 - Get insights: use when user asks what the AI has learned, best approaches, or effectiveness patterns
 - Get priorities: use when user asks what needs attention, what's most urgent, or what to work on next
 - Create new situation types scoped to specific departments
@@ -1180,7 +1158,6 @@ export async function executeTool(
         watchingFollowUps,
         urgentFollowUps,
         recentInsights,
-        recurringTasksDueToday,
       ] = await Promise.all([
         // Situations by department
         Promise.all(targetDepts.map(async (dept) => {
@@ -1222,14 +1199,9 @@ export async function executeTool(
         prisma.initiative.count({ where: { ...initScopeFilter, status: "executing" } }),
         // Proposed initiatives awaiting approval
         prisma.initiative.count({ where: { ...initScopeFilter, status: "proposed" } }),
-        // Pending delegations (need admin approval) — 0 when scoped with no AI entities
-        (briefingDelegationScoped && (!briefingAiIds || briefingAiIds.length === 0))
-          ? Promise.resolve(0)
-          : prisma.delegation.count({ where: { ...delegationScopeFilter, status: "pending" } }),
-        // Human tasks awaiting completion
-        (briefingDelegationScoped && (!briefingAiIds || briefingAiIds.length === 0))
-          ? Promise.resolve(0)
-          : prisma.delegation.count({ where: { ...delegationScopeFilter, status: "accepted", toUserId: { not: null } } }),
+        // Delegations removed (model dropped v0.3.17)
+        Promise.resolve(0),
+        Promise.resolve(0),
         // Active FollowUps count
         prisma.followUp.count({ where: { operatorId, status: "watching" } }),
         // FollowUps triggering within 24 hours
@@ -1248,12 +1220,6 @@ export async function executeTool(
           orderBy: { confidence: "desc" },
           take: 3,
           select: { description: true, confidence: true, insightType: true },
-        }),
-        // Recurring tasks due in next 24 hours
-        prisma.recurringTask.findMany({
-          where: recurringScope,
-          select: { title: true, nextTriggerAt: true },
-          take: 5,
         }),
       ]);
 
@@ -1337,15 +1303,11 @@ export async function executeTool(
         insightSection += ` — most notable: "${recentInsights[0].description.slice(0, 100)}" (confidence: ${recentInsights[0].confidence.toFixed(2)})`;
       }
 
-      const recurringSection = recurringTasksDueToday.length > 0
-        ? `\n  Recurring tasks due today: ${recurringTasksDueToday.map(t => t.title).join(", ")}`
-        : `\n  Recurring tasks due today: none`;
-
       const header = deptName
         ? `Operational briefing for ${deptName} (${period}):`
         : `Operational briefing across ${targetDepts.length} departments (${period}):`;
 
-      return `${header}\n\n${sections.join("\n\n")}${prioritySection}${initiativeSection}${delegationSection}${followUpSection}${insightSection}${recurringSection}`;
+      return `${header}\n\n${sections.join("\n\n")}${prioritySection}${initiativeSection}${delegationSection}${followUpSection}${insightSection}`;
     }
 
     case "search_department_knowledge": {
@@ -1846,103 +1808,6 @@ export async function executeTool(
       return "Please provide either a workStreamId or a search term.";
     }
 
-    case "get_delegations": {
-      const status = args.status ? String(args.status) : undefined;
-      const assignedToMe = args.assignedToMe === true;
-
-      const where: Record<string, unknown> = { operatorId };
-      if (status) where.status = status;
-
-      if (assignedToMe) {
-        if (!userId) return "No delegations found — user context not available.";
-
-        // Find the current user's personal AI entity
-        const userAiEntity = await prisma.entity.findFirst({
-          where: { operatorId, ownerUserId: userId, entityType: { slug: "ai-agent" } },
-          select: { id: true },
-        });
-
-        const orClauses: Record<string, unknown>[] = [];
-        if (userAiEntity) {
-          orClauses.push({ toAiEntityId: userAiEntity.id });
-        }
-        orClauses.push({ toUserId: userId });
-
-        where.OR = orClauses;
-      }
-
-      // Scope filter (only when not assignedToMe — that path is already scoped to the user)
-      if (visibleDomains && visibleDomains !== "all" && !assignedToMe) {
-        const aiIds = await getVisibleAiEntityIds(visibleDomains as string[], operatorId);
-        if (aiIds.length === 0) {
-          return "No delegations found for your departments.";
-        }
-        where.OR = [
-          { fromAiEntityId: { in: aiIds } },
-          { toAiEntityId: { in: aiIds } },
-        ];
-      }
-
-      const delegations = await prisma.delegation.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        take: 20,
-      });
-
-      if (delegations.length === 0) return "No delegations found.";
-
-      // Resolve entity names
-      const entityIds = new Set<string>();
-      for (const d of delegations) {
-        entityIds.add(d.fromAiEntityId);
-        if (d.toAiEntityId) entityIds.add(d.toAiEntityId);
-      }
-      const entities = entityIds.size > 0
-        ? await prisma.entity.findMany({
-            where: { id: { in: [...entityIds] } },
-            select: { id: true, displayName: true },
-          })
-        : [];
-      const nameMap = new Map(entities.map(e => [e.id, e.displayName]));
-
-      // Resolve linked item titles
-      const sitIds = delegations.map(d => d.situationId).filter(Boolean) as string[];
-      const initIds = delegations.map(d => d.initiativeId).filter(Boolean) as string[];
-      const [situations, inits] = await Promise.all([
-        sitIds.length > 0
-          ? prisma.situation.findMany({
-              where: { id: { in: sitIds } },
-              select: { id: true, situationType: { select: { name: true } } },
-            })
-          : [],
-        initIds.length > 0
-          ? prisma.initiative.findMany({
-              where: { id: { in: initIds } },
-              select: { id: true, rationale: true },
-            })
-          : [],
-      ]);
-      const sitTitleMap = new Map(situations.map(s => [s.id, s.situationType.name]));
-      const initTitleMap = new Map(inits.map(i => [i.id, i.rationale.slice(0, 100)]));
-
-      return JSON.stringify(delegations.map(d => ({
-        id: d.id,
-        instruction: d.instruction.slice(0, 200),
-        status: d.status,
-        sourceAiName: nameMap.get(d.fromAiEntityId) ?? "Unknown",
-        targetName: d.toAiEntityId
-          ? nameMap.get(d.toAiEntityId) ?? "Unknown AI"
-          : d.toUserId ?? "Unknown User",
-        type: d.toAiEntityId ? "ai-to-ai" : "ai-to-human",
-        createdAt: d.createdAt.toISOString(),
-        linkedItemTitle: d.situationId
-          ? sitTitleMap.get(d.situationId) ?? null
-          : d.initiativeId
-            ? initTitleMap.get(d.initiativeId) ?? null
-            : null,
-      })));
-    }
-
     case "create_system_job": {
       if (userId) {
         const caller = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
@@ -1960,136 +1825,46 @@ export async function executeTool(
         const interval = CronExpressionParser.parse(cronExpression);
         const nextTriggerAt = interval.next().toDate();
 
-        const hqAi = await prisma.entity.findFirst({
-          where: { operatorId, entityType: { slug: { in: ["hq-ai", "ai-agent"] } }, status: "active" },
-          select: { id: true },
+        // Create wiki page for this job
+        const slug = `system-job-${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+        const now = new Date();
+        await prisma.knowledgePage.create({
+          data: {
+            operatorId,
+            slug,
+            title: `System Job: ${title}`,
+            pageType: "system_job",
+            scope: "operator",
+            status: "verified",
+            content: buildSystemJobWikiContent({ description, cronExpression, scope }),
+            crossReferences: [],
+            synthesisPath: "manual",
+            synthesizedByModel: "manual",
+            confidence: 1.0,
+            contentTokens: 0,
+            lastSynthesizedAt: now,
+          },
         });
-        if (!hqAi) return "No AI entity found. Complete onboarding first.";
-
-        // Resolve domain entity
-        let domainEntityId = args.domainEntityId ? String(args.domainEntityId) : undefined;
-        if (!domainEntityId) {
-          const firstDomain = await prisma.entity.findFirst({
-            where: { operatorId, category: "foundational", status: "active" },
-            select: { id: true },
-          });
-          domainEntityId = firstDomain?.id;
-        }
-        if (!domainEntityId) return "No department found. Create a department first before setting up system jobs.";
 
         const job = await prisma.systemJob.create({
           data: {
             operatorId,
-            aiEntityId: hqAi.id,
-            domainEntityId,
             title,
             description,
             cronExpression,
+            wikiPageSlug: slug,
             scope,
             status: "active",
+            source: "manual",
             importanceThreshold: 0.3,
             nextTriggerAt,
           },
         });
 
-        return `System job "${title}" created successfully (ID: ${job.id}). It will first run ${nextTriggerAt.toISOString().split("T")[0]}. Schedule: ${cronExpression}. You can view and manage it on the System Jobs page.`;
+        return `System job "${title}" created successfully (ID: ${job.id}). Wiki page created at [[${slug}]]. It will first run ${nextTriggerAt.toISOString().split("T")[0]}. Schedule: ${cronExpression}. You can view and manage it on the System Jobs page.`;
       } catch (err) {
         return `Failed to create system job: ${err instanceof Error ? err.message : "Unknown error"}`;
       }
-    }
-
-    case "get_recurring_tasks": {
-      const domainId = args.domainId ? String(args.domainId) : undefined;
-      const activeOnly = args.activeOnly !== false; // default true
-
-      const where: Record<string, unknown> = { operatorId };
-      if (activeOnly) where.status = "active";
-
-      // Scope by department via aiEntity
-      let scopedAiIds: string[] | null = null;
-      if (visibleDomains && visibleDomains !== "all") {
-        scopedAiIds = await getVisibleAiEntityIds(visibleDomains as string[], operatorId);
-        if (scopedAiIds.length === 0) return "No recurring tasks found.";
-        where.aiEntityId = { in: scopedAiIds };
-      }
-
-      if (domainId) {
-        const deptAis = await prisma.entity.findMany({
-          where: {
-            operatorId,
-            entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
-            OR: [
-              { primaryDomainId: domainId },
-              { ownerDomainId: domainId },
-            ],
-          },
-          select: { id: true },
-        });
-        const deptAiIds = deptAis.map(e => e.id);
-
-        if (scopedAiIds) {
-          // Member: intersect with already-scoped set
-          const intersection = deptAiIds.filter(id => scopedAiIds!.includes(id));
-          if (intersection.length === 0) return "No recurring tasks found for that department.";
-          where.aiEntityId = { in: intersection };
-        } else {
-          // Admin: just use the domainId filter
-          where.aiEntityId = { in: deptAiIds };
-        }
-      }
-
-      const tasks = await prisma.recurringTask.findMany({
-        where,
-        orderBy: { nextTriggerAt: "asc" },
-        take: 20,
-      });
-
-      if (tasks.length === 0) return "No recurring tasks found.";
-
-      // Resolve AI entity → department names
-      const aiEntityIds = [...new Set(tasks.map(t => t.aiEntityId))];
-      const aiEntities = aiEntityIds.length > 0
-        ? await prisma.entity.findMany({
-            where: { id: { in: aiEntityIds } },
-            select: { id: true, primaryDomainId: true, ownerDomainId: true },
-          })
-        : [];
-      const deptIds = [...new Set(aiEntities.flatMap(e => [e.primaryDomainId, e.ownerDomainId].filter(Boolean) as string[]))];
-      const depts = deptIds.length > 0
-        ? await prisma.entity.findMany({
-            where: { id: { in: deptIds } },
-            select: { id: true, displayName: true },
-          })
-        : [];
-      const deptNameMap = new Map(depts.map(d => [d.id, d.displayName]));
-      const aiToDept = new Map(aiEntities.map(e => [e.id, deptNameMap.get(e.ownerDomainId ?? e.primaryDomainId ?? "") ?? "HQ"]));
-
-      // Get last execution for each task
-      const taskIds = tasks.map(t => t.id);
-      const lastPlans = taskIds.length > 0
-        ? await prisma.executionPlan.findMany({
-            where: { sourceType: "recurring", sourceId: { in: taskIds } },
-            orderBy: { createdAt: "desc" },
-            distinct: ["sourceId"],
-            select: { sourceId: true, status: true, createdAt: true },
-          })
-        : [];
-      const lastPlanMap = new Map(lastPlans.map(p => [p.sourceId, p]));
-
-      return JSON.stringify(tasks.map(t => {
-        const lastPlan = lastPlanMap.get(t.id);
-        return {
-          id: t.id,
-          title: t.title,
-          cronExpression: t.cronExpression,
-          nextTriggerAt: t.nextTriggerAt?.toISOString() ?? null,
-          isActive: t.status === "active",
-          autoApproveSteps: t.autoApproveSteps,
-          lastExecutionStatus: lastPlan?.status ?? null,
-          lastExecutionAt: lastPlan?.createdAt.toISOString() ?? null,
-          domainName: aiToDept.get(t.aiEntityId) ?? "HQ",
-        };
-      }));
     }
 
     case "get_insights": {
@@ -2207,9 +1982,8 @@ export async function executeTool(
       // Resolve source titles
       const sitIds = plans.filter(p => p.sourceType === "situation").map(p => p.sourceId);
       const initIds = plans.filter(p => p.sourceType === "initiative").map(p => p.sourceId);
-      const recurringIds = plans.filter(p => p.sourceType === "recurring").map(p => p.sourceId);
 
-      const [sitNames, initNames, recurringNames] = await Promise.all([
+      const [sitNames, initNames] = await Promise.all([
         sitIds.length > 0
           ? prisma.situation.findMany({
               where: { id: { in: sitIds }, operatorId },
@@ -2222,18 +1996,11 @@ export async function executeTool(
               select: { id: true, rationale: true },
             })
           : [],
-        recurringIds.length > 0
-          ? prisma.recurringTask.findMany({
-              where: { id: { in: recurringIds }, operatorId },
-              select: { id: true, title: true },
-            })
-          : [],
       ]);
 
       const titleMap = new Map<string, string>();
       for (const s of sitNames) titleMap.set(s.id, s.situationType.name);
       for (const i of initNames) titleMap.set(i.id, i.rationale.slice(0, 100));
-      for (const r of recurringNames) titleMap.set(r.id, r.title);
 
       return JSON.stringify(plans.map(p => {
         const currentStep = p.steps.find(s => s.sequenceOrder === p.currentStepOrder);

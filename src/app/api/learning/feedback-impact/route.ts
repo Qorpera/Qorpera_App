@@ -51,25 +51,14 @@ export async function GET(req: NextRequest) {
         .filter((id): id is string => id !== null),
     ),
   ];
-  const scopeEntities = scopeEntityIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: scopeEntityIds } },
-        select: { id: true, displayName: true },
-      })
-    : [];
-  // Try to resolve better names from wiki domain_hub pages
-  const deptNames = scopeEntities.map(e => e.displayName);
-  const hubPages = deptNames.length > 0
+  // Resolve department names from wiki pages
+  const hubPages = scopeEntityIds.length > 0
     ? await prisma.knowledgePage.findMany({
-        where: { operatorId, scope: "operator", pageType: "domain_hub", title: { in: deptNames, mode: "insensitive" } },
-        select: { title: true },
+        where: { operatorId, scope: "operator", pageType: "domain_hub", subjectEntityId: { in: scopeEntityIds } },
+        select: { subjectEntityId: true, title: true },
       })
     : [];
-  const hubTitleMap = new Map(hubPages.map(p => [p.title.toLowerCase(), p.title]));
-  const deptNameMap = new Map(scopeEntities.map((e) => [
-    e.id,
-    hubTitleMap.get(e.displayName.toLowerCase()) ?? e.displayName,
-  ]));
+  const deptNameMap = new Map(hubPages.filter(p => p.subjectEntityId).map(p => [p.subjectEntityId!, p.title]));
 
   // Calculate before/after approval rates for each feedback entry
   const recentFeedback = await Promise.all(

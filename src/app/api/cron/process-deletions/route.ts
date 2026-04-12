@@ -96,11 +96,11 @@ async function deleteUser(userId: string, operatorId: string) {
   // Step 1: Reassign situations
   const situations = await prisma.situation.findMany({
     where: { assignedUserId: userId, operatorId },
-    select: { id: true, delegationId: true },
+    select: { id: true },
   });
 
   for (const sit of situations) {
-    const reassignTarget = await findReassignmentTarget(sit.delegationId, userId, operatorId);
+    const reassignTarget = await findReassignmentTarget(null, userId, operatorId);
     if (reassignTarget) {
       await prisma.situation.update({
         where: { id: sit.id },
@@ -117,11 +117,6 @@ async function deleteUser(userId: string, operatorId: string) {
   }
 
   // Step 2: Delete personal data (order matters for FK constraints)
-  // Null out delegation references to this user
-  await prisma.delegation.updateMany({
-    where: { toUserId: userId },
-    data: { toUserId: null },
-  });
   await prisma.contentChunk.deleteMany({ where: { userId } });
   await prisma.copilotMessage.deleteMany({ where: { userId } });
 
@@ -171,24 +166,7 @@ async function findReassignmentTarget(
   userId: string,
   operatorId: string,
 ): Promise<string | null> {
-  // 1. If situation has a delegation, reassign to the delegator's user
-  if (delegationId) {
-    const delegation = await prisma.delegation.findUnique({
-      where: { id: delegationId },
-      select: { fromAiEntityId: true },
-    });
-    if (delegation) {
-      const delegatorEntity = await prisma.entity.findUnique({
-        where: { id: delegation.fromAiEntityId },
-        select: { ownerUserId: true },
-      });
-      if (delegatorEntity?.ownerUserId && delegatorEntity.ownerUserId !== userId) {
-        return delegatorEntity.ownerUserId;
-      }
-    }
-  }
-
-  // 2. Find first admin in user's department
+  // Find first admin in user's department
   const userScopes = await prisma.userScope.findMany({
     where: { userId },
     select: { domainEntityId: true },
@@ -199,7 +177,7 @@ async function findReassignmentTarget(
         operatorId,
         role: "admin",
         id: { not: userId },
-        scopes: { some: { domainEntityId: { in: userScopes.map((s) => s.domainEntityId) } } },
+        scopes: { some: { domainEntityId: { in: userScopes.map((s) => s.domainEntityId).filter(Boolean) as string[] } } },
       },
       select: { id: true },
     });
@@ -248,9 +226,7 @@ async function deleteOperator(operatorId: string) {
   await prisma.internalDocument.deleteMany({ where: { operatorId } });
   await prisma.operationalInsight.deleteMany({ where: { operatorId } });
   await prisma.personalAutonomy.deleteMany({ where: { operatorId } });
-  await prisma.delegation.deleteMany({ where: { operatorId } });
   await prisma.followUp.deleteMany({ where: { operatorId } });
-  await prisma.recurringTask.deleteMany({ where: { operatorId } });
   await prisma.initiative.deleteMany({ where: { operatorId } });
   await prisma.workStream.deleteMany({ where: { operatorId } });
   await prisma.planAutonomy.deleteMany({ where: { operatorId } });

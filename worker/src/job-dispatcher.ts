@@ -44,12 +44,9 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
   },
 
   async extract_insights(payload) {
-    const { operatorId, aiEntityId } = payload as {
-      operatorId: string;
-      aiEntityId: string;
-    };
-    const { extractInsights } = await import("@/lib/operational-knowledge");
-    await extractInsights(operatorId, aiEntityId);
+    const { operatorId } = payload as { operatorId: string };
+    const { extractOperatorInsights } = await import("@/lib/operational-knowledge");
+    await extractOperatorInsights(operatorId);
   },
 
   async evaluate_recent_content(payload) {
@@ -129,7 +126,7 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
   async strategic_scan(payload) {
     const { operatorId } = payload as { operatorId: string };
     const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
-    return runWikiStrategicScan(operatorId);
+    await runWikiStrategicScan(operatorId);
   },
 
   async generate_deliverable(payload) {

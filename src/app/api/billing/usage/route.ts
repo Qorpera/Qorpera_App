@@ -73,25 +73,16 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // Resolve departments via trigger entity
-  const triggerEntityIds = situations.map((s) => s.triggerEntityId).filter(Boolean) as string[];
-  const triggerEntities = triggerEntityIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: triggerEntityIds } },
-        select: { id: true, primaryDomainId: true },
-      })
-    : [];
-  const entityDeptMap = new Map(triggerEntities.map((e) => [e.id, e.primaryDomainId]));
-
-  // Resolve department names
-  const deptIds = [...new Set(triggerEntities.map((e) => e.primaryDomainId).filter(Boolean))] as string[];
-  const departments = deptIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: deptIds } },
-        select: { id: true, displayName: true },
-      })
-    : [];
-  const deptNameMap = new Map(departments.map((d) => [d.id, d.displayName]));
+  // Resolve departments via wiki page slugs
+  const domainSlugs = [...new Set(situations.map((s) => s.domainPageSlug).filter(Boolean))] as string[];
+  const deptNameMap = new Map<string, string>();
+  if (domainSlugs.length > 0) {
+    const pages = await prisma.knowledgePage.findMany({
+      where: { operatorId, slug: { in: domainSlugs }, scope: "operator" },
+      select: { slug: true, title: true },
+    });
+    for (const p of pages) deptNameMap.set(p.slug, p.title);
+  }
 
   // Group by autonomy level
   const situationsByAutonomy: Record<string, { count: number; totalCents: number }> = {
@@ -107,16 +98,16 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Group by department
+  // Group by department (via domainPageSlug)
   const departmentUsage = new Map<string, { name: string; count: number; totalCents: number }>();
   for (const s of situations) {
-    const deptId = s.triggerEntityId ? entityDeptMap.get(s.triggerEntityId) : null;
-    if (deptId) {
-      const name = deptNameMap.get(deptId) ?? "Unknown";
-      const existing = departmentUsage.get(deptId) ?? { name, count: 0, totalCents: 0 };
+    const slug = s.domainPageSlug;
+    if (slug) {
+      const name = deptNameMap.get(slug) ?? "Unknown";
+      const existing = departmentUsage.get(slug) ?? { name, count: 0, totalCents: 0 };
       existing.count++;
       existing.totalCents += s.billedCents ?? 0;
-      departmentUsage.set(deptId, existing);
+      departmentUsage.set(slug, existing);
     }
   }
 

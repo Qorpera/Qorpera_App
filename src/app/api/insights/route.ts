@@ -9,35 +9,21 @@ export async function GET(req: NextRequest) {
   const { user, operatorId } = su;
 
   const params = req.nextUrl.searchParams;
-  const domainId = params.get("domainId");
+  const domainSlug = params.get("domain") ?? undefined;
   const scope = params.get("scope");
   const insightType = params.get("insightType");
   const status = params.get("status") ?? "active";
 
-  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
-
   const where: Record<string, unknown> = { operatorId, status };
 
   if (insightType) where.insightType = insightType;
-  if (domainId) where.domainId = domainId;
+  if (domainSlug) where.domainPageSlug = domainSlug;
   if (scope) where.shareScope = scope;
 
-  // Member scoping: own personal + visible department + operator-scoped
+  // Member scoping: operator-scoped insights visible to all
+  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
   if (visibleDomains !== "all") {
-    // Find the member's AI entity for personal insight filtering
-    const aiEntity = await prisma.entity.findFirst({
-      where: { operatorId, ownerUserId: user.id, entityType: { slug: "ai-agent" } },
-      select: { id: true },
-    });
-
-    where.OR = [
-      // Own personal insights
-      ...(aiEntity ? [{ aiEntityId: aiEntity.id, shareScope: "personal" }] : []),
-      // Department-scoped insights for visible departments
-      { domainId: { in: visibleDomains }, shareScope: "department" },
-      // Operator-scoped insights
-      { shareScope: "operator" },
-    ];
+    where.shareScope = "operator";
   }
 
   const insights = await prisma.operationalInsight.findMany({
@@ -46,29 +32,28 @@ export async function GET(req: NextRequest) {
     take: 100,
   });
 
-  // Resolve AI entity names
-  const aiEntityIds = [...new Set(insights.map((i) => i.aiEntityId))];
-  const aiEntities = aiEntityIds.length > 0
-    ? await prisma.entity.findMany({
-        where: { id: { in: aiEntityIds }, operatorId },
-        select: { id: true, displayName: true },
-      })
-    : [];
-  const entityNameMap = new Map(aiEntities.map((e) => [e.id, e.displayName]));
+  // Resolve domain names from wiki pages
+  const slugs = [...new Set(insights.map(i => i.domainPageSlug).filter(Boolean))] as string[];
+  const pageMap = new Map<string, string>();
+  if (slugs.length > 0) {
+    const pages = await prisma.knowledgePage.findMany({
+      where: { operatorId, slug: { in: slugs }, scope: "operator" },
+      select: { slug: true, title: true },
+    });
+    for (const p of pages) pageMap.set(p.slug, p.title);
+  }
 
   const items = insights.map((i) => {
     let evidence = null;
     try { evidence = JSON.parse(i.evidence); } catch {}
     return {
       id: i.id,
-      aiEntityId: i.aiEntityId,
-      aiEntityName: entityNameMap.get(i.aiEntityId) ?? null,
-      domainId: i.domainId,
+      domainPageSlug: i.domainPageSlug ?? null,
+      domainName: i.domainPageSlug ? pageMap.get(i.domainPageSlug) ?? null : null,
       insightType: i.insightType,
       description: i.description,
       evidence,
       confidence: i.confidence,
-      promptModification: i.promptModification,
       shareScope: i.shareScope,
       status: i.status,
       createdAt: i.createdAt.toISOString(),

@@ -261,25 +261,8 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }));
     const cycleNumber = completedCycles.length + 1;
 
-    // 5e. Load delegation source
-    let delegationSource: { instruction: string; context: unknown; fromEntityName: string | null } | null = null;
-    if (situation.delegationId) {
-      const delegation = await prisma.delegation.findFirst({
-        where: { id: situation.delegationId!, operatorId: situation.operatorId },
-        select: { instruction: true, context: true, fromAiEntityId: true },
-      });
-      if (delegation) {
-        const fromEntity = await prisma.entity.findFirst({
-          where: { id: delegation.fromAiEntityId, operatorId: situation.operatorId },
-          select: { displayName: true },
-        });
-        delegationSource = {
-          instruction: delegation.instruction,
-          context: delegation.context ? (() => { try { return JSON.parse(delegation.context!); } catch { return null; } })() : null,
-          fromEntityName: fromEntity?.displayName ?? null,
-        };
-      }
-    }
+    // 5e. Delegation source — removed (Delegation model dropped in v0.3.17)
+    const delegationSource: { instruction: string; context: unknown; fromEntityName: string | null } | null = null;
 
     // 5f. Load workstream membership
     const workstreamItems = await prisma.workStreamItem.findMany({

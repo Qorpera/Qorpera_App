@@ -35,6 +35,7 @@ export async function evaluateInsightPromotion(insightId: string): Promise<Promo
   if (!situationTypeId) return { promoted: false, reason: "no_promotion" };
 
   // 2. Find the department
+  if (!insight.aiEntityId) return { promoted: false, reason: "no_promotion" };
   const aiEntity = await prisma.entity.findUnique({
     where: { id: insight.aiEntityId },
     select: {

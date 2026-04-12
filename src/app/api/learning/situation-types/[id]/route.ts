@@ -35,6 +35,7 @@ export async function GET(
       consecutiveApprovals: true,
       approvalRate: true,
       scopeEntityId: true,
+      wikiPageSlug: true,
       createdAt: true,
       operatorId: true,
     },
@@ -50,23 +51,23 @@ export async function GET(
   }
 
   // Load scoped department — prefer wiki page title
-  let department: { id: string; name: string; pageSlug?: string } | null = null;
-  if (situationType.scopeEntityId) {
-    const dept = await prisma.entity.findUnique({
-      where: { id: situationType.scopeEntityId },
-      select: { id: true, displayName: true },
+  let department: { name: string; pageSlug?: string } | null = null;
+  if (situationType.wikiPageSlug) {
+    const hubPage = await prisma.knowledgePage.findFirst({
+      where: { operatorId, scope: "operator", slug: situationType.wikiPageSlug },
+      select: { slug: true, title: true },
     });
-    if (dept) {
-      // Try to find the corresponding wiki domain_hub page for a better display name
-      const hubPage = await prisma.knowledgePage.findFirst({
-        where: { operatorId, scope: "operator", pageType: "domain_hub", title: { equals: dept.displayName, mode: "insensitive" } },
-        select: { slug: true, title: true },
-      });
-      department = {
-        id: dept.id,
-        name: hubPage?.title ?? dept.displayName,
-        pageSlug: hubPage?.slug ?? undefined,
-      };
+    if (hubPage) {
+      department = { name: hubPage.title, pageSlug: hubPage.slug };
+    }
+  } else if (situationType.scopeEntityId) {
+    // Legacy fallback
+    const hubPage = await prisma.knowledgePage.findFirst({
+      where: { operatorId, scope: "operator", pageType: "domain_hub", subjectEntityId: situationType.scopeEntityId },
+      select: { slug: true, title: true },
+    });
+    if (hubPage) {
+      department = { name: hubPage.title, pageSlug: hubPage.slug };
     }
   }
 

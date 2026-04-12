@@ -35,8 +35,8 @@ import { CONTENT_CHUNKS, generateActivitySignals } from "./seed-content";
 import { SITUATION_TYPE_UPDATES, SITUATIONS, ACTION_CAPABILITIES } from "./seed-situations";
 import {
   INITIATIVES, WORKSTREAMS, OPERATIONAL_INSIGHTS,
-  PLAN_AUTONOMY_PATTERNS, RECURRING_TASKS, FOLLOW_UPS,
-  NOTIFICATIONS, COPILOT_SESSIONS, DELEGATIONS,
+  PLAN_AUTONOMY_PATTERNS, FOLLOW_UPS,
+  NOTIFICATIONS, COPILOT_SESSIONS,
 } from "./seed-phase3";
 import { createHash } from "crypto";
 
@@ -62,8 +62,6 @@ async function cleanupOperator(operatorId: string): Promise<void> {
 
   // Phase 3 models
   await prisma.followUp.deleteMany({ where: { operatorId } });
-  await prisma.recurringTask.deleteMany({ where: { operatorId } });
-  await prisma.delegation.deleteMany({ where: { operatorId } });
   await prisma.workStreamItem.deleteMany({ where: { workStream: { operatorId } } });
   await prisma.workStream.deleteMany({ where: { operatorId } });
   await prisma.executionStep.deleteMany({ where: { plan: { operatorId } } });
@@ -109,7 +107,6 @@ async function cleanupOperator(operatorId: string): Promise<void> {
 
   // Entities & graph
   await prisma.entityMention.deleteMany({ where: { entity: { operatorId } } });
-  await prisma.entityMergeLog.deleteMany({ where: { operatorId } });
   await prisma.propertyValue.deleteMany({ where: { entity: { operatorId } } });
   await prisma.relationship.deleteMany({ where: { relationshipType: { operatorId } } });
   await prisma.relationshipType.deleteMany({ where: { operatorId } });
@@ -1141,28 +1138,6 @@ export async function runDemoSeed(operatorId: string) {
     });
   }
 
-  // ─── P4 Layer 5: Recurring Tasks ──────────────────────────────────
-  console.log("[demo-seed] Creating recurring tasks...");
-  for (const rt of RECURRING_TASKS) {
-    const aiEntityId = rt.aiEntityType === "hq"
-      ? hqAiId
-      : deptAiIds[rt.aiEntityDept ?? ""] ?? hqAiId;
-
-    await prisma.recurringTask.create({
-      data: {
-        operatorId,
-        aiEntityId,
-        title: rt.title,
-        description: rt.description ?? null,
-        cronExpression: rt.cronExpression,
-        executionPlanTemplate: JSON.stringify({ steps: [] }),
-        lastTriggeredAt: rt.lastTriggeredDaysAgo ? daysAgo(rt.lastTriggeredDaysAgo) : null,
-        nextTriggerAt: rt.nextTriggerDaysFromNow ? daysFromNow(rt.nextTriggerDaysFromNow) : null,
-        status: "active",
-      },
-    });
-  }
-
   // ─── P4 Layer 6: Follow-Ups ───────────────────────────────────────
   console.log("[demo-seed] Creating follow-ups...");
   for (const fu of FOLLOW_UPS) {
@@ -1233,26 +1208,6 @@ export async function runDemoSeed(operatorId: string) {
     }
   }
 
-  // ─── P4 Layer 9: Delegations ──────────────────────────────────────
-  console.log("[demo-seed] Creating delegations...");
-  for (const del of DELEGATIONS) {
-    const fromAiEntityId = deptAiIds[del.fromAiEntityDept] ?? hqAiId;
-    const toUserId = userIds[del.toUserRole];
-
-    await prisma.delegation.create({
-      data: {
-        operatorId,
-        fromAiEntityId,
-        toUserId,
-        instruction: del.instruction,
-        context: JSON.stringify(del.context),
-        status: del.status,
-        completedAt: del.completedDaysAgo ? daysAgo(del.completedDaysAgo) : null,
-        completedNotes: del.completedNotes ?? null,
-      },
-    });
-  }
-
   console.log("[demo-seed] Phase 3+4 complete.");
 
   // ─── Living Research (replaces background synthesis) ─────────────
@@ -1299,11 +1254,9 @@ export async function runDemoSeed(operatorId: string) {
       workStreams: WORKSTREAMS.length,
       insights: OPERATIONAL_INSIGHTS.length,
       planPatterns: PLAN_AUTONOMY_PATTERNS.length,
-      recurringTasks: RECURRING_TASKS.length,
       followUps: FOLLOW_UPS.length,
       notifications: NOTIFICATIONS.length,
       copilotSessions: COPILOT_SESSIONS.length,
-      delegations: DELEGATIONS.length,
     },
     ids: {
       hqAiId,

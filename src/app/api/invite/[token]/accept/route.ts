@@ -25,38 +25,81 @@ export async function POST(
       if (invite.claimedAt) throw new TxError("This invite has already been used", 410);
       if (invite.expiresAt < new Date()) throw new TxError("This invite has expired", 400);
 
-      const entity = await tx.entity.findUnique({
-        where: { id: invite.entityId },
-        select: { id: true, displayName: true, primaryDomainId: true },
-      });
-      if (!entity) throw new TxError("Entity no longer exists", 400);
-
       const emailTaken = await tx.user.findUnique({ where: { email: invite.email } });
       if (emailTaken) throw new TxError("Email already in use", 409);
+
+      // Resolve name: from invite, wiki page, or email
+      let displayName = invite.name ?? invite.email.split("@")[0];
+      if (invite.wikiPageSlug) {
+        const personPage = await tx.knowledgePage.findFirst({
+          where: { operatorId: invite.operatorId, slug: invite.wikiPageSlug, scope: "operator" },
+          select: { title: true },
+        });
+        if (personPage) displayName = personPage.title;
+      }
 
       const newUser = await tx.user.create({
         data: {
           operatorId: invite.operatorId,
           email: invite.email,
-          name: entity.displayName,
+          name: displayName,
           passwordHash: invite.passwordHash,
           role: invite.role,
-          entityId: entity.id,
+          wikiPageSlug: invite.wikiPageSlug,
+          entityId: invite.entityId ?? undefined,
         },
       });
 
-      // Create UserScope for the entity's department
-      if (entity.primaryDomainId) {
-        await tx.userScope.create({
-          data: {
-            userId: newUser.id,
-            domainEntityId: entity.primaryDomainId,
-            grantedById: invite.createdById,
-          },
+      // Create UserScope from wiki page cross-references (domain links)
+      if (invite.wikiPageSlug) {
+        const personPage = await tx.knowledgePage.findFirst({
+          where: { operatorId: invite.operatorId, slug: invite.wikiPageSlug, scope: "operator" },
+          select: { crossReferences: true },
         });
+        if (personPage?.crossReferences) {
+          for (const ref of personPage.crossReferences) {
+            // Check if this cross-reference is a domain hub
+            const isDomain = await tx.knowledgePage.findFirst({
+              where: { operatorId: invite.operatorId, slug: ref, scope: "operator", pageType: "domain_hub" },
+              select: { slug: true },
+            });
+            if (isDomain) {
+              await tx.userScope.create({
+                data: {
+                  userId: newUser.id,
+                  domainEntityId: null,
+                  domainPageSlug: ref,
+                  grantedById: invite.createdById,
+                },
+              });
+            }
+          }
+        }
       }
 
-      // Create personal AI assistant entity
+      // Legacy: create scope from entity's department if present
+      if (invite.entityId) {
+        const entity = await tx.entity.findUnique({
+          where: { id: invite.entityId },
+          select: { primaryDomainId: true },
+        });
+        if (entity?.primaryDomainId) {
+          const existing = await tx.userScope.findFirst({
+            where: { userId: newUser.id, domainEntityId: entity.primaryDomainId },
+          });
+          if (!existing) {
+            await tx.userScope.create({
+              data: {
+                userId: newUser.id,
+                domainEntityId: entity.primaryDomainId,
+                grantedById: invite.createdById,
+              },
+            });
+          }
+        }
+      }
+
+      // Create personal AI assistant entity (kept for backward compat)
       let aiAgentType = await tx.entityType.findFirst({
         where: { operatorId: invite.operatorId, slug: "ai-agent" },
       });
@@ -79,9 +122,8 @@ export async function POST(
         data: {
           operatorId: invite.operatorId,
           entityTypeId: aiAgentType.id,
-          displayName: `${entity.displayName}'s Assistant`,
+          displayName: `${displayName}'s Assistant`,
           category: "base",
-          primaryDomainId: entity.primaryDomainId,
           ownerUserId: newUser.id,
         },
       });

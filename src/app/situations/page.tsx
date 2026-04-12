@@ -537,7 +537,7 @@ export default function SituationsPage() {
 
           {/* List */}
           <div className="flex-1 overflow-y-auto">
-            <DelegationFeed />
+
             {loading && (
               <div className="flex justify-center py-10">
                 <div className="h-4 w-4 animate-spin rounded-full border border-border border-t-muted" />
@@ -784,115 +784,6 @@ export default function SituationsPage() {
   );
 }
 
-// ── Delegation Feed ──────────────────────────────────────────────────────────
-
-interface DelegationItem {
-  id: string;
-  instruction: string;
-  fromAiEntityName: string | null;
-  status: string;
-  situationId: string | null;
-  createdAt: string;
-}
-
-function DelegationFeed() {
-  const tc = useTranslations("common");
-  const [delegations, setDelegations] = useState<DelegationItem[]>([]);
-  const [expanded, setExpanded] = useState(false);
-  const [completingId, setCompletingId] = useState<string | null>(null);
-  const [notes, setNotes] = useState("");
-
-  useEffect(() => {
-    fetch("/api/delegations?status=pending")
-      .then(res => res.ok ? res.json() : { items: [] })
-      .then(data => setDelegations(data.items ?? []))
-      .catch(() => {});
-  }, []);
-
-  if (delegations.length === 0) return null;
-
-  const handleComplete = async (id: string) => {
-    if (!notes.trim()) return;
-    try {
-      await fetch(`/api/delegations/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "complete", notes: notes.trim() }),
-      });
-      setDelegations(prev => prev.filter(d => d.id !== id));
-      setCompletingId(null);
-      setNotes("");
-    } catch {}
-  };
-
-  return (
-    <div style={{ borderBottom: "1px solid var(--border)" }}>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left px-4 py-2 flex items-center gap-2 bg-accent-light"
-      >
-        <span className="min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-accent text-[10px] font-bold text-accent-ink px-1">
-          {delegations.length}
-        </span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--accent)" }}>
-          task{delegations.length !== 1 ? "s" : ""} assigned to you
-        </span>
-        <svg className={`w-3 h-3 ml-auto transition-transform ${expanded ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="var(--accent)" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
-      </button>
-      {expanded && (
-        <div className="px-4 pb-3 space-y-2">
-          {delegations.map(d => (
-            <div key={d.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 4, padding: "8px 12px" }}>
-              <p style={{ fontSize: 12, color: "var(--fg2)" }}>{d.instruction}</p>
-              <p style={{ fontSize: 11, color: "var(--fg4)", marginTop: 2 }}>
-                From: {d.fromAiEntityName ?? "AI"}
-              </p>
-              {completingId === d.id ? (
-                <div className="mt-2 space-y-1.5">
-                  <textarea
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    placeholder="Describe what you did..."
-                    className="w-full outline-none"
-                    style={{ background: "var(--sidebar)", border: "1px solid var(--border)", borderRadius: 4, padding: "6px 8px", fontSize: 11, color: "var(--foreground)", resize: "vertical", fontFamily: "inherit" }}
-                    rows={2}
-                  />
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={() => handleComplete(d.id)}
-                      disabled={!notes.trim()}
-                      className="text-[11px] px-2 py-0.5 rounded transition disabled:opacity-40"
-                      style={{ background: "rgba(34,197,94,0.15)", color: "var(--ok)" }}
-                    >
-                      Submit
-                    </button>
-                    <button
-                      onClick={() => { setCompletingId(null); setNotes(""); }}
-                      className="text-[11px] px-2 py-0.5 rounded transition"
-                      style={{ color: "var(--fg4)" }}
-                    >
-                      {tc("cancel")}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setCompletingId(d.id)}
-                  className="mt-2 text-[11px] px-2 py-0.5 rounded transition"
-                  style={{ background: "rgba(34,197,94,0.1)", color: "var(--ok)" }}
-                >
-                  Mark complete
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Execution Mode Badge ─────────────────────────────────────────────────────
 
@@ -1300,16 +1191,11 @@ function DetailPane({
                     onClick={async () => {
                       setCreatingProject(true);
                       try {
-                        // Get user's AI entity for ownerAiEntityId
-                        const meRes = await fetch("/api/me/ai-entity");
-                        const meData = meRes.ok ? await meRes.json() : null;
-                        if (!meData?.id) { setCreatingProject(false); return; }
-
                         const title = `${s.triggerName ?? "Unknown"} — ${s.situationType.name}`;
                         const wsRes = await fetch("/api/workstreams", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ title, description: title, ownerAiEntityId: meData.id }),
+                          body: JSON.stringify({ title, description: title }),
                         });
                         if (!wsRes.ok) { setCreatingProject(false); return; }
                         const ws = await wsRes.json();

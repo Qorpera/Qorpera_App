@@ -53,11 +53,20 @@ export async function POST(req: NextRequest) {
   const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
   let scopeInfo: { userName?: string; domainName?: string; visibleDomains: string[] | "all" } | undefined;
   if (visibleDomains !== "all") {
-    const scopeUser = await prisma.user.findUnique({ where: { id: su.effectiveUserId }, select: { name: true, entityId: true, entity: { select: { primaryDomainId: true } } } });
+    const scopeUser = await prisma.user.findUnique({ where: { id: su.effectiveUserId }, select: { name: true, wikiPageSlug: true } });
     let domainName: string | undefined;
-    if (scopeUser?.entity?.primaryDomainId) {
-      const dept = await prisma.entity.findUnique({ where: { id: scopeUser.entity.primaryDomainId }, select: { displayName: true } });
-      domainName = dept?.displayName ?? undefined;
+    if (scopeUser?.wikiPageSlug) {
+      const personPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId: su.operatorId, slug: scopeUser.wikiPageSlug, scope: "operator" },
+        select: { crossReferences: true },
+      });
+      if (personPage?.crossReferences?.[0]) {
+        const domainPage = await prisma.knowledgePage.findFirst({
+          where: { operatorId: su.operatorId, slug: personPage.crossReferences[0], scope: "operator", pageType: "domain_hub" },
+          select: { title: true },
+        });
+        domainName = domainPage?.title ?? undefined;
+      }
     }
     scopeInfo = { userName: scopeUser?.name, domainName, visibleDomains };
   }

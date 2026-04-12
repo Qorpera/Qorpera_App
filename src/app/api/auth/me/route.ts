@@ -19,9 +19,9 @@ export async function GET(req: NextRequest) {
   if (scopeRole !== "admin" && scopeRole !== "superadmin") {
     const userScopes = await prisma.userScope.findMany({
       where: { userId: scopeUserId },
-      select: { domainEntityId: true },
+      select: { domainEntityId: true, domainPageSlug: true },
     });
-    scopes = userScopes.map((s) => s.domainEntityId);
+    scopes = userScopes.map((s) => s.domainEntityId ?? s.domainPageSlug ?? "").filter(Boolean);
   }
 
   // When acting as another operator, fetch that operator's details
@@ -43,13 +43,14 @@ export async function GET(req: NextRequest) {
     email: user.email,
     role: user.role,
     entityId: user.entityId,
+    wikiPageSlug: user.wikiPageSlug,
     locale: user.locale,
   };
 
   if (su.actingAsUser) {
     const impersonated = await prisma.user.findUnique({
       where: { id: su.effectiveUserId },
-      select: { id: true, name: true, email: true, role: true, entityId: true, locale: true },
+      select: { id: true, name: true, email: true, role: true, entityId: true, wikiPageSlug: true, locale: true },
     });
     if (impersonated) {
       responseUser = {
@@ -58,13 +59,24 @@ export async function GET(req: NextRequest) {
         email: impersonated.email,
         role: impersonated.role,
         entityId: impersonated.entityId,
+        wikiPageSlug: impersonated.wikiPageSlug,
         locale: impersonated.locale ?? user.locale,
       };
     }
   }
 
+  // Resolve wiki page title
+  let wikiPageTitle: string | null = null;
+  if (responseUser.wikiPageSlug) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: responseUser.wikiPageSlug, scope: "operator" },
+      select: { title: true },
+    });
+    wikiPageTitle = page?.title ?? null;
+  }
+
   return NextResponse.json({
-    user: responseUser,
+    user: { ...responseUser, wikiPageTitle },
     operator,
     isSuperadmin,
     actingAsOperator,

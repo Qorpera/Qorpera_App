@@ -23,20 +23,7 @@ interface PersonalConnector {
   email?: string;
 }
 
-interface AiEntity {
-  id: string;
-  displayName: string;
-  domains: Array<{ id: string; displayName: string }>;
-}
 
-interface PersonalAutonomyRow {
-  id: string;
-  autonomyLevel: string;
-  totalProposed: number;
-  totalApproved: number;
-  consecutiveApprovals: number;
-  situationType: { name: string; slug: string };
-}
 
 const ROLE_COLORS: Record<string, string> = {
   admin: "bg-accent-light text-accent border-[color-mix(in_srgb,var(--accent)_30%,transparent)]",
@@ -68,8 +55,6 @@ function AccountPageInner() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [tokenModal, setTokenModal] = useState<{ providerId: string; label: string; fields: Array<{ key: string; label: string; placeholder?: string }> } | null>(null);
   const [tokenValues, setTokenValues] = useState<Record<string, string>>({});
-  const [aiEntity, setAiEntity] = useState<AiEntity | null | undefined>(undefined);
-  const [paRows, setPaRows] = useState<PersonalAutonomyRow[]>([]);
   const [activeTab, setActiveTab] = useState<"profile" | "notifications">("profile");
 
   const loadPersonalConnectors = useCallback(async () => {
@@ -101,19 +86,6 @@ function AccountPageInner() {
       })
       .finally(() => setLoading(false));
     loadPersonalConnectors();
-    // Load AI entity + autonomy
-    fetchApi("/api/me/ai-entity").then(async (res) => {
-      if (res.ok) {
-        const data = await res.json();
-        setAiEntity(data);
-        if (data) {
-          const paRes = await fetchApi("/api/personal-autonomy");
-          if (paRes.ok) setPaRows(await paRes.json());
-        }
-      } else {
-        setAiEntity(null);
-      }
-    }).catch(() => setAiEntity(null));
   }, [loadPersonalConnectors]);
 
   // Handle OAuth return
