@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { ingestContent } from "@/lib/content-pipeline";
+import { storeRawContent } from "@/lib/storage/raw-content-store";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
 
 export async function POST(req: NextRequest) {
@@ -30,46 +30,22 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        const result = await ingestContent({
+        await storeRawContent({
           operatorId,
-          userId: null,
+          accountId: "test-harness",
           sourceType,
           sourceId,
           content: text,
-          entityId: entityId ?? undefined,
-          domainIds,
           metadata: metadata ?? {},
+          occurredAt: new Date(),
         });
-
-        // Fetch created chunk IDs
-        const chunks = await prisma.contentChunk.findMany({
-          where: { operatorId, sourceType, sourceId },
-          select: { id: true, chunkIndex: true },
-          orderBy: { chunkIndex: "asc" },
-        });
-
-        // Check embeddings via raw query
-        const chunkIds = chunks.map((c) => c.id);
-        let embeddingStatus: Array<{ id: string; hasEmbedding: boolean }> = [];
-        if (chunkIds.length > 0) {
-          embeddingStatus = await prisma.$queryRaw<Array<{ id: string; hasEmbedding: boolean }>>`
-            SELECT id, (embedding IS NOT NULL) as "hasEmbedding"
-            FROM "ContentChunk"
-            WHERE id = ANY(${chunkIds}::text[])
-          `;
-        }
-
-        const embeddingMap = new Map(embeddingStatus.map((e) => [e.id, e.hasEmbedding]));
 
         return NextResponse.json({
           success: true,
           type: "content",
-          chunksCreated: result.chunksCreated,
-          chunks: chunks.map((c) => ({
-            id: c.id,
-            chunkIndex: c.chunkIndex,
-            hasEmbedding: embeddingMap.get(c.id) ?? false,
-          })),
+          stored: true,
+          sourceType,
+          sourceId,
           timestamp: formatTimestamp(new Date()),
         });
       }

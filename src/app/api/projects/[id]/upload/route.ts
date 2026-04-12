@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { assertProjectAccess } from "@/lib/project-access";
-import { extractText } from "@/lib/rag/pipeline";
-import { enqueueDocument } from "@/lib/rag/embedding-queue";
+import { extractText } from "@/lib/text-extraction";
 import { checkRateLimit } from "@/lib/rate-limiter";
 import crypto from "crypto";
 import { writeFile, mkdir } from "fs/promises";
@@ -137,9 +136,6 @@ export async function POST(
   } catch (extractErr) {
     console.error("[project-upload] Text extraction failed (non-fatal):", extractErr);
   }
-
-  // Enqueue for batch processing (RAG pipeline — will create ContentChunks with projectId)
-  enqueueDocument(doc.id);
 
   const result = await prisma.internalDocument.findUnique({
     where: { id: doc.id },

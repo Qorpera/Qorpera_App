@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { ingestContent } from "@/lib/content-pipeline";
+import { storeRawContent } from "@/lib/storage/raw-content-store";
 import { detectSituations } from "@/lib/situation-detector";
 import {
   evaluateContentForSituations,
@@ -151,15 +151,13 @@ export async function POST(req: NextRequest) {
         await withTimeout(async () => {
           const sourceId = `test-harness-${testRunId}-email-1`;
 
-          const result = await ingestContent({
+          const rawContentId = await storeRawContent({
             operatorId,
-            userId: null,
+            accountId: "test-harness",
             sourceType: "email",
             sourceId,
             content:
               "Hi team, I wanted to follow up on the Q3 financial report that was due last week. Our board meeting is scheduled for this Friday and we need the updated revenue breakdown by product line and customer acquisition costs. The CFO is asking for this directly. Can you prioritize this and send over the draft by Wednesday EOD? Thanks.",
-            entityId: contactEntity.id,
-            domainIds: deptIds,
             metadata: {
               subject: "Q3 Report Request",
               from: contactEmail,
@@ -169,47 +167,19 @@ export async function POST(req: NextRequest) {
               isAutomated: false,
               _testRunId: testRunId,
             },
+            occurredAt: new Date(),
           });
 
           createdContentChunkSourceIds.push(sourceId);
 
-          // Assert: chunks created
-          const chunks = await prisma.contentChunk.findMany({
-            where: { operatorId, sourceId },
-            select: { id: true, domainIds: true, metadata: true },
+          // Assert: raw content stored
+          const rawContent = await prisma.rawContent.findFirst({
+            where: { operatorId, sourceType: "email", sourceId },
           });
-          contentChunkIds = chunks.map((c) => c.id);
-          assert(assertions, "ContentChunk created for sourceId", chunks.length >= 1, `found ${chunks.length} chunk(s)`);
+          assert(assertions, "RawContent stored for sourceId", !!rawContent, rawContent ? "stored" : "not found");
 
-          // Assert: embedding exists
-          if (chunks.length > 0) {
-            const embStatus = await prisma.$queryRaw<Array<{ id: string; hasEmbedding: boolean }>>`
-              SELECT id, (embedding IS NOT NULL) as "hasEmbedding"
-              FROM "ContentChunk"
-              WHERE "operatorId" = ${operatorId} AND "sourceId" = ${sourceId}
-            `;
-            const withEmbedding = embStatus.filter((e) => e.hasEmbedding).length;
-            assert(assertions, "Embedding exists on ContentChunk", withEmbedding > 0, `${withEmbedding}/${chunks.length} chunks have embeddings`);
-          }
-
-          // Assert: domainIds preserved
-          if (chunks.length > 0) {
-            const deptOk = chunks[0].domainIds === JSON.stringify(deptIds);
-            assert(assertions, "domainIds preserved", deptOk, `expected ${JSON.stringify(deptIds)}, got ${chunks[0].domainIds}`);
-          }
-
-          // Assert: metadata parseable
-          if (chunks.length > 0 && chunks[0].metadata) {
-            let metaOk = false;
-            try {
-              JSON.parse(chunks[0].metadata);
-              metaOk = true;
-            } catch {}
-            assert(assertions, "metadata is parseable JSON", metaOk);
-          }
-
-          data.chunksCreated = result.chunksCreated;
-          data.chunkIds = contentChunkIds;
+          data.chunksCreated = rawContent ? 1 : 0;
+          data.chunkIds = rawContent ? [rawContent.id] : [];
         }, LAYER_TIMEOUT_MS);
       } catch (err) {
         status = "failed";

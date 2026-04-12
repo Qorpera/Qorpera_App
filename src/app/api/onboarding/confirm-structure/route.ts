@@ -94,16 +94,6 @@ export async function POST(request: Request) {
     data: { phase: "active" },
   });
 
-  // Backfill content/activity linkage — must complete before detection sweep
-  try {
-    const { backfillContentLinkage } = await import("@/lib/onboarding-intelligence/content-linkage");
-    const linkResult = await backfillContentLinkage(operatorId);
-    console.log(`[confirm-structure] Content linkage: ${linkResult.chunksUpdated} chunks, ${linkResult.signalsUpdated} signals`);
-  } catch (err) {
-    console.error("[confirm-structure] Content linkage failed:", err);
-    // Non-fatal — detection still runs, just with degraded context
-  }
-
   // Apply uncertainty log answers to entity graph
   try {
     const analysisForAnswers = await prisma.onboardingAnalysis.findUnique({

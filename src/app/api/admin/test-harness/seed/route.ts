@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { ingestContent } from "@/lib/content-pipeline";
+import { storeRawContent } from "@/lib/storage/raw-content-store";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
 
 function daysAgo(d: number): Date {
@@ -152,17 +152,17 @@ export async function POST(req: NextRequest) {
     ];
 
     for (const item of contentItems) {
-      const result = await ingestContent({
+      await storeRawContent({
         operatorId,
-        userId: null,
+        accountId: "test-harness",
+        userId: undefined,
         sourceType: item.sourceType,
         sourceId: item.sourceId,
         content: item.content,
-        entityId: item.entityId ?? undefined,
-        domainIds: item.domainIds,
         metadata: item.metadata,
+        occurredAt: new Date(),
       });
-      results.contentChunks += result.chunksCreated;
+      results.contentChunks += 1;
       results.ids.contentChunkSourceIds.push(item.sourceId);
     }
 
