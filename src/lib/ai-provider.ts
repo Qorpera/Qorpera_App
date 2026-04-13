@@ -44,6 +44,10 @@ const MODEL_ROUTES = {
   deliverableCompleteness: "claude-sonnet-4-6",
   wikiAnswerIntegration: "claude-haiku-4-5-20251001",
 
+  // ── Activity pipeline ──
+  activityFilter: "claude-haiku-4-5-20251001",      // email/drive noise classification
+  activityDetection: "claude-haiku-4-5-20251001",   // inline situation trigger detection
+
   // ── Infrastructure ──
   embedding: "text-embedding-3-small",
   // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias

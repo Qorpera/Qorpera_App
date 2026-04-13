@@ -3,7 +3,6 @@ import { getProvider } from "@/lib/connectors/registry";
 import { materializeUnprocessed } from "@/lib/event-materializer";
 import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
 import { storeRawContent } from "@/lib/storage/raw-content-store";
-import { ingestActivity } from "@/lib/activity-pipeline";
 import {
   isEligibleCommunication,
   type CommunicationItem,
@@ -12,6 +11,23 @@ import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { captureApiError } from "@/lib/api-error";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { runSyncDiagnostics } from "@/lib/sync-diagnostics";
+
+// ── Activity signal constants ────────────────────────────────────────────────
+
+// Skip derived metrics — these aren't raw content.
+// The wiki activity pipeline derives analytics from real activity.
+const ACTIVITY_DERIVED_METRICS = new Set(["email_response_time", "meeting_frequency"]);
+
+// Map signalType to RawContent sourceType (unmapped types fall through as-is)
+const ACTIVITY_SOURCE_TYPE_MAP: Record<string, string> = {
+  meeting_held: "calendar_event",
+  doc_created: "drive_doc",
+  doc_edited: "drive_doc",
+  doc_shared: "drive_doc",
+  shipment_milestone: "logistics_event",
+  shipment_tracking_update: "logistics_event",
+  erp_customer_synced: "erp_event",
+};
 
 // ── Retry helpers ────────────────────────────────────────────────────────────
 
@@ -82,6 +98,7 @@ export async function runConnectorSync(
   let syncStatus: "success" | "partial" | "failed" = "success";
 
   const communicationBatch: CommunicationItem[] = [];
+  const activityRawContentIds: string[] = [];
 
   try {
     // Document providers (Google Drive, OneDrive) should crawl full history on
@@ -151,7 +168,7 @@ export async function runConnectorSync(
               }
             }
 
-            await storeRawContent({
+            const rawContentId = await storeRawContent({
               operatorId,
               accountId: connector.id,
               userId: connector.userId ?? undefined,
@@ -162,6 +179,7 @@ export async function runConnectorSync(
               occurredAt,
             });
             contentIngested++;
+            activityRawContentIds.push(rawContentId);
 
             // Document intelligence: route drive_doc content >3000 chars through the pipeline
             if (item.data.sourceType === "drive_doc" && item.data.content.length > 3000) {
@@ -226,19 +244,51 @@ export async function runConnectorSync(
 
         case "activity": {
           try {
-            const result = await ingestActivity({
+            const { signalType, actorEmail, targetEmails, metadata, occurredAt } = item.data;
+
+            if (ACTIVITY_DERIVED_METRICS.has(signalType)) {
+              break;
+            }
+
+            const sourceType = ACTIVITY_SOURCE_TYPE_MAP[signalType] ?? signalType;
+
+            // Build a readable body from the activity data
+            const bodyParts: string[] = [`Activity: ${signalType}`];
+            if (actorEmail) bodyParts.push(`Actor: ${actorEmail}`);
+            if (targetEmails?.length) bodyParts.push(`Targets: ${targetEmails.join(", ")}`);
+            if (metadata) {
+              for (const [k, v] of Object.entries(metadata)) {
+                if (v != null && v !== "") bodyParts.push(`${k}: ${v}`);
+              }
+            }
+            const rawBody = bodyParts.join("\n");
+
+            // Build sourceId for dedup (signalType + key metadata fields + timestamp)
+            const occurredDate = occurredAt instanceof Date ? occurredAt : new Date(occurredAt);
+            const dedupKey = metadata?.eventId ?? metadata?.threadId ?? metadata?.sourceId ?? `${signalType}-${occurredDate.getTime()}`;
+            const sourceId = `${signalType}:${dedupKey}`;
+
+            const rawContentId = await storeRawContent({
               operatorId,
-              connectorId,
-              signalType: item.data.signalType,
-              actorEmail: item.data.actorEmail,
-              targetEmails: item.data.targetEmails,
-              metadata: item.data.metadata,
-              occurredAt: item.data.occurredAt,
+              accountId: connector.id,
+              userId: connector.userId ?? undefined,
+              sourceType,
+              sourceId,
+              content: rawBody,
+              metadata: {
+                ...(metadata || {}),
+                signalType,
+                actorEmail,
+                targetEmails,
+              },
+              occurredAt: occurredDate,
             });
-            if (result) activitiesIngested++;
+
+            activityRawContentIds.push(rawContentId);
+            activitiesIngested++;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            errors.push(`Activity ingestion error: ${msg}`);
+            errors.push(`Activity storage error: ${msg}`);
           }
           break;
         }
@@ -251,6 +301,19 @@ export async function runConnectorSync(
         operatorId,
         items: communicationBatch,
       }).catch((err) => console.error("[content-detection] Failed to enqueue:", err));
+    }
+
+    // Dispatch wiki activity pipeline for all new content
+    if (activityRawContentIds.length > 0) {
+      // Batch into chunks of 50 to avoid oversized payloads
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < activityRawContentIds.length; i += BATCH_SIZE) {
+        const batch = activityRawContentIds.slice(i, i + BATCH_SIZE);
+        enqueueWorkerJob("process_activity", operatorId, {
+          operatorId,
+          rawContentIds: batch,
+        }).catch((err) => console.error("[activity-pipeline] Failed to enqueue:", err));
+      }
     }
   } catch (err) {
     captureApiError(err, { route: "connector-sync", operatorId, connectorId });

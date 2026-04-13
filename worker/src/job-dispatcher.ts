@@ -303,6 +303,20 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     console.log(`[synthesize_research] Created ${result.pagesCreated} system wiki pages from "${title}"`);
   },
 
+  async process_activity(payload) {
+    const { operatorId, rawContentIds } = payload as { operatorId: string; rawContentIds: string[] };
+    const { processActivityBatch } = await import("@/lib/wiki-activity-pipeline");
+    const result = await processActivityBatch(operatorId, rawContentIds);
+    console.log(`[process_activity] Operator ${operatorId}: ${result.processed} processed, ${result.written} written, ${result.detected} detected, ${result.skipped} skipped`);
+  },
+
+  async clean_activity(payload) {
+    const { operatorId } = payload as { operatorId: string };
+    const { cleanActivityPages } = await import("@/lib/wiki-activity-pipeline");
+    const result = await cleanActivityPages(operatorId);
+    console.log(`[clean_activity] Operator ${operatorId}: ${result.pagesCleanedUp} pages, ${result.entriesRemoved} entries removed, ${result.entriesCompressed} compressed`);
+  },
+
   async re_evaluate_plan(payload) {
     const { operatorId, executionPlanId, triggerStepId, humanNotes } = payload as {
       operatorId: string;

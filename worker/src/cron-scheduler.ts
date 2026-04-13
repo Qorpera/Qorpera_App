@@ -408,10 +408,37 @@ export function startCronScheduler() {
     }, 7 * 24 * 60 * 60 * 1000),
   );
 
+  // ── Activity Cleanup: every 6 hours ──────────────────────────────────
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false },
+          select: { id: true },
+        });
+        for (const op of operators) {
+          try {
+            const { cleanActivityPages } = await import("@/lib/wiki-activity-pipeline");
+            const result = await cleanActivityPages(op.id);
+            if (result.entriesRemoved > 0 || result.entriesCompressed > 0) {
+              console.log(
+                `[cron:activity-cleanup] Operator ${op.id}: ${result.pagesCleanedUp} pages, ${result.entriesRemoved} removed, ${result.entriesCompressed} compressed`,
+              );
+            }
+          } catch (err) {
+            console.error(`[cron:activity-cleanup] Operator ${op.id} failed:`, err);
+          }
+        }
+      } catch (err) {
+        console.error("[cron:activity-cleanup] Error:", err);
+      }
+    }, 6 * 60 * 60 * 1000),
+  );
+
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), insights(24h), priorities(6h), stale-jobs(5m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d)");
+  console.log("[cron] Started: detection(15m), audit(24h), insights(24h), priorities(6h), stale-jobs(5m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d), activity-cleanup(6h)");
 }
 
 export function stopCronScheduler() {

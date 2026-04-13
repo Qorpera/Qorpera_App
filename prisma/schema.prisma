@@ -1657,7 +1657,8 @@ model KnowledgePage {
   // Structured properties (queryable via JSONB operators)
   properties      Json?    @db.JsonB
   // Uncapped activity section (managed by activity pipeline, NOT embedded)
-  activityContent String?  @db.Text
+  activityContent    String?   @db.Text
+  activityUpdatedAt  DateTime?
 
   // Provenance
   sources     Json     @default("[]")

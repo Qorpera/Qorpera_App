@@ -1,11 +1,8 @@
 import { prisma } from "@/lib/db";
 import type { AITool } from "@/lib/ai-provider";
 import { searchRawContent } from "@/lib/storage/raw-content-store";
-import {
-  loadActivityTimeline,
-  loadCommunicationContext,
-} from "@/lib/context-assembly";
-import { getPageForEntity, searchPages, searchSystemPages } from "@/lib/wiki-engine";
+import { loadCommunicationContext } from "@/lib/context-assembly";
+import { getPageForEntity, searchPages, searchSystemPages, resolvePageSlug } from "@/lib/wiki-engine";
 import { findContradictions, type EvidenceContradiction } from "@/lib/evidence-registry";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -42,7 +39,7 @@ export const REASONING_TOOLS: AITool[] = [
   {
     name: "get_activity_timeline",
     description:
-      "Get recent activity for a person or topic. Search by name, email, or wiki page slug.",
+      "Get recent activity for a person. Search by name, email, or wiki page slug. Returns activity summaries from the person's wiki page, or raw content search results as fallback.",
     parameters: {
       type: "object",
       properties: {
@@ -52,7 +49,7 @@ export const REASONING_TOOLS: AITool[] = [
         },
         slug: {
           type: "string",
-          description: "Optional: wiki page slug to get activity for",
+          description: "Optional: wiki page slug to get activity for directly",
         },
         days: {
           type: "number",
@@ -423,62 +420,36 @@ async function executeGetActivityTimeline(
   const pageSlug = args.slug ? String(args.slug) : undefined;
   const days = typeof args.days === "number" ? args.days : 30;
 
-  let entityId: string | undefined;
+  // 1. Resolve to a person page and read activity in one query if slug provided
+  let page: { title: string; activityContent: string | null; activityUpdatedAt: Date | null } | null = null;
+
   if (pageSlug) {
-    const page = await prisma.knowledgePage.findFirst({
+    page = await prisma.knowledgePage.findFirst({
       where: { operatorId, slug: pageSlug, scope: "operator" },
-      select: { subjectEntityId: true },
+      select: { title: true, activityContent: true, activityUpdatedAt: true },
     });
-    if (page?.subjectEntityId) {
-      entityId = page.subjectEntityId;
+  }
+
+  if (!page && query) {
+    const resolvedSlug = await resolvePageSlug(operatorId, query, query);
+    if (resolvedSlug) {
+      page = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug: resolvedSlug, scope: "operator" },
+        select: { title: true, activityContent: true, activityUpdatedAt: true },
+      });
     }
   }
 
-  if (!entityId && query) {
-    const entity = await prisma.entity.findFirst({
-      where: {
-        operatorId,
-        status: "active",
-        OR: [
-          { displayName: { contains: query, mode: "insensitive" } },
-          { propertyValues: { some: { value: { contains: query, mode: "insensitive" }, property: { identityRole: "email" } } } },
-        ],
-      },
-      select: { id: true },
-    });
-    entityId = entity?.id;
+  // 2. If we found a person page, read their activity section
+  if (page?.activityContent) {
+    const header = `Activity for ${page.title}${page.activityUpdatedAt ? ` (updated ${page.activityUpdatedAt.toISOString().split("T")[0]})` : ""}`;
+    const trimmed = page.activityContent.length > 8000
+      ? page.activityContent.slice(0, 8000) + "\n\n[... activity truncated, use search_communications for full details]"
+      : page.activityContent;
+    return `${header}\n\n${trimmed}`;
   }
 
-  if (entityId) {
-    const timeline = await loadActivityTimeline(operatorId, entityId, [], days);
-    if (timeline.buckets.length === 0) return `No activity found for "${query}" in the last ${days} days.`;
-
-    const lines: string[] = [
-      `Activity Timeline (${days} days) — ${timeline.totalSignals} total signals — Trend: ${timeline.trend}`,
-      "",
-    ];
-
-    for (const bucket of timeline.buckets) {
-      const parts: string[] = [];
-      if (bucket.emailSent > 0 || bucket.emailReceived > 0)
-        parts.push(`email: ${bucket.emailSent} sent / ${bucket.emailReceived} received`);
-      if (bucket.meetingsHeld > 0)
-        parts.push(`meetings: ${bucket.meetingsHeld}${bucket.meetingMinutes > 0 ? ` (${bucket.meetingMinutes} min)` : ""}`);
-      if (bucket.slackMessages > 0)
-        parts.push(`slack: ${bucket.slackMessages}`);
-      if (bucket.docsEdited > 0 || bucket.docsCreated > 0)
-        parts.push(`docs: ${bucket.docsCreated} created / ${bucket.docsEdited} edited`);
-      if (bucket.avgResponseTimeHours != null)
-        parts.push(`avg response: ${bucket.avgResponseTimeHours.toFixed(1)}h`);
-
-      if (parts.length > 0) {
-        lines.push(`${bucket.period}: ${parts.join(" | ")}`);
-      }
-    }
-
-    return lines.join("\n");
-  }
-
+  // 3. Fallback: search RawContent directly (no person page found, or activity section empty)
   const since = new Date(Date.now() - days * 86400000);
   const recent = await searchRawContent(operatorId, query, { limit: 15, since });
 

@@ -1308,3 +1308,67 @@ export async function rollbackPage(pageId: string, targetVersionNumber: number):
     );
   }
 }
+
+// ─── Activity Pipeline Helpers ────────────────────────────
+
+/**
+ * Resolve an email or name to a person_profile wiki page slug.
+ * Used by the activity pipeline to route activity to the right person page.
+ * Returns null if no matching person page found.
+ */
+export async function resolvePageSlug(
+  operatorId: string,
+  email?: string,
+  name?: string,
+): Promise<string | null> {
+  // Try email match first (most precise)
+  if (email) {
+    const byEmail = await prisma.knowledgePage.findFirst({
+      where: {
+        operatorId,
+        scope: "operator",
+        pageType: "person_profile",
+        content: { contains: email, mode: "insensitive" },
+      },
+      select: { slug: true },
+    });
+    if (byEmail) return byEmail.slug;
+  }
+
+  // Fall back to name match
+  if (name) {
+    const byName = await prisma.knowledgePage.findFirst({
+      where: {
+        operatorId,
+        scope: "operator",
+        pageType: "person_profile",
+        title: { contains: name, mode: "insensitive" },
+      },
+      select: { slug: true },
+    });
+    if (byName) return byName.slug;
+  }
+
+  return null;
+}
+
+/**
+ * Resolve a person page slug to their domain hub page slug.
+ * Reads the person page's properties.department field.
+ */
+export async function resolveDomainSlugForPerson(
+  operatorId: string,
+  personPageSlug: string,
+): Promise<string | null> {
+  const page = await prisma.knowledgePage.findUnique({
+    where: { operatorId_slug: { operatorId, slug: personPageSlug } },
+    select: { properties: true },
+  });
+
+  if (!page?.properties) return null;
+
+  const props = page.properties as Record<string, unknown>;
+  const department = props.department as string | undefined;
+
+  return department ?? null;
+}
