@@ -92,7 +92,7 @@ export async function ensureArchetypeSituationType(
 
   if (!archetype) {
     // Fallback to generic "Action Required" type if archetype not found
-    return ensureActionRequiredType(operatorId, domainId);
+    return (await ensureActionRequiredType(operatorId, domainId)).id;
   }
 
   const detectionLogic =

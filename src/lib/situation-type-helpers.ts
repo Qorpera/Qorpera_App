@@ -4,13 +4,15 @@ import { prisma } from "@/lib/db";
 // Extracted here to avoid circular imports between content-situation-detector
 // and archetype-classifier.
 
-const actionRequiredTypeCache = new Map<string, string>();
+export type SituationTypeRef = { id: string; slug: string; name: string };
+
+const actionRequiredTypeCache = new Map<string, SituationTypeRef>();
 
 export async function ensureActionRequiredType(
   operatorId: string,
   domainId: string,
   domainPageSlug?: string | null,
-): Promise<string> {
+): Promise<SituationTypeRef> {
   const cacheKey = `${operatorId}:${domainId}`;
   const cached = actionRequiredTypeCache.get(cacheKey);
   if (cached) return cached;
@@ -46,8 +48,9 @@ export async function ensureActionRequiredType(
     update: {},
   });
 
-  actionRequiredTypeCache.set(cacheKey, sitType.id);
-  return sitType.id;
+  const ref: SituationTypeRef = { id: sitType.id, slug, name: "Action Required" };
+  actionRequiredTypeCache.set(cacheKey, ref);
+  return ref;
 }
 
 const awarenessTypeCache = new Map<string, string>();

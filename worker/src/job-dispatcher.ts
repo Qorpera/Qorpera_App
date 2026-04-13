@@ -10,8 +10,8 @@ type JobPayload = Record<string, unknown>;
 
 const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
   async reason_situation(payload) {
-    const { situationId } = payload as { situationId: string };
-    await reasonAboutSituation(situationId);
+    const { situationId, wikiPageSlug } = payload as { situationId: string; wikiPageSlug?: string };
+    await reasonAboutSituation(situationId, wikiPageSlug);
   },
 
   async reassess_workstream(payload) {

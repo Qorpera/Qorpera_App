@@ -6,6 +6,12 @@ import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { enrichSignalContext, type EnrichedSignalContext } from "./detection-enrichment";
+import {
+  createSituationWikiPage,
+  generateSituationSlug,
+  formatDate as formatDetectionDate,
+  type SituationProperties,
+} from "@/lib/situation-wiki-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
 import { ensureActionRequiredType, ensureAwarenessType } from "@/lib/situation-type-helpers";
 import { getPageForEntity, searchPages } from "@/lib/wiki-engine";
@@ -150,7 +156,7 @@ export function isEligibleCommunication(item: {
 
 type WikiEnrichment = {
   actorContext: string | null;
-  relatedKnowledge: Array<{ title: string; pageType: string; contentSnippet: string }>;
+  relatedKnowledge: Array<{ slug: string; title: string; pageType: string; contentSnippet: string }>;
   existingSituations: Array<{ id: string; summary: string }>;
 };
 
@@ -168,6 +174,7 @@ async function enrichBatchWithWiki(
   return {
     actorContext: actorPage?.content ?? null,
     relatedKnowledge: relatedPages.map((p) => ({
+      slug: p.slug,
       title: p.title,
       pageType: p.pageType,
       contentSnippet: p.contentPreview,
@@ -880,13 +887,80 @@ async function handleActionRequired(
     return;
   }
 
-  const situationTypeId = await ensureActionRequiredType(operatorId, domainId);
+  const situationTypeRef = await ensureActionRequiredType(operatorId, domainId);
+  const situationTypeId = situationTypeRef.id;
 
   const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.7;
 
   const { raw: senderRaw, name: senderName } = extractSenderName(meta);
   const subjectStr = meta.subject ? ` re: ${meta.subject}` : "";
   const triggerSummary = `${senderName}${subjectStr} — ${result.summary}`.slice(0, 300);
+
+  // ── Wiki page creation (additive — failures must not block detection) ────
+  let wikiPageSlug: string | undefined;
+  try {
+    const situationTypeWikiSlug = situationTypeRef.slug;
+
+    const subjectSlug = batch.actorPageSlug
+      ?? batch.actorName?.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)
+      ?? "unknown";
+
+    wikiPageSlug = await generateSituationSlug(operatorId, situationTypeWikiSlug, subjectSlug);
+
+    const triggerDate = (meta.date as string) ?? new Date().toISOString();
+    const triggerContent = [
+      `${item.sourceType === "email" ? "Email" : "Message"} from ${senderName} received ${formatDetectionDate(triggerDate)}:`,
+      `"${item.content.slice(0, 500)}${item.content.length > 500 ? "..." : ""}"`,
+      meta.subject ? `Subject: ${meta.subject}` : null,
+      `[RC-${item.sourceId}]`,
+    ].filter(Boolean).join("\n");
+
+    const contextLines: string[] = [];
+    if (batch.actorPageSlug) {
+      contextLines.push(`**Subject:** [[${batch.actorPageSlug}]]`);
+    }
+    if (batch.domainPageSlug) {
+      contextLines.push(`**Domain:** [[${batch.domainPageSlug}]]`);
+    }
+    if (wikiEnrichment.actorContext) {
+      contextLines.push(`\n${wikiEnrichment.actorContext.slice(0, 500)}`);
+    }
+    if (wikiEnrichment.relatedKnowledge.length > 0) {
+      contextLines.push("\n**Related knowledge:**");
+      for (const k of wikiEnrichment.relatedKnowledge.slice(0, 5)) {
+        contextLines.push(`- [[${k.slug}]] — ${k.title}`);
+      }
+    }
+    const contextContent = contextLines.join("\n");
+
+    // source: "detected" (wiki property enum) — DB record uses "content_detected" for backward compat
+    const situationProps: SituationProperties = {
+      status: "detected",
+      severity: 0.5,
+      confidence,
+      situation_type: situationTypeWikiSlug,
+      detected_at: new Date().toISOString(),
+      source: "detected",
+      trigger_ref: item.sourceId,
+      domain: batch.domainPageSlug ?? undefined,
+    };
+
+    const situationTitle = `${situationTypeRef.name}: ${senderName}${subjectStr ? ` — ${meta.subject}` : ""}`;
+
+    const detectedAtStr = formatDetectionDate(new Date().toISOString());
+    await createSituationWikiPage({
+      operatorId,
+      slug: wikiPageSlug,
+      title: situationTitle,
+      properties: situationProps,
+      triggerContent,
+      contextContent,
+      timelineEntries: [`${detectedAtStr} — Detected: ${result.summary}`],
+    });
+  } catch (err) {
+    console.error("[content-detection] Wiki page creation failed, continuing with DB record:", err);
+    wikiPageSlug = undefined;
+  }
 
   const triggerEvidence = JSON.stringify({
     type: "content",
@@ -913,6 +987,7 @@ async function handleActionRequired(
       triggerEntityId: batch.actorEntityId,
       triggerPageSlug: batch.actorPageSlug,
       domainPageSlug: batch.domainPageSlug,
+      wikiPageSlug,
       source: "content_detected",
       status: "detected",
       investigationDepth: result.investigationDepth,
@@ -963,7 +1038,7 @@ async function handleActionRequired(
   checkConfirmationRate(situationTypeId).catch(console.error);
 
   // Enqueue reasoning for Bastion worker
-  enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id }, correlationId).catch((err) =>
+  enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id, wikiPageSlug }, correlationId).catch((err) =>
     console.error("[content-detection] Failed to enqueue reasoning:", err),
   );
 

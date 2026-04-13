@@ -168,6 +168,7 @@ async function createPage(params: {
   situationId?: string;
   synthesisCostCents?: number;
   synthesisDurationMs?: number;
+  properties?: Record<string, unknown>;
 }): Promise<void> {
   const slug = normalizeSlug(params.slug);
 
@@ -207,6 +208,9 @@ async function createPage(params: {
       content: params.content,
       contentTokens,
       crossReferences,
+      properties: params.properties
+        ? (params.properties as unknown as Prisma.InputJsonValue)
+        : Prisma.DbNull,
       sources,
       sourceCount: params.sourceCitations.length,
       sourceTypes,
@@ -262,6 +266,7 @@ async function updatePage(params: {
   synthesisPath: string;
   synthesizedByModel: string;
   situationId?: string;
+  properties?: Record<string, unknown>;
 }): Promise<void> {
   const slug = normalizeSlug(params.slug);
 
@@ -315,8 +320,9 @@ async function updatePage(params: {
            "verifiedAt" = NULL, "verifiedByModel" = NULL,
            "verificationLog" = NULL, "quarantineReason" = NULL, "staleReason" = NULL,
            "embedding" = $11::vector,
-           "domainIds" = $12::text[]
-       WHERE "id" = $13`,
+           "domainIds" = $12::text[],
+           "properties" = COALESCE($13::jsonb, "properties")
+       WHERE "id" = $14`,
       params.title,
       params.content,
       contentTokens,
@@ -329,6 +335,7 @@ async function updatePage(params: {
       params.situationId ?? null,
       embeddingStr,
       domainIds,
+      params.properties ? JSON.stringify(params.properties) : null,
       existing.id,
     );
   } else {
@@ -354,6 +361,9 @@ async function updatePage(params: {
         verificationLog: Prisma.JsonNull,
         quarantineReason: null,
         staleReason: null,
+        ...(params.properties
+          ? { properties: params.properties as unknown as Prisma.InputJsonValue }
+          : {}),
       },
     });
   }
@@ -989,7 +999,7 @@ function mergeSources(
   return [...map.values()];
 }
 
-function extractCrossReferences(content: string): string[] {
+export function extractCrossReferences(content: string): string[] {
   const matches = content.match(/\[\[([a-z0-9-]+)\]\]|\[page:([a-z0-9-]+)\]/g) ?? [];
   return [...new Set(matches.map((m) => m.replace(/[\[\]]/g, "").replace("page:", "")))];
 }

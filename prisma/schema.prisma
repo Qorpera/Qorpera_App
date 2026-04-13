@@ -565,6 +565,7 @@ model Situation {
   ownerPageSlug       String?  // wiki page slug of the situation owner
   domainPageSlug      String?  // wiki page slug of the domain hub
   situationTypeSlug   String?  // slug of the situation type wiki page
+  wikiPageSlug        String?  // Link to situation_instance wiki page
 
   // AI reasoning
   investigationDepth String  @default("standard") // "standard" | "thorough"
@@ -1652,6 +1653,11 @@ model KnowledgePage {
   content         String
   contentTokens   Int      @default(0)
   crossReferences String[] @default([])
+
+  // Structured properties (queryable via JSONB operators)
+  properties      Json?    @db.JsonB
+  // Uncapped activity section (managed by activity pipeline, NOT embedded)
+  activityContent String?  @db.Text
 
   // Provenance
   sources     Json     @default("[]")

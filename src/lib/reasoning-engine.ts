@@ -3,11 +3,15 @@ import { prisma } from "@/lib/db";
 import { runAgenticLoop } from "@/lib/agentic-loop";
 import { loadOperationalInsights } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
-import { buildAgenticSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
+import { buildAgenticSystemPrompt, buildWikiFirstSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { ReasoningOutputSchema, DeepReasoningOutputSchema, type ReasoningOutput, type DeepReasoningOutput } from "@/lib/reasoning-types";
+import { ReasoningOutputSchema, DeepReasoningOutputSchema, WikiReasoningOutputSchema, type ReasoningOutput, type DeepReasoningOutput, type WikiReasoningOutput } from "@/lib/reasoning-types";
+import {
+  updateSituationWikiPage,
+  type SituationProperties,
+} from "@/lib/situation-wiki-helpers";
 import { captureApiError } from "@/lib/api-error";
 import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 import { generateSituationSummaries } from "@/lib/situation-summarizer";
@@ -21,7 +25,7 @@ export const REASONING_PROMPT_VERSION = 6; // v6: wiki-first entity migration �
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-export async function reasonAboutSituation(situationId: string): Promise<void> {
+export async function reasonAboutSituation(situationId: string, wikiPageSlug?: string): Promise<void> {
   // 1. Load situation
   const situation = await prisma.situation.findUnique({
     where: { id: situationId },
@@ -46,6 +50,25 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     }
     return;
   }
+
+  // 1b. Load situation wiki page (primary input for wiki-first situations)
+  let situationPage: { slug: string; title: string; content: string; properties: Record<string, unknown> | null } | null = null;
+  const pageSlug = wikiPageSlug ?? situation.wikiPageSlug;
+  if (pageSlug) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId: situation.operatorId, slug: pageSlug, scope: "operator", pageType: "situation_instance" },
+      select: { slug: true, title: true, content: true, properties: true },
+    });
+    if (page) {
+      situationPage = {
+        slug: page.slug,
+        title: page.title,
+        content: page.content,
+        properties: page.properties as Record<string, unknown> | null,
+      };
+    }
+  }
+  const isWikiFirst = !!situationPage;
 
   // 2. Guard — skip if not detected (idempotent)
   if (situation.status !== "detected") {
@@ -408,7 +431,13 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
     const depth = situation.investigationDepth ?? "standard";
     const softBudget = depth === "thorough" ? 50 : 20;
     const hardBudget = depth === "thorough" ? 80 : 25;
-    const systemPrompt = buildAgenticSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, depth);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const outputSchema = (isWikiFirst
+      ? WikiReasoningOutputSchema
+      : (depth === "thorough" ? DeepReasoningOutputSchema : ReasoningOutputSchema)) as any;
+    const systemPrompt = isWikiFirst
+      ? buildWikiFirstSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, depth)
+      : buildAgenticSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, depth);
 
     const seedInput: AgenticSeedInput = {
       situationType: { name: situation.situationType.name, description: situation.situationType.description },
@@ -429,6 +458,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       wikiPages,
       evidenceClaims,
       systemExpertiseIndex,
+      situationPageContent: situationPage?.content ?? undefined,
     };
     const seedContext = buildAgenticSeedContext(seedInput);
 
@@ -488,7 +518,7 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
       seedContext,
       tools: allTools,
       dispatchTool,
-      outputSchema: depth === "thorough" ? DeepReasoningOutputSchema : ReasoningOutputSchema,
+      outputSchema,
       softBudget,
       hardBudget,
       editInstruction: editInstructionText,
@@ -553,8 +583,197 @@ export async function reasonAboutSituation(situationId: string): Promise<void> {
         },
       });
       console.log(`[reasoning-engine] Situation ${situationId} upgraded to thorough investigation (standard run cost: ${reasoningApiCostCents}c)`);
-      return reasonAboutSituation(situationId);
+      return reasonAboutSituation(situationId, wikiPageSlug ?? pageSlug ?? undefined);
     }
+
+    // ── Wiki-first output path ──────────────────────────────────────────────
+    if (isWikiFirst && situationPage) {
+      const wikiOutput = reasoning as unknown as WikiReasoningOutput;
+
+      // Policy verification on execution steps (same logic as before, but on executionSteps)
+      let verifiedSteps = wikiOutput.executionSteps ?? null;
+      if (verifiedSteps) {
+        for (const step of verifiedSteps.filter(s => s.executionMode === "action")) {
+          if (step.actionCapabilityName) {
+            const isPermitted = policyResult.permitted.some(p => p.name === step.actionCapabilityName);
+            const isBlocked = policyResult.blocked.some(b => b.name === step.actionCapabilityName);
+            if (!isPermitted || isBlocked) {
+              console.warn(`[reasoning-engine] AI proposed blocked action "${step.actionCapabilityName}" for wiki situation. Nullifying steps.`);
+              verifiedSteps = null;
+              break;
+            }
+          }
+        }
+      }
+
+      // Resolve actionCapabilityName → actionCapabilityId
+      let resolvedSteps: StepDefinition[] | null = null;
+      if (verifiedSteps) {
+        resolvedSteps = [];
+        for (const step of verifiedSteps) {
+          let actionCapabilityId: string | undefined;
+          if (step.executionMode === "action" && step.actionCapabilityName) {
+            const cap = await prisma.actionCapability.findFirst({
+              where: { operatorId: situation.operatorId, name: step.actionCapabilityName, enabled: true },
+            });
+            if (!cap) {
+              console.warn(`[reasoning-engine] ActionCapability "${step.actionCapabilityName}" not found. Nullifying steps.`);
+              resolvedSteps = null;
+              break;
+            }
+            actionCapabilityId = cap.id;
+          }
+          const stepParams = step.params ? { ...step.params } : {};
+          if (step.previewType) stepParams.previewType = step.previewType;
+          resolvedSteps.push({
+            title: step.title,
+            description: step.description,
+            executionMode: step.executionMode,
+            actionCapabilityId,
+            assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
+            inputContext: Object.keys(stepParams).length > 0 ? { params: stepParams } : undefined,
+          });
+        }
+      }
+
+      // Update situation wiki page with completed content
+      const updatedTitle = wikiOutput.situationTitle ?? situationPage.title;
+      const updatedProps = wikiOutput.properties as SituationProperties;
+
+      await updateSituationWikiPage({
+        operatorId: situation.operatorId,
+        slug: situationPage.slug,
+        title: updatedTitle,
+        properties: updatedProps,
+        articleBody: wikiOutput.pageContent,
+        synthesizedByModel: modelString,
+        synthesisCostCents: Math.round(reasoningApiCostCents),
+        synthesisDurationMs: Math.round(reasoningDurationMs),
+      });
+
+      // Create ExecutionPlan from sidecar (temporary — removed in Session 3)
+      let executionPlanId: string | undefined;
+      if (resolvedSteps) {
+        const planTracking = { modelId: modelString, promptVersion: REASONING_PROMPT_VERSION };
+        executionPlanId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
+        if (effectiveAutonomy === "autonomous") {
+          await prisma.situationType.update({
+            where: { id: situation.situationTypeId },
+            data: { confirmedCount: { increment: 1 } },
+          }).catch(() => {});
+        }
+      }
+
+      // Dual-write to thin Situation record (backward compat)
+      const situationUpdates: Record<string, unknown> = {
+        status: resolvedSteps ? (effectiveAutonomy === "autonomous" ? "executing" : "proposed") : "proposed",
+        reasoning: JSON.stringify({ wikiFirst: true, pageSlug: situationPage.slug }),
+        modelId: modelString,
+        promptVersion: REASONING_PROMPT_VERSION,
+        reasoningDurationMs,
+        apiCostCents: reasoningApiCostCents + (situation.apiCostCents ?? 0),
+        severity: updatedProps.severity,
+        confidence: updatedProps.confidence,
+      };
+      if (wikiOutput.situationTitle) situationUpdates.triggerSummary = wikiOutput.situationTitle;
+      if (executionPlanId) situationUpdates.executionPlanId = executionPlanId;
+      if (wikiOutput.afterBatch === "monitor" && wikiOutput.monitorDurationHours) {
+        situationUpdates.afterBatch = "monitor";
+        situationUpdates.monitorUntil = new Date(Date.now() + wikiOutput.monitorDurationHours * 3600000);
+      } else {
+        situationUpdates.afterBatch = wikiOutput.afterBatch ?? "resolve";
+      }
+
+      await prisma.situation.update({
+        where: { id: situationId },
+        data: situationUpdates,
+      });
+
+      // Owner assignment (resolve page slug to userId for backward compat)
+      if (updatedProps.assigned_to) {
+        const ownerUser = await prisma.user.findFirst({
+          where: { operatorId: situation.operatorId, wikiPageSlug: updatedProps.assigned_to },
+          select: { id: true },
+        });
+        if (ownerUser) {
+          await prisma.situation.update({
+            where: { id: situationId },
+            data: { assignedUserId: ownerUser.id, assignedPageSlug: updatedProps.assigned_to, ownerPageSlug: updatedProps.assigned_to },
+          });
+        }
+      }
+
+      // Cycle tracking
+      await createSituationCycle(situationId, situation, { actionBatch: wikiOutput.executionSteps } as any, executionPlanId);
+
+      // Generate Haiku summaries (fire-and-forget — non-blocking)
+      generateSituationSummaries(situationId).catch(err =>
+        console.error(`[reasoning-engine] Summary generation failed for ${situationId}:`, err)
+      );
+
+      // Wiki knowledge updates (fire-and-forget, same as before)
+      if (wikiOutput.wikiUpdates && wikiOutput.wikiUpdates.length > 0) {
+        processWikiUpdates({
+          operatorId: situation.operatorId,
+          situationId: situation.id,
+          updates: wikiOutput.wikiUpdates as WikiUpdate[],
+          synthesisPath: "reasoning",
+          synthesizedByModel: modelString,
+          synthesisCostCents: Math.round(reasoningApiCostCents),
+          synthesisDurationMs: Math.round(reasoningDurationMs),
+        }).catch((err) => {
+          console.error(`[reasoning-engine] Wiki update processing failed for ${situationId}:`, err);
+        });
+      }
+
+      // Auto-advance for autonomous
+      if (resolvedSteps && effectiveAutonomy === "autonomous" && executionPlanId) {
+        const plan = await prisma.executionPlan.findFirst({
+          where: { id: executionPlanId },
+          include: { steps: { orderBy: { sequenceOrder: "asc" }, take: 1 } },
+        });
+        if (plan?.steps[0]) {
+          const { advanceStep } = await import("@/lib/execution-engine");
+          advanceStep(plan.steps[0].id, "approve", "system").catch(err =>
+            console.error(`[reasoning-engine] Auto-advance failed for ${situationId}:`, err)
+          );
+        }
+      }
+
+      // Notifications
+      if (!resolvedSteps) {
+        sendNotificationToAdmins({
+          operatorId: situation.operatorId,
+          type: "situation_proposed",
+          title: `Review needed: ${situation.situationType.name}`,
+          body: "AI analyzed the situation but recommends no action. Please review the reasoning.",
+          sourceType: "situation",
+          sourceId: situationId,
+        }).catch(() => {});
+      } else if (effectiveAutonomy !== "autonomous") {
+        sendNotificationToAdmins({
+          operatorId: situation.operatorId,
+          type: "situation_proposed",
+          title: `Plan proposed: ${situation.situationType.name}`,
+          body: `AI proposes a ${resolvedSteps.length}-step plan: ${resolvedSteps.map(s => s.title).join(" → ")}`,
+          sourceType: "situation",
+          sourceId: situationId,
+        }).catch(() => {});
+      }
+
+      // Escalation
+      if (wikiOutput.escalation) {
+        // TODO: Create escalation initiative from wiki page context (Session 2+)
+        console.log(`[reasoning-engine] Escalation recommended for ${situationId}: ${wikiOutput.escalation.rationale}`);
+      }
+
+      console.log(`[reasoning-engine] Wiki-first reasoning complete for ${situationId}: wrote ${situationPage.slug}`);
+      return; // Exit early — skip the legacy JSON output path below
+    }
+
+    // ── Legacy JSON output path (non-wiki situations) ────────────────────────
+    // Everything below this point is the EXISTING code, unchanged.
+    // It handles situations that don't have a wiki page (pre-migration).
 
     // 8. Post-reasoning policy verification — catch LLM ignoring BLOCKED instructions
     if (reasoning.actionBatch) {
