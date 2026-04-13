@@ -590,52 +590,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
     if (isWikiFirst && situationPage) {
       const wikiOutput = reasoning as unknown as WikiReasoningOutput;
 
-      // Policy verification on execution steps (same logic as before, but on executionSteps)
-      let verifiedSteps = wikiOutput.executionSteps ?? null;
-      if (verifiedSteps) {
-        for (const step of verifiedSteps.filter(s => s.executionMode === "action")) {
-          if (step.actionCapabilityName) {
-            const isPermitted = policyResult.permitted.some(p => p.name === step.actionCapabilityName);
-            const isBlocked = policyResult.blocked.some(b => b.name === step.actionCapabilityName);
-            if (!isPermitted || isBlocked) {
-              console.warn(`[reasoning-engine] AI proposed blocked action "${step.actionCapabilityName}" for wiki situation. Nullifying steps.`);
-              verifiedSteps = null;
-              break;
-            }
-          }
-        }
-      }
-
-      // Resolve actionCapabilityName → actionCapabilityId
-      let resolvedSteps: StepDefinition[] | null = null;
-      if (verifiedSteps) {
-        resolvedSteps = [];
-        for (const step of verifiedSteps) {
-          let actionCapabilityId: string | undefined;
-          if (step.executionMode === "action" && step.actionCapabilityName) {
-            const cap = await prisma.actionCapability.findFirst({
-              where: { operatorId: situation.operatorId, name: step.actionCapabilityName, enabled: true },
-            });
-            if (!cap) {
-              console.warn(`[reasoning-engine] ActionCapability "${step.actionCapabilityName}" not found. Nullifying steps.`);
-              resolvedSteps = null;
-              break;
-            }
-            actionCapabilityId = cap.id;
-          }
-          const stepParams = step.params ? { ...step.params } : {};
-          if (step.previewType) stepParams.previewType = step.previewType;
-          resolvedSteps.push({
-            title: step.title,
-            description: step.description,
-            executionMode: step.executionMode,
-            actionCapabilityId,
-            assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
-            inputContext: Object.keys(stepParams).length > 0 ? { params: stepParams } : undefined,
-          });
-        }
-      }
-
       // Update situation wiki page with completed content
       const updatedTitle = wikiOutput.situationTitle ?? situationPage.title;
       const updatedProps = wikiOutput.properties as SituationProperties;
@@ -651,22 +605,9 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         synthesisDurationMs: Math.round(reasoningDurationMs),
       });
 
-      // Create ExecutionPlan from sidecar (temporary — removed in Session 3)
-      let executionPlanId: string | undefined;
-      if (resolvedSteps) {
-        const planTracking = { modelId: modelString, promptVersion: REASONING_PROMPT_VERSION };
-        executionPlanId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
-        if (effectiveAutonomy === "autonomous") {
-          await prisma.situationType.update({
-            where: { id: situation.situationTypeId },
-            data: { confirmedCount: { increment: 1 } },
-          }).catch(() => {});
-        }
-      }
-
       // Dual-write to thin Situation record (backward compat)
       const situationUpdates: Record<string, unknown> = {
-        status: resolvedSteps ? (effectiveAutonomy === "autonomous" ? "executing" : "proposed") : "proposed",
+        status: "proposed",
         reasoning: JSON.stringify({ wikiFirst: true, pageSlug: situationPage.slug }),
         modelId: modelString,
         promptVersion: REASONING_PROMPT_VERSION,
@@ -676,7 +617,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         confidence: updatedProps.confidence,
       };
       if (wikiOutput.situationTitle) situationUpdates.triggerSummary = wikiOutput.situationTitle;
-      if (executionPlanId) situationUpdates.executionPlanId = executionPlanId;
       if (wikiOutput.afterBatch === "monitor" && wikiOutput.monitorDurationHours) {
         situationUpdates.afterBatch = "monitor";
         situationUpdates.monitorUntil = new Date(Date.now() + wikiOutput.monitorDurationHours * 3600000);
@@ -704,7 +644,11 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       }
 
       // Cycle tracking
-      await createSituationCycle(situationId, situation, { actionBatch: wikiOutput.executionSteps } as any, executionPlanId);
+      await createSituationCycle(situationId, situation, {
+        afterBatch: wikiOutput.afterBatch,
+        reEvaluationReason: wikiOutput.reEvaluationReason,
+        monitorDurationHours: wikiOutput.monitorDurationHours,
+      }, undefined);
 
       // Generate Haiku summaries (fire-and-forget — non-blocking)
       generateSituationSummaries(situationId).catch(err =>
@@ -726,22 +670,34 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         });
       }
 
-      // Auto-advance for autonomous
-      if (resolvedSteps && effectiveAutonomy === "autonomous" && executionPlanId) {
-        const plan = await prisma.executionPlan.findFirst({
-          where: { id: executionPlanId },
-          include: { steps: { orderBy: { sequenceOrder: "asc" }, take: 1 } },
+      // Parse action plan once for both auto-approval and notification logic
+      const { parseActionPlan } = await import("@/lib/wiki-execution-engine");
+      const actionPlan = parseActionPlan(wikiOutput.pageContent);
+
+      // Wiki-first auto-approval dispatch for autonomous situations
+      if (effectiveAutonomy === "autonomous" && actionPlan.steps.length > 0) {
+        await prisma.workerJob.create({
+          data: {
+            operatorId: situation.operatorId,
+            jobType: "approve_situation_step",
+            payload: {
+              operatorId: situation.operatorId,
+              pageSlug: situationPage.slug,
+              stepOrder: 1,
+              userId: "system",
+              action: "approve",
+            },
+            status: "pending",
+          },
         });
-        if (plan?.steps[0]) {
-          const { advanceStep } = await import("@/lib/execution-engine");
-          advanceStep(plan.steps[0].id, "approve", "system").catch(err =>
-            console.error(`[reasoning-engine] Auto-advance failed for ${situationId}:`, err)
-          );
-        }
+        await prisma.situationType.update({
+          where: { id: situation.situationTypeId },
+          data: { confirmedCount: { increment: 1 } },
+        }).catch(() => {});
       }
 
       // Notifications
-      if (!resolvedSteps) {
+      if (actionPlan.steps.length === 0) {
         sendNotificationToAdmins({
           operatorId: situation.operatorId,
           type: "situation_proposed",
@@ -755,7 +711,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
           operatorId: situation.operatorId,
           type: "situation_proposed",
           title: `Plan proposed: ${situation.situationType.name}`,
-          body: `AI proposes a ${resolvedSteps.length}-step plan: ${resolvedSteps.map(s => s.title).join(" → ")}`,
+          body: `AI proposes a ${actionPlan.steps.length}-step plan: ${actionPlan.steps.map(s => s.title).join(" → ")}`,
           sourceType: "situation",
           sourceId: situationId,
         }).catch(() => {});

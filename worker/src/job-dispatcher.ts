@@ -123,6 +123,20 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     console.log("[cron] Chunk classification skipped — deprecated in v0.3.10");
   },
 
+  async execute_wiki_step(payload) {
+    const { operatorId, pageSlug, stepOrder } = payload as { operatorId: string; pageSlug: string; stepOrder: number };
+    const { executeSituationStep } = await import("@/lib/wiki-execution-engine");
+    await executeSituationStep(operatorId, pageSlug, stepOrder);
+  },
+
+  async approve_situation_step(payload) {
+    const { operatorId, pageSlug, stepOrder, userId, action } = payload as {
+      operatorId: string; pageSlug: string; stepOrder: number; userId: string; action: "approve" | "reject" | "skip";
+    };
+    const { approveSituationStep } = await import("@/lib/wiki-execution-engine");
+    await approveSituationStep(operatorId, pageSlug, stepOrder, userId, action);
+  },
+
   async strategic_scan(payload) {
     const { operatorId } = payload as { operatorId: string };
     const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");

@@ -1372,3 +1372,122 @@ export async function resolveDomainSlugForPerson(
 
   return department ?? null;
 }
+
+// ─── Optimistic Locking ─────────────────────────────────
+
+export interface PageLockContext {
+  id: string;
+  slug: string;
+  content: string;
+  properties: Record<string, unknown> | null;
+  version: number;
+  activityContent: string | null;
+  title: string;
+}
+
+export type PageUpdateFn = (page: PageLockContext) => {
+  content?: string;
+  properties?: Record<string, unknown>;
+  activityContent?: string;
+  title?: string;
+};
+
+/**
+ * Read a page, apply an update function, write back with version check.
+ * Retries up to maxRetries on version conflict (another writer got there first).
+ *
+ * Returns the updated page context on success.
+ * Throws on permanent failure (page not found, max retries exceeded).
+ */
+export async function updatePageWithLock(
+  operatorId: string,
+  slug: string,
+  updateFn: PageUpdateFn,
+  options?: { maxRetries?: number },
+): Promise<PageLockContext> {
+  const maxRetries = options?.maxRetries ?? 3;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const page = await prisma.knowledgePage.findUnique({
+      where: { operatorId_slug: { operatorId, slug } },
+      select: {
+        id: true,
+        slug: true,
+        content: true,
+        properties: true,
+        version: true,
+        activityContent: true,
+        title: true,
+      },
+    });
+
+    if (!page) {
+      throw new Error(`Page not found: ${slug}`);
+    }
+
+    const ctx: PageLockContext = {
+      id: page.id,
+      slug: page.slug,
+      content: page.content,
+      properties: page.properties as Record<string, unknown> | null,
+      version: page.version,
+      activityContent: page.activityContent,
+      title: page.title,
+    };
+
+    const changes = updateFn(ctx);
+
+    // Short-circuit: no-op update burns a version number and causes spurious conflicts
+    if (!changes.content && !changes.properties && !changes.activityContent && !changes.title) {
+      return ctx;
+    }
+
+    // Derive cross-references and token count if content changed
+    const newCrossRefs = changes.content !== undefined
+      ? extractCrossReferences(changes.content)
+      : null;
+    const newTokens = changes.content !== undefined
+      ? Math.ceil(changes.content.length / 4)
+      : null;
+
+    const rowsAffected = await prisma.$executeRawUnsafe(
+      `UPDATE "KnowledgePage"
+       SET "content" = COALESCE($1, "content"),
+           "properties" = COALESCE($2::jsonb, "properties"),
+           "activityContent" = COALESCE($3, "activityContent"),
+           "title" = COALESCE($4, "title"),
+           "crossReferences" = COALESCE($5::text[], "crossReferences"),
+           "contentTokens" = COALESCE($6, "contentTokens"),
+           "version" = "version" + 1,
+           "updatedAt" = NOW()
+       WHERE "id" = $7 AND "version" = $8`,
+      changes.content ?? null,
+      changes.properties ? JSON.stringify(changes.properties) : null,
+      changes.activityContent ?? null,
+      changes.title ?? null,
+      newCrossRefs,
+      newTokens,
+      ctx.id,
+      ctx.version,
+    );
+
+    if (rowsAffected === 0) {
+      // Version conflict — retry
+      if (attempt < maxRetries) continue;
+      throw new Error(`Version conflict after ${maxRetries} retries: ${slug}`);
+    }
+
+    // Return updated context
+    return {
+      ...ctx,
+      ...(changes.content !== undefined ? { content: changes.content } : {}),
+      ...(changes.title !== undefined ? { title: changes.title } : {}),
+      ...(changes.activityContent !== undefined ? { activityContent: changes.activityContent } : {}),
+      ...(changes.properties !== undefined ? { properties: changes.properties } : {}),
+      version: ctx.version + 1,
+    };
+  }
+
+  // Unreachable, but TypeScript needs it
+  throw new Error(`Version conflict after ${maxRetries} retries: ${slug}`);
+}

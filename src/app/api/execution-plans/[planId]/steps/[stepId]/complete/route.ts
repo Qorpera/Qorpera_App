@@ -33,6 +33,49 @@ export async function POST(
     // Empty body is fine — notes are optional
   }
 
+  // Check if this is a wiki-first situation
+  let wikiPageSlug: string | undefined;
+  if (plan.sourceType === "situation") {
+    const situation = await prisma.situation.findFirst({
+      where: { id: plan.sourceId, operatorId },
+      select: { wikiPageSlug: true },
+    });
+    if (situation?.wikiPageSlug) {
+      wikiPageSlug = situation.wikiPageSlug;
+    }
+  }
+
+  if (wikiPageSlug) {
+    // Wiki-first: complete via wiki execution engine
+    const { completeHumanSituationStep, parseActionPlan } = await import("@/lib/wiki-execution-engine");
+    const pageStepOrder = step.sequenceOrder;
+
+    try {
+      await completeHumanSituationStep(operatorId, wikiPageSlug, pageStepOrder, user.id, notes);
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Failed" }, { status: 400 });
+    }
+
+    // Return the step data from the wiki page
+    const page = await prisma.knowledgePage.findUnique({
+      where: { operatorId_slug: { operatorId, slug: wikiPageSlug } },
+      select: { content: true },
+    });
+    const parsedPlan = parseActionPlan(page?.content ?? "");
+    const updatedStep = parsedPlan.steps.find((s) => s.order === pageStepOrder);
+
+    return NextResponse.json({
+      id: stepId,
+      planId,
+      sequenceOrder: pageStepOrder,
+      title: updatedStep?.title ?? step.title,
+      status: updatedStep?.status ?? "unknown",
+      description: updatedStep?.description ?? "",
+      _wikiFirst: true,
+    });
+  }
+
+  // Legacy: existing DB-based flow
   try {
     await completeHumanStep(stepId, user.id, notes);
   } catch (err) {

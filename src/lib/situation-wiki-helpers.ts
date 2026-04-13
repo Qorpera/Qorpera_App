@@ -28,6 +28,14 @@ export interface SituationProperties {
   autonomy_level?: "supervised" | "notify" | "autonomous";
   cycle_number?: number;
   outcome?: "positive" | "negative" | "neutral";
+  after_batch?: "resolve" | "re_evaluate" | "monitor";
+  resolution_type?: "self_resolving" | "response_dependent" | "informational";
+  monitoring_criteria?: {
+    waitingFor: string;
+    expectedWithinDays: number;
+    followUpAction: string;
+  };
+  total_executions?: number;
 }
 
 export interface CreateSituationPageParams {
@@ -84,6 +92,9 @@ export function renderPropertyTable(props: SituationProperties): string {
   if (props.autonomy_level) lines.push(`| Autonomy | ${capitalize(props.autonomy_level)} |`);
   if (props.cycle_number && props.cycle_number > 1) lines.push(`| Cycle | ${props.cycle_number} |`);
   if (props.outcome) lines.push(`| Outcome | ${capitalize(props.outcome)} |`);
+  if (props.status === "monitoring" && props.monitoring_criteria) {
+    lines.push(`| Monitoring | ${props.monitoring_criteria.waitingFor} |`);
+  }
 
   return lines.join("\n");
 }

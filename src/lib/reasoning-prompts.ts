@@ -681,13 +681,27 @@ The article body starts with ## Trigger (the title and property table are added 
 (YOUR findings. Evidence chain, cross-referenced discoveries, analysis. What you looked up, what you found, what you concluded. This is the core analytical value of the article. Cite specific data — numbers, dates, names. Reference wiki pages with [[page-slug]].)
 
 ## Action Plan
-(Numbered steps. Each step has a title, action type, target, details, and status. Format each step as:)
+(Numbered steps. Each step follows this exact format:)
 
-1. **Step title** (action_type → status)
-   Details of what to do and why.
-   Target: specific person, system, or action capability.
+1. **Step title** (action_type → pending)
+   Description of what to do and why.
+   Additional context or details.
+   [capability: capability_name]
+   [assigned: person-page-slug]
+   [params: {"key":"value","key2":"value2"}]
+   [preview: email]
 
-(Use action types: api_action, generate, human_task, browser_task. Status for new plans is always "pending".)
+Format rules:
+- First line: step number, bold title, parenthesized action type and status
+- Action types: api_action, generate, human_task, browser_task, monitor
+- Status for new plans is ALWAYS "pending"
+- Description lines indented with 3 spaces
+- Metadata lines indented with 3 spaces, in square brackets:
+  - [capability: X] — REQUIRED for api_action steps. Must match an available action name exactly.
+  - [assigned: X] — page slug of the person responsible (e.g., person-mark-jensen)
+  - [params: {...}] — REQUIRED for api_action and generate steps. Complete JSON parameters on one line.
+  - [preview: X] — REQUIRED on every step. One of: email, document, spreadsheet, calendar_event, slack_message, crm_update, ticket, presentation, generic
+- For api_action steps: params MUST contain complete, ready-to-send content. For emails, draft the FULL email body.
 
 ## Timeline
 (Chronological log. Preserve existing entries from detection. Append new entries for your investigation and proposal. Format: YYYY-MM-DD HH:MM — Description)
@@ -703,7 +717,7 @@ PART 2 — STRUCTURED DATA (JSON):
 Alongside the article, provide structured data the system needs:
 
 {
-  "pageContent": "## Trigger\\n...\\n\\n## Context\\n...\\n\\n## Investigation\\n...",
+  "pageContent": "## Trigger\\n...\\n\\n## Context\\n...\\n\\n## Investigation\\n...\\n\\n## Action Plan\\n1. **Send reminder** (api_action → pending)\\n   ...\\n   [capability: send_email]\\n   [params: {...}]\\n   [preview: email]\\n\\n## Timeline\\n...",
   "properties": {
     "status": "proposed",
     "severity": 0.78,
@@ -711,40 +725,32 @@ Alongside the article, provide structured data the system needs:
     "situation_type": "situation-type-late-invoice",
     "detected_at": "2026-04-12T14:32:00Z",
     "source": "detected",
-    "trigger_ref": "rawcontent-abc123",
     "assigned_to": "person-mark-jensen",
     "domain": "domain-finance",
     "current_step": 1,
-    "autonomy_level": "supervised"
+    "autonomy_level": "supervised",
+    "after_batch": "monitor",
+    "resolution_type": "response_dependent",
+    "monitoring_criteria": { "waitingFor": "Payment or reply from Acme", "expectedWithinDays": 5, "followUpAction": "Escalate to person-rasmus-nielsen" }
   },
   "situationTitle": "Late Invoice: Acme Corp — INV-2024-0847",
-  "executionSteps": [
-    {
-      "title": "Send payment reminder email",
-      "description": "Friendly reminder to accounts@acme.dk...",
-      "previewType": "email",
-      "executionMode": "action",
-      "actionCapabilityName": "send_email",
-      "params": { "to": "accounts@acme.dk", "subject": "...", "body": "..." }
-    }
-  ],
-  "afterBatch": "resolve",
+  "afterBatch": "monitor",
+  "monitorDurationHours": 120,
   "resolutionType": "response_dependent",
-  "monitoringCriteria": { "waitingFor": "...", "expectedWithinDays": 5, "followUpAction": "..." },
+  "monitoringCriteria": { "waitingFor": "Payment or reply from Acme", "expectedWithinDays": 5, "followUpAction": "Escalate to person-rasmus-nielsen" },
   "wikiUpdates": [ ... ]
 }
 
-BATCH RULES:
-- Propose ONLY actions you're confident about given what you know NOW
-- If you'd need to see the outcome of step 1 before knowing step 2, put ONLY step 1 in executionSteps and set afterBatch to "re_evaluate"
-- If actions are naturally linked (draft a document + send it), they belong in the same batch
-- If the situation is fully resolved after this batch, set afterBatch to "resolve"
-- If you need to wait for an external response (client reply, payment arrival), set afterBatch to "monitor" with a monitorDurationHours
-- A batch of 1 action with afterBatch "re_evaluate" is the most common pattern
-- executionSteps null means no action is needed — use afterBatch "resolve"
-
-ACTION BATCH OR NULL — BE HONEST:
-If after thorough analysis you determine this situation requires response actions, produce executionSteps with concrete response steps. If the evidence shows this situation is not real, not actionable, or your investigation did not find sufficient evidence to determine any specific response, return executionSteps as null and explain why in the Investigation section.
+ACTION PLAN RULES:
+- The Action Plan section in pageContent IS the execution plan. The system parses it directly.
+- Propose ONLY actions you're confident about given what you know NOW.
+- If you'd need to see the outcome of step 1 before knowing step 2, put ONLY step 1 and set afterBatch to "re_evaluate".
+- If actions are naturally linked (draft a document + send it), they belong in the same plan.
+- If the situation is fully resolved after this plan, set afterBatch to "resolve".
+- If you need to wait for an external response (client reply, payment arrival), set afterBatch to "monitor" with monitorDurationHours.
+- A plan of 1 action with afterBatch "re_evaluate" is the most common pattern.
+- An empty Action Plan section (no numbered steps) means no action is needed — set afterBatch to "resolve".
+- Mirror afterBatch, resolutionType, and monitoringCriteria in BOTH the top-level JSON AND properties (as after_batch, resolution_type, monitoring_criteria).
 
 WIKI KNOWLEDGE UPDATES:
 As you investigate, you are building organizational understanding that should persist for future use. Include a "wikiUpdates" array with knowledge worth preserving.
@@ -760,15 +766,15 @@ For each update:
 USE [[cross-references]] in your content. When mentioning an entity, process, or concept that has its own wiki page, write [[page-slug]].
 
 CRITICAL RULES:
-- "executionSteps" is an array of EXTERNAL response actions the system is confident about RIGHT NOW, or null if no action is warranted.
-- Each step with executionMode "action" MUST reference an available automated action via "actionCapabilityName".
-- Steps with executionMode "generate" produce LLM-generated content (drafts, analysis, summaries).
-- Steps with executionMode "human_task" assign work to a human (phone calls, meetings, physical tasks). This is the default.
+- The Action Plan in pageContent is the single source of truth for execution steps. The system parses it directly — there is no separate executionSteps array.
+- Each api_action step MUST include [capability: X] matching an available automated action.
+- generate steps produce LLM-generated content (drafts, analysis, summaries).
+- human_task steps assign work to a human (phone calls, meetings, physical tasks). This is the default.
 - "escalation" is for situations needing strategic initiative beyond the immediate response. Most situations do NOT need escalation.
 - You reason and propose ONLY from evidence gathered via your investigation tools. Every step you propose MUST be justified by specific evidence from your investigation.
-- For "action" steps: params MUST contain complete, ready-to-send content. For emails, draft the FULL email body — not a description of what to write.
-- "previewType" is REQUIRED on every step. It tells the UI which renderer to use.
-- AUDIT YOUR PLAN: Before finalizing, re-read each step. For every step with executionMode "human_task", ask: "Is there an available automated action that could do this?" If yes, change it to "action".
+- For api_action steps: [params: {...}] MUST contain complete, ready-to-send content. For emails, draft the FULL email body — not a description of what to write.
+- [preview: X] is REQUIRED on every step. It tells the UI which renderer to use.
+- AUDIT YOUR PLAN: Before finalizing, re-read each step. For every human_task step, ask: "Is there an available automated action that could do this?" If yes, change it to api_action.
 - RESOLUTION TYPE is required. "self_resolving" = action completing IS the resolution. "response_dependent" = something external needs to happen. "informational" = one-way notification.
 - For response_dependent: monitoringCriteria MUST specify what you're waiting for, how many business days before follow-up, and what the follow-up action should be.
 - The pageContent IS your analysis. Write it as a complete, professional article — not a summary of a JSON blob.`;

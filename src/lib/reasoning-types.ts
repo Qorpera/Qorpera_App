@@ -136,8 +136,6 @@ export const WikiReasoningOutputSchema = z.object({
   }),
 
   situationTitle: z.string().optional().describe("Short, specific title. Use document numbers, project names, subjects — not just person names."),
-  // Temporary sidecar — removed in Session 3
-  executionSteps: z.array(ActionStepSchema).nullable().optional(),
   afterBatch: z.enum(["resolve", "re_evaluate", "monitor"]).default("resolve"),
   reEvaluationReason: z.string().optional(),
   monitorDurationHours: z.number().optional(),
@@ -150,4 +148,3 @@ export const WikiReasoningOutputSchema = z.object({
 });
 
 export type WikiReasoningOutput = z.infer<typeof WikiReasoningOutputSchema>;
-export type WikiExecutionStep = ActionStep;
