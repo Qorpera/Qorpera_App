@@ -4,7 +4,6 @@
 // projects) so the classifier sees more than a single message in isolation.
 
 import { prisma } from "@/lib/db";
-import { resolveEntity } from "@/lib/entity-resolution";
 import type { CommunicationItem } from "./content-situation-detector";
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -88,20 +87,6 @@ export function extractAllParticipantEmails(item: CommunicationItem): string[] {
   return [...emails];
 }
 
-export async function resolveParticipantEntities(
-  operatorId: string,
-  emails: string[],
-): Promise<string[]> {
-  const ids: string[] = [];
-  for (const email of emails) {
-    const entityId = await resolveEntity(operatorId, {
-      identityValues: { email },
-    });
-    if (entityId) ids.push(entityId);
-  }
-  return [...new Set(ids)];
-}
-
 export async function resolveParticipantPages(
   operatorId: string,
   emails: string[],
@@ -112,7 +97,7 @@ export async function resolveParticipantPages(
     where: {
       operatorId,
       scope: "operator",
-      pageType: "entity_profile",
+      pageType: "person_profile",
       OR: emails.map(email => ({
         content: { contains: email, mode: "insensitive" as const },
       })),
@@ -435,18 +420,38 @@ function extractSubjectKeywords(item: CommunicationItem): string[] {
 export async function enrichSignalContext(
   operatorId: string,
   item: CommunicationItem,
-  actorEntityId: string,
+  actorPageSlug: string | null,
 ): Promise<EnrichedSignalContext> {
   const emails = extractAllParticipantEmails(item);
-  const [participantEntityIds, participantPageSlugs] = await Promise.all([
-    resolveParticipantEntities(operatorId, emails),
-    resolveParticipantPages(operatorId, emails),
-  ]);
+  const participantPageSlugs = await resolveParticipantPages(operatorId, emails);
 
-  // Ensure the actor is included
-  if (!participantEntityIds.includes(actorEntityId)) {
-    participantEntityIds.push(actorEntityId);
+  // Ensure actor page is included in page slugs
+  if (actorPageSlug && !participantPageSlugs.includes(actorPageSlug)) {
+    participantPageSlugs.push(actorPageSlug);
   }
+
+  // Derive entity IDs from resolved pages (loaders still query by entity ID)
+  const pageEntities = participantPageSlugs.length > 0
+    ? await prisma.knowledgePage.findMany({
+        where: {
+          operatorId,
+          slug: { in: participantPageSlugs },
+          scope: "operator",
+          subjectEntityId: { not: null },
+        },
+        select: { slug: true, subjectEntityId: true },
+      })
+    : [];
+  const participantEntityIds = [...new Set(
+    pageEntities
+      .map((p) => p.subjectEntityId)
+      .filter((id): id is string => id !== null),
+  )];
+
+  // Resolve actor entity ID from page slug
+  const actorEntityId = actorPageSlug
+    ? (pageEntities.find((p) => p.slug === actorPageSlug)?.subjectEntityId ?? null)
+    : null;
 
   const subjectKeywords = extractSubjectKeywords(item);
 
@@ -467,10 +472,12 @@ export async function enrichSignalContext(
       console.warn("[detection-enrichment] Thread history loader failed:", err);
       return [] as EnrichedSignalContext["threadHistory"];
     }),
-    loadRecentActorActivity(operatorId, actorEntityId, 7).catch((err) => {
-      console.warn("[detection-enrichment] Actor activity loader failed:", err);
-      return [] as EnrichedSignalContext["recentActorActivity"];
-    }),
+    actorEntityId
+      ? loadRecentActorActivity(operatorId, actorEntityId, 7).catch((err) => {
+          console.warn("[detection-enrichment] Actor activity loader failed:", err);
+          return [] as EnrichedSignalContext["recentActorActivity"];
+        })
+      : Promise.resolve([] as EnrichedSignalContext["recentActorActivity"]),
     loadRelatedDocuments(operatorId, participantEntityIds, subjectKeywords).catch(
       (err) => {
         console.warn("[detection-enrichment] Document loader failed:", err);

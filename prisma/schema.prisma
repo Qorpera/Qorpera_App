@@ -1290,7 +1290,8 @@ model ToolCallTrace {
 model EvaluationLog {
   id                  String   @id @default(cuid())
   operatorId          String
-  actorEntityId       String? // The person evaluated as needing to act (null if no actor resolved)
+  actorEntityId       String? // @deprecated — use actorPageSlug. Entity-based resolution removed.
+  actorPageSlug       String? // The person page slug resolved as needing to act
   sourceType          String // "email" | "slack_message" | "teams_message"
   sourceId            String // External message ID
   classification      String // "action_required" | "awareness" | "irrelevant"
@@ -1308,6 +1309,7 @@ model EvaluationLog {
   @@index([operatorId, evaluatedAt])
   @@index([operatorId, classification])
   @@index([operatorId, actorEntityId])
+  @@index([operatorId, actorPageSlug])
   @@index([operatorId, sourceId])
 }
 

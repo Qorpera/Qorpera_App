@@ -10,19 +10,23 @@ const actionRequiredTypeCache = new Map<string, SituationTypeRef>();
 
 export async function ensureActionRequiredType(
   operatorId: string,
-  domainId: string,
-  domainPageSlug?: string | null,
+  domainPageSlug: string | null,
 ): Promise<SituationTypeRef> {
-  const cacheKey = `${operatorId}:${domainId}`;
+  const cacheKey = `${operatorId}:${domainPageSlug ?? "general"}`;
   const cached = actionRequiredTypeCache.get(cacheKey);
   if (cached) return cached;
 
-  // Look up department name for slug
-  const dept = await prisma.entity.findUnique({
-    where: { id: domainId },
-    select: { displayName: true },
-  });
-  const deptSlug = (dept?.displayName ?? "general")
+  // Read department name from wiki page
+  let deptName = "General";
+  if (domainPageSlug) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: domainPageSlug, scope: "operator" },
+      select: { title: true },
+    });
+    if (page) deptName = page.title;
+  }
+
+  const deptSlug = deptName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
@@ -33,22 +37,23 @@ export async function ensureActionRequiredType(
     create: {
       operatorId,
       slug,
-      name: "Action Required",
+      name: `Action Required — ${deptName}`,
       description:
-        "Communication-detected situations requiring action from team members in this department.",
+        "Communication-detected situations requiring action from team members.",
       detectionLogic: JSON.stringify({
         mode: "content",
         description: "Detected from incoming communications",
       }),
       autonomyLevel: "supervised",
-      scopeEntityId: domainId,
       enabled: true,
-      ...(domainPageSlug ? { wikiPageSlug: `situation-type-action-required-${domainPageSlug}` } : {}),
+      ...(domainPageSlug
+        ? { wikiPageSlug: `situation-type-action-required-${domainPageSlug}` }
+        : {}),
     },
     update: {},
   });
 
-  const ref: SituationTypeRef = { id: sitType.id, slug, name: "Action Required" };
+  const ref: SituationTypeRef = { id: sitType.id, slug, name: sitType.name };
   actionRequiredTypeCache.set(cacheKey, ref);
   return ref;
 }
@@ -57,18 +62,22 @@ const awarenessTypeCache = new Map<string, string>();
 
 export async function ensureAwarenessType(
   operatorId: string,
-  domainId: string,
-  domainPageSlug?: string | null,
+  domainPageSlug: string | null,
 ): Promise<string> {
-  const cacheKey = `${operatorId}:${domainId}`;
+  const cacheKey = `${operatorId}:${domainPageSlug ?? "general"}`;
   const cached = awarenessTypeCache.get(cacheKey);
   if (cached) return cached;
 
-  const dept = await prisma.entity.findUnique({
-    where: { id: domainId },
-    select: { displayName: true },
-  });
-  const deptSlug = (dept?.displayName ?? "general")
+  let deptName = "General";
+  if (domainPageSlug) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: domainPageSlug, scope: "operator" },
+      select: { title: true },
+    });
+    if (page) deptName = page.title;
+  }
+
+  const deptSlug = deptName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
@@ -79,16 +88,18 @@ export async function ensureAwarenessType(
     create: {
       operatorId,
       slug,
-      name: "Awareness",
-      description: "Items the employee should be aware of but that don't require direct action.",
+      name: `Awareness — ${deptName}`,
+      description:
+        "Items the employee should be aware of but that don't require direct action.",
       detectionLogic: JSON.stringify({
         mode: "content",
         description: "Awareness items detected from incoming communications",
       }),
       autonomyLevel: "supervised",
-      scopeEntityId: domainId,
       enabled: true,
-      ...(domainPageSlug ? { wikiPageSlug: `situation-type-awareness-${domainPageSlug}` } : {}),
+      ...(domainPageSlug
+        ? { wikiPageSlug: `situation-type-awareness-${domainPageSlug}` }
+        : {}),
     },
     update: {},
   });

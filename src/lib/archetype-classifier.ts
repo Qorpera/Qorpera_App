@@ -65,19 +65,23 @@ const archetypeTypeCache = new Map<string, string>();
 
 export async function ensureArchetypeSituationType(
   operatorId: string,
-  domainId: string,
+  domainPageSlug: string | null,
   archetypeSlug: string,
 ): Promise<string> {
-  const cacheKey = `${operatorId}:${archetypeSlug}:${domainId}`;
+  const cacheKey = `${operatorId}:${archetypeSlug}:${domainPageSlug ?? "general"}`;
   const cached = archetypeTypeCache.get(cacheKey);
   if (cached) return cached;
 
-  // Look up department name for slug generation
-  const dept = await prisma.entity.findUnique({
-    where: { id: domainId },
-    select: { displayName: true },
-  });
-  const deptSlug = (dept?.displayName ?? "general")
+  // Read department name from wiki page
+  let deptName = "General";
+  if (domainPageSlug) {
+    const page = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: domainPageSlug, scope: "operator" },
+      select: { title: true },
+    });
+    if (page) deptName = page.title;
+  }
+  const deptSlug = deptName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
@@ -92,7 +96,7 @@ export async function ensureArchetypeSituationType(
 
   if (!archetype) {
     // Fallback to generic "Action Required" type if archetype not found
-    return (await ensureActionRequiredType(operatorId, domainId)).id;
+    return (await ensureActionRequiredType(operatorId, domainPageSlug)).id;
   }
 
   const detectionLogic =
@@ -114,7 +118,6 @@ export async function ensureArchetypeSituationType(
           ? detectionLogic
           : JSON.stringify(detectionLogic),
       autonomyLevel: "supervised",
-      scopeEntityId: domainId,
       archetypeSlug: archetypeSlug,
       enabled: true,
     },

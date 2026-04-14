@@ -2,7 +2,6 @@ import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { callLLM, getModel } from "@/lib/ai-provider";
-import { resolveEntity } from "@/lib/entity-resolution";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { enrichSignalContext, type EnrichedSignalContext } from "./detection-enrichment";
@@ -14,34 +13,9 @@ import {
 } from "@/lib/situation-wiki-helpers";
 import { checkConfirmationRate } from "@/lib/confirmation-rate";
 import { ensureActionRequiredType, ensureAwarenessType } from "@/lib/situation-type-helpers";
-import { getPageForEntity, searchPages } from "@/lib/wiki-engine";
 
 // Re-export so existing consumers don't break
 export { ensureActionRequiredType, ensureAwarenessType };
-
-// ── Inline department resolution (was in activity-pipeline.ts) ──────────────
-
-async function resolveDepartmentsFromEmails(
-  operatorId: string,
-  emails?: string[],
-): Promise<string[]> {
-  if (!emails?.length) return [];
-  const domainIds: string[] = [];
-  for (const email of emails) {
-    const entityId = await resolveEntity(operatorId, {
-      identityValues: { email: email.toLowerCase().trim() },
-    });
-    if (!entityId) continue;
-    const entity = await prisma.entity.findUnique({
-      where: { id: entityId },
-      select: { primaryDomainId: true },
-    });
-    if (entity?.primaryDomainId && !domainIds.includes(entity.primaryDomainId)) {
-      domainIds.push(entity.primaryDomainId);
-    }
-  }
-  return domainIds;
-}
 
 // ── Wiki Page Resolution ────────────────────────────────────────────────────
 
@@ -53,7 +27,7 @@ async function resolvePageSlug(operatorId: string, email?: string, name?: string
       where: {
         operatorId,
         scope: "operator",
-        pageType: "entity_profile",
+        pageType: "person_profile",
         content: { contains: email, mode: "insensitive" },
       },
       select: { slug: true },
@@ -66,7 +40,7 @@ async function resolvePageSlug(operatorId: string, email?: string, name?: string
       where: {
         operatorId,
         scope: "operator",
-        pageType: "entity_profile",
+        pageType: "person_profile",
         title: { contains: name, mode: "insensitive" },
       },
       select: { slug: true },
@@ -85,16 +59,6 @@ async function findDomainRefFromPage(operatorId: string, slug: string): Promise<
   return page?.crossReferences.find(ref => ref.startsWith("domain-")) ?? null;
 }
 
-async function resolveDomainPageSlug(operatorId: string, situationTypeSlug?: string, actorPageSlug?: string | null): Promise<string | null> {
-  if (situationTypeSlug) {
-    const result = await findDomainRefFromPage(operatorId, situationTypeSlug);
-    if (result) return result;
-  }
-  if (actorPageSlug) {
-    return findDomainRefFromPage(operatorId, actorPageSlug);
-  }
-  return null;
-}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -140,15 +104,14 @@ type EvaluationResult = {
 };
 
 type ActorBatch = {
-  actorEntityId: string;
+  actorKey: string;             // person page slug or email
   actorPageSlug: string | null;
   domainPageSlug: string | null;
   actorName: string;
   actorRole: string | null;
-  domainId: string | null;
   domainName: string | null;
   items: CommunicationItem[];
-  openSituations: Array<{ id: string; summary: string }>;
+  openSituations: Array<{ situationId: string; summary: string }>;
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -181,19 +144,47 @@ export function isEligibleCommunication(item: {
 type WikiEnrichment = {
   actorContext: string | null;
   relatedKnowledge: Array<{ slug: string; title: string; pageType: string; contentSnippet: string }>;
-  existingSituations: Array<{ id: string; summary: string }>;
+  existingSituations: Array<{ situationId: string; summary: string }>;
 };
 
 async function enrichBatchWithWiki(
   batch: ActorBatch,
   operatorId: string,
 ): Promise<WikiEnrichment> {
-  const actorPage = batch.actorEntityId
-    ? await getPageForEntity(operatorId, batch.actorEntityId).catch(() => null)
+  const actorPage = batch.actorPageSlug
+    ? await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug: batch.actorPageSlug, scope: "operator" },
+        select: { content: true },
+      }).catch(() => null)
     : null;
 
+  // Search for related wiki pages using keywords from batch content
   const contentSample = batch.items.map((i) => i.content.slice(0, 200)).join(" ");
-  const relatedPages = await searchPages(operatorId, contentSample, { limit: 3 }).catch(() => []);
+  const KEYWORD_STOP = new Set([
+    "about", "after", "before", "being", "could", "doing", "every", "first",
+    "going", "great", "hello", "known", "later", "might", "never", "other",
+    "place", "please", "quite", "right", "shall", "should", "since", "still",
+    "thank", "thanks", "their", "there", "these", "thing", "think", "those",
+    "today", "under", "using", "which", "while", "would", "yours",
+  ]);
+  const keywords = contentSample
+    .split(/\s+/)
+    .map(w => w.replace(/[^a-zA-Z0-9]/g, "").toLowerCase())
+    .filter(w => w.length > 4 && !KEYWORD_STOP.has(w))
+    .slice(0, 5);
+  let relatedPages: Array<{ slug: string; title: string; pageType: string; content: string }> = [];
+  if (keywords.length > 0) {
+    relatedPages = await prisma.knowledgePage.findMany({
+      where: {
+        operatorId,
+        scope: "operator",
+        OR: keywords.map(kw => ({ content: { contains: kw, mode: "insensitive" as const } })),
+        ...(batch.actorPageSlug ? { slug: { not: batch.actorPageSlug } } : {}),
+      },
+      select: { slug: true, title: true, pageType: true, content: true },
+      take: 3,
+    }).catch(() => []);
+  }
 
   return {
     actorContext: actorPage?.content ?? null,
@@ -201,7 +192,7 @@ async function enrichBatchWithWiki(
       slug: p.slug,
       title: p.title,
       pageType: p.pageType,
-      contentSnippet: p.contentPreview,
+      contentSnippet: p.content.slice(0, 300),
     })),
     existingSituations: batch.openSituations,
   };
@@ -215,13 +206,13 @@ function extractSenderName(meta: Record<string, unknown>): { raw: string; name: 
 
 // ── Actor Resolution ─────────────────────────────────────────────────────────
 
-async function resolveActors(
+async function resolveActorsFromWiki(
   operatorId: string,
   items: CommunicationItem[],
-): Promise<Map<string, { entityId: string; name: string; role: string | null; items: CommunicationItem[] }>> {
+): Promise<Map<string, { actorKey: string; actorPageSlug: string | null; name: string; role: string | null; items: CommunicationItem[] }>> {
   const actorMap = new Map<
     string,
-    { entityId: string; name: string; role: string | null; items: CommunicationItem[] }
+    { actorKey: string; actorPageSlug: string | null; name: string; role: string | null; items: CommunicationItem[] }
   >();
 
   for (const item of items) {
@@ -229,32 +220,39 @@ async function resolveActors(
     if (actorEmails.length === 0) continue;
 
     for (const email of actorEmails) {
-      const entityId = await resolveEntity(operatorId, {
-        identityValues: { email: email.toLowerCase().trim() },
-      });
-      if (!entityId) continue;
+      const normalizedEmail = email.toLowerCase().trim();
 
-      const existing = actorMap.get(entityId);
+      // Try to resolve to a person wiki page
+      const pageSlug = await resolvePageSlug(operatorId, normalizedEmail);
+
+      // Use page slug as key if found, email as fallback
+      const actorKey = pageSlug ?? normalizedEmail;
+
+      const existing = actorMap.get(actorKey);
       if (existing) {
         existing.items.push(item);
       } else {
-        const entity = await prisma.entity.findUnique({
-          where: { id: entityId },
-          select: {
-            displayName: true,
-            propertyValues: {
-              select: { value: true, property: { select: { slug: true } } },
-            },
-          },
-        });
-        const roleVal = entity?.propertyValues?.find(
-          (pv: { property: { slug: string }; value: string }) =>
-            pv.property.slug === "job-title" || pv.property.slug === "role",
-        );
-        actorMap.set(entityId, {
-          entityId,
-          name: entity?.displayName ?? email,
-          role: roleVal?.value ?? null,
+        let name = normalizedEmail;
+        let role: string | null = null;
+
+        if (pageSlug) {
+          // Read name and role from person wiki page
+          const page = await prisma.knowledgePage.findFirst({
+            where: { operatorId, slug: pageSlug, scope: "operator" },
+            select: { title: true, properties: true },
+          });
+          if (page) {
+            name = page.title;
+            const props = (page.properties ?? {}) as Record<string, unknown>;
+            role = (props.role as string) ?? (props.job_title as string) ?? null;
+          }
+        }
+
+        actorMap.set(actorKey, {
+          actorKey,
+          actorPageSlug: pageSlug,
+          name,
+          role,
           items: [item],
         });
       }
@@ -292,35 +290,48 @@ function getActorEmails(item: CommunicationItem): string[] {
 
 async function loadOpenSituations(
   operatorId: string,
-  actorEntityId: string,
-): Promise<Array<{ id: string; summary: string }>> {
-  const situations = await prisma.situation.findMany({
+  actorPageSlug: string | null,
+): Promise<Array<{ situationId: string; summary: string }>> {
+  if (!actorPageSlug) return [];
+
+  // Primary: wiki situation_instance pages (canonical after migration).
+  // Fallback: if wiki page creation failed for a situation, the Situation table
+  // dedup in handleActionRequired/handleAwareness (triggerPageSlug query) still catches it.
+  const pages = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
-      triggerEntityId: actorEntityId,
-      status: { notIn: ["resolved", "closed"] },
+      pageType: "situation_instance",
+      scope: "operator",
+      properties: {
+        path: ["trigger_page"],
+        equals: actorPageSlug,
+      },
+      NOT: {
+        properties: {
+          path: ["status"],
+          string_contains: "resolved",
+        },
+      },
     },
-    select: { id: true, reasoning: true, contextSnapshot: true },
+    select: { properties: true, title: true },
     orderBy: { createdAt: "desc" },
     take: 10,
   });
 
-  return situations.map((s) => {
-    let summary = "";
-    if (s.reasoning) {
-      try {
-        const r = JSON.parse(s.reasoning);
-        summary = r.analysis?.slice(0, 100) ?? "";
-      } catch { /* ignore */ }
-    }
-    if (!summary && s.contextSnapshot) {
-      try {
-        const cs = JSON.parse(s.contextSnapshot);
-        summary = cs.currentSummary?.slice(0, 100) ?? JSON.stringify(cs).slice(0, 100);
-      } catch { /* ignore */ }
-    }
-    return { id: s.id, summary };
-  });
+  // Post-filter for other closed statuses (JSONB path only supports single value match)
+  return pages
+    .filter(p => {
+      const props = (p.properties ?? {}) as Record<string, unknown>;
+      const status = props.status as string | undefined;
+      return !status || !["resolved", "closed", "dismissed"].includes(status);
+    })
+    .map(p => {
+      const props = (p.properties ?? {}) as Record<string, unknown>;
+      return {
+        situationId: (props.situation_id as string) ?? "",
+        summary: p.title?.slice(0, 100) ?? "",
+      };
+    });
 }
 
 // ── LLM Evaluation ──────────────────────────────────────────────────────────
@@ -391,7 +402,7 @@ async function evaluateActorBatch(batch: ActorBatch, enrichments: (EnrichedSigna
   const openSitLines =
     batch.openSituations.length > 0
       ? batch.openSituations
-          .map((s) => `- ${s.id}: ${s.summary}`)
+          .map((s) => `- ${s.situationId}: ${s.summary}`)
           .join("\n")
       : "None";
 
@@ -625,106 +636,76 @@ async function handleInitiativeCandidate(
   if (!item || !result.projectRecommendation) return;
 
   const rec = result.projectRecommendation;
-  const meta = item.metadata ?? {};
+  const now = new Date();
 
-  // Dedup: check if a similar initiative already exists
-  const existing = await prisma.initiative.findFirst({
-    where: {
-      operatorId,
-      status: { notIn: ["rejected", "failed"] },
-      rationale: { contains: rec.title.slice(0, 50) },
-      proposedProjectConfig: { not: Prisma.DbNull },
-    },
-  });
+  // Dedup: title similarity + source signal (parallel, independent checks)
+  const [existing, existingFromSource] = await Promise.all([
+    prisma.knowledgePage.findFirst({
+      where: {
+        operatorId,
+        scope: "operator",
+        pageType: "initiative",
+        title: { contains: rec.title.slice(0, 50), mode: "insensitive" },
+      },
+      select: { slug: true },
+    }),
+    prisma.knowledgePage.findFirst({
+      where: {
+        operatorId,
+        scope: "operator",
+        pageType: "initiative",
+        properties: { path: ["source_id"], equals: item.sourceId },
+      },
+      select: { slug: true },
+    }),
+  ]);
   if (existing) {
-    console.log(`[content-detection] Initiative "${rec.title}" already exists (${existing.id}), skipping`);
+    console.log(`[content-detection] Initiative "${rec.title}" already exists (${existing.slug}), skipping`);
     return;
   }
-
-  // Also dedup by source signal — don't create multiple initiatives from the same email
-  const existingFromSource = await prisma.initiative.findFirst({
-    where: {
-      operatorId,
-      status: { notIn: ["rejected", "failed"] },
-      proposedProjectConfig: { path: ["sourceSignal", "sourceId"], equals: item.sourceId },
-    },
-  });
   if (existingFromSource) {
     console.log(`[content-detection] Initiative already created from source ${item.sourceId}, skipping`);
     return;
   }
 
-  // Resolve department for the actor
-  const domainId = batch.domainId
-    ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0]
-    ?? null;
+  const initiativeSlug = `initiative-${createId().slice(0, 8)}-${rec.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
 
-  // Find AI entity for attribution
-  let aiEntityId: string | null = null;
-  if (domainId) {
-    const deptAi = await prisma.entity.findFirst({
-      where: { operatorId, ownerDomainId: domainId, status: "active" },
-      select: { id: true },
-    });
-    aiEntityId = deptAi?.id ?? null;
-  }
-  if (!aiEntityId) {
-    const hqAi = await prisma.entity.findFirst({
-      where: {
-        operatorId,
-        status: "active",
-        entityType: { slug: { in: ["hq-ai", "ai-agent"] } },
-        ownerDomainId: null,
-      },
-      select: { id: true },
-    });
-    aiEntityId = hqAi?.id ?? null;
-  }
-  if (!aiEntityId) {
-    console.warn("[content-detection] No AI entity found for initiative attribution, skipping");
-    return;
-  }
+  const initiativeProps = {
+    status: "proposed",
+    proposed_at: now.toISOString(),
+    source: "content_detected",
+    source_id: item.sourceId,
+    domain: batch.domainPageSlug ?? undefined,
+    coordinator: rec.coordinatorEmail ?? undefined,
+    due_date: rec.dueDate ?? undefined,
+  };
 
-  // Create initiative with project config
-  const initiative = await prisma.initiative.create({
+  const articleBody = [
+    `## Trigger`,
+    `Detected from ${item.sourceType}: ${rec.rationale}`,
+    ``,
+    `## Proposal`,
+    rec.description,
+    ``,
+    rec.proposedMembers?.length ? `## Proposed Members\n${rec.proposedMembers.map(m => `- ${m.name ?? m.email} — ${m.role ?? "TBD"}`).join("\n")}` : null,
+    rec.proposedDeliverables?.length ? `## Deliverables\n${rec.proposedDeliverables.map(d => `- ${d.title}: ${d.description ?? ""}`).join("\n")}` : null,
+    ``,
+    `## Timeline`,
+    `${now.toISOString().slice(0, 16)} — Proposed by detection pipeline`,
+  ].filter(Boolean).join("\n");
+
+  await prisma.knowledgePage.create({
     data: {
       operatorId,
-      aiEntityId,
-      proposalType: "general",
-      triggerSummary: rec.title,
-      evidence: [{
-        source: "content_detection",
-        sourceType: item.sourceType,
-        sourceId: item.sourceId,
-        claim: rec.rationale,
-      }],
-      proposal: {
-        title: rec.title,
-        description: rec.description,
-        coordinatorEmail: rec.coordinatorEmail,
-        dueDate: rec.dueDate,
-        members: rec.proposedMembers,
-        deliverables: rec.proposedDeliverables,
-      },
-      status: "proposed",
-      rationale: `[content-detected:initiative_candidate] ${rec.title}\n\n${rec.rationale}`,
-      impactAssessment: rec.description,
-      proposedProjectConfig: {
-        title: rec.title,
-        description: rec.description,
-        coordinatorEmail: rec.coordinatorEmail,
-        dueDate: rec.dueDate,
-        members: rec.proposedMembers,
-        deliverables: rec.proposedDeliverables,
-        sourceSignal: {
-          sourceType: item.sourceType,
-          sourceId: item.sourceId,
-          sender: (meta.from as string) ?? (meta.authorEmail as string) ?? "unknown",
-          subject: (meta.subject as string) ?? null,
-          date: (meta.date as string) ?? new Date().toISOString(),
-          summary: result.summary,
-        },
-      },
+      slug: initiativeSlug,
+      title: rec.title,
+      scope: "operator",
+      pageType: "initiative",
+      content: articleBody,
+      properties: initiativeProps,
+      synthesisPath: "detection",
+      synthesizedByModel: "content-detector",
+      lastSynthesizedAt: now,
     },
   });
 
@@ -736,11 +717,11 @@ async function handleInitiativeCandidate(
     title: `Foreslået projekt: ${rec.title}`,
     body: `${rec.proposedDeliverables.length} leverancer identificeret. Gennemgå og godkend for at oprette projektet.`,
     sourceType: "initiative",
-    sourceId: initiative.id,
+    sourceId: initiativeSlug,
   }).catch(() => {});
 
   console.log(
-    `[content-detection] Created initiative "${rec.title}" with ${rec.proposedDeliverables.length} proposed deliverables`,
+    `[content-detection] Created initiative wiki page "${rec.title}" (${initiativeSlug}) with ${rec.proposedDeliverables.length} proposed deliverables`,
   );
 }
 
@@ -761,7 +742,7 @@ async function handleActionRequired(
 
   // Related to existing situation → update context
   if (result.relatedSituationId) {
-    const openIds = new Set(batch.openSituations.map((s) => s.id));
+    const openIds = new Set(batch.openSituations.map((s) => s.situationId));
     if (openIds.has(result.relatedSituationId)) {
       const existing = await prisma.situation.findUnique({
         where: { id: result.relatedSituationId },
@@ -802,7 +783,7 @@ async function handleActionRequired(
           operatorId,
           sourceId: item.sourceId,
           sourceType: item.sourceType,
-          actorEntityId: batch.actorEntityId,
+          actorPageSlug: batch.actorPageSlug,
           situationId: null,
         },
         data: { situationId: result.relatedSituationId },
@@ -816,7 +797,7 @@ async function handleActionRequired(
   }
 
   // Safety: don't create multiple situations for the same actor+topic from one batch
-  const dedupeKey = `${batch.actorEntityId}:${result.summary.slice(0, 80).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const dedupeKey = `${batch.actorKey}:${result.summary.slice(0, 80).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   if (createdInBatch.has(dedupeKey)) return;
 
   // Company-wide dedup: check if this source message already triggered a situation
@@ -850,7 +831,7 @@ async function handleActionRequired(
       data: { contextSnapshot: JSON.stringify(snapshot) },
     });
     await prisma.evaluationLog.updateMany({
-      where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+      where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
       data: { situationId: existingForSource.id },
     }).catch(() => {});
     console.log(`[content-detection] Source dedup: merged ${batch.actorName} into existing situation ${existingForSource.id}`);
@@ -858,17 +839,17 @@ async function handleActionRequired(
     return;
   }
 
-  // Cross-mechanism dedup: check for recent open situations for this actor entity
-  const recentSituation = await prisma.situation.findFirst({
+  // Cross-mechanism dedup: check for recent open situations for this actor
+  const recentSituation = batch.actorPageSlug ? await prisma.situation.findFirst({
     where: {
       operatorId,
-      triggerEntityId: batch.actorEntityId,
+      triggerPageSlug: batch.actorPageSlug,
       status: { in: ["detected", "reasoning", "proposed"] },
       createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
     },
     orderBy: { createdAt: "desc" },
     select: { id: true, contextSnapshot: true, triggerSummary: true, createdAt: true },
-  });
+  }) : null;
   if (recentSituation) {
     // Merge if LLM explicitly linked, OR if very recent (< 2h) as conservative fallback
     const llmLinked = result.relatedSituationId === recentSituation.id;
@@ -894,7 +875,7 @@ async function handleActionRequired(
         data: { contextSnapshot: JSON.stringify(snapshot) },
       });
       await prisma.evaluationLog.updateMany({
-        where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+        where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
         data: { situationId: recentSituation.id },
       }).catch(() => {});
       console.log(`[content-detection] Cross-mechanism dedup: enriched recent situation ${recentSituation.id} (${llmLinked ? "llm-linked" : "time-fallback"})`);
@@ -903,15 +884,7 @@ async function handleActionRequired(
     }
   }
 
-  // Resolve department — prefer batch-level resolution, fall back to per-item
-  const domainId = batch.domainId
-    ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0];
-  if (!domainId) {
-    console.warn("[content-detection] No department resolved, skipping situation creation");
-    return;
-  }
-
-  const situationTypeRef = await ensureActionRequiredType(operatorId, domainId);
+  const situationTypeRef = await ensureActionRequiredType(operatorId, batch.domainPageSlug);
   const situationTypeId = situationTypeRef.id;
 
   const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.7;
@@ -1011,7 +984,7 @@ async function handleActionRequired(
       id: situationId,
       operatorId,
       situationTypeId,
-      triggerEntityId: batch.actorEntityId,
+      triggerEntityId: null, // Migration: entity link removed, triggerPageSlug is the new canonical reference
       triggerPageSlug: batch.actorPageSlug,
       domainPageSlug: batch.domainPageSlug,
       wikiPageSlug,
@@ -1046,7 +1019,7 @@ async function handleActionRequired(
       operatorId,
       sourceId: item.sourceId,
       sourceType: item.sourceType,
-      actorEntityId: batch.actorEntityId,
+      actorPageSlug: batch.actorPageSlug,
       situationId: null,
     },
     data: { situationId: situation.id },
@@ -1082,7 +1055,7 @@ async function logEvaluation(
   await prisma.evaluationLog.create({
     data: {
       operatorId,
-      actorEntityId: batch.actorEntityId,
+      actorPageSlug: batch.actorPageSlug,
       sourceType: item?.sourceType ?? "unknown",
       sourceId: item?.sourceId ?? "unknown",
       classification: result.classification,
@@ -1115,7 +1088,7 @@ async function handleAwareness(
 
   // If related to an existing situation, just update context (same as action_required)
   if (result.relatedSituationId) {
-    const openIds = new Set(batch.openSituations.map((s) => s.id));
+    const openIds = new Set(batch.openSituations.map((s) => s.situationId));
     if (openIds.has(result.relatedSituationId)) {
       const existing = await prisma.situation.findUnique({
         where: { id: result.relatedSituationId },
@@ -1149,7 +1122,7 @@ async function handleAwareness(
 
       // Link evaluation log
       await prisma.evaluationLog.updateMany({
-        where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+        where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
         data: { situationId: result.relatedSituationId },
       }).catch(() => {});
 
@@ -1159,20 +1132,20 @@ async function handleAwareness(
 
   if (result.awarenessType === "strategic") {
     // Strategic awareness → create real situation with reasoning
-    const dedupeKey = `${batch.actorEntityId}:strategic:${result.summary.slice(0, 80).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const dedupeKey = `${batch.actorKey}:strategic:${result.summary.slice(0, 80).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     if (createdInBatch.has(dedupeKey)) return;
 
     // Cross-mechanism dedup: check for recent open situations for this actor
-    const recentSituation = await prisma.situation.findFirst({
+    const recentSituation = batch.actorPageSlug ? await prisma.situation.findFirst({
       where: {
         operatorId,
-        triggerEntityId: batch.actorEntityId,
+        triggerPageSlug: batch.actorPageSlug,
         status: { in: ["detected", "reasoning", "proposed"] },
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
       orderBy: { createdAt: "desc" },
       select: { id: true, contextSnapshot: true, createdAt: true },
-    });
+    }) : null;
     if (recentSituation) {
       const llmLinked = result.relatedSituationId === recentSituation.id;
       const veryRecent = recentSituation.createdAt > new Date(Date.now() - 2 * 60 * 60 * 1000);
@@ -1198,7 +1171,7 @@ async function handleAwareness(
           data: { contextSnapshot: JSON.stringify(snapshot) },
         });
         await prisma.evaluationLog.updateMany({
-          where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+          where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
           data: { situationId: recentSituation.id },
         }).catch(() => {});
         createdInBatch.add(dedupeKey);
@@ -1207,15 +1180,7 @@ async function handleAwareness(
       }
     }
 
-    // Resolve department
-    const domainId = batch.domainId
-      ?? (await resolveDepartmentsFromEmails(operatorId, item.participantEmails))[0];
-    if (!domainId) {
-      console.warn("[content-detection] No department resolved for strategic awareness, skipping");
-      return;
-    }
-
-    const situationTypeId = await ensureAwarenessType(operatorId, domainId);
+    const situationTypeId = await ensureAwarenessType(operatorId, batch.domainPageSlug);
 
     const { raw: senderRaw, name: senderName } = extractSenderName(meta);
     const subjectStr = meta.subject ? ` re: ${meta.subject}` : "";
@@ -1246,7 +1211,7 @@ async function handleAwareness(
       data: {
         operatorId,
         situationTypeId,
-        triggerEntityId: batch.actorEntityId,
+        triggerEntityId: null, // Migration: entity link removed, triggerPageSlug is the new canonical reference
         triggerPageSlug: batch.actorPageSlug,
         domainPageSlug: batch.domainPageSlug,
         source: "content_detected",
@@ -1275,7 +1240,7 @@ async function handleAwareness(
     createdInBatch.add(dedupeKey);
 
     await prisma.evaluationLog.updateMany({
-      where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorEntityId: batch.actorEntityId, situationId: null },
+      where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
       data: { situationId: situation.id },
     }).catch(() => {});
 
@@ -1287,32 +1252,33 @@ async function handleAwareness(
     }).catch(() => {});
     checkConfirmationRate(situationTypeId).catch(console.error);
 
-    // Lightweight wiki signal — note the awareness in relevant entity pages
-    try {
-      const { processWikiUpdates } = await import("@/lib/wiki-engine");
-      await processWikiUpdates({
-        operatorId,
-        updates: [{
-          slug: batch.actorEntityId,
-          pageType: "entity_profile",
-          title: `Awareness: ${result.summary.slice(0, 80)}`,
-          subjectEntityId: batch.actorEntityId,
-          updateType: "update",
-          content: `## Recent Awareness Signal\n\n${result.summary}\n\n**Source:** ${item.sourceType} from ${meta.from ?? "unknown"} (${meta.date ?? "recent"})\n**Classification:** Strategic awareness\n**Evidence:** ${result.evidence ?? "N/A"}`,
-          sourceCitations: [{
-            sourceType: item.sourceType === "email" || item.sourceType === "slack" || item.sourceType === "teams" ? "chunk" : "signal",
-            sourceId: item.sourceId,
-            claim: result.summary,
+    // Lightweight wiki signal — note the awareness in relevant person pages
+    if (batch.actorPageSlug) {
+      try {
+        const { processWikiUpdates } = await import("@/lib/wiki-engine");
+        await processWikiUpdates({
+          operatorId,
+          updates: [{
+            slug: batch.actorPageSlug,
+            pageType: "person_profile",
+            title: `Awareness: ${result.summary.slice(0, 80)}`,
+            updateType: "update",
+            content: `## Recent Awareness Signal\n\n${result.summary}\n\n**Source:** ${item.sourceType} from ${meta.from ?? "unknown"} (${meta.date ?? "recent"})\n**Classification:** Strategic awareness\n**Evidence:** ${result.evidence ?? "N/A"}`,
+            sourceCitations: [{
+              sourceType: item.sourceType === "email" || item.sourceType === "slack" || item.sourceType === "teams" ? "chunk" : "signal",
+              sourceId: item.sourceId,
+              claim: result.summary,
+            }],
+            reasoning: `Strategic awareness signal detected during content evaluation. ${result.reasoning ?? ""}`,
           }],
-          reasoning: `Strategic awareness signal detected during content evaluation. ${result.reasoning ?? ""}`,
-        }],
-        synthesisPath: "onboarding",
-        synthesizedByModel: "content-detector",
-      }).catch(err => {
-        console.warn("[content-detection] Wiki awareness signal failed:", err);
-      });
-    } catch {
-      // Non-fatal — wiki update is best-effort for awareness
+          synthesisPath: "onboarding",
+          synthesizedByModel: "content-detector",
+        }).catch(err => {
+          console.warn("[content-detection] Wiki awareness signal failed:", err);
+        });
+      } catch {
+        // Non-fatal — wiki update is best-effort for awareness
+      }
     }
 
     console.log(`[content-detection] Created strategic awareness situation (resolved, no reasoning) for ${batch.actorName}: ${result.summary}`);
@@ -1320,7 +1286,7 @@ async function handleAwareness(
   }
 
   // Informational awareness → notification only, no situation created
-  const dedupeKey = `${batch.actorEntityId}:informational:${item.sourceId}`;
+  const dedupeKey = `${batch.actorKey}:informational:${item.sourceId}`;
   if (createdInBatch.has(dedupeKey)) return;
 
   const { sendNotificationToAdmins } = await import("@/lib/notification-dispatch");
@@ -1391,42 +1357,38 @@ export async function evaluateContentForSituations(
   }
 
   // Step 1: Resolve actors
-  const actorMap = await resolveActors(operatorId, items);
+  const actorMap = await resolveActorsFromWiki(operatorId, items);
   if (actorMap.size === 0) return;
 
   // Step 2–4: Process each actor batch
   const createdInBatch = new Set<string>();
   const correlationId = `${operatorId}:reason_situation:${Date.now()}`;
 
-  for (const [entityId, actor] of actorMap) {
+  for (const [actorKey, actor] of actorMap) {
     try {
       // Load open situations for this actor
-      const openSituations = await loadOpenSituations(operatorId, entityId);
+      const openSituations = await loadOpenSituations(operatorId, actor.actorPageSlug);
 
-      // Resolve department for the actor
-      const allEmails = actor.items.flatMap((i) => i.participantEmails ?? []);
-      const deptIds = await resolveDepartmentsFromEmails(operatorId, allEmails);
+      // Resolve domain from person page cross-references
+      let domainPageSlug: string | null = null;
       let domainName: string | null = null;
-      let domainId: string | null = deptIds[0] ?? null;
-      if (domainId) {
-        const dept = await prisma.entity.findFirst({
-          where: { id: domainId, operatorId },
-          select: { displayName: true },
+      if (actor.actorPageSlug) {
+        domainPageSlug = await findDomainRefFromPage(operatorId, actor.actorPageSlug);
+      }
+      if (domainPageSlug) {
+        const domainPage = await prisma.knowledgePage.findFirst({
+          where: { operatorId, slug: domainPageSlug, scope: "operator" },
+          select: { title: true },
         });
-        domainName = dept?.displayName ?? null;
+        domainName = domainPage?.title ?? null;
       }
 
-      const actorEmail = allEmails.find(e => e.includes("@"));
-      const actorPageSlug = await resolvePageSlug(operatorId, actorEmail, actor.name);
-      const domainPageSlug = await resolveDomainPageSlug(operatorId, undefined, actorPageSlug);
-
       const batch: ActorBatch = {
-        actorEntityId: entityId,
-        actorPageSlug,
+        actorKey,
+        actorPageSlug: actor.actorPageSlug,
         domainPageSlug,
         actorName: actor.name,
         actorRole: actor.role,
-        domainId,
         domainName,
         items: actor.items,
         openSituations,
@@ -1468,7 +1430,7 @@ export async function evaluateContentForSituations(
       // Enrich signals with surrounding context (parallel, per-item)
       const enrichments = await Promise.all(
         batch.items.map(item =>
-          enrichSignalContext(operatorId, item, batch.actorEntityId)
+          enrichSignalContext(operatorId, item, batch.actorPageSlug)
             .catch(err => {
               console.warn("[content-detection] Enrichment failed, proceeding without:", err);
               return null;
