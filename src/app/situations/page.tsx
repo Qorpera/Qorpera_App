@@ -28,8 +28,8 @@ function getApproveLabelKey(step: ExecutionStepForPreview): "send" | "accept" {
 interface SidePanelData {
   step: ExecutionStepForPreview;
   index: number;
-  planStepId: string;
-  executionPlanId: string;
+  stepOrder: number;
+  situationId: string;
   isEditable: boolean;
 }
 
@@ -37,19 +37,18 @@ interface SidePanelData {
 
 interface SituationItem {
   id: string;
-  situationType: { name: string; slug: string; autonomyLevel: string };
+  slug?: string;
+  situationType: { name: string; slug: string; autonomyLevel?: string };
   severity: number;
   confidence: number;
   status: string;
   source: string;
-  triggerEntityId: string | null;
-  triggerPageSlug: string | null;
-  triggerName: string | null;
-  triggerPageType: string | null;
   triggerSummary: string | null;
   domainPageSlug: string | null;
   domainName: string | null;
-  editInstruction: string | null;
+  assignedTo?: string | null;
+  autonomyLevel?: string | null;
+  editInstruction?: string | null;
   createdAt: string;
   resolvedAt: string | null;
   viewedAt: string | null;
@@ -127,13 +126,59 @@ interface DraftPayload {
 
 interface SituationDetail {
   id: string;
+  slug?: string;
   situationType: { id: string; name: string; slug: string; description: string; autonomyLevel: string };
   severity: number;
   confidence: number;
   status: string;
   source: string;
-  triggerEntityId: string | null;
-  contextSnapshot: {
+  triggerSummary: string | null;
+  domainPageSlug: string | null;
+  assignedPageSlug: string | null;
+  autonomyLevel: string | null;
+  investigationDepth: string;
+
+  // Wiki content sections (markdown strings)
+  wikiContent?: {
+    trigger?: string;
+    context?: string;
+    investigation?: string;
+    actionPlan?: string;
+    deliverables?: string;
+    timeline?: string;
+    playbookReference?: string;
+    monitoringNotes?: string;
+    learnings?: string;
+    outcomeSummary?: string;
+  };
+  wikiProperties?: Record<string, unknown>;
+
+  // Inline action plan (replaces separate executionPlan fetch)
+  actionPlan?: {
+    steps: Array<{
+      id: string;
+      sequenceOrder: number;
+      title: string;
+      description: string;
+      executionMode: string;
+      status: string;
+      capabilityName: string | null;
+      assignedSlug: string | null;
+      params: Record<string, unknown> | null;
+      previewType: string | null;
+      result: string | null;
+    }>;
+    totalSteps: number;
+    currentStep: number | null;
+    status: string;
+  };
+
+  // Cross-reference display map
+  crossReferences?: Record<string, { slug: string; title: string; pageType: string }>;
+
+  // Legacy fields (kept optional — undefined for wiki situations)
+  triggerEntityId?: string | null;
+  contextSnapshot?: {
     triggerEntity?: { displayName: string; type: string; properties: Record<string, string> };
     relatedEntities?: {
       base?: Array<{ id: string; type: string; displayName: string; relationship: string; direction: string; properties: Record<string, string> }>;
@@ -144,7 +189,7 @@ interface SituationDetail {
     recentEvents?: Array<{ id: string; source: string; eventType: string; createdAt: string }>;
     priorSituations?: Array<{ id: string; triggerName: string; status: string; outcome: string | null; feedback: string | null; actionTaken: unknown; createdAt: string }>;
   } | null;
-  triggerEvidence: {
+  triggerEvidence?: {
     type: "content" | "structured" | "natural" | "hybrid";
     content?: string;
     sender?: string;
@@ -157,26 +202,23 @@ interface SituationDetail {
     entityName?: string;
     entityType?: string;
   } | null;
-  triggerSummary: string | null;
-  resumeSummary: string | null;
-  currentEntityState: { id: string; displayName: string; typeName: string; properties: Record<string, string> } | null;
-  investigationDepth: string;
-  analysisDocument: {
+  resumeSummary?: string | null;
+  currentEntityState?: { id: string; displayName: string; typeName: string; properties: Record<string, string> } | null;
+  analysisDocument?: {
     sections: Array<{ type: string; level?: number; title?: string; text: string; severity?: string; confidence?: number; sources?: string[] }>;
     overallConfidence: number;
     investigationSummary: string;
   } | null;
-  reasoning: ReasoningData | null;
-  proposedAction: ActionStep[] | null;
-  executionPlanId: string | null;
-  actionTaken: { error?: string; action?: string; result?: unknown; executedAt?: string; failedAt?: string } | null;
-  feedback: string | null;
-  feedbackRating: number | null;
-  feedbackCategory: string | null;
-  editInstruction: string | null;
-  outcome: string | null;
-  outcomeDetails: string | null;
+  actionTaken?: { error?: string; action?: string; result?: unknown; executedAt?: string; failedAt?: string } | null;
+  feedback?: string | null;
+  feedbackRating?: number | null;
+  feedbackCategory?: string | null;
+  editInstruction?: string | null;
+  outcome?: string | null;
+  outcomeDetails?: string | null;
   createdAt: string;
+  resolvedAt?: string | null;
+  updatedAt?: string;
   cycles?: Array<{
     id: string;
     cycleNumber: number;
@@ -209,32 +251,105 @@ type FilterValue = "all" | "active" | "monitoring" | "resolved";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function safeParseReasoning(raw: unknown): ReasoningData | null {
-  if (!raw) return null;
-  const obj = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
-  if (!obj || typeof obj !== "object") return null;
-  const r = obj as Record<string, unknown>;
+
+/**
+ * Build a ReasoningData-compatible object from wiki content sections.
+ * This lets the existing rendering code work unchanged.
+ */
+function wikiToReasoning(detail: SituationDetail): ReasoningData | null {
+  const investigation = detail.wikiContent?.investigation;
+  if (!investigation && !detail.actionPlan) return null;
+
   return {
-    analysis: typeof r.analysis === "string" ? r.analysis : "",
-    evidenceSummary: typeof r.evidenceSummary === "string" ? r.evidenceSummary : undefined,
-    consideredActions: Array.isArray(r.consideredActions) ? r.consideredActions : [],
-    actionBatch: Array.isArray(r.actionBatch) ? r.actionBatch as ActionStep[] : null,
-    actionPlan: Array.isArray(r.actionPlan) ? r.actionPlan as ActionStep[] : null,
-    afterBatch: typeof r.afterBatch === "string" ? r.afterBatch as ReasoningData["afterBatch"] : undefined,
-    reEvaluationReason: typeof r.reEvaluationReason === "string" ? r.reEvaluationReason : undefined,
-    monitorDurationHours: typeof r.monitorDurationHours === "number" ? r.monitorDurationHours : undefined,
-    confidence: typeof r.confidence === "number" ? r.confidence : 0,
-    missingContext: Array.isArray(r.missingContext) ? r.missingContext : null,
-    escalation: r.escalation as ReasoningData["escalation"] ?? null,
+    analysis: investigation ?? "",
+    evidenceSummary: undefined,
+    consideredActions: [],
+    actionBatch: detail.actionPlan?.steps.map(s => ({
+      title: s.title,
+      description: s.description,
+      executionMode: s.executionMode as ActionStep["executionMode"],
+      actionCapabilityName: s.capabilityName ?? undefined,
+      assignedUserId: s.assignedSlug ?? undefined,
+      params: s.params ?? undefined,
+    })) ?? null,
+    actionPlan: null,
+    afterBatch: undefined,
+    reEvaluationReason: undefined,
+    monitorDurationHours: undefined,
+    confidence: detail.confidence,
+    missingContext: null,
+    escalation: null,
   };
 }
 
-function extractDraftPayloads(raw: unknown): DraftPayload[] {
-  if (!raw) return [];
-  const obj = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
-  if (!obj || typeof obj !== "object") return [];
-  const r = obj as Record<string, unknown>;
-  return Array.isArray(r.draftPayloads) ? r.draftPayloads : [];
+/**
+ * Build an ExecutionPlanData-compatible object from the inline action plan.
+ * This lets the step rendering code work unchanged.
+ */
+function wikiToExecutionPlan(detail: SituationDetail): ExecutionPlanData | null {
+  if (!detail.actionPlan || detail.actionPlan.steps.length === 0) return null;
+
+  return {
+    id: `wiki-plan-${detail.id}`,
+    status: detail.actionPlan.status,
+    currentStepOrder: detail.actionPlan.currentStep ?? 1,
+    priorityScore: null,
+    steps: detail.actionPlan.steps.map(s => ({
+      id: s.id,
+      sequenceOrder: s.sequenceOrder,
+      title: s.title,
+      description: s.description,
+      executionMode: s.executionMode,
+      status: s.status,
+      assignedUserId: s.assignedSlug,
+      parameters: s.params,
+      actionCapability: s.capabilityName
+        ? { id: "", slug: s.capabilityName, name: s.capabilityName }
+        : null,
+      outputResult: s.result,
+      approvedAt: null,
+      executedAt: null,
+      errorMessage: null,
+      uncertainties: null,
+    })),
+  };
+}
+
+/**
+ * Extract draft payloads from wiki action plan step params.
+ * Replaces extractDraftPayloads which read from reasoning JSON.
+ */
+function wikiToDraftPayloads(detail: SituationDetail): DraftPayload[] {
+  if (!detail.actionPlan) return [];
+  const drafts: DraftPayload[] = [];
+  for (const step of detail.actionPlan.steps) {
+    if (!step.params) continue;
+    const p = step.params;
+    if (step.capabilityName?.includes("email") || step.capabilityName === "reply_to_thread" || step.capabilityName === "create_draft" || step.capabilityName === "send_with_attachment" || step.capabilityName === "forward_email") {
+      drafts.push({
+        actionType: step.executionMode,
+        provider: (p._provider as string) ?? "email",
+        payload: {
+          to: p.to as string,
+          cc: p.cc as string,
+          subject: p.subject as string,
+          body: p.body as string,
+        },
+        attachments: (p.attachments as unknown[]) ?? undefined,
+      });
+    }
+    if (step.capabilityName?.includes("slack") || step.capabilityName?.includes("teams")) {
+      drafts.push({
+        actionType: step.executionMode,
+        provider: step.capabilityName.includes("slack") ? "Slack" : "Teams",
+        payload: {
+          channel: p.channel as string,
+          message: (p.body as string) ?? (p.message as string),
+        },
+      });
+    }
+  }
+  return drafts;
 }
 
 function severityBadge(s: SituationItem): { label: string; variant: "red" | "amber" | "default" } {
@@ -302,7 +417,6 @@ export default function SituationsPage() {
   const [detectionCount, setDetectionCount] = useState(0);
   const [sidePanelData, setSidePanelData] = useState<SidePanelData | null>(null);
   const [panelBreadcrumbs, setPanelBreadcrumbs] = useState<Array<{ label: string; icon: React.ReactNode; step: ExecutionStepForPreview }>>([]);
-  const [planRefetchTrigger, setPlanRefetchTrigger] = useState(0);
   const [panelEditing, setPanelEditing] = useState(false);
   const [panelWidth, setPanelWidth] = useState(55);
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false);
@@ -376,6 +490,10 @@ export default function SituationsPage() {
     } catch {}
     setDetailLoading(false);
   }, []);
+
+  const refreshDetail = useCallback(() => {
+    if (selectedId) fetchDetail(selectedId);
+  }, [selectedId, fetchDetail]);
 
   useEffect(() => {
     if (!selectedId) { setDetail(null); return; }
@@ -570,7 +688,7 @@ export default function SituationsPage() {
                     <span style={{ fontSize: 13, fontWeight: isUnread ? 600 : 500, color: "var(--foreground)" }} className="truncate flex-1">
                       {s.triggerSummary
                         ? s.triggerSummary.slice(0, 60) + (s.triggerSummary.length > 60 ? "..." : "")
-                        : s.triggerName ?? "Unknown"
+                        : s.situationType.name
                       }
                     </span>
                     <span style={{ fontSize: 11, color: "var(--fg4)" }} className="flex-shrink-0">
@@ -635,7 +753,7 @@ export default function SituationsPage() {
                     showAllStatuses={showAllStatuses}
                     sidePanelStepIndex={sidePanelData?.index ?? null}
                     onOpenStepPanel={setSidePanelData}
-                    planRefetchTrigger={planRefetchTrigger}
+                    onRefreshDetail={refreshDetail}
                   />
                 </div>
                 {!isPreviewFullScreen && (
@@ -644,16 +762,7 @@ export default function SituationsPage() {
                     contextId={selectedSituation.id}
                     placeholder={t("discuss")}
                     hints={["What evidence supports this?", "Should I escalate?"]}
-                    uncertaintyLevel={(() => {
-                      if (!detail?.reasoning) return "none" as const;
-                      const r = safeParseReasoning(detail.reasoning);
-                      const rBatch = r?.actionBatch ?? r?.actionPlan;
-                      if (!rBatch) return "none" as const;
-                      const allU = rBatch.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
-                      if (allU.some(u => u.impact === "high")) return "high" as const;
-                      if (allU.length > 0) return "medium" as const;
-                      return "none" as const;
-                    })()}
+                    uncertaintyLevel={"none"}
                   />
                 )}
               </>
@@ -707,16 +816,7 @@ export default function SituationsPage() {
                     contextId={selectedSituation.id}
                     placeholder={t("discuss")}
                     hints={["What evidence supports this?", "Should I escalate?"]}
-                    uncertaintyLevel={(() => {
-                      if (!detail?.reasoning) return "none" as const;
-                      const r = safeParseReasoning(detail.reasoning);
-                      const rBatch = r?.actionBatch ?? r?.actionPlan;
-                      if (!rBatch) return "none" as const;
-                      const allU = rBatch.flatMap(s => ((s as unknown as Record<string, unknown>).uncertainties as Array<{ impact: string }>) ?? []);
-                      if (allU.some(u => u.impact === "high")) return "high" as const;
-                      if (allU.length > 0) return "medium" as const;
-                      return "none" as const;
-                    })()}
+                    uncertaintyLevel={"none"}
                   />
                 ) : undefined}
               >
@@ -739,13 +839,13 @@ export default function SituationsPage() {
                       }
                       finalParams = { ...parentParams, attachments };
                     }
-                    await fetch(`/api/execution-steps/${sidePanelData.planStepId}/parameters`, {
+                    await fetch(`/api/situations/${sidePanelData.situationId}/steps/${sidePanelData.stepOrder}/parameters`, {
                       method: "PATCH",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ parameters: finalParams }),
                     });
                     setSidePanelData(prev => prev ? { ...prev, step: { ...prev.step, parameters: params } } : null);
-                    setPlanRefetchTrigger(n => n + 1);
+                    if (detail?.id) fetchDetail(detail.id);
                   }}
                   onOpenAttachment={(attachment, attachmentIndex) => {
                     const parentStep = sidePanelData.step;
@@ -764,12 +864,12 @@ export default function SituationsPage() {
                     setSidePanelData(prev => prev ? { ...prev, step: syntheticStep } : null);
                   }}
                   onStepComplete={async (notes: string) => {
-                    if (!detail?.executionPlanId) return;
+                    if (!detail?.id) return;
                     await fetch(
-                      `/api/execution-plans/${detail.executionPlanId}/steps/${sidePanelData.planStepId}/complete`,
+                      `/api/situations/${detail.id}/steps/${sidePanelData.stepOrder}/complete`,
                       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes: notes.trim() || null }) },
                     );
-                    setPlanRefetchTrigger(n => n + 1);
+                    fetchDetail(detail.id);
                   }}
                   locale={locale}
                 />
@@ -916,7 +1016,7 @@ function DetailPane({
   showAllStatuses,
   sidePanelStepIndex,
   onOpenStepPanel,
-  planRefetchTrigger,
+  onRefreshDetail,
 }: {
   situation: SituationItem;
   detail: SituationDetail | null;
@@ -936,7 +1036,7 @@ function DetailPane({
   showAllStatuses: boolean;
   sidePanelStepIndex: number | null;
   onOpenStepPanel: (data: SidePanelData) => void;
-  planRefetchTrigger: number;
+  onRefreshDetail: () => void;
 }) {
   const t = useTranslations("situations");
   const tc = useTranslations("common");
@@ -956,7 +1056,7 @@ function DetailPane({
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set([0]));
   const [showRejectForm, setShowRejectForm] = useState(false);
   const [showTeachForm, setShowTeachForm] = useState(false);
-  const [notesStepId, setNotesStepId] = useState<string | null>(null);
+  const [notesStepId, setNotesStepId] = useState<number | null>(null);
   const [stepNotes, setStepNotes] = useState("");
   const [submittingNotes, setSubmittingNotes] = useState(false);
   const toggleStep = (i: number) => {
@@ -979,16 +1079,12 @@ function DetailPane({
     return () => document.removeEventListener("mousedown", handler);
   }, [showStarDropdown]);
 
-  // Fetch execution plan when situation has one (also re-fetches when panel updates params)
+  // Derive execution plan from inline action plan (no separate fetch)
   useEffect(() => {
-    if (!detail?.executionPlanId) { setExecutionPlan(null); return; }
-    let cancelled = false;
-    fetch(`/api/execution-plans/${detail.executionPlanId}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (!cancelled && data) setExecutionPlan(data); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [detail?.executionPlanId, detail?.status, planRefetchTrigger]);
+    if (!detail) { setExecutionPlan(null); return; }
+    const plan = wikiToExecutionPlan(detail);
+    setExecutionPlan(plan);
+  }, [detail]);
 
   // Check if situation is in a WorkStream (single query)
   useEffect(() => {
@@ -1021,16 +1117,8 @@ function DetailPane({
   const canAct = showAllStatuses
     ? (s.status === "detected" || s.status === "proposed")
     : s.status === "proposed";
-  const reasoning = detail?.reasoning ? safeParseReasoning(detail.reasoning) : null;
-  // Backward compat: old reasoning uses actionPlan, new uses actionBatch
-  const actionPlan = reasoning?.actionBatch ?? reasoning?.actionPlan ?? (() => {
-    // proposedAction format changed: old = ActionStep[], new = { batch, afterBatch, ... }
-    if (!detail?.proposedAction) return null;
-    if (Array.isArray(detail.proposedAction)) return detail.proposedAction as ActionStep[];
-    const pa = detail.proposedAction as Record<string, unknown>;
-    if (pa.batch && Array.isArray(pa.batch)) return pa.batch as ActionStep[];
-    return null;
-  })();
+  const reasoning = useMemo(() => detail ? wikiToReasoning(detail) : null, [detail]);
+  const actionPlan = reasoning?.actionBatch ?? null;
 
   const currentStepIndex = (() => {
     if (!actionPlan || !executionPlan) return 0;
@@ -1052,14 +1140,10 @@ function DetailPane({
 
   const sev = severityBadge(s);
 
-  // Draft payloads from raw reasoning
-  const draftPayloads = detail?.reasoning ? extractDraftPayloads(detail.reasoning) : [];
+  // Draft payloads from wiki action plan
+  const draftPayloads = detail ? wikiToDraftPayloads(detail) : [];
   const primaryDraft = savedEditedDraft ?? draftPayloads[0] ?? null;
   const originalDraft = draftPayloads[0] ?? null;
-
-  // Policy note (if present in raw reasoning)
-  const rawReasoning = detail?.reasoning as Record<string, unknown> | null;
-  const policyNote = typeof rawReasoning?.policyNote === "string" ? rawReasoning.policyNote : null;
 
   const resetInteraction = () => {
     setActiveMode(null);
@@ -1102,12 +1186,12 @@ function DetailPane({
     });
   };
 
-  const submitStepNotes = async (stepId: string, notes: string) => {
-    if (!detail?.executionPlanId) return;
+  const submitStepNotes = async (stepOrder: number, notes: string) => {
+    if (!detail?.id) return;
     setSubmittingNotes(true);
     try {
       const resp = await fetch(
-        `/api/execution-plans/${detail.executionPlanId}/steps/${stepId}/complete`,
+        `/api/situations/${detail.id}/steps/${stepOrder}/complete`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1121,30 +1205,11 @@ function DetailPane({
       }
       setNotesStepId(null);
       setStepNotes("");
-      const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
-      if (res.ok) setExecutionPlan(await res.json());
+      onRefreshDetail();
     } catch {
       toast("Failed to complete step", "error");
     } finally {
       setSubmittingNotes(false);
-    }
-  };
-
-  const handleUndoStep = async (stepId: string) => {
-    if (!detail?.executionPlanId) return;
-    try {
-      const resp = await fetch(`/api/execution-plans/${detail.executionPlanId}/steps/${stepId}/undo`, {
-        method: "POST",
-      });
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => null);
-        toast(body?.error ?? "Failed to undo step", "error");
-        return;
-      }
-      const res = await fetch(`/api/execution-plans/${detail.executionPlanId}`);
-      if (res.ok) setExecutionPlan(await res.json());
-    } catch {
-      toast("Failed to undo step", "error");
     }
   };
 
@@ -1156,7 +1221,7 @@ function DetailPane({
           <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
             {s.triggerSummary
               ? s.triggerSummary.slice(0, 80) + (s.triggerSummary.length > 80 ? "..." : "")
-              : `${s.triggerName ?? "Unknown"} — ${s.situationType.name}`
+              : s.situationType.name
             }
           </h1>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -1191,7 +1256,7 @@ function DetailPane({
                     onClick={async () => {
                       setCreatingProject(true);
                       try {
-                        const title = `${s.triggerName ?? "Unknown"} — ${s.situationType.name}`;
+                        const title = s.triggerSummary?.slice(0, 60) ?? s.situationType.name;
                         const wsRes = await fetch("/api/workstreams", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
@@ -1265,12 +1330,12 @@ function DetailPane({
 
           {/* ── Situation resume ── */}
           {(() => {
-            const resumeText = detail.resumeSummary
+            const resumeText = detail.wikiContent?.investigation
               ?? reasoning?.analysis
-              ?? detail.triggerEvidence?.content
-              ?? detail.triggerEvidence?.summary
               ?? "";
-            const triggerText = detail.triggerSummary ?? detail.triggerEvidence?.evidence ?? "";
+            const triggerText = detail.wikiContent?.trigger
+              ?? detail.triggerSummary
+              ?? "";
             return resumeText || triggerText ? (
               <div style={{ marginBottom: 16 }}>
                 {resumeText && (
@@ -1516,8 +1581,8 @@ function DetailPane({
                                     onOpenStepPanel({
                                       step: enrichedStep,
                                       index: i,
-                                      planStepId: planStep.id,
-                                      executionPlanId: detail?.executionPlanId ?? "",
+                                      stepOrder: planStep.sequenceOrder,
+                                      situationId: detail?.id ?? "",
                                       isEditable: ["pending", "proposed", "planned", "awaiting_approval"].includes(planStep.status),
                                     });
                                   }}
@@ -1578,7 +1643,7 @@ function DetailPane({
                               </div>
                             ) : step.executionMode === "human_task" && planStep ? (
                               <div style={{ marginTop: 6 }}>
-                                {notesStepId === planStep.id ? (
+                                {notesStepId === planStep.sequenceOrder ? (
                                   <div style={{ marginTop: 4 }}>
                                     <textarea
                                       autoFocus
@@ -1605,7 +1670,7 @@ function DetailPane({
                                         disabled={submittingNotes}
                                         onClick={async (e) => {
                                           e.stopPropagation();
-                                          await submitStepNotes(planStep.id, stepNotes);
+                                          await submitStepNotes(planStep.sequenceOrder, stepNotes);
                                         }}
                                         style={{ ...STEP_BTN_PRIMARY, opacity: submittingNotes ? 0.5 : 1 }}
                                       >
@@ -1620,12 +1685,10 @@ function DetailPane({
                                     </div>
                                   </div>
                                 ) : (
-                                  <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); setNotesStepId(planStep.id); setStepNotes(""); }} style={STEP_BTN_PRIMARY}>{t("markComplete")}</button>
+                                  <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); setNotesStepId(planStep.sequenceOrder); setStepNotes(""); }} style={STEP_BTN_PRIMARY}>{t("markComplete")}</button>
                                 )}
                               </div>
                             ) : null
-                          ) : isCompleted && step.executionMode === "human_task" && planStep ? (
-                            <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); handleUndoStep(planStep.id); }} style={{ ...STEP_BTN_SECONDARY, marginTop: 6 }}>{tc("undo")}</button>
                           ) : isFutureStep ? (
                             <span style={{ fontSize: 10, color: "var(--fg4)", fontStyle: "italic", marginTop: 6, display: "inline-block" }}>
                               {t("completeStepFirst")?.replace("{n}", String(currentStepIndex + 1)) ?? `Complete step ${currentStepIndex + 1} first`}
@@ -1637,8 +1700,6 @@ function DetailPane({
                   );
                 })}
               </div>
-
-              {policyNote && <p style={{ fontSize: 11, color: "var(--fg4)" }} className="mt-2">{policyNote}</p>}
 
               {/* Plan status footer */}
               {executionPlan && (() => {
@@ -1873,6 +1934,15 @@ function DetailPane({
                 <div style={{ marginTop: 12, position: "relative", paddingLeft: 24 }}>
                   {/* Vertical rail */}
                   <div style={{ position: "absolute", left: 7, top: 8, bottom: 8, width: 1.5, background: "rgba(255,255,255,0.06)", borderRadius: 1 }} />
+
+                  {/* Wiki context (markdown prose — replaces structured trail for wiki situations) */}
+                  {detail.wikiContent?.context && (
+                    <div style={{ padding: "12px 16px", fontSize: 13, color: "var(--fg2)", lineHeight: 1.6 }}>
+                      {detail.wikiContent.context.split("\n").filter(line => line.trim()).map((line, i) => (
+                        <p key={i} style={{ marginBottom: 6 }}>{line}</p>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Step 1: Gathered evidence */}
                   {reasoning.evidenceSummary && (
