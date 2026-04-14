@@ -243,17 +243,11 @@ function SettingsPageInner() {
   const [confirmReverseId, setConfirmReverseId] = useState<string | null>(null);
 
   // Governance state (moved from governance page)
-  const [govAutoSupervisedConsecutive, setGovAutoSupervisedConsecutive] = useState("10");
-  const [govAutoSupervisedRate, setGovAutoSupervisedRate] = useState("90");
-  const [govAutoNotifyConsecutive, setGovAutoNotifyConsecutive] = useState("20");
-  const [govAutoNotifyRate, setGovAutoNotifyRate] = useState("95");
-  const [govThresholdSaving, setGovThresholdSaving] = useState(false);
   const [govApprovalThreshold, setGovApprovalThreshold] = useState("");
   const [govAutoApproveReads, setGovAutoApproveReads] = useState(true);
   const [govMaxPending, setGovMaxPending] = useState("50");
   const [govExpiryHours, setGovExpiryHours] = useState("72");
   const [govSettingsSaving, setGovSettingsSaving] = useState(false);
-  const [govLoading, setGovLoading] = useState(false);
 
   // Emergency stop state
   type EmergencyStopState = { paused: boolean; pausedAt?: string; pausedBy?: { name: string; email: string }; reason?: string };
@@ -348,44 +342,6 @@ function SettingsPageInner() {
   useEffect(() => {
     if (activeTab === "merges") loadMergeData();
   }, [activeTab, loadMergeData]);
-
-  // Load governance data
-  const loadGovernanceData = useCallback(async () => {
-    setGovLoading(true);
-    try {
-      const settings = await fetch("/api/autonomy/settings").then(r => r.json());
-      setGovAutoSupervisedConsecutive(String(settings.supervisedToNotifyConsecutive ?? 10));
-      setGovAutoSupervisedRate(String(Math.round((settings.supervisedToNotifyRate ?? 0.9) * 100)));
-      setGovAutoNotifyConsecutive(String(settings.notifyToAutonomousConsecutive ?? 20));
-      setGovAutoNotifyRate(String(Math.round((settings.notifyToAutonomousRate ?? 0.95) * 100)));
-    } catch {}
-    setGovLoading(false);
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "governance") loadGovernanceData();
-  }, [activeTab, loadGovernanceData]);
-
-  const handleSaveThresholds = async () => {
-    setGovThresholdSaving(true);
-    try {
-      await fetch("/api/autonomy/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          graduation_supervised_to_notify_consecutive: parseInt(govAutoSupervisedConsecutive) || 10,
-          graduation_supervised_to_notify_rate: (parseInt(govAutoSupervisedRate) || 90) / 100,
-          graduation_notify_to_autonomous_consecutive: parseInt(govAutoNotifyConsecutive) || 20,
-          graduation_notify_to_autonomous_rate: (parseInt(govAutoNotifyRate) || 95) / 100,
-        }),
-      });
-      toast("Graduation thresholds saved", "success");
-    } catch {
-      toast("Failed to save thresholds", "error");
-    } finally {
-      setGovThresholdSaving(false);
-    }
-  };
 
   const handleSaveGovernanceSettings = async () => {
     setGovSettingsSaving(true);
@@ -1735,56 +1691,6 @@ function SettingsPageInner() {
         {/* ── AI Governance Tab ── */}
         {activeTab === "governance" && (
           <div className="space-y-6">
-            {govLoading ? (
-              <div className="flex justify-center py-8">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-              </div>
-            ) : (
-              <>
-                {/* Graduation Thresholds */}
-                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-4">
-                    Graduation Thresholds
-                  </div>
-                  <div className="space-y-4">
-                    <p style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>
-                      Supervised &rarr; Notify
-                    </p>
-                    <Input
-                      label="Consecutive approvals required"
-                      type="number"
-                      value={govAutoSupervisedConsecutive}
-                      onChange={e => setGovAutoSupervisedConsecutive(e.target.value)}
-                    />
-                    <Input
-                      label="Minimum approval rate (%)"
-                      type="number"
-                      value={govAutoSupervisedRate}
-                      onChange={e => setGovAutoSupervisedRate(e.target.value)}
-                    />
-                    <p style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", textTransform: "uppercase" as const, letterSpacing: "0.05em" }} className="pt-2">
-                      Notify &rarr; Autonomous
-                    </p>
-                    <Input
-                      label="Consecutive approvals required"
-                      type="number"
-                      value={govAutoNotifyConsecutive}
-                      onChange={e => setGovAutoNotifyConsecutive(e.target.value)}
-                    />
-                    <Input
-                      label="Minimum approval rate (%)"
-                      type="number"
-                      value={govAutoNotifyRate}
-                      onChange={e => setGovAutoNotifyRate(e.target.value)}
-                    />
-                    <div className="pt-2">
-                      <Button variant="primary" onClick={handleSaveThresholds} disabled={govThresholdSaving}>
-                        {govThresholdSaving ? "Saving..." : "Save Thresholds"}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
                 {/* General Governance Settings */}
                 <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: 20 }}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase" as const }} className="mb-4">
@@ -1846,8 +1752,6 @@ function SettingsPageInner() {
                     </div>
                   </div>
                 </div>
-              </>
-            )}
           </div>
         )}
 

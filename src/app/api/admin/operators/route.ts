@@ -33,16 +33,7 @@ export async function GET() {
             where: { operatorId: op.id, entityType: { slug: "ai-agent" }, status: "active" },
           });
           if (aiCount === 0) return null;
-          const paGroups = await prisma.personalAutonomy.groupBy({
-            by: ["autonomyLevel"],
-            where: { aiEntity: { operatorId: op.id } },
-            _count: true,
-          });
-          const counts: Record<string, number> = { supervised: 0, notify: 0, autonomous: 0 };
-          for (const g of paGroups) {
-            if (counts[g.autonomyLevel] !== undefined) counts[g.autonomyLevel] = g._count;
-          }
-          return { totalAiEntities: aiCount, counts };
+          return { totalAiEntities: aiCount };
         })(),
       ]);
 

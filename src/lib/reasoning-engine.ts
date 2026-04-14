@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { runAgenticLoop } from "@/lib/agentic-loop";
 import { loadOperationalInsights } from "@/lib/context-assembly";
-import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
+import { evaluateActionPolicies } from "@/lib/policy-evaluator";
 import { buildSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
@@ -13,7 +13,6 @@ import {
   type SituationProperties,
 } from "@/lib/situation-wiki-helpers";
 import { captureApiError } from "@/lib/api-error";
-import { shouldAutoApprovePlan } from "@/lib/plan-autonomy";
 import { generateSituationSummaries } from "@/lib/situation-summarizer";
 import { refineUncertainties } from "@/lib/reasoning/uncertainty-refiner";
 import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
@@ -124,66 +123,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       actionsForEval,
       triggerEntityTypeSlug,
       situation.triggerEntityId ?? "",
-    );
-
-    // Look up personal autonomy for users in scope
-    let personalAutonomyLevel: string | undefined;
-
-    if (situation.triggerEntityId) {
-      const triggerEntity = await prisma.entity.findFirst({
-        where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
-        select: { primaryDomainId: true },
-      });
-
-      if (triggerEntity?.primaryDomainId) {
-        const scopedUsers = await prisma.userScope.findMany({
-          where: { domainEntityId: triggerEntity.primaryDomainId },
-          select: { userId: true },
-        });
-        const adminUsers = await prisma.user.findMany({
-          where: { operatorId: situation.operatorId, role: "admin" },
-          select: { id: true },
-        });
-        const allUserIds = [
-          ...new Set([
-            ...scopedUsers.map(s => s.userId),
-            ...adminUsers.map(u => u.id),
-          ]),
-        ];
-
-        if (allUserIds.length > 0) {
-          const aiEntities = await prisma.entity.findMany({
-            where: { ownerUserId: { in: allUserIds }, operatorId: situation.operatorId, status: "active" },
-            select: { id: true },
-          });
-
-          if (aiEntities.length > 0) {
-            const pas = await prisma.personalAutonomy.findMany({
-              where: {
-                situationTypeId: situation.situationTypeId,
-                aiEntityId: { in: aiEntities.map(e => e.id) },
-              },
-              select: { autonomyLevel: true },
-            });
-
-            const AUTONOMY_RANK: Record<string, number> = {
-              supervised: 0, notify: 1, autonomous: 2,
-            };
-            if (pas.length > 0) {
-              const highest = pas.reduce((best, pa) =>
-                (AUTONOMY_RANK[pa.autonomyLevel] ?? 0) > (AUTONOMY_RANK[best.autonomyLevel] ?? 0) ? pa : best
-              );
-              personalAutonomyLevel = highest.autonomyLevel;
-            }
-          }
-        }
-      }
-    }
-
-    const effectiveAutonomy = getEffectiveAutonomy(
-      situation.situationType,
-      policyResult,
-      personalAutonomyLevel,
     );
 
     // 6. Build prompt
@@ -435,7 +374,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       situationType: { name: situation.situationType.name, description: situation.situationType.description },
       severity: situation.severity,
       confidence: situation.confidence,
-      autonomyLevel: effectiveAutonomy,
+      autonomyLevel: "supervised",
       triggerEvidence: situation.triggerEvidence,
       triggerSummary: situation.triggerSummary,
       triggerStub: triggerStub ?? null,
@@ -661,31 +600,9 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         });
       }
 
-      // Parse action plan once for both auto-approval and notification logic
+      // Parse action plan for notification logic
       const { parseActionPlan } = await import("@/lib/wiki-execution-engine");
       const actionPlan = parseActionPlan(wikiOutput.pageContent);
-
-      // Wiki-first auto-approval dispatch for autonomous situations
-      if (effectiveAutonomy === "autonomous" && actionPlan.steps.length > 0) {
-        await prisma.workerJob.create({
-          data: {
-            operatorId: situation.operatorId,
-            jobType: "approve_situation_step",
-            payload: {
-              operatorId: situation.operatorId,
-              pageSlug: situationPage.slug,
-              stepOrder: 1,
-              userId: "system",
-              action: "approve",
-            },
-            status: "pending",
-          },
-        });
-        await prisma.situationType.update({
-          where: { id: situation.situationTypeId },
-          data: { confirmedCount: { increment: 1 } },
-        }).catch(() => {});
-      }
 
       // Notifications
       if (actionPlan.steps.length === 0) {
@@ -697,7 +614,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
           sourceType: "situation",
           sourceId: situationId,
         }).catch(() => {});
-      } else if (effectiveAutonomy !== "autonomous") {
+      } else {
         sendNotificationToAdmins({
           operatorId: situation.operatorId,
           type: "situation_proposed",
@@ -867,14 +784,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
     // 11. Advance status
     if (reasoning.actionBatch === null || !resolvedSteps) {
       updates.status = "proposed";
-    } else if (effectiveAutonomy === "autonomous") {
-      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
-      updates.executionPlanId = planId;
-      updates.status = "executing";
-      await prisma.situationType.update({
-        where: { id: situation.situationTypeId },
-        data: { confirmedCount: { increment: 1 } },
-      }).catch(() => {});
     } else {
       const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
       updates.executionPlanId = planId;
@@ -937,28 +846,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       }
     }
 
-    // For autonomous: auto-advance the first step
-    if (resolvedSteps && effectiveAutonomy === "autonomous") {
-      const plan = await prisma.executionPlan.findFirst({
-        where: { id: updates.executionPlanId as string },
-        include: { steps: { orderBy: { sequenceOrder: "asc" }, take: 1 } },
-      });
-      if (plan?.steps[0]) {
-        const { advanceStep } = await import("@/lib/execution-engine");
-        advanceStep(plan.steps[0].id, "approve", "system").catch(err =>
-          console.error(`[reasoning-engine] Auto-advance failed for ${situationId}:`, err)
-        );
-      }
-    }
-
-    // For supervised: check plan autonomy graduation
-    if (resolvedSteps && effectiveAutonomy === "supervised" && updates.executionPlanId) {
-      await checkPlanAutonomyAutoApprove(
-        situation.operatorId, situation.triggerEntityId, updates.executionPlanId as string,
-        resolvedSteps, situation.situationType.name, situationId,
-      );
-    }
-
     // Situation-level notifications
     if (reasoning.actionBatch === null || !resolvedSteps) {
       sendNotificationToAdmins({
@@ -969,7 +856,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         sourceType: "situation",
         sourceId: situationId,
       }).catch(() => {});
-    } else if (effectiveAutonomy !== "autonomous") {
+    } else {
       sendNotificationToAdmins({
         operatorId: situation.operatorId,
         type: "situation_proposed",
@@ -979,7 +866,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         sourceId: situationId,
       }).catch(() => {});
     }
-    // autonomous: no notification (by design)
 
     // Handle escalation
     if (reasoning.escalation) {
@@ -1080,63 +966,6 @@ async function assignSituationOwner(
   }
 }
 
-
-async function checkPlanAutonomyAutoApprove(
-  operatorId: string,
-  triggerEntityId: string | null,
-  planId: string,
-  resolvedSteps: StepDefinition[],
-  situationTypeName: string,
-  situationId: string,
-): Promise<void> {
-  try {
-    if (!triggerEntityId) return;
-
-    // Resolve department AI entity
-    const entity = await prisma.entity.findUnique({
-      where: { id: triggerEntityId },
-      select: { primaryDomainId: true },
-    });
-    if (!entity?.primaryDomainId) return;
-
-    const deptAi = await prisma.entity.findFirst({
-      where: { ownerDomainId: entity.primaryDomainId, operatorId, status: "active" },
-      select: { id: true },
-    });
-    if (!deptAi) return;
-
-    const autoApprove = await shouldAutoApprovePlan(deptAi.id, resolvedSteps);
-    if (!autoApprove) return;
-
-    // Auto-advance the first awaiting step
-    const plan = await prisma.executionPlan.findFirst({
-      where: { id: planId },
-      include: { steps: { where: { status: "awaiting_approval" }, orderBy: { sequenceOrder: "asc" }, take: 1 } },
-    });
-    if (!plan?.steps[0]) return;
-
-    const { advanceStep } = await import("@/lib/execution-engine");
-    await advanceStep(plan.steps[0].id, "approve", "system");
-
-    // Look up consecutive approvals for the notification
-    const { computePlanPatternHash } = await import("@/lib/plan-autonomy");
-    const hash = computePlanPatternHash(resolvedSteps);
-    const record = await prisma.planAutonomy.findUnique({
-      where: { aiEntityId_planPatternHash: { aiEntityId: deptAi.id, planPatternHash: hash } },
-    });
-
-    sendNotificationToAdmins({
-      operatorId,
-      type: "plan_auto_executed",
-      title: `Plan auto-executed: ${situationTypeName}`,
-      body: `Plan auto-executed based on pattern trust for situation ${situationTypeName}. Pattern approved ${record?.consecutiveApprovals ?? "20+"} times consecutively.`,
-      sourceType: "situation",
-      sourceId: situationId,
-    }).catch(() => {});
-  } catch (err) {
-    console.error(`[reasoning-engine] Plan autonomy auto-approve failed for ${situationId}:`, err);
-  }
-}
 
 // ── Cycle Record Creation ───────────────────────────────────────────────────
 

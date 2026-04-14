@@ -3,7 +3,18 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { embedChunks } from "@/lib/rag/embedder";
 import { createVersionSnapshot } from "@/lib/wiki-engine";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
+
+/** Check if a page is accessible given pre-fetched domain visibility. */
+function canAccessPage(
+  page: { scope: string; crossReferences: string[] },
+  visibleDomains: string[] | "all",
+): boolean {
+  if (page.scope !== "operator") return true;
+  if (visibleDomains === "all") return true;
+  const pageDomainRefs = page.crossReferences.filter(r => r.startsWith("domain-"));
+  return pageDomainRefs.length === 0 || pageDomainRefs.some(d => visibleDomains.includes(d));
+}
 
 /** Resolve a wiki page by slug — tries operator-scoped first, then system-scoped. */
 async function resolvePageBySlug(
@@ -37,18 +48,14 @@ export async function GET(
   const { slug } = await params;
   const isSuperadmin = su.isSuperadmin;
 
-  const page = await resolvePageBySlug(slug, operatorId, isSuperadmin);
+  const [page, visibleDomains] = await Promise.all([
+    resolvePageBySlug(slug, operatorId, isSuperadmin),
+    getVisibleDomainSlugs(operatorId, su.effectiveUserId),
+  ]);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
 
-  // Department scope check for operator pages
-  if (page.scope === "operator") {
-    const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
-    if (visibleDomains !== "all") {
-      const pageDepts = (page.domainIds ?? []) as string[];
-      if (pageDepts.length > 0 && !pageDepts.some(d => (visibleDomains as string[]).includes(d))) {
-        return NextResponse.json({ error: "Page not found" }, { status: 404 });
-      }
-    }
+  if (!canAccessPage(page, visibleDomains)) {
+    return NextResponse.json({ error: "Page not found" }, { status: 404 });
   }
 
   // Resolve source details for citations
@@ -142,17 +149,6 @@ export async function PATCH(
 
   const page = await resolvePageBySlug(slug, operatorId, isSuperadmin);
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
-
-  // Department scope check for operator pages
-  if (page.scope === "operator") {
-    const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
-    if (visibleDomains !== "all") {
-      const pageDepts = (page.domainIds ?? []) as string[];
-      if (pageDepts.length > 0 && !pageDepts.some(d => (visibleDomains as string[]).includes(d))) {
-        return NextResponse.json({ error: "Page not found" }, { status: 404 });
-      }
-    }
-  }
 
   // System pages can only be edited by superadmin
   if (page.scope === "system" && !isSuperadmin) {

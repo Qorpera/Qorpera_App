@@ -17,7 +17,6 @@ Every file in this directory is shared infrastructure used by multiple API route
 | `ai-provider.ts` | Multi-provider AI abstraction (OpenAI/Anthropic/Ollama) — callLLM, streamLLM, getAIConfig with per-function cascade |
 | `api-validation.ts` | Reusable Zod schemas for API request validation (cuidId, paginationParams, entity schemas) |
 | `auth.ts` | Session management — getSessionUser(), createSession, password hashing (bcrypt), cookie management |
-| `autonomy-graduation.ts` | PersonalAutonomy graduation/demotion — configurable thresholds, creates Notification on graduation |
 | `business-context.ts` | Loads business context from completed OrientationSession (business summary, pain points, rules) |
 | `connector-sync.ts` | Sync orchestrator — dispatches SyncYield items by kind, runs identity resolution + content situation detection post-hooks |
 | `content-pipeline.ts` | Universal content ingestion — chunk text, embed via text-embedding-3-small, store as ContentChunk with pgvector |
@@ -39,7 +38,7 @@ Every file in this directory is shared infrastructure used by multiple API route
 | `multi-agent-reasoning.ts` | High-context reasoning — 3 specialists (Financial, Communication, Process/Compliance) run in parallel, coordinator synthesizes findings |
 | `orientation-prompts.ts` | System prompts for onboarding copilot sessions, department data context builder |
 | `policy-engine.ts` | CRUD for PolicyRule records (list, create, update, delete) |
-| `policy-evaluator.ts` | Pre/post-reasoning governance — evaluates actions against PolicyRules, determines permitted/blocked, resolves effective autonomy (personal overrides global) |
+| `policy-evaluator.ts` | Pre/post-reasoning governance — evaluates actions against PolicyRules, determines permitted/blocked |
 | `rate-limiter.ts` | In-memory sliding-window rate limiter (not distributed — single-instance only) |
 | `reasoning-engine.ts` | Core reasoning orchestrator — load situation → assemble context → evaluate policies → LLM reasoning → propose/execute action |
 | `reasoning-prompts.ts` | Prompt builders for reasoning (system + user), formats entity data, evidence, policies, and action capabilities |

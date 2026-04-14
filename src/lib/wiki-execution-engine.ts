@@ -451,13 +451,6 @@ export async function approveSituationStep(
       sourceId: pageSlug,
     }).catch(() => {});
 
-    const { recordPlanRejection } = await import("@/lib/plan-autonomy");
-    recordPlanRejection({
-      id: pageSlug,
-      operatorId,
-      sourceType: "situation",
-      sourceId: pageSlug,
-    }).catch(() => {});
   }
 
   if (action === "skip") {
@@ -852,38 +845,21 @@ async function advanceToNextStep(
     return;
   }
 
-  const props = (page.properties ?? {}) as unknown as SituationProperties;
-  const autonomy = props.autonomy_level;
+  // Await approval
+  await updatePageWithLock(operatorId, pageSlug, (p) => {
+    const updatedProps = (p.properties ?? {}) as unknown as SituationProperties;
+    updatedProps.current_step = nextStep.order;
+    return { properties: updatedProps as unknown as Record<string, unknown> };
+  });
 
-  if (autonomy === "autonomous") {
-    // Auto-approve and dispatch
-    await updatePageWithLock(operatorId, pageSlug, (p) => {
-      const currentPlan = parseActionPlan(p.content);
-      const target = currentPlan.steps.find((s) => s.order === nextStep.order);
-      if (target) target.status = "approved";
-      const updatedProps = (p.properties ?? {}) as unknown as SituationProperties;
-      updatedProps.current_step = nextStep.order;
-      const content = replaceSection(p.content, "Action Plan", renderActionPlan(currentPlan.steps));
-      return { content, properties: updatedProps as unknown as Record<string, unknown> };
-    });
-    await enqueueWorkerJob("execute_wiki_step", operatorId, { operatorId, pageSlug, stepOrder: nextStep.order });
-  } else {
-    // Await approval
-    await updatePageWithLock(operatorId, pageSlug, (p) => {
-      const updatedProps = (p.properties ?? {}) as unknown as SituationProperties;
-      updatedProps.current_step = nextStep.order;
-      return { properties: updatedProps as unknown as Record<string, unknown> };
-    });
-
-    await sendNotificationToAdmins({
-      operatorId,
-      type: "step_ready",
-      title: `Step ready for review: ${nextStep.title}`,
-      body: `Step ${nextStep.order} on page ${pageSlug} is awaiting approval.`,
-      sourceType: "wiki_page",
-      sourceId: pageSlug,
-    }).catch(() => {});
-  }
+  await sendNotificationToAdmins({
+    operatorId,
+    type: "step_ready",
+    title: `Step ready for review: ${nextStep.title}`,
+    body: `Step ${nextStep.order} on page ${pageSlug} is awaiting approval.`,
+    sourceType: "wiki_page",
+    sourceId: pageSlug,
+  }).catch(() => {});
 }
 
 // ─── Plan Completion ────────────────────────────────────
@@ -977,14 +953,6 @@ async function completeSituationPlan(
     }
   }
 
-  // Track plan autonomy
-  const { recordPlanCompletion } = await import("@/lib/plan-autonomy");
-  recordPlanCompletion({
-    id: pageSlug,
-    operatorId,
-    sourceType: "situation",
-    sourceId: pageSlug,
-  }).catch((err) => console.error("[wiki-execution] Plan autonomy tracking failed:", err));
 }
 
 // ─── Complete Human Step ────────────────────────────────

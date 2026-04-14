@@ -2,7 +2,7 @@
  * Migration script: Create AI entities for pre-existing users.
  *
  * Users created before Phase 3 don't have personal AI entities.
- * This script creates them and sets up PersonalAutonomy records.
+ * This script creates them.
  *
  * Idempotent: only processes users where no AI entity exists (ownerUserId not set).
  * Run: npx tsx scripts/migrate-user-ai-entities.ts
@@ -84,37 +84,7 @@ async function migrateUserAiEntities() {
       },
     });
 
-    // Create PersonalAutonomy records for existing SituationTypes
-    const situationTypes = await prisma.situationType.findMany({
-      where: { operatorId: user.operatorId },
-      select: { id: true },
-    });
-
-    let autonomyCount = 0;
-    for (const st of situationTypes) {
-      // Check if PA already exists (defensive)
-      const existing = await prisma.personalAutonomy.findUnique({
-        where: {
-          situationTypeId_aiEntityId: {
-            situationTypeId: st.id,
-            aiEntityId: aiEntity.id,
-          },
-        },
-      });
-      if (existing) continue;
-
-      await prisma.personalAutonomy.create({
-        data: {
-          operatorId: user.operatorId,
-          situationTypeId: st.id,
-          aiEntityId: aiEntity.id,
-          autonomyLevel: "supervised",
-        },
-      });
-      autonomyCount++;
-    }
-
-    console.log(`  Created AI entity for ${user.name} (${user.email}) with ${autonomyCount} autonomy records`);
+    console.log(`  Created AI entity for ${user.name} (${user.email})`);
     created++;
   }
 

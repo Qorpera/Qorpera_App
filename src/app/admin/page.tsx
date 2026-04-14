@@ -22,7 +22,6 @@ interface OperatorInfo {
   };
   aiStats?: {
     totalAiEntities: number;
-    counts: { supervised: number; notify: number; autonomous: number };
   } | null;
 }
 
@@ -333,9 +332,6 @@ export default function AdminPage() {
                         {op.aiStats && (
                           <div className="flex items-center gap-3 mt-1 text-xs text-[var(--fg3)]">
                             <span>AI: {op.aiStats.totalAiEntities} entit{op.aiStats.totalAiEntities !== 1 ? "ies" : "y"}</span>
-                            <span>{op.aiStats.counts.supervised} supervised</span>
-                            <span>{op.aiStats.counts.notify} notify</span>
-                            <span>{op.aiStats.counts.autonomous} autonomous</span>
                           </div>
                         )}
                       </div>

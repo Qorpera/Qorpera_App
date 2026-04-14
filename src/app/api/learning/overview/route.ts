@@ -80,19 +80,6 @@ export async function GET(req: NextRequest) {
   const sumApproved = situationTypes.reduce((a, t) => a + t.totalApproved, 0);
   const overallApprovalRate = sumProposed > 0 ? sumApproved / sumProposed : 0;
 
-  // Autonomy distribution
-  const autonomyDistribution: Record<string, number> = {
-    supervised: 0,
-    notify: 0,
-    autonomous: 0,
-  };
-  for (const st of situationTypes) {
-    const level = st.autonomyLevel ?? "supervised";
-    if (level in autonomyDistribution) {
-      autonomyDistribution[level]++;
-    }
-  }
-
   // Approval rate over time — group resolved situations by resolvedAt date
   const resolvedSituations = situations.filter(
     (s) => s.status === "resolved" && s.resolvedAt,
@@ -137,7 +124,6 @@ export async function GET(req: NextRequest) {
     totalAutoResolved,
     totalResolved,
     overallApprovalRate: Math.round(overallApprovalRate * 100) / 100,
-    autonomyDistribution,
     approvalRateOverTime,
     outcomeDistribution,
   });

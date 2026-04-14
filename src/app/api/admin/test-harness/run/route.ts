@@ -6,7 +6,7 @@ import {
   isEligibleCommunication,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
-import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
+import { evaluateActionPolicies } from "@/lib/policy-evaluator";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -572,18 +572,10 @@ export async function POST(req: NextRequest) {
             assert(assertions, "Policy evaluation completed", true);
             assert(assertions, "hasRequireApproval is true (temp policy active)", policyResult.hasRequireApproval);
 
-            const effectiveAutonomy = getEffectiveAutonomy(situation.situationType, policyResult);
-            assert(
-              assertions,
-              "REQUIRE_APPROVAL forces supervised mode",
-              effectiveAutonomy === "supervised",
-              `effective=${effectiveAutonomy}, situationType.autonomyLevel=${situation.situationType.autonomyLevel}`,
-            );
-
             data.permitted = policyResult.permitted.map((p) => p.name);
             data.blocked = policyResult.blocked.map((b) => ({ name: b.name, reason: b.reason }));
             data.hasRequireApproval = policyResult.hasRequireApproval;
-            data.effectiveAutonomy = effectiveAutonomy;
+            data.effectiveAutonomy = "supervised";
             data.tempPolicyCreated = true;
           }, LAYER_TIMEOUT_MS);
         } catch (err) {

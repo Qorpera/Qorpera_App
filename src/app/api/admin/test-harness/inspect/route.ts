@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     if (!layer) {
       return NextResponse.json({
         error: "Missing 'layer' query param",
-        validLayers: ["content-chunks", "activity-signals", "situations", "entities", "notifications", "personal-autonomy", "situation-types"],
+        validLayers: ["content-chunks", "activity-signals", "situations", "entities", "notifications", "situation-types"],
       }, { status: 400 });
     }
 
@@ -294,78 +294,6 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      // ── Personal Autonomy ───────────────────────────────────────────────
-      case "personal-autonomy": {
-        const autonomies = await prisma.personalAutonomy.findMany({
-          where: { operatorId },
-          include: {
-            aiEntity: {
-              select: {
-                id: true,
-                displayName: true,
-                ownerUserId: true,
-              },
-            },
-            situationType: {
-              select: { name: true },
-            },
-          },
-          orderBy: { updatedAt: "desc" },
-        });
-
-        // Resolve owner user names
-        const ownerIds = [...new Set(autonomies.map((a) => a.aiEntity.ownerUserId).filter(Boolean))] as string[];
-        const owners = ownerIds.length > 0
-          ? await prisma.user.findMany({
-              where: { id: { in: ownerIds } },
-              select: { id: true, name: true },
-            })
-          : [];
-        const ownerMap = new Map(owners.map((u) => [u.id, u.name]));
-
-        // Group by AI entity
-        const grouped = new Map<string, {
-          aiEntityId: string;
-          aiEntityName: string;
-          ownerName: string | null;
-          types: Array<{
-            situationType: string;
-            autonomyLevel: string;
-            consecutiveApprovals: number;
-            totalProposed: number;
-            totalApproved: number;
-            approvalRate: number;
-          }>;
-        }>();
-
-        for (const a of autonomies) {
-          const key = a.aiEntity.id;
-          if (!grouped.has(key)) {
-            grouped.set(key, {
-              aiEntityId: a.aiEntity.id,
-              aiEntityName: a.aiEntity.displayName,
-              ownerName: a.aiEntity.ownerUserId ? ownerMap.get(a.aiEntity.ownerUserId) ?? null : null,
-              types: [],
-            });
-          }
-          grouped.get(key)!.types.push({
-            situationType: a.situationType.name,
-            autonomyLevel: a.autonomyLevel,
-            consecutiveApprovals: a.consecutiveApprovals,
-            totalProposed: a.totalProposed,
-            totalApproved: a.totalApproved,
-            approvalRate: a.approvalRate,
-          });
-        }
-
-        return NextResponse.json({
-          layer: "personal-autonomy",
-          operatorId,
-          count: autonomies.length,
-          aiEntities: [...grouped.values()],
-        });
-      }
-
       // ── Situation Types ─────────────────────────────────────────────────
       case "situation-types": {
         const types = await prisma.situationType.findMany({
@@ -418,7 +346,7 @@ export async function GET(req: NextRequest) {
       default:
         return NextResponse.json({
           error: `Unknown layer: ${layer}`,
-          validLayers: ["content-chunks", "activity-signals", "situations", "entities", "notifications", "personal-autonomy", "situation-types"],
+          validLayers: ["content-chunks", "activity-signals", "situations", "entities", "notifications", "situation-types"],
         }, { status: 400 });
     }
   } catch (err) {

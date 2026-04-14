@@ -113,24 +113,6 @@ export async function evaluateActionPolicies(
   return { permitted, blocked, hasRequireApproval };
 }
 
-// ── Effective Autonomy ───────────────────────────────────────────────────────
-
-export function getEffectiveAutonomy(
-  situationType: { autonomyLevel: string },
-  policyResult: PolicyEvaluationResult,
-  personalAutonomyLevel?: string,
-): "supervised" | "notify" | "autonomous" {
-  const base = (personalAutonomyLevel ?? situationType.autonomyLevel) as
-    "supervised" | "notify" | "autonomous";
-
-  if (base === "supervised") return "supervised";
-
-  // Downgrade if any REQUIRE_APPROVAL policy matched
-  if (policyResult.hasRequireApproval) return "supervised";
-
-  return base;
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function safeParseJSON(str: string): unknown {

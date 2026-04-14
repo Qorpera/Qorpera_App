@@ -105,8 +105,6 @@
 - `settings/test-ai` (POST) — test AI provider configuration
 - `rag/search` (POST) — RAG document search (scoped)
 - `orientation/*` — onboarding flow management
-- `autonomy/*` — global autonomy level management
-- `personal-autonomy` (GET), `personal-autonomy/[id]/promote` (POST) — per-user AI autonomy
 - `me/ai-entity` (GET) — current user's AI entity
 - `graph/*` — knowledge graph visualization queries
 - `relationship-types` (GET, POST) — relationship type management
@@ -119,6 +117,6 @@
 - `invite/[token]` (GET), `invite/[token]/accept` (POST) — public invite acceptance
 
 ## Critical Routes
-- `/api/situations/[id]` PATCH — approval/rejection flow. Updates PersonalAutonomy counters, checks graduation/demotion, creates notifications. Both global SituationType counters and PersonalAutonomy updated.
+- `/api/situations/[id]` PATCH — approval/rejection flow. Updates SituationType telemetry counters (totalProposed, totalApproved, consecutiveApprovals, approvalRate).
 - `/api/connectors/sync-all` — triggers sync for all active connectors. Fires post-sync hooks (identity resolution, content situation detection).
 - `/api/invite/[token]/accept` — creates User, UserScope, and AI entity in single transaction.

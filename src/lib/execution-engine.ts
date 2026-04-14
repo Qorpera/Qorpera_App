@@ -974,12 +974,6 @@ export async function advancePlanAfterStep(
       }
     }
 
-    // Track plan autonomy
-    const { recordPlanCompletion } = await import("@/lib/plan-autonomy");
-    recordPlanCompletion(completedPlan).catch(err =>
-      console.error("Plan autonomy tracking failed:", err),
-    );
-
   } else {
     // Advance to next step
     await prisma.executionPlan.update({
@@ -1041,11 +1035,6 @@ export async function advanceStep(
       sourceId: step.planId,
     });
 
-    // Track plan autonomy rejection
-    const { recordPlanRejection } = await import("@/lib/plan-autonomy");
-    recordPlanRejection(rejectedPlan).catch(err =>
-      console.error("Plan autonomy rejection tracking failed:", err),
-    );
   } else if (action === "skip") {
     await prisma.executionStep.update({
       where: { id: stepId },

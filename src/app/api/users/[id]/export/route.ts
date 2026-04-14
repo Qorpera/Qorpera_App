@@ -42,7 +42,6 @@ export async function GET(
     prisma.copilotMessage.count({ where: { userId: targetUserId, operatorId } }),
     prisma.notification.count({ where: { userId: targetUserId, operatorId } }),
     aiEntityId ? prisma.activitySignal.count({ where: { actorEntityId: aiEntityId, operatorId } }) : 0,
-    aiEntityId ? prisma.personalAutonomy.count({ where: { aiEntityId } }) : 0,
   ]);
   const totalRows = counts.reduce((a, b) => a + b, 1); // +1 for profile
 
@@ -54,7 +53,7 @@ export async function GET(
   }
 
   // Gather data
-  const [situations, copilotMessages, notifications, activitySignals, autonomy] =
+  const [situations, copilotMessages, notifications, activitySignals] =
     await Promise.all([
       prisma.situation.findMany({
         where: { assignedUserId: targetUserId, operatorId },
@@ -106,21 +105,6 @@ export async function GET(
             orderBy: { occurredAt: "desc" },
           })
         : [],
-      aiEntityId
-        ? prisma.personalAutonomy.findMany({
-            where: { aiEntityId },
-            select: {
-              autonomyLevel: true,
-              consecutiveApprovals: true,
-              totalProposed: true,
-              totalApproved: true,
-              approvalRate: true,
-              situationType: { select: { name: true, slug: true } },
-              createdAt: true,
-              updatedAt: true,
-            },
-          })
-        : [],
     ]);
 
   // Build profile (exclude passwordHash)
@@ -140,7 +124,6 @@ export async function GET(
   archive.append(JSON.stringify(situations, null, 2), { name: "situations.json" });
   archive.append(JSON.stringify(copilotMessages, null, 2), { name: "copilot-history.json" });
   archive.append(JSON.stringify(activitySignals, null, 2), { name: "activity-signals.json" });
-  archive.append(JSON.stringify(autonomy, null, 2), { name: "autonomy.json" });
   archive.append(JSON.stringify(notifications, null, 2), { name: "notifications.json" });
 
   archive.finalize();

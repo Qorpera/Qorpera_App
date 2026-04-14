@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser, type SessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { checkGraduation, checkDemotion, checkPersonalGraduation, checkPersonalDemotion } from "@/lib/autonomy-graduation";
 import { resumeAfterSituationResolution } from "@/lib/execution-engine";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { handleMeetingRequestResolution } from "@/lib/meeting-coordination";
@@ -540,9 +539,9 @@ function firePatchSideEffects(
 }
 
 async function handleRejectionSideEffects(
-  operatorId: string,
+  _operatorId: string,
   situationTypeId: string,
-  userId: string,
+  _userId: string,
 ) {
   const st = await prisma.situationType.findUnique({ where: { id: situationTypeId } });
   if (st) {
@@ -557,39 +556,12 @@ async function handleRejectionSideEffects(
       },
     }).catch(() => {});
   }
-  checkDemotion(situationTypeId).catch((err) =>
-    console.error(`[situation-patch] Demotion check failed:`, err),
-  );
-
-  const aiEntity = await prisma.entity.findFirst({
-    where: { ownerUserId: userId, operatorId, status: "active" },
-    select: { id: true },
-  });
-  if (aiEntity) {
-    const pa = await prisma.personalAutonomy.findUnique({
-      where: { situationTypeId_aiEntityId: { situationTypeId, aiEntityId: aiEntity.id } },
-    });
-    if (pa) {
-      const newProposed = pa.totalProposed + 1;
-      await prisma.personalAutonomy.update({
-        where: { id: pa.id },
-        data: {
-          totalProposed: newProposed,
-          consecutiveApprovals: 0,
-          approvalRate: newProposed > 0 ? pa.totalApproved / newProposed : 0,
-        },
-      });
-      checkPersonalDemotion(pa.id).catch((err) =>
-        console.error(`[situation-patch] Personal demotion check failed:`, err),
-      );
-    }
-  }
 }
 
 async function handleApprovalSideEffects(
-  operatorId: string,
+  _operatorId: string,
   situationTypeId: string,
-  userId: string,
+  _userId: string,
 ) {
   const st = await prisma.situationType.findUnique({ where: { id: situationTypeId } });
   if (st) {
@@ -605,47 +577,6 @@ async function handleApprovalSideEffects(
         confirmedCount: { increment: 1 },
       },
     }).catch(() => {});
-  }
-  checkGraduation(situationTypeId).catch((err) =>
-    console.error(`[situation-patch] Graduation check failed:`, err),
-  );
-
-  const aiEntity = await prisma.entity.findFirst({
-    where: { ownerUserId: userId, operatorId, status: "active" },
-    select: { id: true },
-  });
-  if (aiEntity) {
-    let pa = await prisma.personalAutonomy.findUnique({
-      where: { situationTypeId_aiEntityId: { situationTypeId, aiEntityId: aiEntity.id } },
-    });
-    if (!pa) {
-      pa = await prisma.personalAutonomy.create({
-        data: {
-          operatorId,
-          situationTypeId,
-          aiEntityId: aiEntity.id,
-          totalProposed: 1,
-          totalApproved: 1,
-          consecutiveApprovals: 1,
-          approvalRate: 1.0,
-        },
-      });
-    } else {
-      const newProposed = pa.totalProposed + 1;
-      const newApproved = pa.totalApproved + 1;
-      pa = await prisma.personalAutonomy.update({
-        where: { id: pa.id },
-        data: {
-          totalProposed: newProposed,
-          totalApproved: newApproved,
-          consecutiveApprovals: pa.consecutiveApprovals + 1,
-          approvalRate: newProposed > 0 ? newApproved / newProposed : 0,
-        },
-      });
-    }
-    checkPersonalGraduation(pa.id).catch((err) =>
-      console.error(`[situation-patch] Personal graduation check failed:`, err),
-    );
   }
 }
 

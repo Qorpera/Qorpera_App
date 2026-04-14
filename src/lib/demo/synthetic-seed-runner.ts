@@ -541,10 +541,8 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     // Group B: reference Entity via FK — must go before Entity
     await tx.$executeRaw`DELETE FROM "SlackChannelMapping" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "DomainHealth" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "PlanAutonomy" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "RecurringTask" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "FollowUp" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "PersonalAutonomy" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "InternalDocument" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "FoundationalDocStatus" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "ContentChunk" WHERE "operatorId" = ${operatorId}`;

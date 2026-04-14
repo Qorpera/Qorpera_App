@@ -272,17 +272,6 @@ function DetectionSection({ detection, t }: {
   );
 }
 
-const AUTONOMY_PILL: Record<string, string> = {
-  supervised: "bg-blue-500/10 text-blue-400",
-  notify: "bg-amber-500/10 text-amber-400",
-  autonomous: "bg-green-500/10 text-green-400",
-};
-const AUTONOMY_LABEL: Record<string, string> = {
-  supervised: "autonomyObserve",
-  notify: "autonomyPropose",
-  autonomous: "autonomyAct",
-};
-
 function SituationTypeRow({ st, t }: { st: SituationTypeHealthWithLive; t: ReturnType<typeof useTranslations> }) {
   const last30d = st.last30d;
   const rate = st.confirmationRate;
@@ -298,8 +287,8 @@ function SituationTypeRow({ st, t }: { st: SituationTypeHealthWithLive; t: Retur
       {/* Top line */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-foreground">{st.name}</span>
-        <span className={`text-xs px-2 py-0.5 rounded-full ${AUTONOMY_PILL[st.autonomyLevel] ?? "bg-hover text-[var(--fg3)]"}`}>
-          {t(AUTONOMY_LABEL[st.autonomyLevel] ?? "autonomyObserve")}
+        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">
+          {t("autonomyObserve")}
         </span>
       </div>
 

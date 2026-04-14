@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
@@ -49,12 +49,12 @@ export async function GET(req: NextRequest) {
 
   // Domain scope for members (operator-scoped pages only)
   if (scopeParam !== "system") {
-    const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
+    const visibleDomains = await getVisibleDomainSlugs(operatorId, su.effectiveUserId);
     if (visibleDomains !== "all") {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND as Record<string, unknown>[] : []),
         { OR: [
-          { domainIds: { hasSome: visibleDomains } },
+          { crossReferences: { hasSome: visibleDomains } },
           { domainIds: { isEmpty: true } },
         ] },
       ];

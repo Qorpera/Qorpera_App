@@ -19,7 +19,6 @@ import {
   DEPARTMENT_HEADS,
   CEO_NAME,
   PLACEHOLDER_SITUATION_TYPES,
-  PERSONAL_AUTONOMY,
   POLICY_RULES,
   SOURCE_CONNECTORS,
   SLACK_CHANNEL_MAPPINGS,
@@ -35,11 +34,9 @@ import { CONTENT_CHUNKS, generateActivitySignals } from "./seed-content";
 import { SITUATION_TYPE_UPDATES, SITUATIONS, ACTION_CAPABILITIES } from "./seed-situations";
 import {
   INITIATIVES, OPERATIONAL_INSIGHTS,
-  PLAN_AUTONOMY_PATTERNS, FOLLOW_UPS,
+  FOLLOW_UPS,
   NOTIFICATIONS, COPILOT_SESSIONS,
 } from "./seed-phase3";
-import { createHash } from "crypto";
-
 // ── Cleanup ──────────────────────────────────────────────────────────
 
 export async function cleanupTestOperators(): Promise<void> {
@@ -65,7 +62,6 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   await prisma.executionStep.deleteMany({ where: { plan: { operatorId } } });
   await prisma.executionPlan.deleteMany({ where: { operatorId } });
   await prisma.initiative.deleteMany({ where: { operatorId } });
-  await prisma.planAutonomy.deleteMany({ where: { operatorId } });
   await prisma.operationalInsight.deleteMany({ where: { operatorId } });
   await prisma.domainHealth.deleteMany({ where: { operatorId } });
   await prisma.priorityOverride.deleteMany({ where: { operatorId } });
@@ -78,7 +74,6 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   // Situations & detection
   await prisma.situationEvent.deleteMany({ where: { situation: { operatorId } } });
   await prisma.situation.deleteMany({ where: { operatorId } });
-  await prisma.personalAutonomy.deleteMany({ where: { operatorId } });
   await prisma.situationType.deleteMany({ where: { operatorId } });
 
   // Notifications & copilot
@@ -365,29 +360,7 @@ export async function runDemoSeed(operatorId: string) {
   });
   personalAiIds[MEMBER_USER.name] = memberAi.id;
 
-  // AI agents for non-user team members who have PersonalAutonomy records
-  const nonUserPaPersons = new Set(
-    PERSONAL_AUTONOMY
-      .filter((pa) => pa.person !== ADMIN_USER.name && pa.person !== MEMBER_USER.name)
-      .map((pa) => pa.person),
-  );
-
-  for (const personName of nonUserPaPersons) {
-    const member = TEAM_MEMBERS.find((m) => m.name === personName);
-    if (!member) continue;
-    const ai = await prisma.entity.create({
-      data: {
-        operatorId,
-        entityTypeId: types["ai-agent"].typeId,
-        displayName: `${personName}'s Assistant`,
-        category: "base",
-        primaryDomainId: deptIds[member.department],
-      },
-    });
-    personalAiIds[personName] = ai.id;
-  }
-
-  // ─── Layer 5: Placeholder Situation Types + PersonalAutonomy ─────
+  // ─── Layer 5: Placeholder Situation Types ─────────────────────────
   const sitTypeIds: Record<string, string> = {};
 
   for (const st of PLACEHOLDER_SITUATION_TYPES) {
@@ -403,33 +376,6 @@ export async function runDemoSeed(operatorId: string) {
       },
     });
     sitTypeIds[st.slug] = sitType.id;
-  }
-
-  for (const pa of PERSONAL_AUTONOMY) {
-    const aiEntityId = personalAiIds[pa.person];
-    const situationTypeId = sitTypeIds[pa.situationTypeSlug];
-    if (!aiEntityId || !situationTypeId) continue;
-
-    const totalProposed = pa.approvalCount + pa.rejectionCount;
-    const approvalRate = totalProposed > 0 ? pa.approvalCount / totalProposed : 0;
-    // consecutiveApprovals: for autonomous, high streak; for notify, moderate; for supervised, equals approvals
-    const consecutiveApprovals =
-      pa.level === "autonomous" ? Math.min(pa.approvalCount, 15) :
-      pa.level === "notify" ? Math.min(pa.approvalCount, 8) :
-      pa.approvalCount;
-
-    await prisma.personalAutonomy.create({
-      data: {
-        operatorId,
-        situationTypeId,
-        aiEntityId,
-        autonomyLevel: pa.level,
-        totalProposed,
-        totalApproved: pa.approvalCount,
-        approvalRate,
-        consecutiveApprovals,
-      },
-    });
   }
 
   // ─── Layer 6: Policy Rules ───────────────────────────────────────
@@ -1085,28 +1031,6 @@ export async function runDemoSeed(operatorId: string) {
     });
   }
 
-  // ─── P4 Layer 4: Plan Autonomy Patterns ───────────────────────────
-  console.log("[demo-seed] Creating plan autonomy patterns...");
-  for (const pat of PLAN_AUTONOMY_PATTERNS) {
-    const aiEntityId = pat.aiEntityType === "hq"
-      ? hqAiId
-      : deptAiIds[pat.aiEntityDept ?? ""] ?? hqAiId;
-
-    const hash = createHash("sha256")
-      .update(JSON.stringify([...pat.capabilitySlugs].sort()))
-      .digest("hex");
-
-    await prisma.planAutonomy.create({
-      data: {
-        operatorId,
-        aiEntityId,
-        planPatternHash: hash,
-        consecutiveApprovals: pat.consecutiveApprovals,
-        autoApproved: pat.autoApproved,
-      },
-    });
-  }
-
   // ─── P4 Layer 6: Follow-Ups ───────────────────────────────────────
   console.log("[demo-seed] Creating follow-ups...");
   for (const fu of FOLLOW_UPS) {
@@ -1205,7 +1129,6 @@ export async function runDemoSeed(operatorId: string) {
         personalAis: Object.keys(personalAiIds).length,
       },
       situationTypes: PLACEHOLDER_SITUATION_TYPES.length,
-      personalAutonomyRecords: PERSONAL_AUTONOMY.length,
       policyRules: POLICY_RULES.length,
       connectors: SOURCE_CONNECTORS.length,
       slackChannelMappings: SLACK_CHANNEL_MAPPINGS.length,
@@ -1221,7 +1144,6 @@ export async function runDemoSeed(operatorId: string) {
       situations: situationCount,
       initiatives: INITIATIVES.length,
       insights: OPERATIONAL_INSIGHTS.length,
-      planPatterns: PLAN_AUTONOMY_PATTERNS.length,
       followUps: FOLLOW_UPS.length,
       notifications: NOTIFICATIONS.length,
       copilotSessions: COPILOT_SESSIONS.length,

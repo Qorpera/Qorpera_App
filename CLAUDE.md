@@ -97,7 +97,6 @@ Copilot → ai-copilot.ts
 | `src/lib/situation-cron.ts` | Starts detection + audit cron intervals (registered in instrumentation.ts) |
 | `src/lib/situation-resolver.ts` | Auto-resolves open situations when contradicting events arrive (e.g. invoice paid) |
 | `src/lib/situation-scope.ts` | Checks if an entity is within a department-scoped situation type's boundary |
-| `src/lib/autonomy-graduation.ts` | Personal autonomy graduation/demotion logic based on approval thresholds |
 
 ### Auth & Permissions
 | File | Description |

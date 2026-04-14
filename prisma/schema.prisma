@@ -106,11 +106,9 @@ model Operator {
   internalDocuments    InternalDocument[]
   contentChunks        ContentChunk[]
   activitySignals      ActivitySignal[]
-  personalAutonomies   PersonalAutonomy[]
   initiatives          Initiative[]
   executionPlans       ExecutionPlan[]
   followUps            FollowUp[]
-  planAutonomies       PlanAutonomy[]
   operationalInsights  OperationalInsight[]
   systemJobs           SystemJob[]
   systemJobRuns        SystemJobRun[]
@@ -297,7 +295,6 @@ model Entity {
   internalDocument     InternalDocument?     @relation("DocumentEntity")
   user                 User? // A base entity can have at most one user account
   ownerUser            User?                 @relation("AiEntity", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  personalAutonomies   PersonalAutonomy[]
 
   @@index([operatorId, category])
   @@index([operatorId, primaryDomainId])
@@ -531,7 +528,6 @@ model SituationType {
 
   operator           Operator           @relation(fields: [operatorId], references: [id])
   situations         Situation[]
-  personalAutonomies PersonalAutonomy[]
 
   @@unique([operatorId, slug])
 }
@@ -902,32 +898,6 @@ model ActivitySignal {
   @@index([operatorId, occurredAt(sort: Desc)])
 }
 
-// ─── Personal AI Autonomy ───────────────────────────────
-
-model PersonalAutonomy {
-  id                   String    @id @default(cuid())
-  operatorId           String
-  situationTypeId      String
-  aiEntityId           String
-  autonomyLevel        String    @default("supervised") // supervised, notify, autonomous
-  consecutiveApprovals Int       @default(0)
-  totalProposed        Int       @default(0)
-  totalApproved        Int       @default(0)
-  approvalRate         Float     @default(0)
-  promotedAt           DateTime?
-  promotedById         String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  operator      Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  situationType SituationType @relation(fields: [situationTypeId], references: [id])
-  aiEntity      Entity        @relation(fields: [aiEntityId], references: [id])
-
-  @@unique([situationTypeId, aiEntityId])
-  @@index([operatorId])
-  @@index([aiEntityId])
-}
-
 // ─── Initiatives & Execution ────────────────────────────
 
 model Initiative {
@@ -1106,22 +1076,6 @@ model SystemJobRun {
 
   @@index([systemJobId, cycleNumber])
   @@index([operatorId, createdAt])
-}
-
-model PlanAutonomy {
-  id                   String   @id @default(cuid())
-  operatorId           String
-  aiEntityId           String
-  planPatternHash      String // SHA256 of step titles+modes
-  consecutiveApprovals Int      @default(0)
-  autoApproved         Boolean  @default(false)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-
-  @@unique([aiEntityId, planPatternHash])
-  @@index([operatorId])
 }
 
 model OperationalInsight {

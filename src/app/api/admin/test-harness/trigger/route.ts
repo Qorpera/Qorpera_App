@@ -5,7 +5,7 @@ import {
   isEligibleCommunication,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
-import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
+import { evaluateActionPolicies } from "@/lib/policy-evaluator";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
 
 export async function POST(req: NextRequest) {
@@ -255,8 +255,6 @@ export async function POST(req: NextRequest) {
           situation.triggerEntityId ?? "",
         );
 
-        const effectiveAutonomy = getEffectiveAutonomy(situation.situationType, policyResult);
-
         // Load policies for detail
         const policies = await prisma.policyRule.findMany({
           where: { operatorId, enabled: true },
@@ -269,7 +267,7 @@ export async function POST(req: NextRequest) {
           situationId,
           situationType: situation.situationType.name,
           triggerEntityTypeSlug,
-          effectiveAutonomy,
+          effectiveAutonomy: "supervised",
           permitted: policyResult.permitted.map((p) => ({
             name: p.name,
             description: p.description,

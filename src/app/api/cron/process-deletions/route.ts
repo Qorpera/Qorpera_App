@@ -121,7 +121,6 @@ async function deleteUser(userId: string, operatorId: string) {
   await prisma.copilotMessage.deleteMany({ where: { userId } });
 
   if (aiEntityId) {
-    await prisma.personalAutonomy.deleteMany({ where: { aiEntityId } });
     await prisma.operationalInsight.deleteMany({
       where: { aiEntityId, shareScope: "personal" },
     });
@@ -225,10 +224,8 @@ async function deleteOperator(operatorId: string) {
   await prisma.contentChunk.deleteMany({ where: { operatorId } });
   await prisma.internalDocument.deleteMany({ where: { operatorId } });
   await prisma.operationalInsight.deleteMany({ where: { operatorId } });
-  await prisma.personalAutonomy.deleteMany({ where: { operatorId } });
   await prisma.followUp.deleteMany({ where: { operatorId } });
   await prisma.initiative.deleteMany({ where: { operatorId } });
-  await prisma.planAutonomy.deleteMany({ where: { operatorId } });
   await prisma.priorityOverride.deleteMany({ where: { operatorId } });
   await prisma.entityMention.deleteMany({ where: { entity: { operatorId } } });
   await prisma.propertyValue.deleteMany({ where: { entity: { operatorId } } });

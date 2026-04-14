@@ -135,27 +135,6 @@ export const PLACEHOLDER_SITUATION_TYPES: Array<{
   { slug: "client-meeting-prep", name: "Client Meeting Prep", description: "Prepares briefing materials before client meetings" },
 ];
 
-// ── PersonalAutonomy Records ─────────────────────────────────────────
-
-export type PersonalAutonomyDef = {
-  person: string;
-  situationTypeSlug: string;
-  level: "supervised" | "notify" | "autonomous";
-  approvalCount: number;
-  rejectionCount: number;
-};
-
-export const PERSONAL_AUTONOMY: PersonalAutonomyDef[] = [
-  { person: "Anders Vestergaard", situationTypeSlug: "overdue-invoice-followup", level: "autonomous", approvalCount: 25, rejectionCount: 1 },
-  { person: "Anders Vestergaard", situationTypeSlug: "deal-gone-quiet", level: "autonomous", approvalCount: 22, rejectionCount: 0 },
-  { person: "Anders Vestergaard", situationTypeSlug: "contract-renewal-approaching", level: "notify", approvalCount: 14, rejectionCount: 2 },
-  { person: "Mette Lindberg", situationTypeSlug: "deal-gone-quiet", level: "notify", approvalCount: 12, rejectionCount: 1 },
-  { person: "Mette Lindberg", situationTypeSlug: "new-lead-qualification", level: "notify", approvalCount: 10, rejectionCount: 0 },
-  { person: "Mette Lindberg", situationTypeSlug: "cross-sell-opportunity", level: "notify", approvalCount: 8, rejectionCount: 1 },
-  { person: "Thomas Nørgaard", situationTypeSlug: "client-meeting-prep", level: "supervised", approvalCount: 3, rejectionCount: 0 },
-  { person: "Louise Winther", situationTypeSlug: "overdue-invoice-followup", level: "notify", approvalCount: 15, rejectionCount: 1 },
-];
-
 // ── Policy Rules ─────────────────────────────────────────────────────
 
 export const POLICY_RULES: Array<{

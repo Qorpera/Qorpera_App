@@ -737,54 +737,11 @@ function SituationTypeCard({
                 <p className="text-xs text-[var(--fg3)]">{t("noFeedback")}</p>
               )}
 
-              {/* Admin promote button */}
-              {isAdmin && st.autonomyLevel !== "autonomous" && (
-                <PromoteButton situationTypeId={st.id} currentLevel={st.autonomyLevel} />
-              )}
             </>
           )}
         </div>
       )}
     </div>
-  );
-}
-
-function PromoteButton({
-  situationTypeId,
-  currentLevel,
-}: {
-  situationTypeId: string;
-  currentLevel: string;
-}) {
-  const [promoting, setPromoting] = useState(false);
-  const nextLevel = currentLevel === "supervised" ? "notify" : "autonomous";
-  const label = currentLevel === "supervised" ? "Promote to Notify" : "Promote to Act";
-
-  async function handlePromote() {
-    if (!confirm(`This will change autonomy to "${nextLevel}" for this situation type. Are you sure?`)) return;
-    setPromoting(true);
-    try {
-      const res = await fetch(`/api/situation-types/${situationTypeId}/promote`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ level: nextLevel }),
-      });
-      if (res.ok) {
-        window.location.reload();
-      }
-    } finally {
-      setPromoting(false);
-    }
-  }
-
-  return (
-    <button
-      onClick={handlePromote}
-      disabled={promoting}
-      className="mt-2 text-xs px-3 py-1.5 rounded border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] text-accent hover:bg-accent-light transition-colors disabled:opacity-50"
-    >
-      {promoting ? "Promoting..." : label}
-    </button>
   );
 }
 

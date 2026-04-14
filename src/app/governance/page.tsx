@@ -18,7 +18,6 @@ type SituationTypeItem = {
   id: string;
   name: string;
   slug: string;
-  autonomyLevel: string;
   consecutiveApprovals: number;
   totalApproved: number;
   totalProposed: number;
@@ -35,13 +34,6 @@ interface Policy {
   conditions: string | null;
   priority: number;
   enabled: boolean;
-}
-
-interface AutonSettings {
-  supervisedToNotifyConsecutive: number;
-  supervisedToNotifyRate: number;
-  notifyToAutonomousConsecutive: number;
-  notifyToAutonomousRate: number;
 }
 
 // ── Constants ────────────────────────────────────────────
@@ -76,9 +68,6 @@ export default function GovernancePage() {
 
   const [situationTypes, setSituationTypes] = useState<SituationTypeItem[]>([]);
   const [autoLoading, setAutoLoading] = useState(true);
-  const [thresholds, setThresholds] = useState<AutonSettings | null>(null);
-  const [promotingId, setPromotingId] = useState<string | null>(null);
-  const [demotingId, setDemotingId] = useState<string | null>(null);
 
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [policiesLoading, setPoliciesLoading] = useState(true);
@@ -98,13 +87,6 @@ export default function GovernancePage() {
 
   // ── Data fetching ──────────────────────────────────────
 
-  const loadSituationTypes = useCallback(() => {
-    fetch("/api/situation-types")
-      .then(r => r.json())
-      .then(data => setSituationTypes(data))
-      .catch(() => {});
-  }, []);
-
   const loadPolicies = useCallback(async () => {
     try {
       const res = await fetch("/api/policies");
@@ -114,19 +96,9 @@ export default function GovernancePage() {
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/autonomy/settings").then(r => r.json()),
-      fetch("/api/situation-types").then(r => r.json()),
-    ])
-      .then(([settings, types]) => {
-        setThresholds({
-          supervisedToNotifyConsecutive: settings.supervisedToNotifyConsecutive ?? 10,
-          supervisedToNotifyRate: settings.supervisedToNotifyRate ?? 0.9,
-          notifyToAutonomousConsecutive: settings.notifyToAutonomousConsecutive ?? 20,
-          notifyToAutonomousRate: settings.notifyToAutonomousRate ?? 0.95,
-        });
-        setSituationTypes(types);
-      })
+    fetch("/api/situation-types")
+      .then(r => r.json())
+      .then(types => setSituationTypes(types))
       .catch(() => {})
       .finally(() => setAutoLoading(false));
 
@@ -134,40 +106,6 @@ export default function GovernancePage() {
   }, [loadPolicies]);
 
   // ── Handlers ───────────────────────────────────────────
-
-  const handlePromote = async (stId: string) => {
-    setPromotingId(stId);
-    try {
-      await fetch("/api/autonomy/promote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ situationTypeId: stId }),
-      });
-      toast("Promoted successfully", "success");
-      loadSituationTypes();
-    } catch {
-      toast("Promotion failed", "error");
-    } finally {
-      setPromotingId(null);
-    }
-  };
-
-  const handleDemote = async (stId: string) => {
-    setDemotingId(stId);
-    try {
-      await fetch("/api/autonomy/demote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ situationTypeId: stId }),
-      });
-      toast("Demoted successfully", "success");
-      loadSituationTypes();
-    } catch {
-      toast("Demotion failed", "error");
-    } finally {
-      setDemotingId(null);
-    }
-  };
 
   const handleTogglePolicy = async (policy: Policy) => {
     try {
@@ -261,26 +199,7 @@ export default function GovernancePage() {
 
   // ── Derived ────────────────────────────────────────────
 
-  const supervisedCount = situationTypes.filter(st => st.autonomyLevel === "supervised").length;
-  const notifyCount = situationTypes.filter(st => st.autonomyLevel === "notify").length;
-  const autonomousCount = situationTypes.filter(st => st.autonomyLevel === "autonomous").length;
-  const total = situationTypes.length || 1;
-
   const sortedTypes = [...situationTypes].sort((a, b) => b.approvalRate - a.approvalRate);
-
-  function isReadyForPromotion(st: SituationTypeItem): boolean {
-    if (!thresholds) return false;
-    if (st.autonomyLevel === "autonomous") return false;
-    if (st.autonomyLevel === "supervised") {
-      return st.consecutiveApprovals >= thresholds.supervisedToNotifyConsecutive
-        && st.approvalRate >= thresholds.supervisedToNotifyRate;
-    }
-    if (st.autonomyLevel === "notify") {
-      return st.consecutiveApprovals >= thresholds.notifyToAutonomousConsecutive
-        && st.approvalRate >= thresholds.notifyToAutonomousRate;
-    }
-    return false;
-  }
 
   // ── Render ─────────────────────────────────────────────
 
@@ -289,54 +208,7 @@ export default function GovernancePage() {
       <div className="p-8 max-w-4xl mx-auto space-y-6">
         <h1 className="text-xl font-semibold text-foreground">{t("title")}</h1>
 
-        {/* ── Section 1: Trust Gradient ── */}
-        <section className="bg-surface border border-border rounded-lg overflow-hidden">
-          <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-hover">
-            <svg className="w-4 h-4 text-[var(--fg2)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-            </svg>
-            <h2 className="text-[13px] font-semibold text-foreground">{t("trustGradient")}</h2>
-          </div>
-
-          <div className="p-5">
-            {autoLoading ? (
-              <div className="flex justify-center py-4">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-[var(--fg3)]" />
-              </div>
-            ) : (
-              <>
-                {/* Progress bar */}
-                <div className="flex rounded-full overflow-hidden h-4 mb-4 bg-elevated border border-border">
-                  {supervisedCount > 0 && (
-                    <div className="bg-[color-mix(in_srgb,var(--fg2)_20%,transparent)]" style={{ flex: supervisedCount }} />
-                  )}
-                  {notifyCount > 0 && (
-                    <div className="bg-[color-mix(in_srgb,var(--warn)_40%,transparent)]" style={{ flex: notifyCount }} />
-                  )}
-                  {autonomousCount > 0 && (
-                    <div className="bg-[color-mix(in_srgb,var(--ok)_40%,transparent)]" style={{ flex: autonomousCount }} />
-                  )}
-                </div>
-
-                {/* Labels */}
-                <div className="flex justify-between text-[10px] text-[var(--fg2)]">
-                  <span>{t("supervised")}</span>
-                  <span>{t("notify")}</span>
-                  <span>{t("autonomous")}</span>
-                </div>
-
-                {/* Counts */}
-                <div className="flex gap-6 mt-3 text-xs">
-                  <span className="text-foreground font-medium">{supervisedCount}</span>
-                  <span className="text-foreground font-medium">{notifyCount}</span>
-                  <span className="text-foreground font-medium">{autonomousCount}</span>
-                </div>
-              </>
-            )}
-          </div>
-        </section>
-
-        {/* ── Section 2: Rules ── */}
+        {/* ── Section 1: Rules ── */}
         <section className="bg-surface border border-border rounded-lg overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-hover">
             <div className="flex items-center gap-2">
@@ -480,20 +352,13 @@ export default function GovernancePage() {
             ) : (
               <div className="space-y-2">
                 {sortedTypes.map(st => {
-                  const ready = isReadyForPromotion(st);
                   const isExpanded = expandedTypes.has(st.id);
-                  const levelLabel = st.autonomyLevel === "supervised" ? "supervised" : st.autonomyLevel === "notify" ? "notify" : "autonomous";
 
                   return (
                     <div
                       key={st.id}
-                      className={`rounded-md border transition overflow-hidden ${
-                        ready
-                          ? "border-l-[3px] border-l-accent border-t-border border-r-border border-b-border bg-[var(--accent-light)]"
-                          : "border-border bg-surface"
-                      }`}
+                      className="rounded-md border border-border bg-surface transition overflow-hidden"
                     >
-                      {/* Collapsed row — always visible */}
                       <button
                         type="button"
                         onClick={() => toggleTypeExpanded(st.id)}
@@ -508,25 +373,11 @@ export default function GovernancePage() {
                           </svg>
                           <span className="text-[13px] font-medium text-foreground truncate">{st.name}</span>
                         </div>
-                        <div className="flex items-center gap-2.5 flex-shrink-0">
-                          <span className="text-[11px] text-[var(--fg2)]">
-                            {(st.approvalRate * 100).toFixed(0)}% approved
-                          </span>
-                          <span
-                            className={`text-[11px] font-medium rounded-full px-2.5 py-0.5 ${
-                              st.autonomyLevel === "supervised"
-                                ? "bg-[var(--elevated)] text-[var(--fg2)]"
-                                : st.autonomyLevel === "notify"
-                                  ? "bg-[color-mix(in_srgb,var(--warn)_15%,transparent)] text-warn"
-                                  : "bg-[color-mix(in_srgb,var(--ok)_15%,transparent)] text-ok"
-                            }`}
-                          >
-                            {levelLabel}
-                          </span>
-                        </div>
+                        <span className="text-[11px] text-[var(--fg2)] flex-shrink-0">
+                          {(st.approvalRate * 100).toFixed(0)}% approved
+                        </span>
                       </button>
 
-                      {/* Expanded details */}
                       {isExpanded && (
                         <div className="px-3.5 pb-3 border-t border-border">
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-3">
@@ -547,47 +398,6 @@ export default function GovernancePage() {
                               <span className="text-sm font-medium text-foreground">{(st.approvalRate * 100).toFixed(1)}%</span>
                             </div>
                           </div>
-
-                          {/* Thresholds needed */}
-                          {thresholds && st.autonomyLevel !== "autonomous" && (
-                            <div className="mt-3 text-[11px] text-[var(--fg3)] bg-elevated rounded px-3 py-2">
-                              {st.autonomyLevel === "supervised" ? (
-                                <span>
-                                  Needs {thresholds.supervisedToNotifyConsecutive} consecutive approvals (have {st.consecutiveApprovals}) and {(thresholds.supervisedToNotifyRate * 100).toFixed(0)}% rate (have {(st.approvalRate * 100).toFixed(0)}%) to promote to <span className="text-warn font-medium">notify</span>
-                                </span>
-                              ) : (
-                                <span>
-                                  Needs {thresholds.notifyToAutonomousConsecutive} consecutive approvals (have {st.consecutiveApprovals}) and {(thresholds.notifyToAutonomousRate * 100).toFixed(0)}% rate (have {(st.approvalRate * 100).toFixed(0)}%) to promote to <span className="text-ok font-medium">autonomous</span>
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Action buttons */}
-                          {isAdmin && (
-                            <div className="flex items-center gap-2 mt-3">
-                              {ready && (
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  onClick={() => handlePromote(st.id)}
-                                  disabled={promotingId !== null}
-                                >
-                                  {promotingId === st.id ? "..." : t("promote")}
-                                </Button>
-                              )}
-                              {st.autonomyLevel !== "supervised" && (
-                                <Button
-                                  variant="danger"
-                                  size="sm"
-                                  onClick={() => handleDemote(st.id)}
-                                  disabled={demotingId !== null}
-                                >
-                                  {demotingId === st.id ? "..." : t("demote")}
-                                </Button>
-                              )}
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
