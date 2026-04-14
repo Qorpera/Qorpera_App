@@ -509,7 +509,7 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
 
   await prisma.$transaction(async (tx) => {
     // 1. Break Entity circular references
-    await tx.$executeRaw`UPDATE "Entity" SET "primaryDomainId" = NULL, "mergedIntoId" = NULL, "ownerDomainId" = NULL WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`UPDATE "Entity" SET "parentDepartmentId" = NULL, "mergedIntoId" = NULL, "ownerDepartmentId" = NULL WHERE "operatorId" = ${operatorId}`;
 
     // 2. Delete from child tables that reference operator-owned tables via FK (no operatorId column)
     await tx.$executeRaw`DELETE FROM "ToolCallTrace" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
