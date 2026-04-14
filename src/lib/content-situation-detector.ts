@@ -16,6 +16,7 @@ import { ensureActionRequiredType, ensureAwarenessType } from "@/lib/situation-t
 
 // Re-export so existing consumers don't break
 export { ensureActionRequiredType, ensureAwarenessType };
+// isEligibleContent and isEligibleCommunication are both exported inline above
 
 // ── Wiki Page Resolution ────────────────────────────────────────────────────
 
@@ -118,6 +119,12 @@ type ActorBatch = {
 
 const MAX_BATCH_SIZE = 20;
 const COMMUNICATION_TYPES = new Set(["email", "slack_message", "teams_message", "calendar_proactive"]);
+const DETECTABLE_CONTENT_TYPES = new Set([
+  ...COMMUNICATION_TYPES,
+  "drive_doc", "sharepoint_file", "file_upload", "uploaded_doc", "file", "document",
+  "calendar_event", "calendar_note",
+  "invoice", "financial_record", "economic_event",
+]);
 
 const URGENCY_CONFIDENCE: Record<string, number> = {
   high: 0.9,
@@ -133,6 +140,19 @@ export function isEligibleCommunication(item: {
   content?: string;
 }): boolean {
   if (!COMMUNICATION_TYPES.has(item.sourceType)) return false;
+  if (item.metadata?.isAutomated === true) return false;
+  if (item.metadata?.isAutoReply === true) return false;
+  if (item.content && item.content.length < 20) return false;
+  return true;
+}
+
+/** Broader eligibility check for all content types (communication + documents + calendar + financial). */
+export function isEligibleContent(item: {
+  sourceType: string;
+  metadata?: Record<string, unknown>;
+  content?: string;
+}): boolean {
+  if (!DETECTABLE_CONTENT_TYPES.has(item.sourceType)) return false;
   if (item.metadata?.isAutomated === true) return false;
   if (item.metadata?.isAutoReply === true) return false;
   if (item.content && item.content.length < 20) return false;
@@ -277,13 +297,56 @@ function getActorEmails(item: CommunicationItem): string[] {
     return emails;
   }
 
-  // Slack / Teams: everyone except the author
-  const authorEmail =
-    typeof meta.authorEmail === "string" ? meta.authorEmail.toLowerCase() : null;
-  const participants = item.participantEmails ?? [];
-  return participants.filter(
-    (e) => e.toLowerCase() !== authorEmail,
-  );
+  if (item.sourceType === "slack_message" || item.sourceType === "teams_message") {
+    // Slack / Teams: everyone except the author
+    const authorEmail =
+      typeof meta.authorEmail === "string" ? meta.authorEmail.toLowerCase() : null;
+    const participants = item.participantEmails ?? [];
+    return participants.filter(
+      (e) => e.toLowerCase() !== authorEmail,
+    );
+  }
+
+  // Documents (Drive, SharePoint, uploads): the author/owner is the actor
+  if (["drive_doc", "sharepoint_file", "file_upload", "uploaded_doc", "file", "document"].includes(item.sourceType)) {
+    const emails: string[] = [];
+    for (const field of ["ownerEmail", "authorEmail", "from", "lastModifiedBy", "createdBy"]) {
+      const val = meta[field];
+      if (typeof val === "string" && val.includes("@")) emails.push(val);
+    }
+    // Also include shared-with users as potential actors
+    if (Array.isArray(meta.sharedWith)) {
+      for (const e of meta.sharedWith as string[]) {
+        if (typeof e === "string" && e.includes("@")) emails.push(e);
+      }
+    }
+    return emails;
+  }
+
+  // Calendar events: organizer + attendees are potential actors
+  if (item.sourceType === "calendar_event" || item.sourceType === "calendar_note") {
+    const emails: string[] = [];
+    for (const field of ["organizer", "organizerEmail", "from"]) {
+      const val = meta[field];
+      if (typeof val === "string" && val.includes("@")) emails.push(val);
+    }
+    if (Array.isArray(meta.attendees)) {
+      for (const a of meta.attendees as Array<string | { email?: string }>) {
+        const email = typeof a === "string" ? a : a?.email;
+        if (typeof email === "string" && email.includes("@")) emails.push(email);
+      }
+    }
+    return emails;
+  }
+
+  // Financial records: fall back to any email in metadata
+  const emails: string[] = [];
+  for (const field of ["from", "authorEmail", "ownerEmail", "contactEmail", "accountantEmail"]) {
+    const val = meta[field];
+    if (typeof val === "string" && val.includes("@")) emails.push(val);
+  }
+  if (item.participantEmails?.length) emails.push(...item.participantEmails);
+  return emails;
 }
 
 // ── Open Situation Loader ────────────────────────────────────────────────────
@@ -337,9 +400,9 @@ async function loadOpenSituations(
 // ── LLM Evaluation ──────────────────────────────────────────────────────────
 
 function buildSystemPrompt(): string {
-  return `You are evaluating incoming business communications to determine what attention they require from a specific person within their organization.
+  return `You are evaluating incoming business content — emails, messages, documents, calendar events, and financial records — to determine what attention they require from a specific person within their organization.
 
-Classify each message into one of four categories:
+Classify each item into one of four categories:
 
 **action_required** — The recipient needs to perform a concrete action: respond to a question, complete a task, make a decision, attend a meeting, review a document, follow up on something, approve/reject something. The action must be relevant to legitimate business operations — not personal purchases, spam, or solicitations.
 

@@ -1,13 +1,17 @@
 /**
  * Wiki Strategic Scanner — multi-agent investigation system.
  *
- * 3 Opus investigator agents enter the wiki through different hubs,
+ * 1-3 Opus investigator agents enter the wiki through different hubs,
  * form hypotheses, navigate the graph, search raw content, and propose
  * initiatives backed by evidence trails.
  *
+ * 1 Opus strategic data agent ignores all communication and analyses
+ * non-communication business data (financial records, documents,
+ * calendar patterns, CRM data) for initiatives the wiki missed.
+ *
  * 1 Opus evaluator filters, deduplicates, and approves proposals.
  *
- * Activity-aware: 3 agents when idle (< 5 active items), 1 when busy.
+ * Activity-aware: 3+1 agents when idle (< 5 active items), 1+1 when busy.
  */
 
 import { prisma } from "@/lib/db";
@@ -360,6 +364,291 @@ ${existingInitiativeTitles.length > 0 ? existingInitiativeTitles.map(t => `- ${t
   return { proposals, costCents };
 }
 
+// ── Stage 2b: Strategic Data Agent ─────────────────────────────────────────────
+// A dedicated agent that ignores all communication and focuses strictly on
+// non-communication business data: financial records, documents, calendar
+// patterns, CRM data.
+
+const COMMUNICATION_SOURCE_TYPES = new Set([
+  "email", "slack_message", "teams_message", "calendar_proactive",
+]);
+
+const strategicDataTools: AITool[] = [
+  {
+    name: "search_business_data",
+    description: "Search non-communication raw content — documents, financial records, invoices, calendar events, CRM data. This EXCLUDES emails and chat messages. Use to find strategic patterns.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Keyword to search for in business data" },
+        source_type: { type: "string", description: "Optional filter: drive_doc, invoice, calendar_event, financial_record, file, document" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "read_raw_item",
+    description: "Read a specific raw content item by source ID.",
+    parameters: {
+      type: "object",
+      properties: { source_id: { type: "string" } },
+      required: ["source_id"],
+    },
+  },
+  {
+    name: "list_business_data_summary",
+    description: "Get a summary of all non-communication content types and counts. Use this first to understand what business data is available.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "read_wiki_page",
+    description: "Read a wiki page for organizational context. Use sparingly — your primary focus is raw business data, not the wiki.",
+    parameters: {
+      type: "object",
+      properties: { slug: { type: "string" } },
+      required: ["slug"],
+    },
+  },
+  {
+    name: "propose_initiative",
+    description: "Submit an initiative proposal grounded in business data evidence.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Specific, actionable title" },
+        description: { type: "string", description: "What the opportunity is and why it matters" },
+        pattern_type: { type: "string", description: "process_gap | documentation_debt | relationship_risk | automation_candidate | strategic_opportunity | quick_win | knowledge_gap | team_optimization | missing_monitoring" },
+        severity: { type: "string", enum: ["low", "medium", "high"] },
+        evidence: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              pageSlug: { type: "string", description: "Wiki page slug or 'raw:sourceId' for raw content citations" },
+              claim: { type: "string" },
+            },
+            required: ["pageSlug", "claim"],
+          },
+        },
+        owner_page_slug: { type: "string", description: "Person page slug who should own this, or empty" },
+        domain_page_slug: { type: "string", description: "Domain hub slug this relates to, or empty" },
+        proposed_action: { type: "string", description: "Concrete steps: what to do" },
+      },
+      required: ["title", "description", "pattern_type", "severity", "evidence", "proposed_action"],
+    },
+  },
+];
+
+async function dispatchStrategicDataTool(
+  operatorId: string,
+  name: string,
+  args: Record<string, unknown>,
+  proposals: InitiativeProposal[],
+  agentIndex: number,
+): Promise<string> {
+  switch (name) {
+    case "search_business_data": {
+      const query = args.query as string;
+      const sourceType = args.source_type as string | undefined;
+      const where: Record<string, unknown> = {
+        operatorId,
+        rawBody: { contains: query, mode: "insensitive" },
+        sourceType: sourceType
+          ? sourceType
+          : { notIn: [...COMMUNICATION_SOURCE_TYPES] },
+      };
+      const items = await prisma.rawContent.findMany({
+        where,
+        select: { sourceType: true, sourceId: true, rawBody: true, rawMetadata: true, occurredAt: true },
+        take: 10,
+        orderBy: { occurredAt: "desc" },
+      });
+      if (items.length === 0) return `No business data found for "${query}".`;
+      return items.map(item => {
+        const meta = typeof item.rawMetadata === "object" ? item.rawMetadata as Record<string, unknown> : {};
+        const label = meta.subject || meta.fileName || meta.title || item.sourceId;
+        const date = item.occurredAt?.toISOString().slice(0, 10) ?? "unknown";
+        return `[${item.sourceType}] ${label} (${date})\n${(item.rawBody || "").slice(0, 600)}`;
+      }).join("\n---\n");
+    }
+
+    case "read_raw_item": {
+      const sourceId = args.source_id as string;
+      const item = await prisma.rawContent.findFirst({
+        where: { operatorId, sourceId },
+        select: { sourceType: true, rawBody: true, rawMetadata: true, occurredAt: true },
+      });
+      if (!item) return `No content found with source ID "${sourceId}".`;
+      const meta = typeof item.rawMetadata === "object" ? item.rawMetadata as Record<string, unknown> : {};
+      return `[${item.sourceType}] ${meta.subject || meta.fileName || sourceId}\nDate: ${item.occurredAt?.toISOString() ?? "unknown"}\nMetadata: ${JSON.stringify(meta, null, 2).slice(0, 500)}\n\n${(item.rawBody || "").slice(0, 3000)}`;
+    }
+
+    case "list_business_data_summary": {
+      const counts = await prisma.$queryRaw<Array<{ sourceType: string; count: bigint }>>`
+        SELECT "sourceType", COUNT(*) as count
+        FROM "RawContent"
+        WHERE "operatorId" = ${operatorId}
+          AND "sourceType" NOT IN ('email', 'slack_message', 'teams_message', 'calendar_proactive')
+          AND "rawBody" IS NOT NULL
+        GROUP BY "sourceType"
+        ORDER BY count DESC
+      `;
+      if (counts.length === 0) return "No non-communication business data found.";
+      const total = counts.reduce((sum, c) => sum + Number(c.count), 0);
+      return `Business data summary (${total} total items):\n${counts.map(c => `- ${c.sourceType}: ${Number(c.count)} items`).join("\n")}\n\nUse search_business_data to explore specific types.`;
+    }
+
+    case "read_wiki_page": {
+      const slug = args.slug as string;
+      const page = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug, scope: "operator", status: { in: ["draft", "verified"] } },
+        select: { slug: true, title: true, pageType: true, content: true },
+      });
+      if (!page) return `Page [[${slug}]] not found.`;
+      return `## ${page.title} [${page.pageType}]\n\n${(page.content || "").slice(0, 2000)}`;
+    }
+
+    case "propose_initiative": {
+      proposals.push({
+        title: args.title as string,
+        description: args.description as string,
+        patternType: args.pattern_type as string,
+        severity: (args.severity as "low" | "medium" | "high") || "medium",
+        confidence: 0.7,
+        evidence: (args.evidence as Array<{ pageSlug: string; claim: string }>) || [],
+        ownerPageSlug: (args.owner_page_slug as string) || null,
+        domainPageSlug: (args.domain_page_slug as string) || null,
+        proposedAction: args.proposed_action as string,
+        agentIndex,
+      });
+      return `Initiative proposed: "${args.title}". Continue investigating or stop if done.`;
+    }
+
+    default:
+      return `Unknown tool: ${name}`;
+  }
+}
+
+async function runStrategicDataAgent(
+  operatorId: string,
+  existingInitiativeTitles: string[],
+  agentCount: number,
+): Promise<{ proposals: InitiativeProposal[]; costCents: number }> {
+  const proposals: InitiativeProposal[] = [];
+  let costCents = 0;
+
+  // Check if there's any non-communication data at all
+  const dataCount = await prisma.rawContent.count({
+    where: {
+      operatorId,
+      sourceType: { notIn: [...COMMUNICATION_SOURCE_TYPES] },
+      rawBody: { not: null },
+    },
+  });
+  if (dataCount === 0) {
+    console.log("[wiki-scanner] Strategic data agent: no non-communication data found, skipping");
+    return { proposals, costCents: 0 };
+  }
+
+  const agentIndex = agentCount; // 4th agent gets the next index
+
+  const systemPrompt = `You are a strategic business data analyst (#${agentIndex + 1} of ${agentCount + 1}). Unlike your peer investigators who analyze the company wiki, YOUR focus is the raw business data — financial records, documents, calendar patterns, CRM entries. You deliberately IGNORE all email and chat communication.
+
+## Your Method
+
+1. Start with list_business_data_summary to see what data types are available
+2. Search across the available data for strategic patterns
+3. Read the wiki sparingly — only for organizational context (who owns what, team structure)
+4. Propose initiatives that are invisible from the wiki alone
+
+## What to Look For
+
+**Financial patterns:**
+- Overdue invoices or aging receivables
+- Recurring charges that seem unusually high or duplicated
+- Revenue concentration risk (too much from one client)
+- Budget variances or unexpected cost spikes
+- Missing financial documentation (unsigned contracts, unrecorded expenses)
+
+**Document gaps:**
+- Policies that are outdated, incomplete, or missing entirely
+- Contracts approaching renewal without review
+- Compliance documentation that should exist but doesn't
+- SOPs that exist only as tribal knowledge (referenced in titles but no content)
+
+**Calendar & scheduling patterns:**
+- Teams with excessive meeting load
+- Recurring meetings with no documented outcomes
+- Key people with availability conflicts or overcommitment
+- Important deadlines visible in calendar but not tracked anywhere
+
+**CRM & relationship health:**
+- Deals stalled in pipeline for too long
+- Contacts with no recent engagement
+- Customer segments being neglected
+- Upsell opportunities visible in usage/invoice data
+
+## Existing Initiatives (do NOT duplicate)
+${existingInitiativeTitles.length > 0 ? existingInitiativeTitles.map(t => `- ${t}`).join("\n") : "(none yet)"}
+
+## Rules
+
+- ONLY cite evidence from raw business data or wiki pages — never from emails/chat
+- Use "raw:{sourceId}" in evidence pageSlug when citing raw content
+- Be specific and quantitative when possible ("3 invoices overdue by 30+ days" not "some invoices are overdue")
+- Focus on patterns the wiki-based investigators would miss
+- When you've exhausted productive data paths, stop.`;
+
+  const messages: LLMMessage[] = [
+    { role: "user", content: "Start your analysis. Begin with list_business_data_summary to see what's available." },
+  ];
+
+  const model = getModel("agenticReasoning");
+  const thinkingBudget = getThinkingBudget("agenticReasoning") ?? 10_000;
+  const maxTokens = getMaxOutputTokens(model);
+  const MAX_ITERATIONS = 25;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const response = await callLLM({
+      instructions: systemPrompt,
+      messages,
+      tools: strategicDataTools,
+      model,
+      operatorId,
+      temperature: 0.3,
+      thinking: true,
+      thinkingBudget,
+      maxTokens,
+    });
+
+    costCents += response.apiCostCents;
+
+    if (!response.toolCalls?.length) break;
+
+    messages.push({
+      role: "assistant",
+      content: response.text || "",
+      tool_calls: response.toolCalls.map(tc => ({
+        id: tc.id,
+        type: "function" as const,
+        function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+      })),
+    });
+
+    for (const toolCall of response.toolCalls) {
+      const result = await dispatchStrategicDataTool(operatorId, toolCall.name, toolCall.arguments, proposals, agentIndex);
+      messages.push({
+        role: "tool",
+        content: result,
+        tool_call_id: toolCall.id,
+        name: toolCall.name,
+      });
+    }
+  }
+
+  return { proposals, costCents };
+}
+
 // ── Stage 3: Opus Evaluator ────────────────────────────────────────────────────
 
 async function evaluateProposals(
@@ -586,35 +875,40 @@ export async function runWikiStrategicScan(operatorId: string): Promise<WikiScan
     return report;
   }
 
-  console.log(`[wiki-scanner] Starting ${agentCount} investigator agents (activity: ${activityLevel})`);
+  console.log(`[wiki-scanner] Starting ${agentCount} wiki investigator agents + 1 strategic data agent (activity: ${activityLevel})`);
 
-  // Stage 2: Run investigators concurrently
-  const agentResults = await Promise.allSettled(
-    hubAssignments.map((hubs, i) =>
+  // Stage 2: Run wiki investigators + strategic data agent concurrently
+  const allAgentPromises = [
+    ...hubAssignments.map((hubs, i) =>
       runInvestigatorAgent(operatorId, hubs, i, existingTitles, agentCount),
     ),
-  );
+    // 4th agent: strategic data analysis (non-communication raw content)
+    runStrategicDataAgent(operatorId, existingTitles, agentCount),
+  ];
+
+  const agentResults = await Promise.allSettled(allAgentPromises);
 
   const allProposals: InitiativeProposal[] = [];
+  const totalAgents = agentCount + 1; // wiki investigators + strategic data agent
   for (const result of agentResults) {
     if (result.status === "fulfilled") {
       allProposals.push(...result.value.proposals);
       report.costCents += result.value.costCents;
     } else {
-      console.error("[wiki-scanner] Investigator agent failed:", result.reason);
+      console.error("[wiki-scanner] Agent failed:", result.reason);
       report.errors.push(`Agent failed: ${result.reason}`);
     }
   }
 
   report.patternsDetected = allProposals.length;
-  console.log(`[wiki-scanner] ${allProposals.length} proposals from ${agentCount} agents`);
+  console.log(`[wiki-scanner] ${allProposals.length} proposals from ${totalAgents} agents`);
 
   if (allProposals.length === 0) {
     return report;
   }
 
   // Stage 3: Evaluate
-  const evaluation = await evaluateProposals(operatorId, allProposals, existingTitles, agentCount);
+  const evaluation = await evaluateProposals(operatorId, allProposals, existingTitles, totalAgents);
   report.costCents += evaluation.costCents;
   report.duplicatesSkipped = allProposals.length - evaluation.approved.length;
 
