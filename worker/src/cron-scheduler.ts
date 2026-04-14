@@ -205,24 +205,6 @@ export function startCronScheduler() {
     }, 15 * 60 * 1000),
   );
 
-  // ── ActivitySignal Retention Cleanup: daily ───────────────────────
-  timers.push(
-    setInterval(async () => {
-      try {
-        const retentionDays = 90;
-        const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
-        const deleted = await prisma.activitySignal.deleteMany({
-          where: { occurredAt: { lt: cutoff } },
-        });
-        if (deleted.count > 0) {
-          console.log(`[cron:retention] Cleaned up ${deleted.count} old ActivitySignals`);
-        }
-      } catch (err) {
-        console.error("[cron:retention] Error:", err);
-      }
-    }, 24 * 60 * 60 * 1000),
-  );
-
   // ── Wiki Strategic Scanner: activity-aware interval ──
   // Checks activity level per operator and adjusts scan frequency:
   // < 5 active items → scan every 1 hour (deep, Opus)
