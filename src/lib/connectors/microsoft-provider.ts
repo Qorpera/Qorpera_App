@@ -193,7 +193,7 @@ async function* syncOutlook(
 ): AsyncGenerator<SyncYield> {
   const operatorId = config._operatorId as string | undefined;
 
-  const { ensureHardcodedEntityType } = await import("@/lib/event-materializer");
+  const { ensureHardcodedEntityType } = await import("@/lib/entity-type-bootstrap");
   const { upsertEntity } = await import("@/lib/entity-resolution");
 
   const prefix = getUserEndpointPrefix(config);

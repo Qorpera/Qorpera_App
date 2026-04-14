@@ -228,7 +228,6 @@ async function deleteOperator(operatorId: string) {
   await prisma.personalAutonomy.deleteMany({ where: { operatorId } });
   await prisma.followUp.deleteMany({ where: { operatorId } });
   await prisma.initiative.deleteMany({ where: { operatorId } });
-  await prisma.workStream.deleteMany({ where: { operatorId } });
   await prisma.planAutonomy.deleteMany({ where: { operatorId } });
   await prisma.priorityOverride.deleteMany({ where: { operatorId } });
   await prisma.entityMention.deleteMany({ where: { entity: { operatorId } } });

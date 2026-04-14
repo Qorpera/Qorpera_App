@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
 import { getProvider } from "@/lib/connectors/registry";
-import { materializeUnprocessed } from "@/lib/event-materializer";
 import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
 import { storeRawContent } from "@/lib/storage/raw-content-store";
 import {
@@ -463,49 +462,6 @@ export async function runConnectorSync(
       // Non-fatal — don't fail the sync over capability registration
       console.error("[connector-sync] Failed to register capabilities:", err);
     }
-  }
-
-  // Trigger materialization for the new events
-  if (eventsCreated > 0) {
-    try {
-      await materializeUnprocessed(operatorId, eventsCreated);
-    } catch {
-      // Materialization errors are non-fatal for sync
-    }
-  }
-
-  // Identity resolution: find entities updated during this sync and check for merges
-  if (eventsCreated > 0) {
-    const syncCutoff = new Date(start);
-    prisma.entity
-      .findMany({
-        where: { operatorId, updatedAt: { gte: syncCutoff } },
-        select: { id: true },
-      })
-      .then(async (entities) => {
-        if (entities.length === 0) return;
-        const { runDeterministicMerges, runIdentityResolution } = await import("@/lib/identity-resolution");
-        const ids = entities.map((e) => e.id);
-
-        // Phase 1: deterministic email merges (fast, no embeddings)
-        const deterministicResult = await runDeterministicMerges(operatorId, ids);
-        if (deterministicResult.mergesExecuted > 0) {
-          console.log(
-            `[identity-resolution] operator=${operatorId}: ${deterministicResult.mergesExecuted} deterministic email merge(s)`,
-          );
-        }
-
-        // Phase 2: ML fuzzy matching for remaining entities
-        return runIdentityResolution(operatorId, ids);
-      })
-      .then((result) => {
-        if (result && (result.autoMerged > 0 || result.suggested > 0)) {
-          console.log(
-            `[identity-resolution] operator=${operatorId}: ${result.autoMerged} auto-merged, ${result.suggested} suggestions`,
-          );
-        }
-      })
-      .catch((err) => console.error("[identity-resolution] Error:", err));
   }
 
   return {

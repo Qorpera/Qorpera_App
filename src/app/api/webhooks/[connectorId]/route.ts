@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getValidStripeToken } from "@/lib/connectors/stripe-auth";
-import { materializeEvent } from "@/lib/event-materializer";
-import { checkForSituationResolution } from "@/lib/situation-resolver";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 import { checkRateLimit } from "@/lib/rate-limiter";
 
@@ -19,8 +17,6 @@ const STRIPE_EVENT_MAP: Record<string, string> = {
   "customer.updated": "customer.synced",
   "invoice.created": "invoice.created",
 };
-
-const RESOLUTION_EVENT_TYPES = new Set(["invoice.paid", "payment.received"]);
 
 export async function POST(
   req: NextRequest,
@@ -125,32 +121,6 @@ export async function POST(
       payload: JSON.stringify(eventPayload),
     },
   });
-
-  // Materialize the event
-  const result = await materializeEvent(connector.operatorId, {
-    id: event.id,
-    connectorId,
-    source: "stripe",
-    eventType: event.eventType,
-    payload: event.payload,
-    processedAt: null,
-    materializationError: null,
-  });
-
-  // Check for situation resolution
-  if (
-    RESOLUTION_EVENT_TYPES.has(event.eventType) &&
-    result.entityIds?.length
-  ) {
-    checkForSituationResolution(
-      connector.operatorId,
-      event.eventType,
-      result.entityIds,
-      event.id
-    ).catch((err) =>
-      console.error("[webhook] Situation resolution error:", err)
-    );
-  }
 
   return NextResponse.json({ received: true });
 }

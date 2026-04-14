@@ -1047,11 +1047,6 @@ function DetailPane({
   const [editedDraftBody, setEditedDraftBody] = useState("");
   const [savedEditedDraft, setSavedEditedDraft] = useState<DraftPayload | null>(null);
   const [executionPlan, setExecutionPlan] = useState<ExecutionPlanData | null>(null);
-  const [linkedWorkStream, setLinkedWorkStream] = useState<{ id: string; title: string } | null>(null);
-  const [showStarDropdown, setShowStarDropdown] = useState(false);
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [workStreams, setWorkStreams] = useState<Array<{ id: string; title: string }>>([]);
-  const starDropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set([0]));
   const [showRejectForm, setShowRejectForm] = useState(false);
@@ -1067,50 +1062,12 @@ function DetailPane({
     });
   };
 
-  // Outside-click dismiss for star dropdown
-  useEffect(() => {
-    if (!showStarDropdown) return;
-    const handler = (e: MouseEvent) => {
-      if (starDropdownRef.current && !starDropdownRef.current.contains(e.target as Node)) {
-        setShowStarDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showStarDropdown]);
-
   // Derive execution plan from inline action plan (no separate fetch)
   useEffect(() => {
     if (!detail) { setExecutionPlan(null); return; }
     const plan = wikiToExecutionPlan(detail);
     setExecutionPlan(plan);
   }, [detail]);
-
-  // Check if situation is in a WorkStream (single query)
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/workstreams/check-membership?itemType=situation&itemId=${s.id}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (cancelled) return;
-        if (data?.workStreamId) {
-          setLinkedWorkStream({ id: data.workStreamId, title: data.workStreamTitle });
-        } else {
-          setLinkedWorkStream(null);
-        }
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [s.id]);
-
-  // Fetch workstream list for the "add to project" dropdown (lazy, only when dropdown opens)
-  useEffect(() => {
-    if (!showStarDropdown || workStreams.length > 0) return;
-    fetch("/api/workstreams")
-      .then(res => res.ok ? res.json() : [])
-      .then(data => setWorkStreams(data))
-      .catch(() => {});
-  }, [showStarDropdown, workStreams.length]);
 
   const isThisCard = activeMode?.id === s.id;
   const currentMode = isThisCard ? activeMode!.mode : null;
@@ -1226,83 +1183,6 @@ function DetailPane({
           </h1>
           <div className="flex items-center gap-2 flex-shrink-0">
             <Badge variant={sev.variant}>{sev.label}</Badge>
-            {/* Star/favorite — WorkStream linkage */}
-            <div className="relative" ref={starDropdownRef}>
-              <button
-                className={`transition-colors ${linkedWorkStream ? "text-warn" : "text-[var(--fg4)] hover:text-[var(--fg3)]"}`}
-                title={linkedWorkStream ? `In project: ${linkedWorkStream.title}` : "Add to project"}
-                onClick={() => {
-                  if (linkedWorkStream) {
-                    router.push("/projects");
-                  } else {
-                    setShowStarDropdown(!showStarDropdown);
-                  }
-                }}
-              >
-                <svg className="w-5 h-5" fill={linkedWorkStream ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
-                </svg>
-              </button>
-
-              {showStarDropdown && !linkedWorkStream && (
-                <div
-                  className="absolute right-0 top-full mt-1 z-10"
-                  style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 6, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", width: 220, overflow: "hidden" }}
-                >
-                  <button
-                    className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-hover"
-                    style={{ color: "var(--accent)", borderBottom: "1px solid var(--border)" }}
-                    disabled={creatingProject}
-                    onClick={async () => {
-                      setCreatingProject(true);
-                      try {
-                        const title = s.triggerSummary?.slice(0, 60) ?? s.situationType.name;
-                        const wsRes = await fetch("/api/workstreams", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ title, description: title }),
-                        });
-                        if (!wsRes.ok) { setCreatingProject(false); return; }
-                        const ws = await wsRes.json();
-
-                        await fetch(`/api/workstreams/${ws.id}/items`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ itemType: "situation", itemId: s.id }),
-                        });
-
-                        setLinkedWorkStream({ id: ws.id, title });
-                        setShowStarDropdown(false);
-                      } catch {}
-                      setCreatingProject(false);
-                    }}
-                  >
-                    {creatingProject ? "Creating..." : "+ Create new project"}
-                  </button>
-                  {workStreams.map(ws => (
-                    <button
-                      key={ws.id}
-                      className="w-full text-left px-3 py-2 text-[12px] transition hover:bg-hover truncate"
-                      style={{ color: "var(--fg2)", borderBottom: "1px solid var(--border)" }}
-                      onClick={async () => {
-                        await fetch(`/api/workstreams/${ws.id}/items`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ itemType: "situation", itemId: s.id }),
-                        });
-                        setLinkedWorkStream({ id: ws.id, title: ws.title });
-                        setShowStarDropdown(false);
-                      }}
-                    >
-                      {ws.title}
-                    </button>
-                  ))}
-                  {workStreams.length === 0 && (
-                    <div className="px-3 py-2 text-[11px]" style={{ color: "var(--fg4)" }}>No existing projects</div>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 mt-2 flex-wrap">

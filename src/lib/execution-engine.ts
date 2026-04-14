@@ -4,7 +4,6 @@ import { getProvider } from "@/lib/connectors/registry";
 import { encryptConfig, decryptConfig } from "@/lib/config-encryption";
 import { sendNotification, sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { evaluateActionPolicies } from "@/lib/policy-evaluator";
-import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { addBusinessDays } from "@/lib/business-days";
 import { classifyError, extractErrorMessage, sanitizeErrorMessage } from "@/lib/execution/error-classification";
 import { captureApiError } from "@/lib/api-error";
@@ -981,11 +980,6 @@ export async function advancePlanAfterStep(
       console.error("Plan autonomy tracking failed:", err),
     );
 
-    // Trigger WorkStream recheck for the plan's source
-    triggerPlanWorkStreamRecheck(planId).catch(console.error);
-
-    // Trigger workstream reassessment
-    triggerWorkStreamReassessment(completedPlan).catch(console.error);
   } else {
     // Advance to next step
     await prisma.executionPlan.update({
@@ -1200,21 +1194,6 @@ async function executeAwaitSituationStep(
     },
   });
 
-  // Inherit workstream from parent plan's source
-  if (input.inheritWorkStream !== false) {
-    const parentItems = await prisma.workStreamItem.findMany({
-      where: { itemType: step.plan.sourceType, itemId: step.plan.sourceId },
-      select: { workStreamId: true },
-    });
-    for (const item of parentItems) {
-      await prisma.workStreamItem.upsert({
-        where: { workStreamId_itemType_itemId: { workStreamId: item.workStreamId, itemType: "situation", itemId: situation.id } },
-        create: { workStreamId: item.workStreamId, itemType: "situation", itemId: situation.id },
-        update: {},
-      });
-    }
-  }
-
   // Set step to awaiting_situation
   await prisma.executionStep.update({
     where: { id: step.id },
@@ -1301,44 +1280,6 @@ export async function resumeAfterSituationResolution(situationId: string): Promi
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function triggerWorkStreamReassessment(
-  plan: { id: string; sourceType: string; sourceId: string },
-): Promise<void> {
-  if (plan.sourceType !== "situation" && plan.sourceType !== "initiative") return;
-
-  const items = await prisma.workStreamItem.findMany({
-    where: { itemType: plan.sourceType, itemId: plan.sourceId },
-    select: { workStreamId: true },
-  });
-
-  if (items.length > 0) {
-    const { reassessWorkStream } = await import("@/lib/workstream-reassessment");
-    for (const item of items) {
-      await reassessWorkStream(item.workStreamId, plan.sourceId, plan.sourceType).catch(err =>
-        console.error("[execution-engine] Workstream reassessment failed:", err),
-      );
-    }
-  }
-}
-
-async function triggerPlanWorkStreamRecheck(planId: string): Promise<void> {
-  const plan = await prisma.executionPlan.findUnique({
-    where: { id: planId },
-    select: { sourceType: true, sourceId: true },
-  });
-  if (!plan) return;
-
-  if (plan.sourceType === "situation" || plan.sourceType === "initiative") {
-    const items = await prisma.workStreamItem.findMany({
-      where: { itemType: plan.sourceType, itemId: plan.sourceId },
-      select: { workStreamId: true },
-    });
-    for (const item of items) {
-      await recheckWorkStreamStatus(item.workStreamId);
-    }
-  }
-}
 
 async function getDepartmentAdminId(
   operatorId: string,

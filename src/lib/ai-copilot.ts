@@ -7,7 +7,6 @@ import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 import { canAccessEntity } from "@/lib/domain-scope";
-import { getWorkStreamContext, canMemberAccessWorkStream } from "@/lib/workstreams";
 import { buildSystemJobWikiContent } from "@/lib/system-job-wiki";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -239,17 +238,6 @@ const COPILOT_TOOLS: AITool[] = [
     },
   },
   {
-    name: "get_workstream",
-    description: "Get details about a project or work stream. Use when the user asks about a specific project, grouped work, or 'what's happening with X'.",
-    parameters: {
-      type: "object",
-      properties: {
-        workStreamId: { type: "string", description: "Direct lookup by ID." },
-        search: { type: "string", description: "Search by title if workStreamId not provided." },
-      },
-    },
-  },
-  {
     name: "create_system_job",
     description: "Create a new system job that runs on a schedule to monitor and analyze a specific area. Use when the user wants to set up automated monitoring, intelligence gathering, or periodic analysis.",
     parameters: {
@@ -360,8 +348,6 @@ const ORIENTATION_TOOLS: AITool[] = [
 const CONTEXT_EXCLUDED_TOOLS: Record<string, Set<string>> = {
   situation: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
   initiative: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
-  workstream: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
-
 };
 
 export function getToolsForContext(contextType: string | null): typeof COPILOT_TOOLS {
@@ -1716,96 +1702,13 @@ export async function executeTool(
 
       if (initiatives.length === 0) return "No initiatives found matching those criteria.";
 
-      // Resolve workstream titles
-      const initIds = initiatives.map(i => i.id);
-      const wsItems = initIds.length > 0
-        ? await prisma.workStreamItem.findMany({
-            where: { itemType: "initiative", itemId: { in: initIds } },
-            select: { itemId: true, workStream: { select: { title: true } } },
-          })
-        : [];
-      const wsMap = new Map(wsItems.map(w => [w.itemId, w.workStream.title]));
-
       return JSON.stringify(initiatives.map(i => ({
         id: i.id,
         title: i.rationale.slice(0, 200),
         rationale: i.rationale.slice(0, 200),
         status: i.status,
         proposalType: i.proposalType,
-        workStreamTitle: wsMap.get(i.id) ?? null,
       })));
-    }
-
-    case "get_workstream": {
-      const workStreamId = args.workStreamId ? String(args.workStreamId) : undefined;
-      const search = args.search ? String(args.search) : undefined;
-
-      if (workStreamId) {
-        const ctx = await getWorkStreamContext(workStreamId);
-        if (!ctx) return "Work stream not found.";
-
-        // Scope check using canMemberAccessWorkStream
-        if (visibleDomains && visibleDomains !== "all" && userId) {
-          const canAccess = await canMemberAccessWorkStream(userId, workStreamId, operatorId, visibleDomains as string[]);
-          if (!canAccess) return "You don't have access to this project.";
-        }
-
-        // Load children count
-        const childCount = await prisma.workStream.count({
-          where: { parentWorkStreamId: workStreamId },
-        });
-
-        return JSON.stringify({
-          id: ctx.id,
-          title: ctx.title,
-          description: ctx.description,
-          status: ctx.status,
-          items: ctx.items.map(i => ({ type: i.type, title: i.summary.slice(0, 200), status: i.status })),
-          parentTitle: ctx.parent?.title ?? null,
-          childCount,
-        });
-      }
-
-      if (search) {
-        const workstreams = await prisma.workStream.findMany({
-          where: {
-            operatorId,
-            title: { contains: search, mode: "insensitive" },
-          },
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            status: true,
-            _count: { select: { items: true, children: true } },
-          },
-          take: 10,
-        });
-
-        // Scope filter: workstream must contain an item linked to a visible department
-        let filtered = workstreams;
-        if (visibleDomains && visibleDomains !== "all" && userId) {
-          const accessible: typeof workstreams = [];
-          for (const ws of workstreams) {
-            const canAccess = await canMemberAccessWorkStream(userId, ws.id, operatorId, visibleDomains as string[]);
-            if (canAccess) accessible.push(ws);
-          }
-          filtered = accessible;
-        }
-
-        if (filtered.length === 0) return `No work streams found matching "${search}".`;
-
-        return JSON.stringify(filtered.map(ws => ({
-          id: ws.id,
-          title: ws.title,
-          description: ws.description?.slice(0, 200) ?? null,
-          status: ws.status,
-          itemCount: ws._count.items,
-          childCount: ws._count.children,
-        })));
-      }
-
-      return "Please provide either a workStreamId or a search term.";
     }
 
     case "create_system_job": {

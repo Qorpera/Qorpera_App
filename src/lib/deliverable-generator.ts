@@ -49,7 +49,6 @@ type DeliverableOutput = z.infer<typeof DeliverableOutputSchema>;
 
 const EXCLUDED_REASONING_TOOLS = new Set([
   "get_available_actions",
-  "get_workstream_context",
 ]);
 
 const INVESTIGATION_TOOLS = REASONING_TOOLS.filter(

@@ -145,16 +145,6 @@ interface SituationContext {
   crossDomainSignals: CrossDomainContext;
   connectorCapabilities: ConnectorCapability[];
 
-  // v3 day 4 additions
-  workStreamContexts?: Array<{
-    id: string;
-    title: string;
-    description: string | null;
-    status: string;
-    goal: { id: string; title: string; description: string } | null;
-    items: Array<{ type: string; id: string; status: string; summary: string }>;
-    parent: { id: string; title: string; description: string | null; itemCount: number } | null;
-  }>;
   delegationSource?: {
     id: string;
     instruction: string;

@@ -109,7 +109,6 @@ model Operator {
   personalAutonomies   PersonalAutonomy[]
   initiatives          Initiative[]
   executionPlans       ExecutionPlan[]
-  workStreams          WorkStream[]
   followUps            FollowUp[]
   planAutonomies       PlanAutonomy[]
   operationalInsights  OperationalInsight[]
@@ -1018,40 +1017,6 @@ model ExecutionStep {
 
   @@unique([planId, sequenceOrder])
   @@index([planId, status])
-}
-
-model WorkStream {
-  id                     String    @id @default(cuid())
-  operatorId             String
-  title                  String
-  description            String?
-  ownerAiEntityId        String?
-  status                 String    @default("active") // active, completed, paused, abandoned
-  parentWorkStreamId     String?
-  lastReassessmentAt     DateTime?
-  lastReassessmentResult String? // JSON
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-  completedAt            DateTime?
-
-  operator         Operator         @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  parentWorkStream WorkStream?      @relation("WorkStreamChildren", fields: [parentWorkStreamId], references: [id])
-  children         WorkStream[]     @relation("WorkStreamChildren")
-  items            WorkStreamItem[]
-
-  @@index([operatorId, status])
-}
-
-model WorkStreamItem {
-  id           String   @id @default(cuid())
-  workStreamId String
-  itemType     String // "situation" | "initiative"
-  itemId       String
-  addedAt      DateTime @default(now())
-
-  workStream WorkStream @relation(fields: [workStreamId], references: [id], onDelete: Cascade)
-
-  @@unique([workStreamId, itemType, itemId])
 }
 
 model FollowUp {

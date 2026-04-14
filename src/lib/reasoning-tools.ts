@@ -186,21 +186,6 @@ export const REASONING_TOOLS: AITool[] = [
     },
   },
   {
-    name: "get_workstream_context",
-    description:
-      "Load workstream context from wiki. Returns project pages and their cross-references.",
-    parameters: {
-      type: "object",
-      properties: {
-        slug: {
-          type: "string",
-          description: "Optional: wiki page slug of a specific project to get context for",
-        },
-      },
-      required: [],
-    },
-  },
-  {
     name: "read_wiki_page",
     description:
       "Read a knowledge page. Pages contain synthesized intelligence — company-specific context (operator) or practitioner reference material (system). Pages contain cross-reference links written as [[page-slug]] — follow relevant links to navigate to related methodology guides, frameworks, and worked examples.",
@@ -346,7 +331,6 @@ export async function executeReasoningTool(
       case "get_department_context": return capResult(await executeGetDomainContext(operatorId, args));
       case "get_org_structure": return capResult(await executeGetOrgStructure(operatorId));
       case "get_available_actions": return capResult(await executeGetAvailableActions(operatorId, args));
-      case "get_workstream_context": return capResult(await executeGetWorkstreamContext(operatorId, args));
       case "read_wiki_page": return capResult(await executeReadWikiPage(operatorId, args));
       case "search_wiki": return capResult(await executeSearchWiki(operatorId, args));
       case "search_evidence": return capResult(await executeSearchEvidence(operatorId, args));
@@ -667,50 +651,6 @@ async function executeGetAvailableActions(
   }
 
   return lines.join("\n");
-}
-
-async function executeGetWorkstreamContext(
-  operatorId: string,
-  args: Record<string, unknown>,
-): Promise<string> {
-  const slug = args.slug ? String(args.slug) : undefined;
-
-  if (slug) {
-    const page = await prisma.knowledgePage.findFirst({
-      where: { operatorId, slug, scope: "operator", pageType: "project" },
-      select: { slug: true, title: true, content: true, crossReferences: true },
-    });
-    if (!page) return `Project "${slug}" not found in wiki.`;
-
-    let result = `# ${page.title} ([[${page.slug}]])\n\n${page.content}`;
-
-    if (page.crossReferences.length > 0) {
-      const linked = await prisma.knowledgePage.findMany({
-        where: { operatorId, slug: { in: page.crossReferences }, scope: "operator" },
-        select: { slug: true, title: true, pageType: true, content: true },
-      });
-      if (linked.length > 0) {
-        result += "\n\n---\n\n## Related Pages:\n" +
-          linked.map(p => `- [[${p.slug}]] "${p.title}" [${p.pageType}]\n  ${p.content.slice(0, 150).replace(/\n/g, " ")}...`).join("\n\n");
-      }
-    }
-
-    return result;
-  }
-
-  const projects = await prisma.knowledgePage.findMany({
-    where: { operatorId, scope: "operator", pageType: "project" },
-    select: { slug: true, title: true, content: true },
-    orderBy: { updatedAt: "desc" },
-    take: 20,
-  });
-
-  if (projects.length === 0) return "No project pages found in wiki.";
-
-  return projects.map(p => {
-    const preview = p.content.slice(0, 300).replace(/\n/g, " ");
-    return `## ${p.title} ([[${p.slug}]])\n${preview}...`;
-  }).join("\n\n---\n\n");
 }
 
 // ── Group D: Wiki Tools ───────────────────────────────────────────────────

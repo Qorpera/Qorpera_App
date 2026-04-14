@@ -93,7 +93,6 @@ const ReasoningOutputBase = z.object({
   escalation: EscalationSchema.nullable().optional(),  // null/absent = no escalation
   resolutionType: z.enum(["self_resolving", "response_dependent", "informational"]).optional(),
   monitoringCriteria: MonitoringCriteriaSchema.nullable().optional(),
-  relatedWorkStreamId: z.string().nullable().optional(),  // link situation to existing workstream
   wikiUpdates: z.array(WikiUpdateSchema).optional(),
   depthUpgrade: z.boolean().optional(), // request upgrade from standard → thorough
 });

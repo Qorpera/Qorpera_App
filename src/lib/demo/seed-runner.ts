@@ -5,7 +5,7 @@
 import { prisma } from "@/lib/db";
 import { hashPassword, createSession } from "@/lib/auth";
 import { encryptConfig } from "@/lib/config-encryption";
-import { ensureHardcodedEntityType } from "@/lib/event-materializer";
+import { ensureHardcodedEntityType } from "@/lib/entity-type-bootstrap";
 import { ensureHqAi, ensureDepartmentAi, seedNotificationPreferences } from "@/lib/ai-entity-helpers";
 import { embedChunks } from "@/lib/rag/embedder";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
@@ -34,7 +34,7 @@ import {
 import { CONTENT_CHUNKS, generateActivitySignals } from "./seed-content";
 import { SITUATION_TYPE_UPDATES, SITUATIONS, ACTION_CAPABILITIES } from "./seed-situations";
 import {
-  INITIATIVES, WORKSTREAMS, OPERATIONAL_INSIGHTS,
+  INITIATIVES, OPERATIONAL_INSIGHTS,
   PLAN_AUTONOMY_PATTERNS, FOLLOW_UPS,
   NOTIFICATIONS, COPILOT_SESSIONS,
 } from "./seed-phase3";
@@ -62,8 +62,6 @@ async function cleanupOperator(operatorId: string): Promise<void> {
 
   // Phase 3 models
   await prisma.followUp.deleteMany({ where: { operatorId } });
-  await prisma.workStreamItem.deleteMany({ where: { workStream: { operatorId } } });
-  await prisma.workStream.deleteMany({ where: { operatorId } });
   await prisma.executionStep.deleteMany({ where: { plan: { operatorId } } });
   await prisma.executionPlan.deleteMany({ where: { operatorId } });
   await prisma.initiative.deleteMany({ where: { operatorId } });
@@ -996,7 +994,7 @@ export async function runDemoSeed(operatorId: string) {
   console.log(`[demo-seed] Created ${situationCount} situations`);
 
   // ═══════════════════════════════════════════════════════════════════
-  // Prompt 4 layers: Initiatives, WorkStreams, Insights, etc.
+  // Prompt 4 layers: Initiatives, Insights, etc.
   // ═══════════════════════════════════════════════════════════════════
 
   // ─── P4 Layer 1: Initiatives ──────────────────────────────────────
@@ -1063,36 +1061,7 @@ export async function runDemoSeed(operatorId: string) {
     }
   }
 
-  // ─── P4 Layer 2: WorkStreams (Projects) ───────────────────────────
-  console.log("[demo-seed] Creating work streams...");
-  for (const ws of WORKSTREAMS) {
-    const parent = await prisma.workStream.create({
-      data: {
-        operatorId,
-        title: ws.title,
-        description: ws.description,
-        status: ws.status,
-        createdAt: daysAgo(ws.daysAgoCreated),
-        completedAt: ws.completedAt ? daysAgo(ws.completedAt) : null,
-      },
-    });
-
-    for (const child of ws.children) {
-      await prisma.workStream.create({
-        data: {
-          operatorId,
-          parentWorkStreamId: parent.id,
-          title: child.title,
-          description: "",
-          status: child.status,
-          completedAt: child.completedDaysAgo ? daysAgo(child.completedDaysAgo) : null,
-          createdAt: daysAgo(ws.daysAgoCreated),
-        },
-      });
-    }
-  }
-
-  // ─── P4 Layer 3: Operational Insights ─────────────────────────────
+  // ─── P4 Layer 2: Operational Insights ─────────────────────────────
   console.log("[demo-seed] Creating operational insights...");
   for (const ins of OPERATIONAL_INSIGHTS) {
     const aiEntityId = ins.aiEntityType === "hq"
@@ -1251,7 +1220,6 @@ export async function runDemoSeed(operatorId: string) {
       actionCapabilities: ACTION_CAPABILITIES.length,
       situations: situationCount,
       initiatives: INITIATIVES.length,
-      workStreams: WORKSTREAMS.length,
       insights: OPERATIONAL_INSIGHTS.length,
       planPatterns: PLAN_AUTONOMY_PATTERNS.length,
       followUps: FOLLOW_UPS.length,

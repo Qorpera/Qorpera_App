@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db";
-import { getWorkStreamContext } from "@/lib/workstreams";
 import type { OperatorSnapshot, DomainSnapshot } from "@/lib/system-health/compute-snapshot";
 
 // ── Situation Context ────────────────────────────────────────────────────────
@@ -117,29 +116,6 @@ export async function loadSituationContext(
     }
   }
 
-  // WorkStream membership
-  let wsSection = "";
-  const wsItem = await prisma.workStreamItem.findFirst({
-    where: { itemType: "situation", itemId: situationId, workStream: { operatorId } },
-    select: {
-      workStream: {
-        select: {
-          title: true,
-          items: {
-            select: { itemType: true, itemId: true },
-            take: 10,
-          },
-        },
-      },
-    },
-  });
-  if (wsItem) {
-    const otherItems = wsItem.workStream.items
-      .filter(i => !(i.itemType === "situation" && i.itemId === situationId))
-      .length;
-    wsSection = `\nRelated Project: ${wsItem.workStream.title} (${otherItems} other items)`;
-  }
-
   return [
     "SITUATION CONTEXT:",
     `Status: ${situation.status} | Severity: ${situation.severity.toFixed(1)} | Detected: ${situation.createdAt.toISOString().split("T")[0]}`,
@@ -148,7 +124,6 @@ export async function loadSituationContext(
     analysisSection,
     actionSection,
     planSection,
-    wsSection,
   ].filter(Boolean).join("\n");
 }
 
@@ -202,16 +177,6 @@ export async function loadInitiativeContext(
     ? `\nImpact Assessment:\n${initiative.impactAssessment}`
     : "";
 
-  // WorkStream membership
-  let wsSection = "";
-  const wsItem = await prisma.workStreamItem.findFirst({
-    where: { itemType: "initiative", itemId: initiativeId, workStream: { operatorId } },
-    select: { workStream: { select: { title: true } } },
-  });
-  if (wsItem) {
-    wsSection = `\nRelated Project: ${wsItem.workStream.title}`;
-  }
-
   return [
     "INITIATIVE CONTEXT:",
     `Status: ${initiative.status} | Created: ${initiative.createdAt.toISOString().split("T")[0]}`,
@@ -220,44 +185,6 @@ export async function loadInitiativeContext(
     initiative.proposalType ? `Type: ${initiative.proposalType}` : "",
     rationaleSection,
     impactSection,
-    wsSection,
-  ].filter(Boolean).join("\n");
-}
-
-// ── WorkStream Context ───────────────────────────────────────────────────────
-
-export async function loadWorkStreamContext(
-  workStreamId: string,
-  operatorId: string,
-): Promise<string | null> {
-  // Verify operator ownership
-  const ws = await prisma.workStream.findFirst({
-    where: { id: workStreamId, operatorId },
-    select: { id: true },
-  });
-  if (!ws) return null;
-
-  const ctx = await getWorkStreamContext(workStreamId);
-  if (!ctx) return null;
-
-  const itemLines = ctx.items.map(item => {
-    const icon = item.type === "situation" ? "📋" : "💡";
-    return `  ${icon} ${item.summary.slice(0, 150)} (${item.status})`;
-  }).join("\n");
-
-  // Load child count
-  const childCount = await prisma.workStream.count({
-    where: { parentWorkStreamId: workStreamId, operatorId },
-  });
-
-  return [
-    "PROJECT CONTEXT:",
-    `Title: ${ctx.title}`,
-    `Status: ${ctx.status}`,
-    ctx.description ? `Description: ${ctx.description}` : null,
-    itemLines ? `\nItems:\n${itemLines}` : "\nItems: none",
-    ctx.parent ? `\nParent project: ${ctx.parent.title}` : null,
-    childCount > 0 ? `Sub-projects: ${childCount}` : null,
   ].filter(Boolean).join("\n");
 }
 
@@ -421,8 +348,6 @@ export async function loadContextForCopilot(
       return loadSituationContext(contextId, operatorId);
     case "initiative":
       return loadInitiativeContext(contextId, operatorId);
-    case "workstream":
-      return loadWorkStreamContext(contextId, operatorId);
     case "system_jobs":
       return loadSystemJobsContext(operatorId);
     default:
@@ -438,8 +363,6 @@ export function getContextRoleInstruction(contextType: string): string {
       return "You are advising on this specific situation. You have full context about the AI's analysis, the proposed action plan, and the current execution status. Help the user understand the situation, evaluate the AI's reasoning, discuss alternatives, or take action. If the user wants to approve or modify the plan, guide them through the options.";
     case "initiative":
       return "You are advising on this specific initiative proposed by the department AI. You have full context about the rationale and the execution plan. Help the user evaluate whether this initiative makes sense, discuss the approach, or understand the expected impact.";
-    case "workstream":
-      return "You are advising on this project. You have full context about all the items grouped in this work stream and their current statuses. Help the user understand project progress, identify blockers, or plan next steps.";
     case "system-health":
       return "The user is viewing the System Health page. Help them understand and resolve any issues shown. When suggesting fixes, provide specific navigation paths (e.g., \"Go to Settings → Connections to reconnect Gmail\"). If a department has no issues, say so briefly. Focus on actionable advice — what specifically should the user do next to improve their system health.";
     case "system_jobs":

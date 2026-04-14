@@ -187,50 +187,7 @@ async function computeScoreInternal(planId: string): Promise<ScoredPlan> {
   }
 
   // ── Dependencies (weight: 0.20) ────────────────────────────────────────
-  let dependencies = 20; // default for no workstream, single-step
-  if (plan.sourceType === "situation" || plan.sourceType === "initiative") {
-    const workStreamItems = await prisma.workStreamItem.findMany({
-      where: { itemType: plan.sourceType, itemId: plan.sourceId },
-      select: { workStreamId: true },
-    });
-    if (workStreamItems.length > 0) {
-      // Count other non-terminal items in same workstream(s)
-      const wsIds = workStreamItems.map((w) => w.workStreamId);
-      const siblingItems = await prisma.workStreamItem.findMany({
-        where: {
-          workStreamId: { in: wsIds },
-          NOT: { itemType: plan.sourceType, itemId: plan.sourceId },
-        },
-        select: { itemType: true, itemId: true },
-      });
-
-      // Check how many siblings are still active (non-terminal)
-      let blockedCount = 0;
-      for (const item of siblingItems) {
-        if (item.itemType === "situation") {
-          const sit = await prisma.situation.findUnique({
-            where: { id: item.itemId },
-            select: { status: true },
-          });
-          if (sit && !["resolved", "closed"].includes(sit.status)) {
-            blockedCount++;
-          }
-        } else if (item.itemType === "initiative") {
-          const init = await prisma.initiative.findUnique({
-            where: { id: item.itemId },
-            select: { status: true },
-          });
-          if (init && !["completed", "rejected", "failed"].includes(init.status)) {
-            blockedCount++;
-          }
-        }
-      }
-
-      if (blockedCount > 0) {
-        dependencies = Math.min(100, 30 + blockedCount * 15);
-      }
-    }
-  }
+  let dependencies = 20;
 
   // Gateway step bonus
   if (plan.currentStepOrder === 1 && plan.steps.length > 1) {

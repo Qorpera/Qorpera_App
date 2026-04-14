@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { storeRawContent } from "@/lib/storage/raw-content-store";
-import { detectSituations } from "@/lib/situation-detector";
 import {
   evaluateContentForSituations,
   isEligibleCommunication,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
-import {
-  runIdentityResolution,
-  updateEntityEmbedding,
-} from "@/lib/identity-resolution";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -29,8 +24,6 @@ type LayerResult = {
 const ALL_LAYERS = [
   "content-pipeline",
   "activity-signals",
-  "identity-resolution",
-  "situation-detection",
   "content-detection",
   "context-assembly",
   "reasoning-single",
@@ -40,7 +33,6 @@ const ALL_LAYERS = [
 ] as const;
 
 const LAYER_TIMEOUT_MS = 30_000;
-const DETECTION_TIMEOUT_MS = 90_000;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -120,17 +112,11 @@ export async function POST(req: NextRequest) {
     const contactEmail = contactEntity.propertyValues[0]?.value ?? "client@example.com";
     const personEmail = personEntity.propertyValues[0]?.value ?? "team@company.com";
 
-    const existingSitTypes = await prisma.situationType.findMany({
-      where: { operatorId, enabled: true },
-      select: { id: true, slug: true, detectionLogic: true },
-    });
-
     // Track test data for cleanup
     const createdContentChunkSourceIds: string[] = [];
     const createdActivitySignalIds: string[] = [];
     const createdEntityIds: string[] = [];
     const createdPolicyIds: string[] = [];
-    const createdMergeLogIds: string[] = [];
     let contentChunkIds: string[] = [];
     let situationIds: string[] = [];
     let assembledContext: unknown = null;
@@ -263,198 +249,7 @@ export async function POST(req: NextRequest) {
       layers.push({ name: "activity-signals", status, duration_ms: Date.now() - start, assertions, data });
     }
 
-    // ── Layer 3: identity-resolution ─────────────────────────────────────
-
-    if (shouldRun("identity-resolution")) {
-      const start = Date.now();
-      const assertions: Assertion[] = [];
-      let status: "passed" | "failed" = "passed";
-      const data: Record<string, unknown> = {};
-
-      try {
-        await withTimeout(async () => {
-          // Find contact entity type for creating test entities
-          const contactType = await prisma.entityType.findFirst({
-            where: { operatorId, slug: "contact" },
-            select: { id: true },
-          });
-          if (!contactType) {
-            assert(assertions, "Contact entity type exists", false, "No 'contact' entity type found");
-            return;
-          }
-
-          // Find email property
-          const emailProp = await prisma.entityProperty.findFirst({
-            where: { entityType: { operatorId, slug: "contact" }, identityRole: "email" },
-            select: { id: true },
-          });
-
-          // Create 2 overlapping entities
-          const testEmail = `test-${testRunId}@example.com`;
-
-          const entity1 = await prisma.entity.create({
-            data: {
-              operatorId,
-              entityTypeId: contactType.id,
-              displayName: `Test Contact A (${testRunId})`,
-              category: "external",
-              sourceSystem: "hubspot",
-              metadata: JSON.stringify({ _testRunId: testRunId }),
-            },
-          });
-          createdEntityIds.push(entity1.id);
-
-          const entity2 = await prisma.entity.create({
-            data: {
-              operatorId,
-              entityTypeId: contactType.id,
-              displayName: `Test Contact A (${testRunId})`,
-              category: "external",
-              sourceSystem: "stripe",
-              metadata: JSON.stringify({ _testRunId: testRunId }),
-            },
-          });
-          createdEntityIds.push(entity2.id);
-
-          // Set overlapping email property
-          if (emailProp) {
-            await prisma.propertyValue.createMany({
-              data: [
-                { entityId: entity1.id, propertyId: emailProp.id, value: testEmail },
-                { entityId: entity2.id, propertyId: emailProp.id, value: testEmail },
-              ],
-            });
-          }
-
-          // Update embeddings
-          try {
-            await updateEntityEmbedding(entity1.id);
-            await updateEntityEmbedding(entity2.id);
-          } catch {
-            // Non-fatal — embeddings may fail if no API key
-          }
-
-          // Run identity resolution scoped to these entities
-          const result = await runIdentityResolution(operatorId, [entity1.id, entity2.id]);
-          assert(assertions, "Identity resolution completed without error", true);
-
-          // Check results
-          const mergedEntity = await prisma.entity.findUnique({
-            where: { id: entity2.id },
-            select: { status: true, mergedIntoId: true },
-          });
-
-          const wasMerged = mergedEntity?.status === "merged";
-          const hasSuggestion = result.suggested > 0;
-
-          assert(
-            assertions,
-            "Pipeline found the match (merge or suggestion)",
-            wasMerged || hasSuggestion || result.autoMerged > 0,
-            wasMerged
-              ? `auto-merged`
-              : hasSuggestion
-                ? `suggestion created (${result.suggested})`
-                : `autoMerged=${result.autoMerged}, suggested=${result.suggested}`,
-          );
-
-          data.autoMerged = result.autoMerged;
-          data.suggested = result.suggested;
-          data.testEntityIds = [entity1.id, entity2.id];
-        }, LAYER_TIMEOUT_MS);
-      } catch (err) {
-        status = "failed";
-        assert(assertions, "Layer completed without error", false, err instanceof Error ? err.message : String(err));
-      }
-
-      if (assertions.some((a) => !a.passed)) status = "failed";
-      layers.push({ name: "identity-resolution", status, duration_ms: Date.now() - start, assertions, data });
-    }
-
-    // ── Layer 4: situation-detection ─────────────────────────────────────
-
-    if (shouldRun("situation-detection")) {
-      const start = Date.now();
-      const assertions: Assertion[] = [];
-      let status: "passed" | "failed" | "skipped" = "passed";
-      const data: Record<string, unknown> = {};
-
-      const structuredTypes = existingSitTypes.filter((t) => {
-        try {
-          const dl = JSON.parse(t.detectionLogic);
-          return dl.mode === "structured" || dl.mode === "natural" || dl.mode === "hybrid";
-        } catch {
-          return false;
-        }
-      });
-
-      if (structuredTypes.length === 0) {
-        status = "skipped";
-        layers.push({
-          name: "situation-detection",
-          status,
-          duration_ms: Date.now() - start,
-          reason: "skipped — no SituationTypes with structured/natural detection",
-          assertions: [],
-        });
-      } else {
-        try {
-          await withTimeout(async () => {
-            const results = await detectSituations(operatorId);
-            assert(assertions, "Detection completed without error", true);
-
-            if (results.length > 0) {
-              for (const r of results) {
-                if (r.situationId) situationIds.push(r.situationId);
-              }
-              const validResults = results.filter((r) => r.situationId && r.entityId && r.situationTypeId);
-              assert(
-                assertions,
-                "Created situations have valid fields",
-                validResults.length === results.length,
-                `${validResults.length}/${results.length} valid`,
-              );
-              data.situationsCreated = results.length;
-              data.situationIds = results.map((r) => r.situationId);
-            } else {
-              // No situations — validate detection logic format
-              const formatIssues: string[] = [];
-              for (const st of structuredTypes) {
-                try {
-                  const dl = JSON.parse(st.detectionLogic);
-                  if (dl.mode === "structured" && !dl.structured?.entityType) {
-                    formatIssues.push(`${st.slug}: structured mode missing entityType`);
-                  }
-                  if (dl.mode === "structured" && !dl.structured?.signals?.length) {
-                    formatIssues.push(`${st.slug}: structured mode missing signals`);
-                  }
-                } catch {
-                  formatIssues.push(`${st.slug}: unparseable detectionLogic`);
-                }
-              }
-              assert(
-                assertions,
-                "Detection logic formats are valid",
-                formatIssues.length === 0,
-                formatIssues.length > 0
-                  ? `Format issues: ${formatIssues.join("; ")}`
-                  : "All formats valid — no matching entities found (expected if operator lacks matching data)",
-              );
-              data.situationsCreated = 0;
-              data.detectionLogicValid = formatIssues.length === 0;
-            }
-          }, DETECTION_TIMEOUT_MS);
-        } catch (err) {
-          status = "failed";
-          assert(assertions, "Layer completed without error", false, err instanceof Error ? err.message : String(err));
-        }
-
-        if (assertions.some((a) => !a.passed)) status = "failed";
-        layers.push({ name: "situation-detection", status, duration_ms: Date.now() - start, assertions, data });
-      }
-    }
-
-    // ── Layer 5: content-detection ───────────────────────────────────────
+    // ── Layer 3: content-detection ───────────────────────────────────────
 
     if (shouldRun("content-detection")) {
       const start = Date.now();

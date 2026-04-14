@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { runAgenticLoop } from "@/lib/agentic-loop";
 import { loadOperationalInsights } from "@/lib/context-assembly";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
-import { buildAgenticSystemPrompt, buildWikiFirstSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
+import { buildSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
@@ -287,12 +287,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
     // 5e. Delegation source — removed (Delegation model dropped in v0.3.17)
     const delegationSource: { instruction: string; context: unknown; fromEntityName: string | null } | null = null;
 
-    // 5f. Load workstream membership
-    const workstreamItems = await prisma.workStreamItem.findMany({
-      where: { itemType: "situation", itemId: situationId },
-      select: { workStreamId: true },
-    });
-
     // 6. Load connector capabilities for seed context
     const PROVIDER_TYPES: Record<string, string[]> = {
       google: ["gmail", "google_drive", "google_calendar", "google_sheets"],
@@ -435,9 +429,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
     const outputSchema = (isWikiFirst
       ? WikiReasoningOutputSchema
       : (depth === "thorough" ? DeepReasoningOutputSchema : ReasoningOutputSchema)) as any;
-    const systemPrompt = isWikiFirst
-      ? buildWikiFirstSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, depth)
-      : buildAgenticSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, depth);
+    const systemPrompt = buildSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, depth);
 
     const seedInput: AgenticSeedInput = {
       situationType: { name: situation.situationType.name, description: situation.situationType.description },
@@ -453,7 +445,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       operationalInsights,
       actionCycles,
       delegationSource,
-      workstreamCount: workstreamItems.length,
       connectorCapabilities,
       wikiPages,
       evidenceClaims,
@@ -946,13 +937,6 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       }
     }
 
-    // Workstream absorption: link situation to related workstream
-    if (reasoning.relatedWorkStreamId) {
-      absorbSituationIntoWorkStream(situationId, reasoning.relatedWorkStreamId, situation.operatorId).catch(err =>
-        console.error(`[reasoning-engine] Workstream absorption failed for ${situationId}:`, err),
-      );
-    }
-
     // For autonomous: auto-advance the first step
     if (resolvedSteps && effectiveAutonomy === "autonomous") {
       const plan = await prisma.executionPlan.findFirst({
@@ -1152,27 +1136,6 @@ async function checkPlanAutonomyAutoApprove(
   } catch (err) {
     console.error(`[reasoning-engine] Plan autonomy auto-approve failed for ${situationId}:`, err);
   }
-}
-
-// ── Workstream Absorption ──────────────────────────────────────────────────
-
-async function absorbSituationIntoWorkStream(
-  situationId: string,
-  workStreamId: string,
-  operatorId: string,
-): Promise<void> {
-  // Verify workstream exists and belongs to operator
-  const ws = await prisma.workStream.findFirst({
-    where: { id: workStreamId, operatorId },
-    select: { id: true },
-  });
-  if (!ws) return;
-
-  await prisma.workStreamItem.upsert({
-    where: { workStreamId_itemType_itemId: { workStreamId, itemType: "situation", itemId: situationId } },
-    create: { workStreamId, itemType: "situation", itemId: situationId },
-    update: {},
-  });
 }
 
 // ── Cycle Record Creation ───────────────────────────────────────────────────

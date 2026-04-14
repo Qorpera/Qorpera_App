@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { encryptConfig } from "@/lib/config-encryption";
-import { ensureHardcodedEntityType } from "@/lib/event-materializer";
+import { ensureHardcodedEntityType } from "@/lib/entity-type-bootstrap";
 import { embedChunks } from "@/lib/rag/embedder";
 import { seedNotificationPreferences } from "@/lib/ai-entity-helpers";
 import type { SyntheticCompany } from "./synthetic-types";
@@ -521,7 +521,6 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     await tx.$executeRaw`DELETE FROM "SituationEvent" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "SituationView" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "ExecutionStep" WHERE "planId" IN (SELECT id FROM "ExecutionPlan" WHERE "operatorId" = ${operatorId})`;
-    await tx.$executeRaw`DELETE FROM "WorkStreamItem" WHERE "workStreamId" IN (SELECT id FROM "WorkStream" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "Relationship" WHERE "fromEntityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId}) OR "toEntityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "PropertyValue" WHERE "entityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId})`;
 
@@ -573,7 +572,6 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     await tx.$executeRaw`DELETE FROM "Invite" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "SystemJob" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "SystemJobRun" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "WorkStream" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Delegation" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Notification" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "AppSetting" WHERE "operatorId" = ${operatorId}`;

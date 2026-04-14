@@ -6,7 +6,6 @@ import { resumeAfterSituationResolution } from "@/lib/execution-engine";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { handleMeetingRequestResolution } from "@/lib/meeting-coordination";
 import { getVisibleDomainIds, getVisibleDomainSlugs } from "@/lib/domain-scope";
-import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { parseSituationPage } from "@/lib/situation-page-parser";
 import { parseActionPlan, appendTimelineEntry, deriveActionPlanStatus } from "@/lib/wiki-execution-engine";
 import type { SituationProperties } from "@/lib/situation-wiki-helpers";
@@ -501,17 +500,6 @@ function firePatchSideEffects(
   situation: { assignedUserId: string | null; reasoning: string | null; proposedAction: string | null; editInstruction: string | null; situationType: { slug: string } | null } | null,
 ) {
   const status = body.status as string | undefined;
-
-  if (status) {
-    prisma.workStreamItem.findMany({
-      where: { itemType: "situation", itemId: id },
-      select: { workStreamId: true },
-    }).then(items => {
-      for (const item of items) {
-        recheckWorkStreamStatus(item.workStreamId).catch(console.error);
-      }
-    }).catch(console.error);
-  }
 
   if (status === "resolved") {
     checkInsightExtractionTrigger(operatorId, situation?.assignedUserId ?? null).catch(console.error);

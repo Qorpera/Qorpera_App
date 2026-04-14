@@ -3,7 +3,6 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { recheckWorkStreamStatus } from "@/lib/workstreams";
 import { createProjectFromInitiative } from "@/lib/initiative-project";
 
 export async function GET(
@@ -89,7 +88,6 @@ export async function PATCH(
       sourceId: id,
     }).catch(() => {});
 
-    triggerInitiativeWorkStreamRecheck(id);
     return NextResponse.json({ id, status: "rejected" });
   }
 
@@ -114,7 +112,7 @@ export async function PATCH(
       } catch (err) {
         console.error("[initiative-api] Failed to create project:", err);
       }
-      triggerInitiativeWorkStreamRecheck(id);
+
       return NextResponse.json({ id, status: "completed", projectId });
     }
 
@@ -190,25 +188,14 @@ export async function PATCH(
       } catch (err) {
         console.error("[initiative-api] Failed to graduate autonomy:", err);
       }
-      triggerInitiativeWorkStreamRecheck(id);
+
       return NextResponse.json({ id, status: "completed" });
     }
 
     default: {
       await prisma.initiative.update({ where: { id }, data: { status: "approved" } });
-      triggerInitiativeWorkStreamRecheck(id);
+
       return NextResponse.json({ id, status: "approved" });
     }
   }
-}
-
-function triggerInitiativeWorkStreamRecheck(initiativeId: string) {
-  prisma.workStreamItem.findMany({
-    where: { itemType: "initiative", itemId: initiativeId },
-    select: { workStreamId: true },
-  }).then(items => {
-    for (const item of items) {
-      recheckWorkStreamStatus(item.workStreamId).catch(console.error);
-    }
-  }).catch(console.error);
 }

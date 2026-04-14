@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Phase 3 seed data — Goals, Initiatives, Workstreams, Insights, Patterns,
+// Phase 3 seed data — Goals, Initiatives, Insights, Patterns,
 // Recurring Tasks, Follow-ups, Notifications, Copilot Sessions, Delegations.
 // Pure data — no database operations.
 // ---------------------------------------------------------------------------
@@ -236,58 +236,7 @@ export const INITIATIVES: InitiativeDef[] = [
   },
 ];
 
-// ── 3. Workstreams ────────────────────────────────────────────────────────
-
-export type WorkStreamDef = {
-  title: string;
-  description: string;
-  department: string;
-  status: string;
-  daysAgoCreated: number;
-  completedAt?: number;
-  children: Array<{
-    title: string;
-    status: string;
-    completedDaysAgo?: number;
-  }>;
-};
-
-export const WORKSTREAMS: WorkStreamDef[] = [
-  {
-    title: "Dansk Energi Website Redesign",
-    description:
-      "Fuldt redesign af Dansk Energi Partners' hjemmeside inkl. ny informationsarkitektur, responsivt design, CMS-migration og performance-optimering.",
-    department: "Levering",
-    status: "active",
-    daysAgoCreated: 60,
-    children: [
-      { title: "Discovery & kravspecifikation", status: "completed", completedDaysAgo: 50 },
-      { title: "Informationsarkitektur & wireframes", status: "completed", completedDaysAgo: 42 },
-      { title: "Visuelt design & prototyping", status: "completed", completedDaysAgo: 30 },
-      { title: "Frontend-udvikling", status: "completed", completedDaysAgo: 14 },
-      { title: "CMS-migration & indholdsoverførsel", status: "active" },
-      { title: "QA & brugertest", status: "active" },
-      { title: "Go-live & performance-optimering", status: "active" },
-    ],
-  },
-  {
-    title: "Bygholm Digital Transformation Proposal",
-    description:
-      "Udarbejdelse af et omfattende tilbud til Bygholm Consulting for digital transformation inkl. procesautomatisering, CRM-implementering og medarbejderuddannelse.",
-    department: "Salg",
-    status: "active",
-    daysAgoCreated: 21,
-    children: [
-      { title: "Indledende behovsanalyse", status: "completed", completedDaysAgo: 18 },
-      { title: "Konkurrentanalyse & benchmarking", status: "completed", completedDaysAgo: 14 },
-      { title: "Løsningsdesign & teknisk arkitektur", status: "completed", completedDaysAgo: 7 },
-      { title: "Prisberegning & ROI-estimat", status: "active" },
-      { title: "Tilbudspræsentation & kundemøde", status: "active" },
-    ],
-  },
-];
-
-// ── 4. Operational Insights ───────────────────────────────────────────────
+// ── 3. Operational Insights ───────────────────────────────────────────────
 
 export type InsightDef = {
   aiEntityType: "dept" | "hq";
@@ -764,7 +713,7 @@ export const NOTIFICATIONS: NotificationDef[] = [
   {
     title: "Bygholm tilbud klar til review",
     body: "Prisberegning og ROI-estimat for Bygholm Digital Transformation er færdigt og klar til gennemgang inden kundemødet.",
-    sourceType: "workstream",
+    sourceType: "project",
     read: false,
     hoursAgo: 8,
   },
@@ -786,7 +735,7 @@ export const NOTIFICATIONS: NotificationDef[] = [
   {
     title: "Dansk Energi website milestone",
     body: "Frontend-udviklingen for Dansk Energi Website Redesign er afsluttet. CMS-migration er næste trin.",
-    sourceType: "workstream",
+    sourceType: "project",
     read: true,
     hoursAgo: 36,
   },
@@ -807,7 +756,7 @@ export const NOTIFICATIONS: NotificationDef[] = [
   {
     title: "GreenTech onboarding fuldført",
     body: "Alle onboarding-trin for GreenTech Nordic er gennemført. Anna Grøn har bekræftet modtagelse af velkomstmateriale.",
-    sourceType: "workstream",
+    sourceType: "project",
     read: true,
     hoursAgo: 96,
   },

@@ -1,8 +1,5 @@
 import { prisma } from "@/lib/db";
 import { reasonAboutSituation } from "@/lib/reasoning-engine";
-import { reassessWorkStream } from "@/lib/workstream-reassessment";
-import { advanceStep } from "@/lib/execution-engine";
-import { detectSituations } from "@/lib/situation-detector";
 import { evaluateContentForSituations, isEligibleCommunication, type CommunicationItem } from "@/lib/content-situation-detector";
 import { generatePreFilter } from "@/lib/situation-prefilter";
 
@@ -14,23 +11,10 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     await reasonAboutSituation(situationId, wikiPageSlug);
   },
 
-  async reassess_workstream(payload) {
-    const { workStreamId, completedSourceId, completedSourceType } = payload as {
-      workStreamId: string;
-      completedSourceId: string;
-      completedSourceType: string;
-    };
-    await reassessWorkStream(workStreamId, completedSourceId, completedSourceType);
-  },
-
   async advance_step(payload) {
     const { stepId, action, userId } = payload as { stepId: string; action: "approve" | "reject" | "skip"; userId: string };
+    const { advanceStep } = await import("@/lib/execution-engine");
     await advanceStep(stepId, action, userId);
-  },
-
-  async detect_situations(payload) {
-    const { operatorId } = payload as { operatorId: string };
-    await detectSituations(operatorId);
   },
 
   async evaluate_content(payload) {

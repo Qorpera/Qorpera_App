@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { detectSituations } from "@/lib/situation-detector";
 import {
   evaluateContentForSituations,
   isEligibleCommunication,
   type CommunicationItem,
 } from "@/lib/content-situation-detector";
 import { evaluateActionPolicies, getEffectiveAutonomy } from "@/lib/policy-evaluator";
-import { runIdentityResolution, runDeterministicMerges } from "@/lib/identity-resolution";
 import { requireSuperadmin, getOperatorIdFromBody, AuthError, formatTimestamp } from "@/lib/test-harness-helpers";
 
 export async function POST(req: NextRequest) {
@@ -22,29 +20,6 @@ export async function POST(req: NextRequest) {
     }
 
     switch (pipeline) {
-      // ── Detection ───────────────────────────────────────────────────────
-      case "detection": {
-        const before = await prisma.situation.count({ where: { operatorId } });
-        const results = await detectSituations(operatorId);
-        const after = await prisma.situation.count({ where: { operatorId } });
-
-        return NextResponse.json({
-          pipeline: "detection",
-          operatorId,
-          situationsCreatedCount: after - before,
-          detectionResults: results.map((r) => ({
-            situationId: r.situationId,
-            situationTypeId: r.situationTypeId,
-            situationTypeName: r.situationTypeName,
-            entityId: r.entityId,
-            entityDisplayName: r.entityDisplayName,
-            confidence: r.confidence,
-            detectedBy: r.detectedBy,
-          })),
-          timestamp: formatTimestamp(new Date()),
-        });
-      }
-
       // ── Content Detection ───────────────────────────────────────────────
       case "content-detection": {
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
@@ -237,32 +212,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // ── Identity Resolution ─────────────────────────────────────────────
-      case "identity-resolution": {
-        const entityIds = params?.entityIds as string[] | undefined;
-
-        // Phase 1: deterministic
-        const deterministicResult = await runDeterministicMerges(operatorId, entityIds);
-
-        // Phase 2: ML
-        const mlResult = await runIdentityResolution(operatorId, entityIds);
-
-        return NextResponse.json({
-          pipeline: "identity-resolution",
-          operatorId,
-          scopedToEntityIds: entityIds ?? "all",
-          deterministic: {
-            mergesExecuted: deterministicResult.mergesExecuted,
-            mergeLogIds: deterministicResult.mergeLogIds,
-          },
-          ml: {
-            autoMerged: mlResult.autoMerged,
-            suggested: mlResult.suggested,
-          },
-          timestamp: formatTimestamp(new Date()),
-        });
-      }
-
       // ── Policy Check ────────────────────────────────────────────────────
       case "policy-check": {
         const situationId = params?.situationId;
@@ -335,7 +284,7 @@ export async function POST(req: NextRequest) {
 
       default:
         return NextResponse.json(
-          { error: `Unknown pipeline: ${pipeline}. Must be: detection, content-detection, context-assembly, reasoning, identity-resolution, policy-check` },
+          { error: `Unknown pipeline: ${pipeline}. Must be: content-detection, context-assembly, reasoning, policy-check` },
           { status: 400 },
         );
     }

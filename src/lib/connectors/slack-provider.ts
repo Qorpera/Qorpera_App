@@ -268,7 +268,7 @@ async function* syncSlack(
   }
 
   // Import entity creation utilities
-  const { ensureHardcodedEntityType } = await import("@/lib/event-materializer");
+  const { ensureHardcodedEntityType } = await import("@/lib/entity-type-bootstrap");
   const { upsertEntity } = await import("@/lib/entity-resolution");
 
   // 1. Build user identity map

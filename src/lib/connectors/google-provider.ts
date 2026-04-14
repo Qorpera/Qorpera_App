@@ -457,7 +457,7 @@ async function* syncGmail(
   const operatorId = config._operatorId as string | undefined;
 
   // Import entity creation utilities once for this sync run
-  const { ensureHardcodedEntityType } = await import("@/lib/event-materializer");
+  const { ensureHardcodedEntityType } = await import("@/lib/entity-type-bootstrap");
   const { upsertEntity } = await import("@/lib/entity-resolution");
 
   // 1. Get authenticated user's email (prefer config, fallback to API)

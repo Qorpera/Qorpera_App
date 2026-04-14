@@ -5,7 +5,6 @@ import { prisma } from "@/lib/db";
 import type { AIMessage } from "@/lib/ai-provider";
 import { getVisibleDomainIds } from "@/lib/domain-scope";
 import { loadContextForCopilot, getContextRoleInstruction, loadSystemHealthContext, loadSystemJobsContext } from "@/lib/copilot-context-loaders";
-import { canMemberAccessWorkStream } from "@/lib/workstreams";
 import { captureApiError } from "@/lib/api-error";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limiter";
 
@@ -95,11 +94,6 @@ export async function POST(req: NextRequest) {
           select: { id: true },
         });
         if (!init) {
-          ctxType = null; ctxId = null;
-        }
-      } else if (ctxType === "workstream") {
-        const canAccess = await canMemberAccessWorkStream(su.effectiveUserId, ctxId, operatorId, visibleDomains);
-        if (!canAccess) {
           ctxType = null; ctxId = null;
         }
       }

@@ -3,7 +3,6 @@ import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { resolveEntity } from "@/lib/entity-resolution";
-import { resolveDepartmentsFromEmails } from "@/lib/activity-pipeline";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { extractJSONArray } from "@/lib/json-helpers";
 import { enrichSignalContext, type EnrichedSignalContext } from "./detection-enrichment";
@@ -19,6 +18,30 @@ import { getPageForEntity, searchPages } from "@/lib/wiki-engine";
 
 // Re-export so existing consumers don't break
 export { ensureActionRequiredType, ensureAwarenessType };
+
+// ── Inline department resolution (was in activity-pipeline.ts) ──────────────
+
+async function resolveDepartmentsFromEmails(
+  operatorId: string,
+  emails?: string[],
+): Promise<string[]> {
+  if (!emails?.length) return [];
+  const domainIds: string[] = [];
+  for (const email of emails) {
+    const entityId = await resolveEntity(operatorId, {
+      identityValues: { email: email.toLowerCase().trim() },
+    });
+    if (!entityId) continue;
+    const entity = await prisma.entity.findUnique({
+      where: { id: entityId },
+      select: { primaryDomainId: true },
+    });
+    if (entity?.primaryDomainId && !domainIds.includes(entity.primaryDomainId)) {
+      domainIds.push(entity.primaryDomainId);
+    }
+  }
+  return domainIds;
+}
 
 // ── Wiki Page Resolution ────────────────────────────────────────────────────
 
@@ -1029,10 +1052,7 @@ async function handleActionRequired(
     data: { situationId: situation.id },
   }).catch(() => {});
 
-  // Free tier tracking (fire-and-forget)
-  import("@/lib/situation-detector")
-    .then((m) => m.trackFreeDetection(operatorId))
-    .catch(console.error);
+  // trackFreeDetection removed — entity-based detection deprecated
 
   // Increment detectedCount on the SituationType
   await prisma.situationType.update({
@@ -1259,10 +1279,7 @@ async function handleAwareness(
       data: { situationId: situation.id },
     }).catch(() => {});
 
-    // Track free detection
-    import("@/lib/situation-detector")
-      .then((m) => m.trackFreeDetection(operatorId))
-      .catch(console.error);
+    // trackFreeDetection removed — entity-based detection deprecated
 
     await prisma.situationType.update({
       where: { id: situationTypeId },
