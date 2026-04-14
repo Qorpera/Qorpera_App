@@ -82,16 +82,27 @@ export async function getPageEffectivenessPerType(operatorId: string): Promise<{
       contextSections: true,
       citedSections: true,
       outcome: true,
-      situation: {
-        select: { situationType: { select: { name: true } } },
-      },
+      situationId: true,
     },
   });
+
+  // Resolve situation type names from wiki pages
+  const sitIds = [...new Set(evals.map(e => e.situationId))];
+  const sitPages = sitIds.length > 0 ? await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "situation_instance", scope: "operator" },
+    select: { properties: true },
+  }) : [];
+  const sitTypeMap = new Map<string, string>();
+  for (const p of sitPages) {
+    const props = (p.properties ?? {}) as Record<string, unknown>;
+    const sitId = props.situation_id as string;
+    if (sitId) sitTypeMap.set(sitId, (props.situation_type as string) ?? "unknown");
+  }
 
   const typePageMap = new Map<string, Map<string, PageStats>>();
 
   for (const eval_ of evals) {
-    const typeName = eval_.situation?.situationType?.name ?? "unknown";
+    const typeName = sitTypeMap.get(eval_.situationId) ?? "unknown";
     if (!typePageMap.has(typeName)) typePageMap.set(typeName, new Map());
     const pageMap = typePageMap.get(typeName)!;
 

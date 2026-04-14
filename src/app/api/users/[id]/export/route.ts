@@ -38,10 +38,10 @@ export async function GET(
 
   // Size check
   const counts = await Promise.all([
-    prisma.situation.count({ where: { assignedUserId: targetUserId, operatorId } }),
+    prisma.knowledgePage.count({ where: { operatorId, pageType: "situation_instance", scope: "operator" } }),
     prisma.copilotMessage.count({ where: { userId: targetUserId, operatorId } }),
     prisma.notification.count({ where: { userId: targetUserId, operatorId } }),
-    aiEntityId ? prisma.activitySignal.count({ where: { actorEntityId: aiEntityId, operatorId } }) : 0,
+    Promise.resolve(0), // ActivitySignal table removed
   ]);
   const totalRows = counts.reduce((a, b) => a + b, 1); // +1 for profile
 
@@ -55,22 +55,14 @@ export async function GET(
   // Gather data
   const [situations, copilotMessages, notifications, activitySignals] =
     await Promise.all([
-      prisma.situation.findMany({
-        where: { assignedUserId: targetUserId, operatorId },
+      prisma.knowledgePage.findMany({
+        where: { operatorId, pageType: "situation_instance", scope: "operator" },
         select: {
-          severity: true,
-          confidence: true,
-          source: true,
-          status: true,
-          reasoning: true,
-          proposedAction: true,
-          actionTaken: true,
-          outcome: true,
-          feedback: true,
-          feedbackRating: true,
+          slug: true,
+          title: true,
+          properties: true,
           createdAt: true,
-          resolvedAt: true,
-          situationType: { select: { name: true, slug: true } },
+          updatedAt: true,
         },
       }),
       prisma.copilotMessage.findMany({
@@ -94,17 +86,7 @@ export async function GET(
         },
         orderBy: { createdAt: "desc" },
       }),
-      aiEntityId
-        ? prisma.activitySignal.findMany({
-            where: { actorEntityId: aiEntityId, operatorId },
-            select: {
-              signalType: true,
-              metadata: true,
-              occurredAt: true,
-            },
-            orderBy: { occurredAt: "desc" },
-          })
-        : [],
+      Promise.resolve([]), // ActivitySignal table removed
     ]);
 
   // Build profile (exclude passwordHash)

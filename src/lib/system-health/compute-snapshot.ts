@@ -465,19 +465,30 @@ async function computeDetection(
 
   const typeIds = situationTypes.map((st) => st.id);
 
-  // Last detection per situation type
-  const lastDetections: { situationTypeId: string; createdAt: Date }[] =
+  // Last detection per situation type (from wiki pages)
+  const lastDetectionPages =
     typeIds.length > 0
-      ? await prisma.situation.findMany({
-          where: { situationTypeId: { in: typeIds } },
+      ? await prisma.knowledgePage.findMany({
+          where: {
+            operatorId,
+            pageType: "situation_instance",
+            scope: "operator",
+            OR: typeIds.map((id) => ({
+              properties: { path: ["situation_type_id"], equals: id },
+            })),
+          },
           orderBy: { createdAt: "desc" },
-          distinct: ["situationTypeId"],
-          select: { situationTypeId: true, createdAt: true },
+          select: { properties: true, createdAt: true },
         })
       : [];
-  const lastDetectionMap = new Map(
-    lastDetections.map((d) => [d.situationTypeId, d.createdAt]),
-  );
+  // Build map: situationTypeId -> most recent createdAt
+  const lastDetectionMap = new Map<string, Date>();
+  for (const p of lastDetectionPages) {
+    const stId = (p.properties as Record<string, unknown> | null)?.situation_type_id as string | undefined;
+    if (stId && !lastDetectionMap.has(stId)) {
+      lastDetectionMap.set(stId, p.createdAt);
+    }
+  }
 
   // Preload all entity type slugs for this operator
   const entityTypes = await prisma.entityType.findMany({

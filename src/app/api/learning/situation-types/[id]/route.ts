@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
+import { getVisibleDomainIds } from "@/lib/domain-scope";
 
 export async function GET(
   req: NextRequest,
@@ -27,6 +27,7 @@ export async function GET(
     where: { id },
     select: {
       id: true,
+      slug: true,
       name: true,
       description: true,
       autonomyLevel: true,
@@ -71,24 +72,34 @@ export async function GET(
     }
   }
 
-  // Load situations for this type in the period
-  const situations = await prisma.situation.findMany({
-    where: {
-      operatorId,
-      situationTypeId: id,
-      createdAt: { gte: since },
-    },
-    select: {
-      id: true,
-      status: true,
-      outcome: true,
-      confidence: true,
-      feedback: true,
-      feedbackCategory: true,
-      actionTaken: true,
-      resolvedAt: true,
-      createdAt: true,
-    },
+  // Load situation instances for this type from KnowledgePage
+  const sitPages = await prisma.$queryRawUnsafe<Array<{
+    properties: Record<string, unknown> | null;
+    createdAt: Date;
+  }>>(
+    `SELECT properties, "createdAt"
+     FROM "KnowledgePage"
+     WHERE "operatorId" = $1
+       AND "pageType" = 'situation_instance'
+       AND scope = 'operator'
+       AND "createdAt" >= $2
+       AND (properties->>'situation_type' = $3 OR properties->>'situation_type_id' = $4)`,
+    operatorId, since, situationType.slug, id,
+  );
+
+  const situations = sitPages.map((p) => {
+    const props = p.properties ?? {};
+    return {
+      id: (props.situation_id as string) ?? "",
+      status: (props.status as string) ?? "detected",
+      outcome: (props.outcome as string) ?? null,
+      confidence: typeof props.confidence === "number" ? (props.confidence as number) : 0,
+      feedback: (props.feedback as string) ?? null,
+      feedbackCategory: (props.feedback_category as string) ?? null,
+      actionTaken: (props.action_taken as string) ?? null,
+      resolvedAt: props.resolved_at ? new Date(props.resolved_at as string) : null,
+      createdAt: p.createdAt,
+    };
   });
 
   // Metrics

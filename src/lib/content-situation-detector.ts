@@ -572,55 +572,16 @@ For each message, respond with:
 // ── Response Linking ────────────────────────────────────────────────────────
 
 async function checkResponseToOpenSituation(
-  operatorId: string,
+  _operatorId: string,
   threadId: string | null,
   inReplyTo: string | null,
-  subject: string | null,
+  _subject: string | null,
 ): Promise<string | null> {
   if (!threadId && !inReplyTo) return null;
 
-  const conditions: Array<Record<string, unknown>> = [];
-  if (threadId) conditions.push({ outputResult: { contains: threadId } });
-  if (inReplyTo) conditions.push({ outputResult: { contains: inReplyTo } });
-
-  const matchingSteps = await prisma.executionStep.findMany({
-    where: {
-      plan: { operatorId },
-      executionMode: "action",
-      status: "completed",
-      OR: conditions,
-    },
-    include: {
-      plan: {
-        select: {
-          sourceType: true,
-          sourceId: true,
-        },
-      },
-    },
-    take: 10,
-    orderBy: { executedAt: "desc" },
-  });
-
-  for (const step of matchingSteps) {
-    if (step.plan.sourceType !== "situation") continue;
-    try {
-      const result = JSON.parse(step.outputResult!);
-      if (result.type === "email" && result.threadId) {
-        const matches = result.threadId === threadId || result.threadId === inReplyTo;
-        if (!matches) continue;
-
-        const situation = await prisma.situation.findUnique({
-          where: { id: step.plan.sourceId },
-          select: { id: true, status: true },
-        });
-        if (situation && ["monitoring", "executing", "proposed"].includes(situation.status)) {
-          return situation.id;
-        }
-      }
-    } catch {}
-  }
-
+  // TODO: Implement wiki-based response detection — check situation pages'
+  // Action Plan sections for steps that are "awaiting response" and match
+  // the incoming email thread/subject. ExecutionStep table has been dropped.
   return null;
 }
 
@@ -740,44 +701,10 @@ async function handleActionRequired(
 
   const meta = item.metadata ?? {};
 
-  // Related to existing situation → update context
+  // Related to existing situation → link evaluation log (wiki page is source of truth)
   if (result.relatedSituationId) {
     const openIds = new Set(batch.openSituations.map((s) => s.situationId));
     if (openIds.has(result.relatedSituationId)) {
-      const existing = await prisma.situation.findUnique({
-        where: { id: result.relatedSituationId },
-        select: { contextSnapshot: true },
-      });
-
-      let snapshot: Record<string, unknown> = {};
-      if (existing?.contextSnapshot) {
-        try {
-          snapshot = JSON.parse(existing.contextSnapshot);
-        } catch { /* ignore */ }
-      }
-
-      const evidenceArr = Array.isArray(snapshot.contentEvidence)
-        ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
-        : [];
-      evidenceArr.push({
-        sourceId: item.sourceId,
-        sourceType: item.sourceType,
-        sender: meta.from ?? meta.authorEmail ?? "unknown",
-        subject: meta.subject ?? null,
-        date: meta.date ?? new Date().toISOString(),
-        summary: result.summary,
-      });
-      snapshot.contentEvidence = evidenceArr;
-      if (result.updatedSummary) {
-        snapshot.currentSummary = result.updatedSummary;
-      }
-
-      await prisma.situation.update({
-        where: { id: result.relatedSituationId },
-        data: { contextSnapshot: JSON.stringify(snapshot) },
-      });
-
-      // Link evaluation log
       await prisma.evaluationLog.updateMany({
         where: {
           operatorId,
@@ -790,7 +717,7 @@ async function handleActionRequired(
       }).catch(() => {});
 
       console.log(
-        `[content-detection] Updated situation ${result.relatedSituationId} with new evidence from ${item.sourceType}`,
+        `[content-detection] Linked evidence to situation ${result.relatedSituationId} from ${item.sourceType}`,
       );
       return;
     }
@@ -800,87 +727,56 @@ async function handleActionRequired(
   const dedupeKey = `${batch.actorKey}:${result.summary.slice(0, 80).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   if (createdInBatch.has(dedupeKey)) return;
 
-  // Company-wide dedup: check if this source message already triggered a situation
-  const existingForSource = await prisma.situation.findFirst({
+  // Company-wide dedup: check if this source message already triggered a situation (wiki page)
+  const existingPage = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      status: { in: ["detected", "reasoning", "proposed"] },
-      triggerEvidence: { contains: item.sourceId },
+      pageType: "situation_instance",
+      properties: { path: ["trigger_ref"], equals: item.sourceId },
     },
-    select: { id: true, contextSnapshot: true },
+    select: { slug: true, properties: true },
   });
-  if (existingForSource) {
-    let snapshot: Record<string, unknown> = {};
-    if (existingForSource.contextSnapshot) {
-      try { snapshot = JSON.parse(existingForSource.contextSnapshot as string); } catch {}
-    }
-    const evidenceArr = Array.isArray(snapshot.contentEvidence)
-      ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
-      : [];
-    evidenceArr.push({
-      sourceId: item.sourceId,
-      sourceType: item.sourceType,
-      sender: meta.from ?? meta.authorEmail ?? "unknown",
-      summary: result.summary,
-      additionalActor: batch.actorName,
-      classification: "merged_company_wide",
-    });
-    snapshot.contentEvidence = evidenceArr;
-    await prisma.situation.update({
-      where: { id: existingForSource.id },
-      data: { contextSnapshot: JSON.stringify(snapshot) },
-    });
+  if (existingPage) {
+    const existingSituationId = ((existingPage.properties as Record<string, unknown>)?.situation_id as string) ?? "";
     await prisma.evaluationLog.updateMany({
       where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
-      data: { situationId: existingForSource.id },
+      data: { situationId: existingSituationId },
     }).catch(() => {});
-    console.log(`[content-detection] Source dedup: merged ${batch.actorName} into existing situation ${existingForSource.id}`);
+    console.log(`[content-detection] Source dedup: merged ${batch.actorName} into existing situation page ${existingPage.slug}`);
     createdInBatch.add(dedupeKey);
     return;
   }
 
-  // Cross-mechanism dedup: check for recent open situations for this actor
-  const recentSituation = batch.actorPageSlug ? await prisma.situation.findFirst({
+  // Cross-mechanism dedup: check for recent open situation wiki pages for this actor
+  const recentPage = batch.actorPageSlug ? await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      triggerPageSlug: batch.actorPageSlug,
-      status: { in: ["detected", "reasoning", "proposed"] },
+      pageType: "situation_instance",
+      scope: "operator",
+      properties: {
+        path: ["trigger_page"], equals: batch.actorPageSlug,
+      },
       createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
     },
     orderBy: { createdAt: "desc" },
-    select: { id: true, contextSnapshot: true, triggerSummary: true, createdAt: true },
+    select: { slug: true, properties: true, createdAt: true },
   }) : null;
-  if (recentSituation) {
-    // Merge if LLM explicitly linked, OR if very recent (< 2h) as conservative fallback
-    const llmLinked = result.relatedSituationId === recentSituation.id;
-    const veryRecent = recentSituation.createdAt > new Date(Date.now() - 2 * 60 * 60 * 1000);
-    if (llmLinked || (!result.relatedSituationId && veryRecent)) {
-      let snapshot: Record<string, unknown> = {};
-      if (recentSituation.contextSnapshot) {
-        try { snapshot = JSON.parse(recentSituation.contextSnapshot as string); } catch {}
+  if (recentPage) {
+    const recentProps = (recentPage.properties ?? {}) as Record<string, unknown>;
+    const recentStatus = recentProps.status as string | undefined;
+    if (recentStatus && ["detected", "reasoning", "proposed"].includes(recentStatus)) {
+      const recentSituationId = (recentProps.situation_id as string) ?? "";
+      const llmLinked = result.relatedSituationId === recentSituationId;
+      const veryRecent = recentPage.createdAt > new Date(Date.now() - 2 * 60 * 60 * 1000);
+      if (llmLinked || (!result.relatedSituationId && veryRecent)) {
+        await prisma.evaluationLog.updateMany({
+          where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
+          data: { situationId: recentSituationId },
+        }).catch(() => {});
+        console.log(`[content-detection] Cross-mechanism dedup: linked to recent situation page ${recentPage.slug} (${llmLinked ? "llm-linked" : "time-fallback"})`);
+        createdInBatch.add(dedupeKey);
+        return;
       }
-      const evidenceArr = Array.isArray(snapshot.contentEvidence)
-        ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
-        : [];
-      evidenceArr.push({
-        sourceId: item.sourceId,
-        sourceType: item.sourceType,
-        sender: meta.from ?? meta.authorEmail ?? "unknown",
-        summary: result.summary,
-        evidence: result.evidence,
-      });
-      snapshot.contentEvidence = evidenceArr;
-      await prisma.situation.update({
-        where: { id: recentSituation.id },
-        data: { contextSnapshot: JSON.stringify(snapshot) },
-      });
-      await prisma.evaluationLog.updateMany({
-        where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
-        data: { situationId: recentSituation.id },
-      }).catch(() => {});
-      console.log(`[content-detection] Cross-mechanism dedup: enriched recent situation ${recentSituation.id} (${llmLinked ? "llm-linked" : "time-fallback"})`);
-      createdInBatch.add(dedupeKey);
-      return;
     }
   }
 
@@ -957,7 +853,7 @@ async function handleActionRequired(
       timelineEntries: [`${detectedAtStr} — Detected: ${result.summary}`],
     });
   } catch (err) {
-    console.error("[content-detection] Wiki page creation failed, continuing with DB record:", err);
+    console.error("[content-detection] Wiki page creation failed:", err);
     wikiPageSlug = undefined;
   }
 
@@ -979,41 +875,9 @@ async function handleActionRequired(
     },
   });
 
-  const situation = await prisma.situation.create({
-    data: {
-      id: situationId,
-      operatorId,
-      situationTypeId,
-      triggerEntityId: null, // Migration: entity link removed, triggerPageSlug is the new canonical reference
-      triggerPageSlug: batch.actorPageSlug,
-      domainPageSlug: batch.domainPageSlug,
-      wikiPageSlug,
-      source: "content_detected",
-      status: "detected",
-      investigationDepth: result.investigationDepth,
-      confidence,
-      severity: 0.5,
-      triggerEvidence,
-      triggerSummary,
-      contextSnapshot: JSON.stringify({
-        contentEvidence: [
-          {
-            sourceId: item.sourceId,
-            sourceType: item.sourceType,
-            sender: meta.from ?? meta.authorEmail ?? "unknown",
-            subject: meta.subject ?? null,
-            date: meta.date ?? new Date().toISOString(),
-            summary: result.summary,
-            evidence: result.evidence,
-          },
-        ],
-      }),
-    },
-  });
-
   createdInBatch.add(dedupeKey);
 
-  // Link situation back to evaluation log
+  // Link situation back to evaluation log (situationId is the CUID stored in wiki page properties)
   await prisma.evaluationLog.updateMany({
     where: {
       operatorId,
@@ -1022,10 +886,8 @@ async function handleActionRequired(
       actorPageSlug: batch.actorPageSlug,
       situationId: null,
     },
-    data: { situationId: situation.id },
+    data: { situationId },
   }).catch(() => {});
-
-  // trackFreeDetection removed — entity-based detection deprecated
 
   // Increment detectedCount on the SituationType
   await prisma.situationType.update({
@@ -1035,7 +897,7 @@ async function handleActionRequired(
   checkConfirmationRate(situationTypeId).catch(console.error);
 
   // Enqueue reasoning for Bastion worker
-  enqueueWorkerJob("reason_situation", operatorId, { situationId: situation.id, wikiPageSlug }, correlationId).catch((err) =>
+  enqueueWorkerJob("reason_situation", operatorId, { situationId, wikiPageSlug }, correlationId).catch((err) =>
     console.error("[content-detection] Failed to enqueue reasoning:", err),
   );
 
@@ -1086,165 +948,65 @@ async function handleAwareness(
 
   const meta = item.metadata ?? {};
 
-  // If related to an existing situation, just update context (same as action_required)
+  // If related to an existing situation, link evaluation log (wiki page is source of truth)
   if (result.relatedSituationId) {
     const openIds = new Set(batch.openSituations.map((s) => s.situationId));
     if (openIds.has(result.relatedSituationId)) {
-      const existing = await prisma.situation.findUnique({
-        where: { id: result.relatedSituationId },
-        select: { contextSnapshot: true },
-      });
-
-      let snapshot: Record<string, unknown> = {};
-      if (existing?.contextSnapshot) {
-        try { snapshot = JSON.parse(existing.contextSnapshot); } catch { /* ignore */ }
-      }
-
-      const evidenceArr = Array.isArray(snapshot.contentEvidence)
-        ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
-        : [];
-      evidenceArr.push({
-        sourceId: item.sourceId,
-        sourceType: item.sourceType,
-        sender: meta.from ?? meta.authorEmail ?? "unknown",
-        subject: meta.subject ?? null,
-        date: meta.date ?? new Date().toISOString(),
-        summary: result.summary,
-        classification: "awareness",
-      });
-      snapshot.contentEvidence = evidenceArr;
-      if (result.updatedSummary) snapshot.currentSummary = result.updatedSummary;
-
-      await prisma.situation.update({
-        where: { id: result.relatedSituationId },
-        data: { contextSnapshot: JSON.stringify(snapshot) },
-      });
-
-      // Link evaluation log
       await prisma.evaluationLog.updateMany({
         where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
         data: { situationId: result.relatedSituationId },
       }).catch(() => {});
-
       return;
     }
   }
 
   if (result.awarenessType === "strategic") {
-    // Strategic awareness → create real situation with reasoning
+    // Strategic awareness → create wiki page for awareness signal
     const dedupeKey = `${batch.actorKey}:strategic:${result.summary.slice(0, 80).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     if (createdInBatch.has(dedupeKey)) return;
 
-    // Cross-mechanism dedup: check for recent open situations for this actor
-    const recentSituation = batch.actorPageSlug ? await prisma.situation.findFirst({
+    // Cross-mechanism dedup: check for recent open situation wiki pages for this actor
+    const recentPage = batch.actorPageSlug ? await prisma.knowledgePage.findFirst({
       where: {
         operatorId,
-        triggerPageSlug: batch.actorPageSlug,
-        status: { in: ["detected", "reasoning", "proposed"] },
+        pageType: "situation_instance",
+        scope: "operator",
+        properties: {
+          path: ["trigger_page"], equals: batch.actorPageSlug,
+        },
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
       orderBy: { createdAt: "desc" },
-      select: { id: true, contextSnapshot: true, createdAt: true },
+      select: { slug: true, properties: true, createdAt: true },
     }) : null;
-    if (recentSituation) {
-      const llmLinked = result.relatedSituationId === recentSituation.id;
-      const veryRecent = recentSituation.createdAt > new Date(Date.now() - 2 * 60 * 60 * 1000);
-      if (llmLinked || (!result.relatedSituationId && veryRecent)) {
-        let snapshot: Record<string, unknown> = {};
-        if (recentSituation.contextSnapshot) {
-          try { snapshot = JSON.parse(recentSituation.contextSnapshot as string); } catch {}
+    if (recentPage) {
+      const recentProps = (recentPage.properties ?? {}) as Record<string, unknown>;
+      const recentStatus = recentProps.status as string | undefined;
+      if (recentStatus && ["detected", "reasoning", "proposed"].includes(recentStatus)) {
+        const recentSituationId = (recentProps.situation_id as string) ?? "";
+        const llmLinked = result.relatedSituationId === recentSituationId;
+        const veryRecent = recentPage.createdAt > new Date(Date.now() - 2 * 60 * 60 * 1000);
+        if (llmLinked || (!result.relatedSituationId && veryRecent)) {
+          await prisma.evaluationLog.updateMany({
+            where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
+            data: { situationId: recentSituationId },
+          }).catch(() => {});
+          createdInBatch.add(dedupeKey);
+          console.log(`[content-detection] Strategic awareness: linked to recent situation page ${recentPage.slug} (${llmLinked ? "llm-linked" : "time-fallback"})`);
+          return;
         }
-        const evidenceArr = Array.isArray(snapshot.contentEvidence)
-          ? (snapshot.contentEvidence as Array<Record<string, unknown>>)
-          : [];
-        evidenceArr.push({
-          sourceId: item.sourceId,
-          sourceType: item.sourceType,
-          sender: meta.from ?? meta.authorEmail ?? "unknown",
-          summary: result.summary,
-          evidence: result.evidence,
-          classification: "strategic_awareness",
-        });
-        snapshot.contentEvidence = evidenceArr;
-        await prisma.situation.update({
-          where: { id: recentSituation.id },
-          data: { contextSnapshot: JSON.stringify(snapshot) },
-        });
-        await prisma.evaluationLog.updateMany({
-          where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
-          data: { situationId: recentSituation.id },
-        }).catch(() => {});
-        createdInBatch.add(dedupeKey);
-        console.log(`[content-detection] Strategic awareness: enriched recent situation ${recentSituation.id} (${llmLinked ? "llm-linked" : "time-fallback"})`);
-        return;
       }
     }
 
     const situationTypeId = await ensureAwarenessType(operatorId, batch.domainPageSlug);
-
-    const { raw: senderRaw, name: senderName } = extractSenderName(meta);
-    const subjectStr = meta.subject ? ` re: ${meta.subject}` : "";
-    const triggerSummary = `${senderName}${subjectStr} — ${result.summary}`.slice(0, 300);
-
-    const triggerEvidence = JSON.stringify({
-      type: "content",
-      sourceType: item.sourceType,
-      sourceId: item.sourceId,
-      sender: senderRaw,
-      subject: meta.subject ?? null,
-      date: meta.date ?? new Date().toISOString(),
-      content: item.content.slice(0, 2000),
-      summary: result.summary,
-      evidence: result.evidence,
-      reasoning: result.reasoning,
-      urgency: result.urgency,
-      classification: "strategic_awareness",
-      wikiEnrichment: {
-        actorPageTitle: wikiEnrichment.actorContext ? "available" : null,
-        relatedPages: wikiEnrichment.relatedKnowledge.map((k) => k.title),
-      },
-    });
-
-    const confidence = (result.urgency ? URGENCY_CONFIDENCE[result.urgency] : null) ?? 0.5;
-
-    const situation = await prisma.situation.create({
-      data: {
-        operatorId,
-        situationTypeId,
-        triggerEntityId: null, // Migration: entity link removed, triggerPageSlug is the new canonical reference
-        triggerPageSlug: batch.actorPageSlug,
-        domainPageSlug: batch.domainPageSlug,
-        source: "content_detected",
-        status: "resolved",
-        resolvedAt: new Date(),
-        investigationDepth: result.investigationDepth,
-        confidence,
-        severity: 0.3,
-        triggerEvidence,
-        triggerSummary,
-        contextSnapshot: JSON.stringify({
-          contentEvidence: [{
-            sourceId: item.sourceId,
-            sourceType: item.sourceType,
-            sender: meta.from ?? meta.authorEmail ?? "unknown",
-            subject: meta.subject ?? null,
-            date: meta.date ?? new Date().toISOString(),
-            summary: result.summary,
-            evidence: result.evidence,
-            classification: "strategic_awareness",
-          }],
-        }),
-      },
-    });
+    const situationId = createId();
 
     createdInBatch.add(dedupeKey);
 
     await prisma.evaluationLog.updateMany({
       where: { operatorId, sourceId: item.sourceId, sourceType: item.sourceType, actorPageSlug: batch.actorPageSlug, situationId: null },
-      data: { situationId: situation.id },
+      data: { situationId },
     }).catch(() => {});
-
-    // trackFreeDetection removed — entity-based detection deprecated
 
     await prisma.situationType.update({
       where: { id: situationTypeId },
@@ -1405,18 +1167,7 @@ export async function evaluateContentForSituations(
           (meta.subject as string) ?? null,
         );
         if (linkedSituationId) {
-          await prisma.situation.update({
-            where: { id: linkedSituationId },
-            data: {
-              status: "detected",
-              triggerEvidence: JSON.stringify({
-                type: "response",
-                content: item.content?.slice(0, 2000),
-                metadata: meta,
-              }),
-              triggerSummary: `Response received: ${((meta.subject as string) ?? "").slice(0, 150)}`,
-            },
-          });
+          // checkResponseToOpenSituation currently returns null (TODO: wiki-based response detection)
           await enqueueWorkerJob("reason_situation", operatorId, { situationId: linkedSituationId });
           console.log(`[content-detector] Linked reply to open situation ${linkedSituationId}, triggered re-reasoning cycle`);
         } else {

@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db";
-import { Prisma } from "@prisma/client";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
@@ -183,18 +182,6 @@ Respond with ONLY a JSON array:
       };
     }>;
 
-    // Find AI entity for initiative creation
-    const aiEntity = await prisma.entity.findFirst({
-      where: { operatorId, entityType: { slug: "ai-agent" }, status: "active" },
-      select: { id: true },
-    });
-
-    if (!aiEntity) {
-      console.warn("[bookmark-assembly] No AI entity found — cannot create initiatives");
-      report.durationMs = Math.round(performance.now() - startTime);
-      return report;
-    }
-
     // Process decisions
     for (const decision of decisions) {
       const group = groups[decision.groupIndex];
@@ -215,9 +202,9 @@ Respond with ONLY a JSON array:
       if (decision.action === "create_initiative" && decision.initiative) {
         const ini = decision.initiative;
 
-        // Build proposedProjectConfig including child projects
+        // Build project config for wiki page properties
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const proposedProjectConfig: Record<string, any> = {
+        const projectConfig: Record<string, any> = {
           title: ini.proposedProject?.title ?? ini.title,
           description: ini.proposedProject?.description ?? ini.description,
           coordinatorEmail: "",
@@ -232,9 +219,8 @@ Respond with ONLY a JSON array:
           })),
         };
 
-        // Include child project proposals in config
         if (ini.isPortfolio && ini.proposedProject?.childProjects) {
-          proposedProjectConfig.childProjects = ini.proposedProject.childProjects.map((cp) => ({
+          projectConfig.childProjects = ini.proposedProject.childProjects.map((cp) => ({
             title: cp.title,
             description: cp.description,
             deliverables: cp.deliverables.map((d) => ({
@@ -247,44 +233,52 @@ Respond with ONLY a JSON array:
           }));
         }
 
-        const initiative = await prisma.initiative.create({
+        const slug = `initiative-${Date.now()}-${ini.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+
+        const articleBody = [
+          `## Summary`,
+          ini.description,
+          ``,
+          `## Evidence`,
+          ...group.bookmarks.map(b => `- [${b.bookmarkType}] (page: ${b.pageSlug}) ${b.reason}`),
+          ``,
+          `## Proposed Project`,
+          projectConfig.title,
+          projectConfig.description,
+          ``,
+          `## Timeline`,
+          `${new Date().toISOString().slice(0, 16)} — Proposed by bookmark assembly`,
+        ].join("\n");
+
+        const contentTokens = Math.ceil(articleBody.length / 4);
+
+        await prisma.knowledgePage.create({
           data: {
             operatorId,
-            aiEntityId: aiEntity.id,
-            proposalType: "project_creation",
-            triggerSummary: ini.title,
-            evidence: JSON.stringify(group.bookmarks.map(b => ({ source: "wiki_bookmark", claim: b.reason }))),
-            proposal: {
-              title: ini.proposedProject?.title ?? ini.title,
-              description: ini.proposedProject?.description ?? ini.description,
-              coordinatorEmail: "",
-              dueDate: null,
-              members: [],
-              deliverables: (ini.proposedProject?.deliverables ?? []).map((d) => ({
-                title: d.title,
-                description: d.description,
-                assignedToEmail: "",
-                format: "report",
-                suggestedDeadline: null,
-              })),
-              childProjects: ini.isPortfolio && ini.proposedProject?.childProjects
-                ? ini.proposedProject.childProjects.map((cp) => ({
-                    title: cp.title,
-                    description: cp.description,
-                    deliverables: cp.deliverables.map((d) => ({
-                      title: d.title,
-                      description: d.description,
-                      assignedToEmail: "",
-                      format: "report",
-                      suggestedDeadline: null,
-                    })),
-                  }))
-                : undefined,
+            slug,
+            title: ini.title,
+            pageType: "initiative",
+            scope: "operator",
+            status: "draft",
+            content: articleBody,
+            contentTokens,
+            crossReferences: [...new Set(group.bookmarks.map(b => b.pageSlug))],
+            properties: {
+              status: "proposed",
+              proposal_type: "project_creation",
+              proposed_at: new Date().toISOString(),
+              source: "bookmark_assembly",
+              severity: ini.severity,
+              rationale: ini.description,
+              impact_assessment: `Severity: ${ini.severity}\n\nEvidence from ${group.bookmarks.length} bookmark(s)`,
+              evidence: group.bookmarks.map(b => ({ source: "wiki_bookmark", claim: b.reason })),
+              project_config: projectConfig,
+              is_portfolio: ini.isPortfolio ?? false,
             },
-            proposedProjectConfig: proposedProjectConfig as Prisma.InputJsonValue,
-            status: "proposed",
-            rationale: ini.description,
-            impactAssessment: `Severity: ${ini.severity}\n\nEvidence from ${group.bookmarks.length} bookmark(s)`,
+            synthesisPath: "detection",
+            synthesizedByModel: "bookmark_assembly",
+            confidence: 0.5,
+            lastSynthesizedAt: new Date(),
           },
         });
 
@@ -295,7 +289,6 @@ Respond with ONLY a JSON array:
             resolved: true,
             resolvedAt: new Date(),
             resolvedAction: "initiative_created",
-            resolvedInitiativeId: initiative.id,
           },
         });
 
@@ -304,10 +297,10 @@ Respond with ONLY a JSON array:
           data: {
             operatorId,
             sourceType: "bookmark_assembly",
-            sourceId: initiative.id,
+            sourceId: slug,
             classification: "initiative_created",
             metadata: {
-              initiativeId: initiative.id,
+              initiativeSlug: slug,
               bookmarkCount: bookmarkIds.length,
               subject: group.subject,
               severity: ini.severity,
@@ -323,7 +316,7 @@ Respond with ONLY a JSON array:
           title: `New initiative proposed: ${ini.title}`,
           body: ini.description,
           sourceType: "bookmark_assembly",
-          sourceId: initiative.id,
+          sourceId: slug,
         }).catch(() => {});
 
         report.initiativesCreated++;

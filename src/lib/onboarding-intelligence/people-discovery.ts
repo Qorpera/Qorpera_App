@@ -242,40 +242,8 @@ export async function buildPeopleRegistry(operatorId: string): Promise<PeopleReg
     }
   }
 
-  // 5. Scan ActivitySignals for actors and meeting attendees
-  const signals = await prisma.activitySignal.findMany({
-    where: { operatorId },
-    select: { signalType: true, metadata: true },
-    take: 5000,
-  });
-
-  for (const sig of signals) {
-    if (!sig.metadata) continue;
-    try {
-      const meta = JSON.parse(sig.metadata);
-      if (sig.signalType.includes("meeting") && Array.isArray(meta.attendees)) {
-        for (const attendee of meta.attendees) {
-          const email = extractEmail(attendee);
-          if (email) {
-            const entry = getOrCreate(email, extractName(attendee));
-            entry.activityMetrics.meetingsAttended++;
-            if (!entry.sources.find((s) => s.system === "calendar")) {
-              entry.sources.push({ system: "calendar" });
-            }
-          }
-        }
-      }
-      if (sig.signalType.includes("doc") && meta.author_email) {
-        const entry = getOrCreate(meta.author_email, meta.author_name);
-        entry.activityMetrics.documentsAuthored++;
-        if (!entry.sources.find((s) => s.system === "drive")) {
-          entry.sources.push({ system: "drive" });
-        }
-      }
-    } catch {
-      // Skip malformed
-    }
-  }
+  // 5. ActivitySignal table removed — skip signal-based people discovery
+  // Meeting attendees and doc authors are no longer available from this source.
 
   // 6. Classify internal vs external
   for (const entry of people.values()) {

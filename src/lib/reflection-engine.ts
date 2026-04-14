@@ -32,36 +32,51 @@ export async function reflectOnOutcome(params: {
 }): Promise<void> {
   const { situationId, outcome, feedback } = params;
 
-  // 1. Load situation context
-  const situation = await prisma.situation.findUnique({
-    where: { id: situationId },
-    include: {
-      situationType: { select: { id: true, name: true, slug: true, description: true } },
+  // 1. Load situation context from wiki page
+  const situationPage = await prisma.knowledgePage.findFirst({
+    where: {
+      pageType: "situation_instance",
+      scope: "operator",
+      properties: { path: ["situation_id"], equals: situationId },
     },
+    select: { slug: true, title: true, content: true, operatorId: true, properties: true, crossReferences: true },
   });
-  if (!situation) return;
+  if (!situationPage) return;
 
-  const operatorId = situation.operatorId;
+  const operatorId = situationPage.operatorId!;
+  const situationProps = (situationPage.properties ?? {}) as Record<string, unknown>;
+  const situationTypeSlug = (situationProps.situation_type as string) ?? "unknown";
 
-  // Parse reasoning output
+  // Look up the SituationType for metadata
+  const situationTypeRow = situationTypeSlug !== "unknown" ? await prisma.situationType.findFirst({
+    where: { operatorId, slug: situationTypeSlug },
+    select: { id: true, name: true, slug: true, description: true },
+  }) : null;
+
+  // Build a shim "situation" object from wiki page for downstream compatibility
+  const situation = {
+    operatorId,
+    triggerSummary: situationPage.title,
+    reasoning: null as string | null,
+    editInstruction: null as string | null,
+    situationType: situationTypeRow ?? { id: "", name: situationTypeSlug, slug: situationTypeSlug, description: null },
+  };
+
+  // Parse reasoning from wiki page Action Plan section
   let reasoning: Record<string, unknown> | null = null;
-  if (situation.reasoning) {
-    try { reasoning = JSON.parse(situation.reasoning); } catch {}
+  const reasoningMatch = situationPage.content.match(/## (?:AI Analysis|Reasoning)([\s\S]*?)(?=##|$)/);
+  if (reasoningMatch) {
+    reasoning = { analysis: reasoningMatch[1].trim() };
   }
 
-  // Load execution plan steps
-  let planSteps: Array<{ title: string; executionMode: string; status: string }> = [];
-  if (situation.executionPlanId) {
-    const plan = await prisma.executionPlan.findUnique({
-      where: { id: situation.executionPlanId },
-      include: {
-        steps: {
-          orderBy: { sequenceOrder: "asc" },
-          select: { title: true, executionMode: true, status: true },
-        },
-      },
-    });
-    planSteps = plan?.steps ?? [];
+  // Read action plan steps from wiki page content
+  const planSteps: Array<{ title: string; executionMode: string; status: string }> = [];
+  const actionPlanMatch = situationPage.content.match(/## Action Plan([\s\S]*?)(?=##|$)/);
+  if (actionPlanMatch) {
+    const stepLines = actionPlanMatch[1].trim().split("\n").filter(l => l.match(/^\d+\./));
+    for (const line of stepLines) {
+      planSteps.push({ title: line.replace(/^\d+\.\s*/, "").trim(), executionMode: "unknown", status: "unknown" });
+    }
   }
 
   // 2. Load wiki pages that were used during reasoning

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { parseSituationPage } from "@/lib/situation-page-parser";
 import type { OperatorSnapshot, DomainSnapshot } from "@/lib/system-health/compute-snapshot";
 
 // ── Situation Context ────────────────────────────────────────────────────────
@@ -7,124 +8,49 @@ export async function loadSituationContext(
   situationId: string,
   operatorId: string,
 ): Promise<string | null> {
-  const situation = await prisma.situation.findFirst({
-    where: { id: situationId, operatorId },
-    select: {
-      id: true,
-      status: true,
-      severity: true,
-      confidence: true,
-      source: true,
-      reasoning: true,
-      proposedAction: true,
-      createdAt: true,
-      triggerEntityId: true,
-      situationType: { select: { name: true, description: true, autonomyLevel: true } },
-      executionPlan: {
-        select: {
-          id: true,
-          status: true,
-          currentStepOrder: true,
-          steps: {
-            select: { title: true, executionMode: true, status: true, sequenceOrder: true },
-            orderBy: { sequenceOrder: "asc" },
-          },
-        },
-      },
+  // Load situation wiki page
+  const page = await prisma.knowledgePage.findFirst({
+    where: {
+      operatorId,
+      pageType: "situation_instance",
+      scope: "operator",
+      properties: { path: ["situation_id"], equals: situationId },
     },
+    select: { slug: true, title: true, content: true, properties: true },
   });
 
-  if (!situation) return null;
+  if (!page) return null;
 
-  // Load trigger entity
-  let triggerInfo = "";
-  if (situation.triggerEntityId) {
-    const entity = await prisma.entity.findFirst({
-      where: { id: situation.triggerEntityId, operatorId },
-      select: {
-        displayName: true,
-        entityType: { select: { name: true } },
-        propertyValues: {
-          select: { value: true, property: { select: { name: true } } },
-          take: 10,
-        },
-      },
+  const props = (page.properties ?? {}) as Record<string, unknown>;
+
+  // Load situation type name
+  const stSlug = props.situation_type as string | undefined;
+  let typeName = "Unknown";
+  let typeDescription = "";
+  if (stSlug) {
+    const st = await prisma.situationType.findFirst({
+      where: { operatorId, slug: stSlug },
+      select: { name: true, description: true },
     });
-    if (entity) {
-      const props = entity.propertyValues
-        .map(pv => `  ${pv.property.name}: ${pv.value}`)
-        .join("\n");
-      triggerInfo = `Trigger: ${entity.displayName} (${entity.entityType.name})${props ? `\n${props}` : ""}`;
+    if (st) {
+      typeName = st.name;
+      typeDescription = st.description;
     }
   }
 
-  // Parse reasoning
-  let analysisSection = "";
-  let actionSection = "";
-  if (situation.reasoning) {
-    try {
-      const reasoning = JSON.parse(situation.reasoning);
-      if (reasoning.analysis) {
-        analysisSection = `\nAI Analysis:\n${reasoning.analysis}`;
-      }
-      if (reasoning.evidenceSummary) {
-        analysisSection += `\n\nEvidence:\n${reasoning.evidenceSummary}`;
-      }
-      const batch = reasoning.actionBatch ?? reasoning.actionPlan; // backward compat with old reasoning JSON
-      if (batch && Array.isArray(batch)) {
-        const steps = batch
-          .map((s: { title: string; description: string }, i: number) => `${i + 1}. ${s.title}: ${s.description}`)
-          .join("\n");
-        actionSection = `\nRecommended Action:\n${steps}`;
-      }
-      if (reasoning.confidence !== undefined) {
-        actionSection += `\nConfidence: ${(reasoning.confidence * 100).toFixed(0)}%`;
-      }
-    } catch { /* invalid JSON — skip */ }
-  }
+  // Build context from wiki page sections
+  const parsed = parseSituationPage(page.content, props);
 
-  // Execution plan
-  let planSection = "";
-  if (situation.executionPlan) {
-    const plan = situation.executionPlan;
-    const completedSteps = plan.steps.filter(s => s.status === "completed").length;
-    const currentStep = plan.steps.find(s => s.sequenceOrder === plan.currentStepOrder);
-    const stepList = plan.steps.map(s => {
-      const icon = s.status === "completed" ? "✓" : s.sequenceOrder === plan.currentStepOrder ? "→" : "○";
-      return `  ${icon} ${s.title} [${s.executionMode}] (${s.status})`;
-    }).join("\n");
-    planSection = `\nExecution Status: ${plan.status} (${completedSteps}/${plan.steps.length} steps)`;
-    if (currentStep) planSection += ` — current: ${currentStep.title}`;
-    planSection += `\n${stepList}`;
-
-    // FollowUps — query via step IDs from the plan
-    const stepIds = await prisma.executionStep.findMany({
-      where: { planId: plan.id },
-      select: { id: true },
-    });
-    const followUpRecords = stepIds.length > 0
-      ? await prisma.followUp.findMany({
-          where: { operatorId, executionStepId: { in: stepIds.map(s => s.id) }, status: "watching" },
-          select: { status: true, triggerAt: true },
-        })
-      : [];
-    if (followUpRecords.length > 0) {
-      const fuLines = followUpRecords.map(fu =>
-        `  - ${fu.status}${fu.triggerAt ? ` (deadline: ${fu.triggerAt.toISOString().split("T")[0]})` : ""}`
-      ).join("\n");
-      planSection += `\n\nFollow-ups:\n${fuLines}`;
-    }
-  }
-
-  return [
+  const lines = [
     "SITUATION CONTEXT:",
-    `Status: ${situation.status} | Severity: ${situation.severity.toFixed(1)} | Detected: ${situation.createdAt.toISOString().split("T")[0]}`,
-    `Type: ${situation.situationType.name} — ${situation.situationType.description}`,
-    triggerInfo,
-    analysisSection,
-    actionSection,
-    planSection,
-  ].filter(Boolean).join("\n");
+    `Status: ${props.status ?? "unknown"} | Severity: ${typeof props.severity === "number" ? (props.severity as number).toFixed(1) : props.severity ?? "unknown"} | Detected: ${(props.detected_at as string)?.split("T")[0] ?? "unknown"}`,
+    `Type: ${typeName}${typeDescription ? ` — ${typeDescription}` : ""}`,
+    parsed.sections.investigation ? `\nInvestigation:\n${parsed.sections.investigation.slice(0, 1000)}` : "",
+    parsed.sections.actionPlan ? `\nAction Plan:\n${parsed.sections.actionPlan.slice(0, 500)}` : "",
+    parsed.sections.timeline ? `\nTimeline:\n${parsed.sections.timeline.slice(0, 500)}` : "",
+  ];
+
+  return lines.filter(Boolean).join("\n");
 }
 
 // ── Initiative Context ───────────────────────────────────────────────────────
@@ -133,59 +59,44 @@ export async function loadInitiativeContext(
   initiativeId: string,
   operatorId: string,
 ): Promise<string | null> {
+  // Try wiki page first (new initiatives are wiki pages)
+  const page = await prisma.knowledgePage.findFirst({
+    where: {
+      operatorId,
+      pageType: "initiative",
+      scope: "operator",
+      OR: [
+        { slug: initiativeId },
+        { properties: { path: ["initiative_id"], equals: initiativeId } },
+      ],
+    },
+    select: { slug: true, title: true, content: true, properties: true },
+  });
+
+  if (page) {
+    const props = (page.properties ?? {}) as Record<string, unknown>;
+    return [
+      "INITIATIVE CONTEXT:",
+      `Initiative: ${page.title}`,
+      `Status: ${props.status ?? "unknown"}`,
+      page.content.slice(0, 2000),
+    ].join("\n");
+  }
+
+  // Fallback: try Initiative table (legacy records)
   const initiative = await prisma.initiative.findFirst({
     where: { id: initiativeId, operatorId },
-    select: {
-      id: true,
-      status: true,
-      rationale: true,
-      impactAssessment: true,
-      aiEntityId: true,
-      createdAt: true,
-      proposalType: true,
-      triggerSummary: true,
-    },
+    select: { triggerSummary: true, status: true, rationale: true },
   });
 
   if (!initiative) return null;
 
-  // Resolve AI entity name (if available — deprecated in wiki-first)
-  let aiEntityInfo = "";
-  const aiEntity = initiative.aiEntityId
-    ? await prisma.entity.findFirst({
-        where: { id: initiative.aiEntityId, operatorId },
-        select: { displayName: true, primaryDomainId: true },
-      })
-    : null;
-  if (aiEntity) {
-    let deptName = "";
-    if (aiEntity.primaryDomainId) {
-      const dept = await prisma.entity.findFirst({
-        where: { id: aiEntity.primaryDomainId, operatorId },
-        select: { displayName: true },
-      });
-      deptName = dept ? ` (${dept.displayName})` : "";
-    }
-    aiEntityInfo = `Proposed by: ${aiEntity.displayName}${deptName}`;
-  }
-
-  // Rationale
-  const rationaleSection = `\nRationale:\n${initiative.rationale}`;
-
-  // Impact
-  const impactSection = initiative.impactAssessment
-    ? `\nImpact Assessment:\n${initiative.impactAssessment}`
-    : "";
-
   return [
     "INITIATIVE CONTEXT:",
-    `Status: ${initiative.status} | Created: ${initiative.createdAt.toISOString().split("T")[0]}`,
-    aiEntityInfo,
-    initiative.triggerSummary ? `Trigger: ${initiative.triggerSummary}` : "",
-    initiative.proposalType ? `Type: ${initiative.proposalType}` : "",
-    rationaleSection,
-    impactSection,
-  ].filter(Boolean).join("\n");
+    `Initiative: ${initiative.triggerSummary}`,
+    `Status: ${initiative.status}`,
+    initiative.rationale?.slice(0, 1000) ?? "",
+  ].join("\n");
 }
 
 // ── System Health Context ────────────────────────────────────────────────────

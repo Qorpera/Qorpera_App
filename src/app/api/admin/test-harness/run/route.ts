@@ -175,78 +175,16 @@ export async function POST(req: NextRequest) {
       layers.push({ name: "content-pipeline", status, duration_ms: Date.now() - start, assertions, data });
     }
 
-    // ── Layer 2: activity-signals ────────────────────────────────────────
+    // ── Layer 2: activity-signals (table removed — skip) ────────────────
 
     if (shouldRun("activity-signals")) {
-      const start = Date.now();
-      const assertions: Assertion[] = [];
-      let status: "passed" | "failed" = "passed";
-      const data: Record<string, unknown> = {};
-
-      try {
-        await withTimeout(async () => {
-          const signals = [
-            {
-              signalType: "email_received",
-              actorEntityId: contactEntity.id,
-              targetEntityIds: JSON.stringify([personEntity.id]),
-              domainIds: JSON.stringify(deptIds),
-              metadata: JSON.stringify({ subject: "Q3 Report", _testRunId: testRunId }),
-              occurredAt: daysAgo(2),
-            },
-            {
-              signalType: "meeting_held",
-              actorEntityId: personEntity.id,
-              targetEntityIds: JSON.stringify([contactEntity.id]),
-              domainIds: JSON.stringify(deptIds),
-              metadata: JSON.stringify({ attendees: [personEmail, contactEmail], duration_minutes: 30, _testRunId: testRunId }),
-              occurredAt: daysAgo(5),
-            },
-            {
-              signalType: "doc_edited",
-              actorEntityId: personEntity.id,
-              targetEntityIds: null,
-              domainIds: JSON.stringify(deptIds),
-              metadata: JSON.stringify({ fileName: "test-doc.gdoc", _testRunId: testRunId }),
-              occurredAt: daysAgo(1),
-            },
-          ];
-
-          for (const sig of signals) {
-            const created = await prisma.activitySignal.create({
-              data: { operatorId, ...sig },
-            });
-            createdActivitySignalIds.push(created.id);
-          }
-
-          // Assert: all 3 exist
-          const found = await prisma.activitySignal.findMany({
-            where: { operatorId, id: { in: createdActivitySignalIds } },
-          });
-          assert(assertions, "All 3 ActivitySignals created", found.length === 3, `found ${found.length}`);
-
-          // Assert: domainIds populated
-          const allHaveDepts = found.every((s) => s.domainIds && s.domainIds.length > 2);
-          assert(assertions, "domainIds populated on all signals", allHaveDepts);
-
-          // Assert: actorEntityId references existing entity
-          const actorIds = [...new Set(found.map((s) => s.actorEntityId).filter(Boolean))];
-          const actorEntities = await prisma.entity.findMany({
-            where: { id: { in: actorIds as string[] }, operatorId },
-            select: { id: true },
-          });
-          assert(assertions, "actorEntityId references existing entity", actorEntities.length === actorIds.length, `${actorEntities.length}/${actorIds.length} actors found`);
-
-          data.signalIds = createdActivitySignalIds;
-          data.signalCount = found.length;
-        }, LAYER_TIMEOUT_MS);
-      } catch (err) {
-        status = "failed";
-        assert(assertions, "Layer completed without error", false, err instanceof Error ? err.message : String(err));
-      }
-
-      if (assertions.some((a) => !a.passed)) status = "failed";
-      layers.push({ name: "activity-signals", status, duration_ms: Date.now() - start, assertions, data });
+      layers.push({
+        name: "activity-signals",
+        status: "skipped",
+        duration_ms: 0,
+        reason: "ActivitySignal table has been removed",
+        assertions: [],
+      });
     }
 
     // ── Layer 3: content-detection ───────────────────────────────────────
@@ -294,14 +232,14 @@ export async function POST(req: NextRequest) {
             assert(assertions, "Eligible communication items found", items.length > 0, `${items.length} items`);
 
             if (items.length > 0) {
-              const beforeCount = await prisma.situation.count({
-                where: { operatorId, source: "content_detected" },
+              const beforeCount = await prisma.knowledgePage.count({
+                where: { operatorId, pageType: "situation_instance", scope: "operator" },
               });
 
               await evaluateContentForSituations(operatorId, items);
 
-              const afterCount = await prisma.situation.count({
-                where: { operatorId, source: "content_detected" },
+              const afterCount = await prisma.knowledgePage.count({
+                where: { operatorId, pageType: "situation_instance", scope: "operator" },
               });
 
               assert(assertions, "Content detection completed without error", true);
@@ -310,32 +248,20 @@ export async function POST(req: NextRequest) {
               data.situationsCreated = newCount;
 
               if (newCount > 0) {
-                const newSits = await prisma.situation.findMany({
-                  where: { operatorId, source: "content_detected" },
+                const newSitPages = await prisma.knowledgePage.findMany({
+                  where: { operatorId, pageType: "situation_instance", scope: "operator" },
                   orderBy: { createdAt: "desc" },
                   take: newCount,
-                  select: {
-                    id: true,
-                    triggerEntityId: true,
-                    situationType: { select: { detectionLogic: true } },
-                  },
+                  select: { slug: true, properties: true },
                 });
 
-                for (const s of newSits) situationIds.push(s.id);
+                for (const p of newSitPages) {
+                  const props = p.properties as Record<string, unknown> | null;
+                  const sitId = (props?.situation_id as string) ?? p.slug;
+                  situationIds.push(sitId);
+                }
 
-                const hasValidTrigger = newSits.every((s) => !!s.triggerEntityId);
-                assert(assertions, "Created situations have valid triggerEntityId", hasValidTrigger);
-
-                // Check mode: "content"
-                const hasContentMode = newSits.some((s) => {
-                  try {
-                    const dl = JSON.parse(s.situationType.detectionLogic);
-                    return dl.mode === "content";
-                  } catch {
-                    return false;
-                  }
-                });
-                assert(assertions, "Auto-created SituationType has mode: content", hasContentMode);
+                assert(assertions, "Created situation pages exist", newSitPages.length > 0);
               }
             }
           }, LAYER_TIMEOUT_MS);
@@ -360,12 +286,13 @@ export async function POST(req: NextRequest) {
       // Find a situation to use
       let targetSituationId: string | null = situationIds[0] ?? null;
       if (!targetSituationId) {
-        const existing = await prisma.situation.findFirst({
-          where: { operatorId },
+        const existingPage = await prisma.knowledgePage.findFirst({
+          where: { operatorId, pageType: "situation_instance", scope: "operator" },
           orderBy: { createdAt: "desc" },
-          select: { id: true },
+          select: { properties: true },
         });
-        targetSituationId = existing?.id ?? null;
+        const existingProps = existingPage?.properties as Record<string, unknown> | null;
+        targetSituationId = (existingProps?.situation_id as string) ?? null;
       }
 
       if (!targetSituationId) {
@@ -380,44 +307,31 @@ export async function POST(req: NextRequest) {
       } else {
         try {
           await withTimeout(async () => {
-            const situation = await prisma.situation.findFirst({
-              where: { id: targetSituationId!, operatorId },
-              select: { situationTypeId: true, triggerEntityId: true, triggerEventId: true },
-            });
+            // Look up situation from KnowledgePage
+            const sitPages = await prisma.$queryRawUnsafe<Array<{
+              properties: Record<string, unknown> | null;
+            }>>(
+              `SELECT properties FROM "KnowledgePage"
+               WHERE "operatorId" = $1
+                 AND "pageType" = 'situation_instance'
+                 AND properties->>'situation_id' = $2
+               LIMIT 1`,
+              operatorId, targetSituationId!,
+            );
 
-            if (!situation) {
-              assert(assertions, "Situation exists", false);
+            if (sitPages.length === 0) {
+              assert(assertions, "Situation page exists", false);
               return;
             }
-
-            // Lightweight entity context (full context assembly removed — reasoning engine uses agentic tool-use loop)
-            const entity = situation.triggerEntityId
-              ? await prisma.entity.findFirst({
-                  where: { id: situation.triggerEntityId, operatorId },
-                  include: {
-                    entityType: { select: { name: true } },
-                    propertyValues: { include: { property: { select: { slug: true } } } },
-                  },
-                })
-              : null;
 
             contextSituationId = targetSituationId;
 
             assert(assertions, "Context assembly returned", true);
-            assert(
-              assertions,
-              "Trigger entity populated",
-              !!entity?.displayName,
-              entity?.displayName ?? "null",
-            );
+            assert(assertions, "Situation page found", true);
 
             data.situationId = targetSituationId;
-            data.triggerEntity = entity ? {
-              displayName: entity.displayName,
-              type: entity.entityType.name,
-              propertyCount: entity.propertyValues.length,
-            } : null;
-            data.note = "Lightweight context — full investigation done by agentic loop";
+            data.triggerEntity = null;
+            data.note = "Lightweight context — full investigation done by agentic loop. Situation data from KnowledgePage.";
           }, LAYER_TIMEOUT_MS);
         } catch (err) {
           status = "failed";
@@ -454,15 +368,22 @@ export async function POST(req: NextRequest) {
             await reasonAboutSituation(contextSituationId!);
             assert(assertions, "Agentic reasoning completed", true);
 
-            // Load result
-            const result = await prisma.situation.findUnique({
-              where: { id: contextSituationId! },
-              select: { status: true, reasoning: true, proposedAction: true, investigationDepth: true },
-            });
-            data.status = result?.status;
-            data.investigationDepth = result?.investigationDepth;
-            data.hasReasoning = !!result?.reasoning;
-            data.hasActionPlan = !!result?.proposedAction;
+            // Load result from KnowledgePage
+            const resultPages = await prisma.$queryRawUnsafe<Array<{
+              properties: Record<string, unknown> | null; content: string;
+            }>>(
+              `SELECT properties, content FROM "KnowledgePage"
+               WHERE "operatorId" = $1
+                 AND "pageType" = 'situation_instance'
+                 AND properties->>'situation_id' = $2
+               LIMIT 1`,
+              operatorId, contextSituationId!,
+            );
+            const resultProps = resultPages[0]?.properties ?? {};
+            data.status = resultProps.status ?? "unknown";
+            data.investigationDepth = "standard";
+            data.hasReasoning = !!(resultPages[0]?.content);
+            data.hasActionPlan = !!(resultProps.action_plan);
           }, LAYER_TIMEOUT_MS);
         } catch (err) {
           status = "failed";
@@ -497,12 +418,13 @@ export async function POST(req: NextRequest) {
       // Find a situation for evaluation
       let policySituationId: string | null = situationIds[0] ?? null;
       if (!policySituationId) {
-        const existing = await prisma.situation.findFirst({
-          where: { operatorId },
+        const existingPage = await prisma.knowledgePage.findFirst({
+          where: { operatorId, pageType: "situation_instance", scope: "operator" },
           orderBy: { createdAt: "desc" },
-          select: { id: true },
+          select: { properties: true },
         });
-        policySituationId = existing?.id ?? null;
+        const existingProps = existingPage?.properties as Record<string, unknown> | null;
+        policySituationId = (existingProps?.situation_id as string) ?? null;
       }
 
       if (!policySituationId) {
@@ -517,12 +439,19 @@ export async function POST(req: NextRequest) {
       } else {
         try {
           await withTimeout(async () => {
-            const situation = await prisma.situation.findFirst({
-              where: { id: policySituationId!, operatorId },
-              include: { situationType: true },
-            });
-            if (!situation) {
-              assert(assertions, "Situation exists", false);
+            // Verify situation page exists
+            const sitPages = await prisma.$queryRawUnsafe<Array<{
+              properties: Record<string, unknown> | null;
+            }>>(
+              `SELECT properties FROM "KnowledgePage"
+               WHERE "operatorId" = $1
+                 AND "pageType" = 'situation_instance'
+                 AND properties->>'situation_id' = $2
+               LIMIT 1`,
+              operatorId, policySituationId!,
+            );
+            if (sitPages.length === 0) {
+              assert(assertions, "Situation page exists", false);
               return;
             }
 
@@ -540,15 +469,6 @@ export async function POST(req: NextRequest) {
             });
             createdPolicyIds.push(tempPolicy.id);
 
-            let triggerEntityTypeSlug = "unknown";
-            if (situation.triggerEntityId) {
-              const entity = await prisma.entity.findUnique({
-                where: { id: situation.triggerEntityId },
-                include: { entityType: { select: { slug: true } } },
-              });
-              if (entity) triggerEntityTypeSlug = entity.entityType.slug;
-            }
-
             const capabilities = await prisma.actionCapability.findMany({
               where: { operatorId, enabled: true },
               include: { connector: { select: { provider: true } } },
@@ -565,8 +485,8 @@ export async function POST(req: NextRequest) {
             const policyResult = await evaluateActionPolicies(
               operatorId,
               actionsForEval,
-              triggerEntityTypeSlug,
-              situation.triggerEntityId ?? "",
+              "unknown",
+              "",
             );
 
             assert(assertions, "Policy evaluation completed", true);
@@ -661,29 +581,9 @@ export async function POST(req: NextRequest) {
             assert(assertions, "search_documents: returns without error", false, toolResults.search_documents.error);
           }
 
-          // get_activity_summary — query ActivitySignals
-          try {
-            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-            const signals = await prisma.activitySignal.findMany({
-              where: { operatorId, occurredAt: { gte: since } },
-              select: { signalType: true, domainIds: true },
-            });
-
-            // Aggregate
-            const counts = new Map<string, number>();
-            for (const s of signals) counts.set(s.signalType, (counts.get(s.signalType) ?? 0) + 1);
-
-            toolResults.get_activity_summary = { count: signals.length };
-            assert(assertions, "get_activity_summary: returns without error", true, `${signals.length} signals across ${counts.size} types`);
-
-            // Verify scoping — no raw vector data
-            const signalKeys = signals.length > 0 ? Object.keys(signals[0]) : [];
-            const hasVectorField = signalKeys.some((k) => k.toLowerCase().includes("embedding") || k.toLowerCase().includes("vector"));
-            assert(assertions, "get_activity_summary: no vector data leaked", !hasVectorField);
-          } catch (err) {
-            toolResults.get_activity_summary = { count: 0, error: err instanceof Error ? err.message : String(err) };
-            assert(assertions, "get_activity_summary: returns without error", false, toolResults.get_activity_summary.error);
-          }
+          // get_activity_summary — ActivitySignal table removed
+          toolResults.get_activity_summary = { count: 0 };
+          assert(assertions, "get_activity_summary: returns without error (table removed)", true, "ActivitySignal table removed — returning 0");
 
           data.toolResults = toolResults;
         }, LAYER_TIMEOUT_MS);
@@ -715,13 +615,8 @@ export async function POST(req: NextRequest) {
         cleanupResult.contentChunksDeleted += deleted.count;
       }
 
-      // Delete ActivitySignals by IDs
-      if (createdActivitySignalIds.length > 0) {
-        const deleted = await prisma.activitySignal.deleteMany({
-          where: { operatorId, id: { in: createdActivitySignalIds } },
-        });
-        cleanupResult.activitySignalsDeleted = deleted.count;
-      }
+      // ActivitySignal table removed — nothing to clean up
+      cleanupResult.activitySignalsDeleted = 0;
 
       // Delete test entities
       if (createdEntityIds.length > 0) {

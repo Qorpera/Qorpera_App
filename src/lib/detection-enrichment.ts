@@ -119,39 +119,10 @@ async function loadRelatedCalendarEvents(
   const from = new Date(now.getTime() + minDays * 86_400_000);
   const to = new Date(now.getTime() + maxDays * 86_400_000);
 
-  // Approach 1: ActivitySignals for future meetings
-  const signals = await prisma.activitySignal.findMany({
-    where: {
-      operatorId,
-      signalType: { in: ["meeting_organized", "meeting_attended"] },
-      occurredAt: { gte: from, lte: to },
-      ...(participantEntityIds.length > 0
-        ? { actorEntityId: { in: participantEntityIds } }
-        : {}),
-    },
-    orderBy: { occurredAt: "asc" },
-    take: 10,
-  });
-
+  // ActivitySignal table dropped — use calendar raw content only
   const events: EnrichedSignalContext["relatedCalendarEvents"] = [];
 
-  for (const s of signals) {
-    const meta = parseMeta(s.metadata);
-    const date = s.occurredAt.toISOString();
-    const daysUntil = Math.ceil((s.occurredAt.getTime() - now.getTime()) / 86_400_000);
-
-    events.push({
-      title: (meta.subject as string) ?? (meta.title as string) ?? s.signalType,
-      date,
-      attendees: Array.isArray(meta.attendees)
-        ? (meta.attendees as string[])
-        : [],
-      description: (meta.description as string) ?? undefined,
-      daysUntil,
-    });
-  }
-
-  // Approach 2: Calendar raw content with future dates
+  // Calendar raw content with future dates
   if (events.length < 10) {
     const calItems = await prisma.rawContent.findMany({
       where: {
@@ -258,29 +229,26 @@ async function loadRecentActorActivity(
 ): Promise<EnrichedSignalContext["recentActorActivity"]> {
   const since = new Date(Date.now() - days * 86_400_000);
 
-  const signals = await prisma.activitySignal.findMany({
+  // ActivitySignal table dropped — read from person page activityContent
+  const personPage = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      actorEntityId,
-      occurredAt: { gte: since },
+      pageType: "person_profile",
+      scope: "operator",
+      properties: { path: ["entity_id"], equals: actorEntityId },
     },
-    orderBy: { occurredAt: "desc" },
-    take: 15,
+    select: { activityContent: true },
   });
 
-  return signals.map((s) => {
-    const meta = parseMeta(s.metadata);
-    const parts: string[] = [s.signalType.replace(/_/g, " ")];
-    if (meta.subject) parts.push(`"${meta.subject}"`);
-    if (meta.channel) parts.push(`in ${meta.channel}`);
-    if (meta.file_name) parts.push(`file: ${meta.file_name}`);
+  if (!personPage?.activityContent) return [];
 
-    return {
-      type: s.signalType,
-      date: s.occurredAt.toISOString(),
-      summary: parts.join(" — "),
-    };
-  });
+  // Parse simple activity lines from activityContent
+  const lines = personPage.activityContent.split("\n").filter(l => l.trim());
+  return lines.slice(0, 15).map(line => ({
+    type: "activity",
+    date: since.toISOString(),
+    summary: line.trim(),
+  }));
 }
 
 async function loadRelatedDocuments(

@@ -78,32 +78,24 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Snapshot situation count before
-        const beforeCount = await prisma.situation.count({
-          where: { operatorId, source: "content_detected" },
+        // Snapshot situation page count before
+        const beforeCount = await prisma.knowledgePage.count({
+          where: { operatorId, pageType: "situation_instance", scope: "operator" },
         });
 
         // Run the real content detection pipeline
         await evaluateContentForSituations(operatorId, items);
 
-        // Find newly created situations
-        const afterSituations = await prisma.situation.findMany({
-          where: { operatorId, source: "content_detected", createdAt: { gte: oneHourAgo } },
-          select: {
-            id: true,
-            status: true,
-            triggerEntityId: true,
-            confidence: true,
-            contextSnapshot: true,
-            situationType: { select: { name: true, slug: true } },
-            createdAt: true,
-          },
+        // Find newly created situation pages
+        const afterSitPages = await prisma.knowledgePage.findMany({
+          where: { operatorId, pageType: "situation_instance", scope: "operator", createdAt: { gte: oneHourAgo } },
+          select: { slug: true, title: true, properties: true, createdAt: true },
           orderBy: { createdAt: "desc" },
           take: 10,
         });
 
-        const afterCount = await prisma.situation.count({
-          where: { operatorId, source: "content_detected" },
+        const afterCount = await prisma.knowledgePage.count({
+          where: { operatorId, pageType: "situation_instance", scope: "operator" },
         });
 
         return NextResponse.json({
@@ -111,17 +103,16 @@ export async function POST(req: NextRequest) {
           operatorId,
           itemsEvaluated: items.length,
           newSituationsCreated: afterCount - beforeCount,
-          situations: afterSituations.map((s) => {
-            let snapshot: Record<string, unknown> = {};
-            try { snapshot = s.contextSnapshot ? JSON.parse(s.contextSnapshot) : {}; } catch {}
+          situations: afterSitPages.map((p) => {
+            const props = p.properties as Record<string, unknown> | null ?? {};
             return {
-              id: s.id,
-              status: s.status,
-              triggerEntityId: s.triggerEntityId,
-              confidence: s.confidence,
-              situationType: s.situationType.name,
-              summary: (snapshot.currentSummary as string) ?? (snapshot.contentEvidence as Array<{ summary?: string }>)?.[0]?.summary ?? null,
-              createdAt: formatTimestamp(s.createdAt),
+              id: (props?.situation_id as string) ?? p.slug,
+              status: (props?.status as string) ?? "detected",
+              triggerEntityId: null,
+              confidence: (props?.confidence as number) ?? 0,
+              situationType: (props?.situation_type as string) ?? "unknown",
+              summary: p.title,
+              createdAt: formatTimestamp(p.createdAt),
             };
           }),
           timestamp: formatTimestamp(new Date()),
@@ -135,42 +126,27 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "context-assembly requires params.situationId" }, { status: 400 });
         }
 
-        const situation = await prisma.situation.findFirst({
-          where: { id: situationId, operatorId },
-          select: { situationTypeId: true, triggerEntityId: true, triggerEventId: true },
-        });
-        if (!situation) {
+        // Look up situation from KnowledgePage
+        const sitPages = await prisma.$queryRawUnsafe<Array<{
+          properties: Record<string, unknown> | null;
+        }>>(
+          `SELECT properties FROM "KnowledgePage"
+           WHERE "operatorId" = $1
+             AND "pageType" = 'situation_instance'
+             AND properties->>'situation_id' = $2
+           LIMIT 1`,
+          operatorId, situationId,
+        );
+        if (sitPages.length === 0) {
           return NextResponse.json({ error: `Situation ${situationId} not found` }, { status: 404 });
-        }
-
-        // Lightweight entity context (same as production detector uses)
-        const entity = situation.triggerEntityId
-          ? await prisma.entity.findFirst({
-              where: { id: situation.triggerEntityId, operatorId },
-              include: {
-                entityType: { select: { name: true } },
-                propertyValues: { include: { property: { select: { slug: true } } } },
-              },
-            })
-          : null;
-
-        const properties: Record<string, string> = {};
-        for (const pv of entity?.propertyValues ?? []) {
-          properties[pv.property.slug] = pv.value;
         }
 
         return NextResponse.json({
           pipeline: "context-assembly",
           operatorId,
           situationId,
-          triggerEntity: entity ? {
-            id: entity.id,
-            displayName: entity.displayName,
-            type: entity.entityType.name,
-            propertyCount: Object.keys(properties).length,
-            properties,
-          } : null,
-          note: "Full context assembly removed — reasoning engine investigates via agentic tool-use loop",
+          triggerEntity: null,
+          note: "Full context assembly removed — reasoning engine investigates via agentic tool-use loop. Situation data now lives in KnowledgePage.",
           timestamp: formatTimestamp(new Date()),
         });
       }
@@ -182,30 +158,42 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "reasoning requires params.situationId" }, { status: 400 });
         }
 
-        const situation = await prisma.situation.findFirst({
-          where: { id: situationId, operatorId },
-          select: { id: true, status: true, investigationDepth: true },
-        });
-        if (!situation) {
+        // Look up from KnowledgePage
+        const reasonSitPages = await prisma.$queryRawUnsafe<Array<{
+          slug: string; properties: Record<string, unknown> | null;
+        }>>(
+          `SELECT slug, properties FROM "KnowledgePage"
+           WHERE "operatorId" = $1
+             AND "pageType" = 'situation_instance'
+             AND properties->>'situation_id' = $2
+           LIMIT 1`,
+          operatorId, situationId,
+        );
+        if (reasonSitPages.length === 0) {
           return NextResponse.json({ error: `Situation ${situationId} not found` }, { status: 404 });
         }
 
-        // Reset to detected so the production reasoning engine picks it up
-        if (situation.status !== "detected") {
-          await prisma.situation.update({
-            where: { id: situationId },
-            data: { status: "detected" },
-          });
+        const sitPage = reasonSitPages[0];
+        const props = sitPage.properties ?? {};
+
+        // Reset to detected via wiki page update
+        if ((props.status as string) !== "detected") {
+          const { updatePageWithLock } = await import("@/lib/wiki-engine");
+          await updatePageWithLock(operatorId, sitPage.slug, (current) => ({
+            properties: { ...(current.properties ?? {}), status: "detected" },
+          }));
         }
 
         const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
-        const jobId = await enqueueWorkerJob("reason_situation", operatorId, { situationId });
+        const jobId = await enqueueWorkerJob("reason_situation", operatorId, {
+          situationId, wikiPageSlug: sitPage.slug,
+        });
 
         return NextResponse.json({
           pipeline: "reasoning",
           operatorId,
           situationId,
-          investigationDepth: situation.investigationDepth,
+          investigationDepth: "standard",
           jobId,
           message: "Reasoning enqueued via production agentic loop",
           timestamp: formatTimestamp(new Date()),
@@ -219,22 +207,31 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "policy-check requires params.situationId" }, { status: 400 });
         }
 
-        const situation = await prisma.situation.findFirst({
-          where: { id: situationId, operatorId },
-          include: { situationType: true },
-        });
-        if (!situation) {
+        // Look up from KnowledgePage
+        const policySitPages = await prisma.$queryRawUnsafe<Array<{
+          properties: Record<string, unknown> | null;
+        }>>(
+          `SELECT properties FROM "KnowledgePage"
+           WHERE "operatorId" = $1
+             AND "pageType" = 'situation_instance'
+             AND properties->>'situation_id' = $2
+           LIMIT 1`,
+          operatorId, situationId,
+        );
+        if (policySitPages.length === 0) {
           return NextResponse.json({ error: `Situation ${situationId} not found` }, { status: 404 });
         }
 
-        let triggerEntityTypeSlug = "unknown";
-        if (situation.triggerEntityId) {
-          const entity = await prisma.entity.findUnique({
-            where: { id: situation.triggerEntityId },
-            include: { entityType: { select: { slug: true } } },
-          });
-          if (entity) triggerEntityTypeSlug = entity.entityType.slug;
-        }
+        const sitProps = policySitPages[0].properties ?? {};
+        const sitTypeSlug = (sitProps.situation_type as string) ?? "";
+
+        // Resolve situation type name
+        const sitType = sitTypeSlug
+          ? await prisma.situationType.findFirst({
+              where: { operatorId, slug: sitTypeSlug },
+              select: { name: true },
+            })
+          : null;
 
         const capabilities = await prisma.actionCapability.findMany({
           where: { operatorId, enabled: true },
@@ -251,8 +248,8 @@ export async function POST(req: NextRequest) {
         const policyResult = await evaluateActionPolicies(
           operatorId,
           actionsForEval,
-          triggerEntityTypeSlug,
-          situation.triggerEntityId ?? "",
+          "unknown",
+          "",
         );
 
         // Load policies for detail
@@ -265,8 +262,8 @@ export async function POST(req: NextRequest) {
           pipeline: "policy-check",
           operatorId,
           situationId,
-          situationType: situation.situationType.name,
-          triggerEntityTypeSlug,
+          situationType: sitType?.name ?? sitTypeSlug,
+          triggerEntityTypeSlug: "unknown",
           effectiveAutonomy: "supervised",
           permitted: policyResult.permitted.map((p) => ({
             name: p.name,

@@ -40,7 +40,7 @@ export interface AgenticSeedInput {
     fromEntityName: string | null;
   } | null;
   connectorCapabilities: ConnectorCapability[];
-  wikiPages: Array<{ slug: string; title: string; pageType: string; status: string; content: string; trustLevel?: string }>;
+  wikiPages: Array<{ slug: string; title: string; pageType: string; status?: string; content: string; trustLevel?: string; role?: string }>;
   evidenceClaims?: Array<{ claim: string; type: string; confidence: number; source: string }>;
   systemExpertiseIndex?: Array<{
     slug: string;
@@ -162,10 +162,17 @@ Autonomy level: ${input.autonomyLevel} — ${autonomyNote}`);
 
   // ORGANIZATIONAL KNOWLEDGE (from wiki)
   if (input.wikiPages.length > 0) {
+    const ROLE_LABELS: Record<string, string> = {
+      situation: "SITUATION PAGE",
+      situation_type_playbook: "SITUATION TYPE PLAYBOOK",
+      trigger_person: "TRIGGER PERSON",
+      domain_hub: "DEPARTMENT",
+    };
     const pageContent = input.wikiPages.map((p) => {
+      const label = (p.role && ROLE_LABELS[p.role]) ?? `${p.title} (${p.pageType})`;
       const trustTag = p.trustLevel && p.trustLevel !== "provisional" ? ` [trust: ${p.trustLevel}]` : "";
       const statusTag = p.status === "stale" ? " [may be outdated]" : "";
-      return `### ${p.title} (${p.pageType})${trustTag}${statusTag}\n${p.content}`;
+      return `### ${label}${trustTag}${statusTag}\n${p.content}`;
     }).join("\n\n---\n\n");
     sections.push(`ORGANIZATIONAL KNOWLEDGE (from wiki):\nPre-loaded knowledge pages relevant to this situation. Pages marked [trust: authoritative] have strong outcome track records. Pages marked [trust: challenged] should be verified.\n\n${pageContent}`);
   }
@@ -226,6 +233,9 @@ REFERENCE LIBRARY (consult when you need specifics):
 
 WEB SEARCH (use for current/external information):
 - web_search — current regulations, market data, company news, anything that changes over time or that you're not fully confident about.
+
+STARTING CONTEXT:
+You receive four context pages as your starting point: the situation itself, the situation type's playbook, the trigger person's profile, and the department hub. Read all four before investigating. Follow [[cross-references]] to explore related pages. Check the situation type playbook for governance rules and resolution patterns. Use search tools to find information the hub pages don't cover.
 
 INVESTIGATION APPROACH:
 1. Understand what's happening from the situation context

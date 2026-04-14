@@ -9,16 +9,34 @@ export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const statusFilter = params.get("status") ?? undefined;
 
-  const where: Record<string, unknown> = { operatorId };
-  if (statusFilter) where.status = statusFilter;
-
-  const initiatives = await prisma.initiative.findMany({
-    where,
+  // Query initiative wiki pages
+  const pages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      pageType: "initiative",
+      scope: "operator",
+    },
+    select: {
+      slug: true,
+      title: true,
+      properties: true,
+      createdAt: true,
+    },
     orderBy: { createdAt: "desc" },
   });
 
+  // Filter by status in JS (JSONB filter in Prisma is awkward for optional params)
+  const filtered = statusFilter
+    ? pages.filter(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        return props.status === statusFilter;
+      })
+    : pages;
+
   // Resolve owner wiki page titles
-  const ownerSlugs = [...new Set(initiatives.map(i => i.ownerPageSlug).filter(Boolean))] as string[];
+  const ownerSlugs = [...new Set(
+    filtered.map(p => ((p.properties ?? {}) as Record<string, unknown>).owner as string | undefined).filter(Boolean),
+  )] as string[];
   const ownerPages = ownerSlugs.length > 0
     ? await prisma.knowledgePage.findMany({
         where: { operatorId, slug: { in: ownerSlugs }, scope: "operator" },
@@ -27,20 +45,24 @@ export async function GET(req: NextRequest) {
     : [];
   const ownerPageMap = new Map(ownerPages.map(p => [p.slug, p.title]));
 
-  const items = initiatives.map(i => ({
-    id: i.id,
-    aiEntityId: i.aiEntityId,
-    ownerPageSlug: i.ownerPageSlug,
-    ownerName: i.ownerPageSlug ? ownerPageMap.get(i.ownerPageSlug) ?? null : null,
-    proposalType: i.proposalType,
-    triggerSummary: i.triggerSummary,
-    status: i.status,
-    rationale: i.rationale,
-    impactAssessment: i.impactAssessment,
-    proposedProjectConfig: i.proposedProjectConfig,
-    projectId: i.projectId,
-    createdAt: i.createdAt.toISOString(),
-  }));
+  const items = filtered.map(p => {
+    const props = (p.properties ?? {}) as Record<string, unknown>;
+    const ownerSlug = (props.owner as string) ?? null;
+    return {
+      id: p.slug,
+      aiEntityId: null,
+      ownerPageSlug: ownerSlug,
+      ownerName: ownerSlug ? ownerPageMap.get(ownerSlug) ?? null : null,
+      proposalType: props.proposal_type ?? "general",
+      triggerSummary: p.title,
+      status: props.status ?? "proposed",
+      rationale: (props.rationale as string) ?? null,
+      impactAssessment: (props.impact_assessment as string) ?? null,
+      proposedProjectConfig: props.project_config ?? null,
+      projectId: (props.project_id as string) ?? null,
+      createdAt: p.createdAt.toISOString(),
+    };
+  });
 
   return NextResponse.json({ items });
 }

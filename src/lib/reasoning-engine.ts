@@ -5,111 +5,168 @@ import { loadOperationalInsights } from "@/lib/context-assembly";
 import { evaluateActionPolicies } from "@/lib/policy-evaluator";
 import { buildSystemPrompt, buildAgenticSeedContext, type AgenticSeedInput } from "@/lib/reasoning-prompts";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
-import { createExecutionPlan, type StepDefinition } from "@/lib/execution-engine";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { ReasoningOutputSchema, DeepReasoningOutputSchema, WikiReasoningOutputSchema, type ReasoningOutput, type DeepReasoningOutput, type WikiReasoningOutput } from "@/lib/reasoning-types";
+import { WikiReasoningOutputSchema, type WikiReasoningOutput } from "@/lib/reasoning-types";
 import {
   updateSituationWikiPage,
   type SituationProperties,
 } from "@/lib/situation-wiki-helpers";
 import { captureApiError } from "@/lib/api-error";
 import { generateSituationSummaries } from "@/lib/situation-summarizer";
-import { refineUncertainties } from "@/lib/reasoning/uncertainty-refiner";
 import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
 import { getConnectorReadTools, executeConnectorReadTool } from "@/lib/connector-read-tools";
-import { processWikiUpdates, getRelevantPagesForSeed, getPageForEntity, type WikiUpdate } from "@/lib/wiki-engine";
+import { processWikiUpdates, updatePageWithLock, type WikiUpdate } from "@/lib/wiki-engine";
+import { parseSituationPage } from "@/lib/situation-page-parser";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
-export const REASONING_PROMPT_VERSION = 6; // v6: wiki-first entity migration — entity tools replaced with wiki-based tools
+export const REASONING_PROMPT_VERSION = 7; // v7: wiki-first entry point — wiki page is primary gate, no thin Situation dependency
+
+const PROVIDER_TYPES: Record<string, string[]> = {
+  google: ["gmail", "google_drive", "google_calendar", "google_sheets"],
+  microsoft: ["outlook", "onedrive", "teams", "microsoft_calendar"],
+  slack: ["slack"],
+  hubspot: ["hubspot"],
+  stripe: ["stripe"],
+};
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 export async function reasonAboutSituation(situationId: string, wikiPageSlug?: string): Promise<void> {
-  // 1. Load situation
-  const situation = await prisma.situation.findUnique({
-    where: { id: situationId },
-    include: {
-      situationType: true,
-    },
-  });
-
-  if (!situation) {
-    console.warn(`[reasoning-engine] Situation ${situationId} not found`);
+  if (!wikiPageSlug) {
+    console.warn(`[reasoning-engine] No wiki page slug provided for situation ${situationId}`);
     return;
   }
 
-  // Skip reasoning for awareness situations — they're resolved at detection time
-  if (situation.situationType?.slug?.startsWith("awareness-")) {
-    console.log(`[reasoning-engine] Skipping reasoning for awareness situation ${situationId} (type: ${situation.situationType.slug})`);
-    if (situation.status === "detected") {
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: { status: "resolved", resolvedAt: new Date() },
-      });
+  const situationPage = await prisma.knowledgePage.findFirst({
+    where: { slug: wikiPageSlug, scope: "operator", pageType: "situation_instance" },
+    select: { slug: true, title: true, content: true, properties: true, operatorId: true },
+  });
+
+  if (!situationPage || !situationPage.operatorId) {
+    console.warn(`[reasoning-engine] Wiki page ${wikiPageSlug} not found`);
+    return;
+  }
+
+  const operatorId = situationPage.operatorId;
+  const props = (situationPage.properties ?? {}) as Record<string, unknown>;
+  const wikiSituationId = (props.situation_id as string) ?? situationId;
+  const situationTypeSlug = props.situation_type as string | undefined;
+  const triggerPageSlug = props.trigger_page as string | undefined;
+  const domainSlug = props.domain as string | undefined;
+  const currentStatus = props.status as string | undefined;
+  const investigationDepth = (props.investigation_depth as string) ?? "standard";
+  const editInstruction = props.edit_instruction as string | undefined;
+
+  // 2. Resolve situation type from slug
+  if (!situationTypeSlug) {
+    console.warn(`[reasoning-engine] No situation_type in properties for ${wikiPageSlug}`);
+    return;
+  }
+
+  const situationType = await prisma.situationType.findFirst({
+    where: { operatorId, slug: situationTypeSlug },
+  });
+
+  if (!situationType) {
+    console.warn(`[reasoning-engine] SituationType ${situationTypeSlug} not found for operator ${operatorId}`);
+    return;
+  }
+
+  // Skip reasoning for awareness situations
+  if (situationTypeSlug.startsWith("awareness-")) {
+    console.log(`[reasoning-engine] Skipping reasoning for awareness situation ${wikiPageSlug}`);
+    if (currentStatus === "detected") {
+      await updatePageWithLock(operatorId, wikiPageSlug, (p) => ({
+        properties: { ...(p.properties ?? {}), status: "resolved", resolved_at: new Date().toISOString() },
+      }));
     }
     return;
   }
 
-  // 1b. Load situation wiki page (primary input for wiki-first situations)
-  let situationPage: { slug: string; title: string; content: string; properties: Record<string, unknown> | null } | null = null;
-  const pageSlug = wikiPageSlug ?? situation.wikiPageSlug;
-  if (pageSlug) {
-    const page = await prisma.knowledgePage.findFirst({
-      where: { operatorId: situation.operatorId, slug: pageSlug, scope: "operator", pageType: "situation_instance" },
-      select: { slug: true, title: true, content: true, properties: true },
+  // 3. Status guard + lock via wiki page
+  if (currentStatus !== "detected") {
+    return; // Idempotent — already being reasoned about or past that stage
+  }
+
+  let lockAcquired = false;
+  try {
+    await updatePageWithLock(operatorId, wikiPageSlug, (p) => {
+      const pageProps = (p.properties ?? {}) as Record<string, unknown>;
+      if (pageProps.status !== "detected") {
+        return {}; // Another worker got here first — no-op
+      }
+      lockAcquired = true;
+      return { properties: { ...pageProps, status: "reasoning" } };
     });
-    if (page) {
-      situationPage = {
-        slug: page.slug,
-        title: page.title,
-        content: page.content,
-        properties: page.properties as Record<string, unknown> | null,
-      };
-    }
+  } catch {
+    return; // Lock failed
   }
-  const isWikiFirst = !!situationPage;
-
-  // 2. Guard — skip if not detected (idempotent)
-  if (situation.status !== "detected") {
-    return;
-  }
-
-  // 3. Update status to reasoning (optimistic lock)
-  const lockResult = await prisma.situation.updateMany({
-    where: { id: situationId, status: "detected" },
-    data: { status: "reasoning" },
-  });
-  if (lockResult.count === 0) {
-    return;
-  }
+  if (!lockAcquired) return;
 
   try {
-    // 4. Resolve governance — load trigger page once (reused for stub in step 5b)
-    let triggerEntityTypeSlug = "unknown";
-    const triggerPage = situation.triggerPageSlug
-      ? await prisma.knowledgePage.findFirst({
-          where: { operatorId: situation.operatorId, slug: situation.triggerPageSlug, scope: "operator" },
-          select: { title: true, slug: true, pageType: true },
-        })
-      : null;
-    if (triggerPage) {
-      triggerEntityTypeSlug = triggerPage.pageType;
-    } else if (situation.triggerEntityId) {
-      const entity = await prisma.entity.findFirst({
-        where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
-        include: { entityType: { select: { slug: true } } },
-      });
-      if (entity) {
-        triggerEntityTypeSlug = entity.entityType.slug;
-      }
+    // Load hub pages (2-4), capabilities, business context, prior feedback, insights, and cycle count in parallel
+    const hubSlugs = [situationType.wikiPageSlug, triggerPageSlug, domainSlug].filter(Boolean) as string[];
+    const hubRoles: Record<string, string> = {};
+    if (situationType.wikiPageSlug) hubRoles[situationType.wikiPageSlug] = "situation_type_playbook";
+    if (triggerPageSlug) hubRoles[triggerPageSlug] = "trigger_person";
+    if (domainSlug) hubRoles[domainSlug] = "domain_hub";
+
+    const [
+      hubPageResults,
+      capabilities,
+      businessCtx,
+      operator,
+      priorFeedbackPages,
+      operationalInsights,
+      cycleCount,
+    ] = await Promise.all([
+      hubSlugs.length > 0
+        ? prisma.knowledgePage.findMany({
+            where: { operatorId, slug: { in: hubSlugs }, scope: "operator" },
+            select: { slug: true, title: true, content: true, pageType: true },
+          })
+        : Promise.resolve([]),
+      prisma.actionCapability.findMany({
+        where: { operatorId, enabled: true },
+        include: { connector: { select: { provider: true } } },
+      }),
+      getBusinessContext(operatorId),
+      prisma.operator.findUnique({
+        where: { id: operatorId },
+        select: { companyName: true },
+      }),
+      prisma.knowledgePage.findMany({
+        where: {
+          operatorId,
+          pageType: "situation_instance",
+          scope: "operator",
+          properties: { path: ["situation_type"], equals: situationTypeSlug },
+        },
+        select: { content: true, properties: true },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      }),
+      loadOperationalInsights(operatorId, null, null, situationType.id),
+      prisma.situationCycle.count({ where: { situationId: wikiSituationId } }),
+    ]);
+
+    // Assemble hub pages array (situation page first, then DB results in role order)
+    const hubPages: Array<{ slug: string; title: string; pageType: string; content: string; role: string }> = [{
+      slug: situationPage.slug,
+      title: situationPage.title,
+      pageType: "situation_instance",
+      content: situationPage.content,
+      role: "situation",
+    }];
+    let triggerPersonName: string | null = null;
+    for (const page of hubPageResults) {
+      const role = hubRoles[page.slug];
+      if (!role) continue;
+      hubPages.push({ slug: page.slug, title: page.title, pageType: page.pageType, content: page.content, role });
+      if (role === "trigger_person") triggerPersonName = page.title;
     }
 
-    // Load action capabilities with connector info
-    const capabilities = await prisma.actionCapability.findMany({
-      where: { operatorId: situation.operatorId, enabled: true },
-      include: { connector: { select: { provider: true } } },
-    });
-
+    // Governance
     const actionsForEval = capabilities.map((c) => ({
       name: c.name,
       description: c.description,
@@ -119,123 +176,37 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
     }));
 
     const policyResult = await evaluateActionPolicies(
-      situation.operatorId,
+      operatorId,
       actionsForEval,
-      triggerEntityTypeSlug,
-      situation.triggerEntityId ?? "",
+      "person_profile",
+      "",
     );
 
-    // 6. Build prompt
-    const [businessCtx, operator] = await Promise.all([
-      getBusinessContext(situation.operatorId),
-      prisma.operator.findUnique({
-        where: { id: situation.operatorId },
-        select: { companyName: true },
-      }),
-    ]);
     const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
 
-    // 5a. Compute edit instruction and prior feedback
+    // Edit instruction — tells the LLM which changes the human requested
     let editInstructionText: string | null = null;
-    if (situation.editInstruction) {
-      let originalProposal = "null";
-      if (situation.proposedAction) {
-        try { originalProposal = JSON.stringify(JSON.parse(situation.proposedAction), null, 2); } catch { originalProposal = situation.proposedAction; }
-      }
-      editInstructionText = `The human reviewed the original proposal and requested changes.\n\nORIGINAL PROPOSAL:\n${originalProposal}\n\nHUMAN'S EDIT INSTRUCTION:\n"${situation.editInstruction}"`;
+    if (editInstruction) {
+      editInstructionText = `The human reviewed the original proposal and requested changes.\n\nHUMAN'S EDIT INSTRUCTION:\n"${editInstruction}"`;
     }
 
-    const priorFeedback = await prisma.situation.findMany({
-      where: {
-        operatorId: situation.operatorId,
-        situationTypeId: situation.situationTypeId,
-        feedback: { not: null },
-        id: { not: situationId },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { feedback: true, feedbackCategory: true },
-    });
-    const priorFeedbackLines = priorFeedback.length > 0
-      ? priorFeedback.map((f) => `  - ${f.feedback}${f.feedbackCategory ? ` [${f.feedbackCategory}]` : ""}`)
+    // Extract prior learnings from resolved situations of this type
+    const priorFeedbackLines: string[] = [];
+    for (const p of priorFeedbackPages) {
+      const parsed = parseSituationPage(p.content, p.properties as Record<string, unknown> | null);
+      const learnings = parsed.sections.learnings?.trim();
+      if (learnings) priorFeedbackLines.push(learnings.slice(0, 200));
+    }
+
+    const triggerStub = triggerPersonName && triggerPageSlug
+      ? { displayName: triggerPersonName, pageSlug: triggerPageSlug, pageType: "person_profile" as const }
       : null;
 
-    // 5b. Build trigger stub (reuses triggerPage from step 4)
-    let triggerStub: { displayName: string; pageSlug: string; pageType: string } | null = null;
-    if (triggerPage) {
-      triggerStub = { displayName: triggerPage.title, pageSlug: triggerPage.slug, pageType: triggerPage.pageType };
-    } else if (situation.triggerEntityId) {
-      // Legacy: look up entity and try to find its wiki page
-      const entity = await prisma.entity.findFirst({
-        where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
-        select: { displayName: true, entityType: { select: { name: true } } },
-      });
-      if (entity) {
-        const page = await getPageForEntity(situation.operatorId, situation.triggerEntityId);
-        triggerStub = {
-          displayName: entity.displayName,
-          pageSlug: page?.slug ?? situation.triggerEntityId,
-          pageType: page ? "entity_profile" : entity.entityType.name,
-        };
-      }
-    }
+    const cycleNumber = cycleCount + 1;
 
-    // 5c. Load operational insights
-    let aiEntityId: string | null = null;
-    let triggerDepartmentId: string | null = null;
-    if (situation.triggerEntityId) {
-      const te = await prisma.entity.findFirst({
-        where: { id: situation.triggerEntityId, operatorId: situation.operatorId },
-        select: { primaryDomainId: true },
-      });
-      triggerDepartmentId = te?.primaryDomainId ?? null;
-      if (triggerDepartmentId) {
-        const deptAi = await prisma.entity.findFirst({
-          where: { ownerDomainId: triggerDepartmentId, operatorId: situation.operatorId, status: "active" },
-          select: { id: true },
-        });
-        aiEntityId = deptAi?.id ?? null;
-      }
-    }
-    const operationalInsights = await loadOperationalInsights(
-      situation.operatorId, aiEntityId, triggerDepartmentId, situation.situationTypeId,
-    );
-
-    // 5d. Load action cycles (prior completed cycles for this situation)
-    const completedCycles = await prisma.situationCycle.findMany({
-      where: { situationId, status: "completed" },
-      orderBy: { cycleNumber: "asc" },
-      include: {
-        executionPlan: {
-          include: { steps: { orderBy: { sequenceOrder: "asc" } } },
-        },
-      },
-    });
-    const actionCycles = completedCycles.map((c) => ({
-      cycleNumber: c.cycleNumber,
-      triggerType: c.triggerType,
-      triggerSummary: c.triggerSummary,
-      steps: (c.executionPlan?.steps ?? []).map((s) => ({
-        title: s.title,
-        completed: s.status === "completed",
-        notes: s.outputResult ? (() => { try { const r = JSON.parse(s.outputResult!); return r.notes || r.description || undefined; } catch { return undefined; } })() : undefined,
-      })),
-    }));
-    const cycleNumber = completedCycles.length + 1;
-
-    // 5e. Delegation source — removed (Delegation model dropped in v0.3.17)
-    const delegationSource: { instruction: string; context: unknown; fromEntityName: string | null } | null = null;
-
-    // 6. Load connector capabilities for seed context
-    const PROVIDER_TYPES: Record<string, string[]> = {
-      google: ["gmail", "google_drive", "google_calendar", "google_sheets"],
-      microsoft: ["outlook", "onedrive", "teams", "microsoft_calendar"],
-      slack: ["slack"],
-      hubspot: ["hubspot"],
-      stripe: ["stripe"],
-    };
+    // Connector capabilities for seed context
     const activeConnectors = await prisma.sourceConnector.findMany({
-      where: { operatorId: situation.operatorId, status: "active", deletedAt: null },
+      where: { operatorId, status: "active", deletedAt: null },
       select: { provider: true, userId: true },
     });
     const connSeen = new Set<string>();
@@ -255,39 +226,22 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         }));
     });
 
-    // 6b. Assemble dynamic tool set (knowledge-graph + connector read tools)
-    const triggerEntityOrSlug = situation.triggerEntityId ?? situation.triggerPageSlug;
-    const [
-      { tools: connectorTools, availableToolNames: connectorToolNames },
-      wikiPages,
-    ] = await Promise.all([
-      getConnectorReadTools(situation.operatorId),
-      triggerEntityOrSlug
-        ? getRelevantPagesForSeed(
-            situation.operatorId,
-            triggerEntityOrSlug,
-            situation.situationType.slug,
-            undefined,
-            situation.triggerSummary ?? (situation.triggerEvidence as { summary?: string } | null)?.summary ?? "",
-          )
-        : Promise.resolve([]),
-    ]);
+    // Dynamic tool set (knowledge-graph + connector read tools)
+    const { tools: connectorTools, availableToolNames: connectorToolNames } =
+      await getConnectorReadTools(operatorId);
     const allTools = [...REASONING_TOOLS, ...connectorTools];
 
     const dispatchTool = async (toolName: string, args: Record<string, unknown>): Promise<string> => {
       if (connectorToolNames.has(toolName)) {
-        return executeConnectorReadTool(situation.operatorId, toolName, args);
+        return executeConnectorReadTool(operatorId, toolName, args);
       }
-      return executeReasoningTool(situation.operatorId, toolName, args);
+      return executeReasoningTool(operatorId, toolName, args);
     };
 
-    // 6c-i. Load top relevant evidence claims for seed context
+    // Evidence claims for seed context
     let evidenceClaims: Array<{ claim: string; type: string; confidence: number; source: string }> = [];
     try {
-      const searchQuery = situation.triggerSummary
-        ?? (situation.triggerEvidence as { summary?: string } | null)?.summary
-        ?? "";
-
+      const searchQuery = situationPage.title ?? "";
       if (searchQuery.length > 10) {
         const escaped = searchQuery.replace(/[%_\\]/g, "\\$&");
         const keywords = `%${escaped.split(" ").slice(0, 3).join("%")}%`;
@@ -297,7 +251,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         }>>`
           SELECT extractions, "sourceType"
           FROM "EvidenceExtraction"
-          WHERE "operatorId" = ${situation.operatorId}
+          WHERE "operatorId" = ${operatorId}
             AND extractions::text ILIKE ${keywords}
           ORDER BY "extractedAt" DESC
           LIMIT 5
@@ -325,74 +279,67 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       console.warn("[reasoning-engine] Evidence claim loading failed:", err);
     }
 
-    // 6c-ii. Discover available system expertise for seed context
+    // System expertise discovery
     let systemExpertiseIndex: Array<{
       slug: string; title: string; pageType: string; confidence: number; contentPreview: string;
     }> = [];
     try {
       const { discoverSystemExpertise } = await import("@/lib/wiki-discovery");
-      const searchQuery = [
-        situation.situationType.name,
-        situation.situationType.description?.slice(0, 200) ?? "",
-        situation.triggerSummary ?? "",
+      const expertiseQuery = [
+        situationType.name,
+        situationType.description?.slice(0, 200) ?? "",
+        situationPage.title ?? "",
       ].filter(Boolean).join(" ");
-      systemExpertiseIndex = await discoverSystemExpertise(situation.operatorId, searchQuery, 15);
+      systemExpertiseIndex = await discoverSystemExpertise(operatorId, expertiseQuery, 15);
     } catch (err) {
       console.warn("[reasoning-engine] System expertise discovery failed:", err);
     }
 
-    // Emit gap signal if system intelligence had nothing relevant
+    // Gap signal for system intelligence
     if (systemExpertiseIndex.length === 0) {
       import("@/lib/system-intelligence-signals").then(({ emitSystemSignal }) => {
         emitSystemSignal({
-          operatorId: situation.operatorId,
+          operatorId,
           signalType: "gap_signal",
-          situationTypeSlug: situation.situationType?.slug,
+          situationTypeSlug,
           payload: {
-            situationId,
-            searchQuery: [
-              situation.situationType.name,
-              situation.situationType.description?.slice(0, 200),
-            ].filter(Boolean).join(" "),
-            situationTypeName: situation.situationType.name,
+            situationId: wikiSituationId,
+            searchQuery: [situationType.name, situationType.description?.slice(0, 200)].filter(Boolean).join(" "),
+            situationTypeName: situationType.name,
           },
         }).catch(() => {});
       }).catch(() => {});
     }
 
-    // 6c. Build system prompt and seed context
-    const depth = situation.investigationDepth ?? "standard";
-    const softBudget = depth === "thorough" ? 50 : 20;
-    const hardBudget = depth === "thorough" ? 80 : 25;
+    const softBudget = investigationDepth === "thorough" ? 50 : 20;
+    const hardBudget = investigationDepth === "thorough" ? 80 : 25;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const outputSchema = (isWikiFirst
-      ? WikiReasoningOutputSchema
-      : (depth === "thorough" ? DeepReasoningOutputSchema : ReasoningOutputSchema)) as any;
-    const systemPrompt = buildSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, depth);
+    const outputSchema = WikiReasoningOutputSchema as any;
+    const systemPrompt = buildSystemPrompt(businessContextStr, operator?.companyName ?? undefined, connectorToolNames, investigationDepth);
 
     const seedInput: AgenticSeedInput = {
-      situationType: { name: situation.situationType.name, description: situation.situationType.description },
-      severity: situation.severity,
-      confidence: situation.confidence,
+      situationType: { name: situationType.name, description: situationType.description },
+      severity: (props.severity as number) ?? 0.5,
+      confidence: (props.confidence as number) ?? 0.5,
       autonomyLevel: "supervised",
-      triggerEvidence: situation.triggerEvidence,
-      triggerSummary: situation.triggerSummary,
-      triggerStub: triggerStub ?? null,
+      triggerEvidence: null, // Evidence is on the situation page content, not a separate field
+      triggerSummary: situationPage.title,
+      triggerStub,
       permittedActions: policyResult.permitted,
       blockedActions: policyResult.blocked,
       businessContext: businessContextStr,
       operationalInsights,
-      actionCycles,
-      delegationSource,
+      actionCycles: [], // Cycle history is in the situation page Timeline section
+      delegationSource: null,
       connectorCapabilities,
-      wikiPages,
+      wikiPages: hubPages, // The 4 hub pages replace the old semantic-similarity pages
       evidenceClaims,
       systemExpertiseIndex,
-      situationPageContent: situationPage?.content ?? undefined,
+      situationPageContent: situationPage.content,
     };
     const seedContext = buildAgenticSeedContext(seedInput);
 
-    // 6d. Record context sections for telemetry
+    // Context eval telemetry
     const contextSections: Array<{
       type: string;
       id: string;
@@ -401,13 +348,13 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       source?: string;
       tokenCount: number;
     }> = [];
-    for (const page of wikiPages) {
+    for (const page of hubPages) {
       contextSections.push({
         type: "wiki_page",
         id: page.slug,
         slug: page.slug,
         pageType: page.pageType,
-        source: (page as any).source ?? "operator",
+        source: "operator",
         tokenCount: Math.ceil(page.content.length / 4),
       });
     }
@@ -427,8 +374,8 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
     }
     const contextEval = await prisma.contextEvaluation.create({
       data: {
-        operatorId: situation.operatorId,
-        situationId,
+        operatorId,
+        situationId: wikiSituationId,
         contextSections: contextSections as Prisma.InputJsonValue,
         citedSections: [] as Prisma.InputJsonValue,
       },
@@ -438,10 +385,10 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       return null;
     });
 
-    // 7. Run agentic reasoning loop
+    // 9. Run agentic reasoning loop
     const agenticResult = await runAgenticLoop({
-      operatorId: situation.operatorId,
-      contextId: situationId,
+      operatorId,
+      contextId: wikiSituationId,
       contextType: "situation",
       cycleNumber,
       systemPrompt,
@@ -452,22 +399,22 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       softBudget,
       hardBudget,
       editInstruction: editInstructionText,
-      priorFeedbackLines,
+      priorFeedbackLines: priorFeedbackLines.length > 0 ? priorFeedbackLines : null,
     });
-    let reasoning = agenticResult.output as DeepReasoningOutput;
+    const reasoning = agenticResult.output as WikiReasoningOutput;
     const reasoningApiCostCents = agenticResult.apiCostCents;
     const modelString = agenticResult.modelId;
     const reasoningDurationMs = agenticResult.durationMs;
 
-    console.log(`[reasoning-engine] Agentic reasoning complete for situation ${situationId} (${depth}): ${reasoningDurationMs}ms, $${(reasoningApiCostCents / 100).toFixed(2)}`);
+    console.log(`[reasoning-engine] Agentic reasoning complete for ${wikiPageSlug} (${investigationDepth}): ${reasoningDurationMs}ms, $${(reasoningApiCostCents / 100).toFixed(2)}`);
 
-    // Parse which context sections were cited in reasoning output
+    // Parse cited context sections
     if (contextEval) {
       try {
-        const fullText = [reasoning.analysis ?? "", reasoning.evidenceSummary ?? ""].join(" ");
+        const fullText = reasoning.pageContent ?? "";
         const citedSections: Array<{ type: string; id: string; citationCount: number }> = [];
 
-        for (const page of wikiPages) {
+        for (const page of hubPages) {
           const slugRegex = new RegExp(page.slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
           const titleWords = page.title.split(/\s+/).filter(w => w.length > 3).slice(0, 3);
           const titleRegex = titleWords.length > 0
@@ -503,477 +450,98 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
     }
 
     // Depth upgrade: if standard investigation discovers complexity, re-run as thorough
-    if (reasoning.depthUpgrade && depth === "standard") {
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: {
-          investigationDepth: "thorough",
-          status: "detected",
-          apiCostCents: reasoningApiCostCents,
-        },
-      });
-      console.log(`[reasoning-engine] Situation ${situationId} upgraded to thorough investigation (standard run cost: ${reasoningApiCostCents}c)`);
-      return reasonAboutSituation(situationId, wikiPageSlug ?? pageSlug ?? undefined);
+    if (reasoning.depthUpgrade && investigationDepth === "standard") {
+      await updatePageWithLock(operatorId, wikiPageSlug, (p) => ({
+        properties: { ...(p.properties ?? {}), investigation_depth: "thorough", status: "detected" },
+      }));
+      console.log(`[reasoning-engine] ${wikiPageSlug} upgraded to thorough investigation`);
+      return reasonAboutSituation(situationId, wikiPageSlug);
     }
 
-    // ── Wiki-first output path ──────────────────────────────────────────────
-    if (isWikiFirst && situationPage) {
-      const wikiOutput = reasoning as unknown as WikiReasoningOutput;
+    // 10. Output — wiki page only
+    const updatedTitle = reasoning.situationTitle ?? situationPage.title;
+    const updatedProps = reasoning.properties as SituationProperties;
 
-      // Update situation wiki page with completed content
-      const updatedTitle = wikiOutput.situationTitle ?? situationPage.title;
-      const updatedProps = wikiOutput.properties as SituationProperties;
-
-      await updateSituationWikiPage({
-        operatorId: situation.operatorId,
-        slug: situationPage.slug,
-        title: updatedTitle,
-        properties: updatedProps,
-        articleBody: wikiOutput.pageContent,
-        synthesizedByModel: modelString,
-        synthesisCostCents: Math.round(reasoningApiCostCents),
-        synthesisDurationMs: Math.round(reasoningDurationMs),
-      });
-
-      // Dual-write to thin Situation record (backward compat)
-      const situationUpdates: Record<string, unknown> = {
-        status: "proposed",
-        reasoning: JSON.stringify({ wikiFirst: true, pageSlug: situationPage.slug }),
-        modelId: modelString,
-        promptVersion: REASONING_PROMPT_VERSION,
-        reasoningDurationMs,
-        apiCostCents: reasoningApiCostCents + (situation.apiCostCents ?? 0),
-        severity: updatedProps.severity,
-        confidence: updatedProps.confidence,
-      };
-      if (wikiOutput.situationTitle) situationUpdates.triggerSummary = wikiOutput.situationTitle;
-      if (wikiOutput.afterBatch === "monitor" && wikiOutput.monitorDurationHours) {
-        situationUpdates.afterBatch = "monitor";
-        situationUpdates.monitorUntil = new Date(Date.now() + wikiOutput.monitorDurationHours * 3600000);
-      } else {
-        situationUpdates.afterBatch = wikiOutput.afterBatch ?? "resolve";
-      }
-
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: situationUpdates,
-      });
-
-      // Owner assignment (resolve page slug to userId for backward compat)
-      if (updatedProps.assigned_to) {
-        const ownerUser = await prisma.user.findFirst({
-          where: { operatorId: situation.operatorId, wikiPageSlug: updatedProps.assigned_to },
-          select: { id: true },
-        });
-        if (ownerUser) {
-          await prisma.situation.update({
-            where: { id: situationId },
-            data: { assignedUserId: ownerUser.id, assignedPageSlug: updatedProps.assigned_to, ownerPageSlug: updatedProps.assigned_to },
-          });
-        }
-      }
-
-      // Cycle tracking
-      await createSituationCycle(situationId, situation, {
-        afterBatch: wikiOutput.afterBatch,
-        reEvaluationReason: wikiOutput.reEvaluationReason,
-        monitorDurationHours: wikiOutput.monitorDurationHours,
-      }, undefined);
-
-      // Generate Haiku summaries (fire-and-forget — non-blocking)
-      generateSituationSummaries(situationId).catch(err =>
-        console.error(`[reasoning-engine] Summary generation failed for ${situationId}:`, err)
-      );
-
-      // Wiki knowledge updates (fire-and-forget, same as before)
-      if (wikiOutput.wikiUpdates && wikiOutput.wikiUpdates.length > 0) {
-        processWikiUpdates({
-          operatorId: situation.operatorId,
-          situationId: situation.id,
-          updates: wikiOutput.wikiUpdates as WikiUpdate[],
-          synthesisPath: "reasoning",
-          synthesizedByModel: modelString,
-          synthesisCostCents: Math.round(reasoningApiCostCents),
-          synthesisDurationMs: Math.round(reasoningDurationMs),
-        }).catch((err) => {
-          console.error(`[reasoning-engine] Wiki update processing failed for ${situationId}:`, err);
-        });
-      }
-
-      // Parse action plan for notification logic
-      const { parseActionPlan } = await import("@/lib/wiki-execution-engine");
-      const actionPlan = parseActionPlan(wikiOutput.pageContent);
-
-      // Notifications
-      if (actionPlan.steps.length === 0) {
-        sendNotificationToAdmins({
-          operatorId: situation.operatorId,
-          type: "situation_proposed",
-          title: `Review needed: ${situation.situationType.name}`,
-          body: "AI analyzed the situation but recommends no action. Please review the reasoning.",
-          sourceType: "situation",
-          sourceId: situationId,
-        }).catch(() => {});
-      } else {
-        sendNotificationToAdmins({
-          operatorId: situation.operatorId,
-          type: "situation_proposed",
-          title: `Plan proposed: ${situation.situationType.name}`,
-          body: `AI proposes a ${actionPlan.steps.length}-step plan: ${actionPlan.steps.map(s => s.title).join(" → ")}`,
-          sourceType: "situation",
-          sourceId: situationId,
-        }).catch(() => {});
-      }
-
-      // Escalation
-      if (wikiOutput.escalation) {
-        // TODO: Create escalation initiative from wiki page context (Session 2+)
-        console.log(`[reasoning-engine] Escalation recommended for ${situationId}: ${wikiOutput.escalation.rationale}`);
-      }
-
-      console.log(`[reasoning-engine] Wiki-first reasoning complete for ${situationId}: wrote ${situationPage.slug}`);
-      return; // Exit early — skip the legacy JSON output path below
-    }
-
-    // ── Legacy JSON output path (non-wiki situations) ────────────────────────
-    // Everything below this point is the EXISTING code, unchanged.
-    // It handles situations that don't have a wiki page (pre-migration).
-
-    // 8. Post-reasoning policy verification — catch LLM ignoring BLOCKED instructions
-    if (reasoning.actionBatch) {
-      const actionSteps = reasoning.actionBatch.filter(s => s.executionMode === "action");
-      for (const step of actionSteps) {
-        if (step.actionCapabilityName) {
-          const isPermitted = policyResult.permitted.some(p => p.name === step.actionCapabilityName);
-          const isBlocked = policyResult.blocked.some(b => b.name === step.actionCapabilityName);
-          if (!isPermitted || isBlocked) {
-            console.warn(`[reasoning-engine] AI proposed blocked action "${step.actionCapabilityName}" in plan for situation ${situationId}. Nullifying plan.`);
-            reasoning = {
-              ...reasoning,
-              actionBatch: null,
-              analysis: reasoning.analysis + `\n\n[SYSTEM: Plan nullified — step "${step.title}" uses blocked action "${step.actionCapabilityName}".]`,
-            };
-            break;
-          }
-        }
-      }
-    }
-
-    // 9. Resolve actionCapabilityName → actionCapabilityId for action steps
-    let resolvedSteps: StepDefinition[] | null = null;
-    if (reasoning.actionBatch) {
-      resolvedSteps = [];
-      for (const step of reasoning.actionBatch) {
-        let actionCapabilityId: string | undefined;
-        if (step.executionMode === "action" && step.actionCapabilityName) {
-          const cap = await prisma.actionCapability.findFirst({
-            where: { operatorId: situation.operatorId, name: step.actionCapabilityName, enabled: true },
-          });
-          if (!cap) {
-            console.warn(`[reasoning-engine] ActionCapability "${step.actionCapabilityName}" not found. Nullifying plan.`);
-            reasoning = { ...reasoning, actionBatch: null };
-            resolvedSteps = null;
-            break;
-          }
-          actionCapabilityId = cap.id;
-        }
-        const stepParams = step.params ? { ...step.params } : {};
-        if (step.previewType) stepParams.previewType = step.previewType;
-        resolvedSteps.push({
-          title: step.title,
-          description: step.description,
-          executionMode: step.executionMode,
-          actionCapabilityId,
-          assignedUserId: step.assignedUserId || situation.assignedUserId || undefined,
-          inputContext: Object.keys(stepParams).length > 0 ? { params: stepParams } : undefined,
-        });
-      }
-    }
-
-    // Refine uncertainties — focused pass to resolve or confirm
-    if (resolvedSteps && reasoning.actionBatch) {
-      const hasUncertainties = reasoning.actionBatch.some(s => s.uncertainties && s.uncertainties.length > 0);
-      if (hasUncertainties) {
-        try {
-          let triggerEvidenceStr: string | undefined;
-          if (situation.triggerEvidence) {
-            try {
-              const te = JSON.parse(situation.triggerEvidence);
-              triggerEvidenceStr = te.content ?? te.summary ?? undefined;
-            } catch {}
-          }
-
-          const refinement = await refineUncertainties(
-            reasoning.actionBatch,
-            reasoning.evidenceSummary ?? "",
-            undefined, // agentic model already investigated communications
-            triggerEvidenceStr,
-            situation.operatorId,
-          );
-
-          for (const refined of refinement.refinedSteps) {
-            if (refined.stepIndex >= resolvedSteps.length) continue;
-            const step = resolvedSteps[refined.stepIndex];
-
-            if (refined.paramUpdates && step.inputContext) {
-              const existingParams = (step.inputContext as Record<string, unknown>).params as Record<string, unknown> ?? {};
-              (step.inputContext as Record<string, unknown>).params = { ...existingParams, ...refined.paramUpdates };
-            }
-
-            if (refined.descriptionUpdate) {
-              step.description = refined.descriptionUpdate;
-            }
-
-            if (refined.remainingUncertainties.length > 0) {
-              step.inputContext = {
-                ...(step.inputContext ?? {}),
-                uncertainties: refined.remainingUncertainties,
-              };
-            }
-          }
-
-          const totalFlagged = reasoning.actionBatch.reduce((n, s) => n + (s.uncertainties?.length ?? 0), 0);
-          const totalRemaining = refinement.refinedSteps.reduce((n, s) => n + s.remainingUncertainties.length, 0);
-          if (totalFlagged > 0) {
-            console.log(`[reasoning-engine] Uncertainty refinement: ${totalFlagged} flagged → ${totalRemaining} kept for situation ${situationId}`);
-          }
-        } catch (err) {
-          console.error(`[reasoning-engine] Uncertainty refinement failed for ${situationId}:`, err);
-        }
-      }
-    }
-
-    // 10. Store reasoning + model tracking
-    const planTracking = { modelId: modelString, promptVersion: REASONING_PROMPT_VERSION };
-
-    // Accumulate cost from prior depth upgrade run (if any)
-    const priorCostCents = situation.apiCostCents ?? 0;
-
-    const updates: Record<string, unknown> = {
-      reasoning: JSON.stringify(reasoning),
-      modelId: modelString,
-      promptVersion: REASONING_PROMPT_VERSION,
-      reasoningDurationMs,
-      apiCostCents: reasoningApiCostCents + priorCostCents,
-      contextSnapshot: JSON.stringify({ agenticReasoning: true, toolCallCount: "see ToolCallTrace" }),
-    };
-
-    // Store analysis document for thorough investigations
-    if (depth === "thorough" && reasoning.analysisDocument) {
-      updates.analysisDocument = reasoning.analysisDocument;
-    }
-
-    // Store proposedAction with batch + afterBatch metadata
-    if (reasoning.actionBatch) {
-      updates.proposedAction = JSON.stringify({
-        batch: reasoning.actionBatch,
-        afterBatch: reasoning.afterBatch ?? "resolve",
-        reEvaluationReason: reasoning.reEvaluationReason,
-        monitorDurationHours: reasoning.monitorDurationHours,
-      });
-    }
-
-    // Store afterBatch on Situation for easy querying
-    if (reasoning.afterBatch === "monitor" && reasoning.monitorDurationHours) {
-      updates.afterBatch = "monitor";
-      updates.monitorUntil = new Date(Date.now() + reasoning.monitorDurationHours * 3600000);
-    } else {
-      updates.afterBatch = reasoning.afterBatch ?? "resolve";
-    }
-
-    // 11. Advance status
-    if (reasoning.actionBatch === null || !resolvedSteps) {
-      updates.status = "proposed";
-    } else {
-      const planId = await createExecutionPlan(situation.operatorId, "situation", situationId, resolvedSteps, planTracking);
-      updates.executionPlanId = planId;
-      updates.status = "proposed";
-    }
-
-    // Fold situationTitle into the main update
-    if (reasoning.situationTitle) {
-      updates.triggerSummary = reasoning.situationTitle;
-    }
-
-    await prisma.situation.update({
-      where: { id: situationId },
-      data: updates,
+    await updateSituationWikiPage({
+      operatorId,
+      slug: situationPage.slug,
+      title: updatedTitle,
+      properties: updatedProps,
+      articleBody: reasoning.pageContent,
+      synthesizedByModel: modelString,
+      synthesisCostCents: Math.round(reasoningApiCostCents),
+      synthesisDurationMs: Math.round(reasoningDurationMs),
     });
 
-    await assignSituationOwner(situationId, situation.operatorId, reasoning, situation.assignedUserId);
-
-    await createSituationCycle(situationId, situation, reasoning, updates.executionPlanId as string | undefined);
+    // SituationCycle record (uses situation_id from wiki properties)
+    await createSituationCycle(wikiSituationId, reasoning);
 
     // Generate Haiku summaries (fire-and-forget — non-blocking)
-    generateSituationSummaries(situationId).catch(err =>
-      console.error(`[reasoning-engine] Summary generation failed for ${situationId}:`, err)
+    generateSituationSummaries(wikiSituationId).catch(err =>
+      console.error(`[reasoning-engine] Summary generation failed for ${wikiSituationId}:`, err)
     );
 
     // Wiki knowledge updates (fire-and-forget)
     if (reasoning.wikiUpdates && reasoning.wikiUpdates.length > 0) {
       processWikiUpdates({
-        operatorId: situation.operatorId,
-        situationId: situation.id,
+        operatorId,
+        situationId: wikiSituationId,
         updates: reasoning.wikiUpdates as WikiUpdate[],
         synthesisPath: "reasoning",
         synthesizedByModel: modelString,
         synthesisCostCents: Math.round(reasoningApiCostCents),
         synthesisDurationMs: Math.round(reasoningDurationMs),
       }).catch((err) => {
-        console.error(`[reasoning-engine] Wiki update processing failed for ${situationId}:`, err);
+        console.error(`[reasoning-engine] Wiki update processing failed for ${wikiSituationId}:`, err);
       });
-
-      // Mark cited sources as wiki-processed
-      const chunkIds: string[] = [];
-      const signalIds: string[] = [];
-      for (const update of reasoning.wikiUpdates) {
-        for (const cite of update.sourceCitations) {
-          if (cite.sourceType === "chunk") chunkIds.push(cite.sourceId);
-          if (cite.sourceType === "signal") signalIds.push(cite.sourceId);
-        }
-      }
-      if (chunkIds.length > 0) {
-        prisma.contentChunk.updateMany({
-          where: { operatorId: situation.operatorId, id: { in: chunkIds } },
-          data: { wikiProcessedAt: new Date() },
-        }).catch(() => {});
-      }
-      if (signalIds.length > 0) {
-        prisma.activitySignal.updateMany({
-          where: { operatorId: situation.operatorId, id: { in: signalIds } },
-          data: { wikiProcessedAt: new Date() },
-        }).catch(() => {});
-      }
     }
 
-    // Situation-level notifications
-    if (reasoning.actionBatch === null || !resolvedSteps) {
+    // Notifications
+    const { parseActionPlan } = await import("@/lib/wiki-execution-engine");
+    const actionPlan = parseActionPlan(reasoning.pageContent);
+
+    if (actionPlan.steps.length === 0) {
       sendNotificationToAdmins({
-        operatorId: situation.operatorId,
+        operatorId,
         type: "situation_proposed",
-        title: `Review needed: ${situation.situationType.name}`,
+        title: `Review needed: ${situationType.name}`,
         body: "AI analyzed the situation but recommends no action. Please review the reasoning.",
         sourceType: "situation",
-        sourceId: situationId,
+        sourceId: wikiSituationId,
       }).catch(() => {});
     } else {
       sendNotificationToAdmins({
-        operatorId: situation.operatorId,
+        operatorId,
         type: "situation_proposed",
-        title: `Plan proposed: ${situation.situationType.name}`,
-        body: `AI proposes a ${resolvedSteps.length}-step plan: ${resolvedSteps.map(s => s.title).join(" → ")}`,
+        title: `Plan proposed: ${situationType.name}`,
+        body: `AI proposes a ${actionPlan.steps.length}-step plan: ${actionPlan.steps.map(s => s.title).join(" → ")}`,
         sourceType: "situation",
-        sourceId: situationId,
+        sourceId: wikiSituationId,
       }).catch(() => {});
     }
 
-    // Handle escalation
+    // Escalation
     if (reasoning.escalation) {
-      const triggerEntity = situation.triggerEntityId
-        ? await prisma.entity.findFirst({ where: { id: situation.triggerEntityId, operatorId: situation.operatorId }, select: { primaryDomainId: true } })
-        : null;
-
-      if (triggerEntity?.primaryDomainId) {
-        const deptAi = await prisma.entity.findFirst({
-          where: { ownerDomainId: triggerEntity.primaryDomainId, operatorId: situation.operatorId },
-          select: { id: true },
-        });
-
-          if (deptAi) {
-          await prisma.initiative.create({
-            data: {
-              operatorId: situation.operatorId,
-              aiEntityId: deptAi.id,
-              proposalType: "general",
-              triggerSummary: `Escalated from situation: ${situation.situationType?.name ?? situationId}`,
-              evidence: [{ source: "situation_escalation", claim: reasoning.escalation.rationale }],
-              proposal: { type: "escalation", description: reasoning.escalation.rationale, sourceSituationId: situationId },
-              status: "proposed",
-              rationale: reasoning.escalation.rationale,
-              impactAssessment: `Escalated from situation: ${situation.situationType?.name ?? situationId}`,
-            },
-          }).catch(err => console.error(`[reasoning-engine] Escalation initiative creation failed:`, err));
-        }
-      }
+      console.log(`[reasoning-engine] Escalation recommended for ${wikiSituationId}: ${reasoning.escalation.rationale}`);
     }
 
+    console.log(`[reasoning-engine] Reasoning complete for ${wikiPageSlug}`);
+
   } catch (err) {
-    console.error(`[reasoning-engine] Error reasoning about situation ${situationId}:`, err);
-    captureApiError(err, { route: "reasoning-engine", situationId });
-    // Reset to detected so it can be retried
-    await prisma.situation.update({
-      where: { id: situationId },
-      data: { status: "detected" },
-    }).catch(() => {});
+    console.error(`[reasoning-engine] Error reasoning about situation ${wikiPageSlug}:`, err);
+    captureApiError(err, { route: "reasoning-engine", situationId: wikiSituationId });
+    // Reset wiki page status to "detected" so it can be retried
+    await updatePageWithLock(operatorId, wikiPageSlug, (p) => ({
+      properties: { ...(p.properties ?? {}), status: "detected" },
+    })).catch(() => {});
   }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Resolve situationOwner from reasoning output to a userId and assign it.
- */
-async function assignSituationOwner(
-  situationId: string,
-  operatorId: string,
-  reasoning: { situationOwner?: { entityName: string; entityRole?: string } | null },
-  fallbackAssignedUserId: string | null,
-): Promise<void> {
-  try {
-    if (!reasoning.situationOwner?.entityName) return;
-
-    const ownerName = reasoning.situationOwner.entityName;
-
-    const ownerEntity = await prisma.entity.findFirst({
-      where: {
-        operatorId,
-        displayName: ownerName,
-        status: "active",
-        entityType: { slug: "team-member" },
-      },
-      select: { id: true, ownerUserId: true },
-    });
-
-    if (!ownerEntity) return;
-
-    let userId: string | null = ownerEntity.ownerUserId ?? null;
-
-    if (!userId) {
-      const emailPv = await prisma.propertyValue.findFirst({
-        where: {
-          entityId: ownerEntity.id,
-          property: { identityRole: "email" },
-        },
-        select: { value: true },
-      });
-      if (emailPv?.value) {
-        const user = await prisma.user.findFirst({
-          where: { operatorId, email: emailPv.value.toLowerCase() },
-          select: { id: true },
-        });
-        if (user) userId = user.id;
-      }
-    }
-
-    if (userId) {
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: { assignedUserId: userId },
-      });
-    }
-  } catch (err) {
-    console.error(`[reasoning-engine] Failed to assign situation owner for ${situationId}:`, err);
-  }
-}
-
-
-// ── Cycle Record Creation ───────────────────────────────────────────────────
-
 async function createSituationCycle(
   situationId: string,
-  situation: { triggerEvidence: string | null; triggerSummary: string | null },
-  reasoning: unknown,
-  executionPlanId: string | undefined,
+  reasoning: { afterBatch?: string; reEvaluationReason?: string; monitorDurationHours?: number },
 ): Promise<void> {
   try {
     const cycleCount = await prisma.situationCycle.count({ where: { situationId } });
@@ -981,21 +549,14 @@ async function createSituationCycle(
       data: {
         situationId,
         cycleNumber: cycleCount + 1,
-        triggerType: cycleCount === 0 ? "detection" : (situation.triggerEvidence ? (() => {
-          try {
-            const ev = JSON.parse(situation.triggerEvidence!);
-            return ev.type === "response" ? "response_received" : ev.type === "timeout" ? "timeout" : "signal";
-          } catch { return "signal"; }
-        })() : "signal"),
-        triggerSummary: situation.triggerSummary ?? (cycleCount === 0 ? "Situation detected" : "Re-evaluation triggered"),
-        triggerData: situation.triggerEvidence ? JSON.parse(situation.triggerEvidence) : undefined,
+        triggerType: cycleCount === 0 ? "detection" : "signal",
+        triggerSummary: cycleCount === 0 ? "Situation detected" : "Re-evaluation triggered",
         reasoning: {
-          ...(reasoning as Record<string, unknown>),
-          afterBatch: (reasoning as Record<string, unknown>).afterBatch ?? "resolve",
-          reEvaluationReason: (reasoning as Record<string, unknown>).reEvaluationReason,
-          monitorDurationHours: (reasoning as Record<string, unknown>).monitorDurationHours,
+          afterBatch: reasoning.afterBatch ?? "resolve",
+          reEvaluationReason: reasoning.reEvaluationReason,
+          monitorDurationHours: reasoning.monitorDurationHours,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any,
-        executionPlanId,
         status: "active",
       },
     });
@@ -1003,4 +564,3 @@ async function createSituationCycle(
     console.error("[reasoning-engine] Failed to create SituationCycle record:", err);
   }
 }
-

@@ -3,13 +3,13 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, user.id);
   const daysSchema = z.object({ days: daysParam });
   const parsed = parseQuery(daysSchema, req.nextUrl.searchParams);
   if (!parsed.success) {
@@ -18,20 +18,32 @@ export async function GET(req: NextRequest) {
   const { days } = parsed.data;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  // Load all situations in the period
-  const situations = await prisma.situation.findMany({
-    where: { operatorId, createdAt: { gte: since }, ...situationScopeFilter(visibleDomains) },
-    select: {
-      id: true,
-      status: true,
-      outcome: true,
-      feedback: true,
-      feedbackCategory: true,
-      actionTaken: true,
-      resolvedAt: true,
-      createdAt: true,
-    },
+  // Load situation instances from KnowledgePage
+  const sitPages = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "situation_instance", scope: "operator", createdAt: { gte: since } },
+    select: { properties: true, createdAt: true, updatedAt: true },
   });
+
+  // Map to a compatible shape and apply domain visibility
+  const situations = sitPages
+    .map((p) => {
+      const props = p.properties as Record<string, unknown> | null ?? {};
+      return {
+        id: (props?.situation_id as string) ?? "",
+        status: (props?.status as string) ?? "detected",
+        outcome: (props?.outcome as string) ?? null,
+        feedback: (props?.feedback as string) ?? null,
+        feedbackCategory: (props?.feedback_category as string) ?? null,
+        actionTaken: (props?.action_taken as string) ?? null,
+        resolvedAt: props?.resolved_at ? new Date(props.resolved_at as string) : null,
+        createdAt: p.createdAt,
+        domain: (props?.domain as string) ?? null,
+      };
+    })
+    .filter((s) => {
+      if (visibleDomains === "all") return true;
+      return !s.domain || visibleDomains.includes(s.domain);
+    });
 
   // Load situation type aggregates
   const situationTypes = await prisma.situationType.findMany({

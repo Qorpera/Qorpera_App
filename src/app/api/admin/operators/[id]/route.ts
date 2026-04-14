@@ -31,8 +31,6 @@ export async function DELETE(
   });
 
   // Delete in reverse dependency order
-  await prisma.situationEvent.deleteMany({ where: { situation: { operatorId: id } } });
-  await prisma.situation.deleteMany({ where: { operatorId: id } });
   await prisma.situationType.deleteMany({ where: { operatorId: id } });
   await prisma.notification.deleteMany({ where: { operatorId: id } });
   await prisma.copilotMessage.deleteMany({ where: { operatorId: id } });

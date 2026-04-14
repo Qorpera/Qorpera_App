@@ -518,16 +518,9 @@ export async function buildRawDataSynthesisInput(
     parts.push("");
   }
 
-  // 4. Activity Signal Summary
-  const signalGroups = await prisma.activitySignal.groupBy({
-    by: ["signalType"],
-    where: { operatorId },
-    _count: true,
-  });
+  // 4. Activity Signal Summary (ActivitySignal table removed — skip)
   parts.push("\n## Activity Signals\n");
-  for (const g of signalGroups) {
-    parts.push(`- ${g.signalType}: ${g._count}`);
-  }
+  parts.push("(No activity signal data available)");
 
   // 5. Communication Patterns (top 20 senders)
   const emailItems = await prisma.rawContent.findMany({

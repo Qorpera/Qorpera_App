@@ -61,53 +61,45 @@ export async function GET(request: NextRequest) {
   const periodStart = startOfMonth(now);
   const periodEnd = endOfMonth(now);
 
-  // --- Current period situation stats ---
-  const situations = await prisma.situation.findMany({
-    where: {
-      operatorId,
-      billedAt: { gte: periodStart, lte: periodEnd },
-      billedCents: { not: null },
-    },
-    include: {
-      situationType: { select: { autonomyLevel: true } },
-    },
-  });
-
-  // Resolve departments via wiki page slugs
-  const domainSlugs = [...new Set(situations.map((s) => s.domainPageSlug).filter(Boolean))] as string[];
-  const deptNameMap = new Map<string, string>();
-  if (domainSlugs.length > 0) {
-    const pages = await prisma.knowledgePage.findMany({
-      where: { operatorId, slug: { in: domainSlugs }, scope: "operator" },
-      select: { slug: true, title: true },
-    });
-    for (const p of pages) deptNameMap.set(p.slug, p.title);
-  }
-
-  // Group by autonomy level
+  // --- Current period situation stats (from KnowledgePage) ---
+  // Situation table removed — billing data derived from KnowledgePage properties
   const situationsByAutonomy: Record<string, { count: number; totalCents: number }> = {
     supervised: { count: 0, totalCents: 0 },
     notify: { count: 0, totalCents: 0 },
     autonomous: { count: 0, totalCents: 0 },
   };
-  for (const s of situations) {
-    const level = s.situationType.autonomyLevel;
+  const departmentUsage = new Map<string, { name: string; count: number; totalCents: number }>();
+
+  // Situation table dropped — situation-level billing data no longer available
+  const billingEvents: Array<{ costCents: number; metadata: string | null }> = [];
+
+  for (const be of billingEvents) {
+    let meta: Record<string, unknown> = {};
+    try { meta = be.metadata ? JSON.parse(be.metadata) : {}; } catch {}
+    const level = (meta.autonomyLevel as string) ?? "supervised";
     if (situationsByAutonomy[level]) {
       situationsByAutonomy[level].count++;
-      situationsByAutonomy[level].totalCents += s.billedCents ?? 0;
+      situationsByAutonomy[level].totalCents += be.costCents ?? 0;
+    }
+    const domainSlug = meta.domainPageSlug as string | undefined;
+    if (domainSlug) {
+      const existing = departmentUsage.get(domainSlug) ?? { name: domainSlug, count: 0, totalCents: 0 };
+      existing.count++;
+      existing.totalCents += be.costCents ?? 0;
+      departmentUsage.set(domainSlug, existing);
     }
   }
 
-  // Group by department (via domainPageSlug)
-  const departmentUsage = new Map<string, { name: string; count: number; totalCents: number }>();
-  for (const s of situations) {
-    const slug = s.domainPageSlug;
-    if (slug) {
-      const name = deptNameMap.get(slug) ?? "Unknown";
-      const existing = departmentUsage.get(slug) ?? { name, count: 0, totalCents: 0 };
-      existing.count++;
-      existing.totalCents += s.billedCents ?? 0;
-      departmentUsage.set(slug, existing);
+  // Resolve department names from wiki pages
+  const domainSlugs = [...departmentUsage.keys()];
+  if (domainSlugs.length > 0) {
+    const pages = await prisma.knowledgePage.findMany({
+      where: { operatorId, slug: { in: domainSlugs }, scope: "operator" },
+      select: { slug: true, title: true },
+    });
+    for (const p of pages) {
+      const entry = departmentUsage.get(p.slug);
+      if (entry) entry.name = p.title;
     }
   }
 
@@ -122,29 +114,19 @@ export async function GET(request: NextRequest) {
     _count: true,
   });
 
-  // --- Historical months (last 12) — single query, group in memory ---
+  // --- Historical months (last 12) — from BillingEvent ---
   const historyStart = startOfMonth(subMonths(now, 11));
-  const allHistorical = await prisma.situation.findMany({
-    where: {
-      operatorId,
-      billedAt: { gte: historyStart, lte: periodEnd },
-      billedCents: { not: null },
-    },
-    select: {
-      billedAt: true,
-      billedCents: true,
-      situationType: { select: { autonomyLevel: true } },
-    },
-  });
+  const allHistoricalEvents: Array<{ createdAt: Date; costCents: number; metadata: string | null }> = [];
 
   const monthBuckets = new Map<string, { supervised: number; notify: number; autonomous: number; situationCount: number }>();
-  for (const s of allHistorical) {
-    if (!s.billedAt) continue;
-    const key = formatMonth(s.billedAt);
+  for (const be of allHistoricalEvents) {
+    const key = formatMonth(be.createdAt);
     const bucket = monthBuckets.get(key) ?? { supervised: 0, notify: 0, autonomous: 0, situationCount: 0 };
-    const level = s.situationType.autonomyLevel;
+    let meta: Record<string, unknown> = {};
+    try { meta = be.metadata ? JSON.parse(be.metadata) : {}; } catch {}
+    const level = (meta.autonomyLevel as string) ?? "supervised";
     if (level === "supervised" || level === "notify" || level === "autonomous") {
-      bucket[level] += s.billedCents ?? 0;
+      bucket[level] += be.costCents ?? 0;
     }
     bucket.situationCount++;
     monthBuckets.set(key, bucket);
@@ -163,18 +145,7 @@ export async function GET(request: NextRequest) {
   // --- Daily breakdown (new, only when granularity=daily) ---
   let dailyBreakdown: Array<{ date: string; supervised: number; notify: number; autonomous: number; copilot: number; total: number }> | undefined;
   if (granularity === "daily") {
-    const rangeSituations = await prisma.situation.findMany({
-      where: {
-        operatorId,
-        billedAt: { gte: fromDate, lte: toDate },
-        billedCents: { not: null },
-      },
-      select: {
-        billedAt: true,
-        billedCents: true,
-        situationType: { select: { autonomyLevel: true } },
-      },
-    });
+    const rangeBillingEvents: Array<{ createdAt: Date; costCents: number; metadata: string | null }> = [];
 
     const rangeCopilot = await prisma.copilotMessage.findMany({
       where: {
@@ -187,12 +158,13 @@ export async function GET(request: NextRequest) {
 
     const dayBuckets = new Map<string, { supervised: number; notify: number; autonomous: number; copilot: number; total: number }>();
 
-    for (const s of rangeSituations) {
-      if (!s.billedAt) continue;
-      const key = formatDate(s.billedAt);
+    for (const be of rangeBillingEvents) {
+      const key = formatDate(be.createdAt);
       const bucket = dayBuckets.get(key) ?? { supervised: 0, notify: 0, autonomous: 0, copilot: 0, total: 0 };
-      const cents = s.billedCents ?? 0;
-      const level = s.situationType.autonomyLevel;
+      const cents = be.costCents ?? 0;
+      let meta: Record<string, unknown> = {};
+      try { meta = be.metadata ? JSON.parse(be.metadata) : {}; } catch {}
+      const level = (meta.autonomyLevel as string) ?? "supervised";
       if (level === "supervised" || level === "notify" || level === "autonomous") {
         bucket[level] += cents;
       }
@@ -214,17 +186,7 @@ export async function GET(request: NextRequest) {
       .map(([date, data]) => ({ date, ...data }));
   }
 
-  // --- Per-employee attribution (new) ---
-  const rangeSituationsForEmployees = await prisma.situation.findMany({
-    where: {
-      operatorId,
-      billedAt: { gte: fromDate, lte: toDate },
-      billedCents: { not: null },
-      assignedUserId: { not: null },
-    },
-    select: { assignedUserId: true, billedCents: true },
-  });
-
+  // --- Per-employee attribution ---
   const rangeCopilotForEmployees = await prisma.copilotMessage.findMany({
     where: {
       operatorId,
@@ -236,14 +198,7 @@ export async function GET(request: NextRequest) {
 
   const employeeMap = new Map<string, { situationCount: number; copilotMessages: number; totalBilledCents: number }>();
 
-  for (const s of rangeSituationsForEmployees) {
-    const uid = s.assignedUserId!;
-    const existing = employeeMap.get(uid) ?? { situationCount: 0, copilotMessages: 0, totalBilledCents: 0 };
-    existing.situationCount++;
-    existing.totalBilledCents += s.billedCents ?? 0;
-    employeeMap.set(uid, existing);
-  }
-
+  // Situation-level employee attribution no longer available (Situation table removed)
   for (const m of rangeCopilotForEmployees) {
     const uid = m.userId!;
     const existing = employeeMap.get(uid) ?? { situationCount: 0, copilotMessages: 0, totalBilledCents: 0 };

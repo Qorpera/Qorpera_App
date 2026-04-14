@@ -67,11 +67,26 @@ async function auditSingleType(
   }
 
   // Sample random entities that DON'T have an open situation of this type
-  const existingSituationEntityIds = await prisma.situation.findMany({
-    where: { situationTypeId: st.id, status: { notIn: ["resolved", "closed"] } },
-    select: { triggerEntityId: true },
+  const existingSituationPages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      pageType: "situation_instance",
+      scope: "operator",
+      properties: { path: ["situation_type_id"], equals: st.id },
+      NOT: {
+        OR: [
+          { properties: { path: ["status"], equals: "resolved" } },
+          { properties: { path: ["status"], equals: "closed" } },
+        ],
+      },
+    },
+    select: { properties: true },
   });
-  const excludeIds = new Set(existingSituationEntityIds.map((s) => s.triggerEntityId).filter(Boolean));
+  const excludeIds = new Set(
+    existingSituationPages
+      .map((p) => (p.properties as Record<string, unknown> | null)?.trigger_entity_id as string | undefined)
+      .filter(Boolean),
+  );
 
   const allEntities = await prisma.entity.findMany({
     where: { entityTypeId: entityType.id, operatorId, status: "active" },

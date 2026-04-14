@@ -166,51 +166,8 @@ export async function POST(req: NextRequest) {
       results.ids.contentChunkSourceIds.push(item.sourceId);
     }
 
-    // 3. Create ActivitySignals
-    const actorId = personEntity.id;
-    const targetId = contactEntity.id;
-    const target2Id = secondContact.id;
-
-    const signals = [
-      // 5 email_received spread over 14 days
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Q3 Report Request", response_time_ms: 3600000 }, occurredAt: daysAgo(1) },
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [target2Id], domainIds: deptIds2, metadata: { subject: "Shipment Update" }, occurredAt: daysAgo(3) },
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Partnership Discussion" }, occurredAt: daysAgo(5) },
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [target2Id], domainIds: deptIds2, metadata: { subject: "Invoice Follow-up" }, occurredAt: daysAgo(8) },
-      { signalType: "email_received", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Contract Review" }, occurredAt: daysAgo(12) },
-      // 3 email_sent
-      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Re: Q3 Report" }, occurredAt: daysAgo(0) },
-      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [target2Id], domainIds: deptIds2, metadata: { subject: "Re: Shipment" }, occurredAt: daysAgo(2) },
-      { signalType: "email_sent", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { subject: "Proposal Draft" }, occurredAt: daysAgo(7) },
-      // 3 meeting_held
-      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [targetId, target2Id], domainIds: deptIds, metadata: { attendees: 4, durationMinutes: 60, title: "Weekly Sync" }, occurredAt: daysAgo(2) },
-      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { attendees: 2, durationMinutes: 30, title: "1:1 Review" }, occurredAt: daysAgo(6) },
-      { signalType: "meeting_held", actorEntityId: actorId, targetEntityIds: [target2Id], domainIds: deptIds2, metadata: { attendees: 3, durationMinutes: 45, title: "Supplier Sync" }, occurredAt: daysAgo(10) },
-      // 2 doc_edited
-      { signalType: "doc_edited", actorEntityId: actorId, targetEntityIds: null, domainIds: deptIds, metadata: { fileName: "Q4 Business Review.gdoc" }, occurredAt: daysAgo(1) },
-      { signalType: "doc_edited", actorEntityId: actorId, targetEntityIds: null, domainIds: deptIds2, metadata: { fileName: "Engineering Roadmap.gdoc" }, occurredAt: daysAgo(4) },
-      // 2 slack_message
-      { signalType: "slack_message", actorEntityId: actorId, targetEntityIds: null, domainIds: deptIds, metadata: { channel: "#finance-approvals" }, occurredAt: daysAgo(0) },
-      { signalType: "slack_message", actorEntityId: actorId, targetEntityIds: null, domainIds: deptIds2, metadata: { channel: "#engineering" }, occurredAt: daysAgo(1) },
-      // 1 meeting_frequency
-      { signalType: "meeting_frequency", actorEntityId: actorId, targetEntityIds: [targetId], domainIds: deptIds, metadata: { frequency: "weekly", count: 4, period: "last_30_days" }, occurredAt: daysAgo(0) },
-    ];
-
-    for (const sig of signals) {
-      const created = await prisma.activitySignal.create({
-        data: {
-          operatorId,
-          signalType: sig.signalType,
-          actorEntityId: sig.actorEntityId,
-          targetEntityIds: sig.targetEntityIds ? JSON.stringify(sig.targetEntityIds) : null,
-          domainIds: JSON.stringify(sig.domainIds),
-          metadata: JSON.stringify(sig.metadata),
-          occurredAt: sig.occurredAt,
-        },
-      });
-      results.activitySignals++;
-      results.ids.activitySignalIds.push(created.id);
-    }
+    // 3. ActivitySignals — table removed, skip creation
+    // ActivitySignal table has been dropped; no signals to seed
 
     // 4. Ensure SituationTypes exist
     const existingTypes = await prisma.situationType.findMany({

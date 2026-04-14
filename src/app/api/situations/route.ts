@@ -161,12 +161,8 @@ WHERE ${whereClause}`;
           select: { slug: true, name: true, autonomyLevel: true },
         })
       : Promise.resolve([]),
-    situationIds.length > 0
-      ? prisma.situationView.findMany({
-          where: { userId: user.id, situationId: { in: situationIds } },
-          select: { situationId: true, viewedAt: true },
-        })
-      : Promise.resolve([]),
+    // SituationView table dropped — no view tracking
+    Promise.resolve([] as Array<{ situationId: string; viewedAt: Date }>),
   ]);
 
   const domainMap = new Map(domainPages.map((p) => [p.slug, p.title]));

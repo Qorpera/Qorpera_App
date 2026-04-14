@@ -116,8 +116,8 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     console.error("[post-synthesis] Strategic scan failed:", err);
   }
 
-  const totalSituations = await prisma.situation.count({
-    where: { operatorId, status: { in: ["detected", "reasoning", "proposed"] } },
+  const totalSituations = await prisma.knowledgePage.count({
+    where: { operatorId, pageType: "situation_instance", scope: "operator" },
   });
 
   console.log(`[post-synthesis] Complete: ${totalSituations} situations, ${investigationCount} investigations, ${initiativeCount} initiatives`);

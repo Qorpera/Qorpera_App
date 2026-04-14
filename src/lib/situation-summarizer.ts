@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import { callLLM } from "@/lib/ai-provider";
+import { parseSituationPage } from "@/lib/situation-page-parser";
+import { updatePageWithLock } from "@/lib/wiki-engine";
 
 const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
@@ -12,46 +14,55 @@ const HAIKU_MODEL = "claude-haiku-4-5-20251001";
  */
 export async function generateSituationSummaries(situationId: string): Promise<void> {
   try {
-    const situation = await prisma.situation.findUnique({
-      where: { id: situationId },
-      select: {
-        id: true,
-        triggerSummary: true,
-        triggerEvidence: true,
-        reasoning: true,
-        situationType: { select: { name: true } },
-        cycles: {
-          orderBy: { cycleNumber: "asc" },
-          select: {
-            id: true,
-            cycleNumber: true,
-            triggerType: true,
-            triggerSummary: true,
-            cycleSummary: true,
-            reasoning: true,
-            status: true,
-            createdAt: true,
-            executionPlan: {
-              select: {
-                steps: {
-                  orderBy: { sequenceOrder: "asc" },
-                  select: { title: true, executionMode: true, status: true },
-                },
-              },
-            },
-          },
-        },
+    // Load wiki page for situation content
+    const page = await prisma.knowledgePage.findFirst({
+      where: {
+        pageType: "situation_instance",
+        scope: "operator",
+        properties: { path: ["situation_id"], equals: situationId },
       },
+      select: { content: true, title: true, properties: true, operatorId: true, slug: true },
     });
+    if (!page || !page.operatorId) return;
 
-    if (!situation) return;
+    const operatorId = page.operatorId;
+    const props = (page.properties ?? {}) as Record<string, unknown>;
+    const situationTypeSlug = props.situation_type as string | undefined;
 
-    // Find the most recent cycle (the one just created by reasoning)
-    const latestCycle = situation.cycles[situation.cycles.length - 1];
+    // Load situation type name + cycles in parallel (independent queries)
+    const [situationTypeName, cycles] = await Promise.all([
+      situationTypeSlug
+        ? prisma.situationType.findFirst({
+            where: { operatorId, slug: situationTypeSlug },
+            select: { name: true },
+          }).then((st) => st?.name ?? "Unknown")
+        : Promise.resolve("Unknown"),
+      prisma.situationCycle.findMany({
+        where: { situationId },
+        orderBy: { cycleNumber: "asc" },
+        select: {
+          id: true, cycleNumber: true, triggerType: true,
+          triggerSummary: true, cycleSummary: true, status: true, createdAt: true,
+        },
+      }),
+    ]);
+
+    const latestCycle = cycles[cycles.length - 1];
     if (!latestCycle) return;
 
     // ── Generate cycle summary for the latest cycle ──
-    const cycleContext = buildCycleContext(latestCycle, situation.situationType.name);
+    // Build cycle context from wiki page content instead of executionPlan join
+    const parsed = parseSituationPage(page.content, props);
+
+    const cycleContext = `Situation type: ${situationTypeName}
+Cycle ${latestCycle.cycleNumber} — Trigger: ${latestCycle.triggerType}
+${latestCycle.triggerSummary ? `Trigger: ${latestCycle.triggerSummary}` : ""}
+
+Investigation:
+${parsed.sections.investigation?.slice(0, 500) ?? "No investigation recorded"}
+
+Action Plan:
+${parsed.sections.actionPlan?.slice(0, 500) ?? "No action plan"}`;
 
     const cycleSummaryResponse = await callLLM({
       instructions: `You summarize business situation updates for executives. Write 1-2 clear, plain-language sentences explaining what happened in this cycle. No jargon, no AI-speak. Write as if briefing a busy CEO who needs to understand this in 5 seconds. Use the same language as the source content (if the trigger/evidence is in Danish, write in Danish; if English, write in English).`,
@@ -70,19 +81,18 @@ export async function generateSituationSummaries(situationId: string): Promise<v
     });
 
     // ── Generate resume summary if 2+ cycles ──
-    if (situation.cycles.length >= 2) {
+    if (cycles.length >= 2) {
       // Build context from ALL cycles (using existing summaries for older ones, fresh one for latest)
-      const allSummaries = situation.cycles.map((c) => {
+      const allSummaries = cycles.map((c) => {
         const summary = c.id === latestCycle.id ? cycleSummaryText : (c.cycleSummary ?? c.triggerSummary);
         return `Cycle ${c.cycleNumber} (${c.triggerType}): ${summary}`;
       });
 
-      const currentSteps = latestCycle.executionPlan?.steps ?? [];
-      const stepsSummary = currentSteps.length > 0
-        ? `Current plan: ${currentSteps.map(s => `${s.title} (${s.status})`).join(" → ")}`
+      const stepsSummary = parsed.sections.actionPlan
+        ? `Current plan:\n${parsed.sections.actionPlan.slice(0, 300)}`
         : "No current action plan.";
 
-      const resumePrompt = `Situation type: ${situation.situationType.name}
+      const resumePrompt = `Situation type: ${situationTypeName}
 
 Timeline:
 ${allSummaries.join("\n")}
@@ -100,45 +110,16 @@ Write a 2-3 sentence briefing that tells someone walking into this situation col
         model: HAIKU_MODEL,
       });
 
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: { resumeSummary: resumeResponse.text.trim() },
+      const resumeText = resumeResponse.text.trim();
+
+      // Write resume summary to wiki page properties
+      await updatePageWithLock(operatorId, page.slug, (current) => {
+        const mergedProps = { ...(current.properties ?? {}), resume_summary: resumeText };
+        return { properties: mergedProps };
       });
     }
   } catch (err) {
     // Non-fatal — summaries are polish, not critical path
     console.error(`[situation-summarizer] Failed for situation ${situationId}:`, err);
   }
-}
-
-function buildCycleContext(
-  cycle: {
-    cycleNumber: number;
-    triggerType: string;
-    triggerSummary: string | null;
-    reasoning: unknown;
-    executionPlan: { steps: Array<{ title: string; executionMode: string; status: string }> } | null;
-  },
-  situationTypeName: string,
-): string {
-  let context = `Situation type: ${situationTypeName}\n`;
-  context += `Cycle ${cycle.cycleNumber} — Trigger: ${cycle.triggerType}\n`;
-
-  if (cycle.triggerSummary) {
-    context += `Trigger: ${cycle.triggerSummary}\n`;
-  }
-
-  if (cycle.reasoning) {
-    try {
-      const r = typeof cycle.reasoning === "string" ? JSON.parse(cycle.reasoning) : cycle.reasoning;
-      if (r.analysis) context += `Analysis: ${String(r.analysis).slice(0, 1000)}\n`;
-      if (r.situationTitle) context += `Title: ${r.situationTitle}\n`;
-    } catch { /* ignore */ }
-  }
-
-  if (cycle.executionPlan?.steps && cycle.executionPlan.steps.length > 0) {
-    context += `Plan: ${cycle.executionPlan.steps.map(s => s.title).join(" → ")}\n`;
-  }
-
-  return context;
 }

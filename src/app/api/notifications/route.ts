@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
@@ -32,21 +32,24 @@ export async function GET(req: NextRequest) {
   ]);
 
   // Filter out situation notifications from invisible departments
-  const visibleDomains = await getVisibleDomainIds(operatorId, userId);
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, userId);
   if (visibleDomains !== "all") {
     const situationNotifIds = notifications
       .filter(n => n.sourceType === "situation" && n.sourceId)
       .map(n => n.sourceId!);
 
     if (situationNotifIds.length > 0) {
-      const visibleSituations = await prisma.situation.findMany({
-        where: {
-          id: { in: situationNotifIds },
-          ...situationScopeFilter(visibleDomains),
-        },
-        select: { id: true },
-      });
-      const visibleSitIds = new Set(visibleSituations.map(s => s.id));
+      // Query KnowledgePage for situation_instance pages matching these IDs
+      const visibleSitPages = await prisma.$queryRawUnsafe<Array<{ situation_id: string }>>(
+        `SELECT properties->>'situation_id' AS situation_id
+         FROM "KnowledgePage"
+         WHERE "operatorId" = $1
+           AND "pageType" = 'situation_instance'
+           AND properties->>'situation_id' = ANY($2::text[])
+           AND (properties->>'domain' IS NULL OR properties->>'domain' = ANY($3::text[]))`,
+        operatorId, situationNotifIds, visibleDomains,
+      );
+      const visibleSitIds = new Set(visibleSitPages.map(s => s.situation_id));
 
       notifications = notifications.filter(n =>
         n.sourceType !== "situation" || !n.sourceId || visibleSitIds.has(n.sourceId)

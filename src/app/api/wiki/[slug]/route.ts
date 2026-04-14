@@ -95,18 +95,8 @@ export async function GET(
             });
           }
         } else if (src.type === "signal") {
-          const signal = await prisma.activitySignal.findFirst({
-            where: { id: src.id, operatorId: sourceOperatorId },
-            select: { signalType: true, metadata: true, occurredAt: true },
-          });
-          if (signal) {
-            sourceDetails.push({
-              ...src,
-              preview: `${signal.signalType}: ${JSON.stringify(signal.metadata ?? {}).slice(0, 250)}`,
-              sourceType: signal.signalType,
-              date: signal.occurredAt.toISOString(),
-            });
-          }
+          // ActivitySignal table has been removed — skip signal source resolution
+          sourceDetails.push({ ...src, preview: "[signal source no longer available]" });
         }
       } catch {
         sourceDetails.push({ ...src, preview: "[source not found]" });

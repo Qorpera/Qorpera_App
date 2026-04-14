@@ -169,7 +169,7 @@ export async function GET() {
             select: { phase: true },
           }),
           prisma.contentChunk.count({ where: { operatorId: op.id } }),
-          prisma.activitySignal.count({ where: { operatorId: op.id } }),
+          Promise.resolve(0), // ActivitySignal table removed
           prisma.entity.count({ where: { operatorId: op.id, status: "active" } }),
         ]);
         variants.push({

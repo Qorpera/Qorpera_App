@@ -30,11 +30,10 @@ import {
   daysAgo,
   hoursAgo,
 } from "./seed-data";
-import { CONTENT_CHUNKS, generateActivitySignals } from "./seed-content";
+import { CONTENT_CHUNKS } from "./seed-content";
 import { SITUATION_TYPE_UPDATES, SITUATIONS, ACTION_CAPABILITIES } from "./seed-situations";
 import {
   INITIATIVES, OPERATIONAL_INSIGHTS,
-  FOLLOW_UPS,
   NOTIFICATIONS, COPILOT_SESSIONS,
 } from "./seed-phase3";
 // ── Cleanup ──────────────────────────────────────────────────────────
@@ -58,9 +57,6 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   });
 
   // Phase 3 models
-  await prisma.followUp.deleteMany({ where: { operatorId } });
-  await prisma.executionStep.deleteMany({ where: { plan: { operatorId } } });
-  await prisma.executionPlan.deleteMany({ where: { operatorId } });
   await prisma.initiative.deleteMany({ where: { operatorId } });
   await prisma.operationalInsight.deleteMany({ where: { operatorId } });
   await prisma.domainHealth.deleteMany({ where: { operatorId } });
@@ -71,9 +67,7 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   // Evaluation logs
   await prisma.evaluationLog.deleteMany({ where: { operatorId } });
 
-  // Situations & detection
-  await prisma.situationEvent.deleteMany({ where: { situation: { operatorId } } });
-  await prisma.situation.deleteMany({ where: { operatorId } });
+  // Detection
   await prisma.situationType.deleteMany({ where: { operatorId } });
 
   // Notifications & copilot
@@ -85,8 +79,7 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   await prisma.policyRule.deleteMany({ where: { operatorId } });
   await prisma.actionCapability.deleteMany({ where: { operatorId } });
 
-  // Events & activity
-  await prisma.activitySignal.deleteMany({ where: { operatorId } });
+  // Events
   await prisma.event.deleteMany({ where: { operatorId } });
 
   // Connectors
@@ -756,37 +749,6 @@ export async function runDemoSeed(operatorId: string) {
   }
   console.log(`[demo-seed] Created ${chunkCount} content chunks`);
 
-  // ─── P2 Layer 7: Activity Signals ──────────────────────────────────
-  console.log("[demo-seed] Creating activity signals...");
-
-  // Build name → entity ID lookup (team members + contacts + companies)
-  const nameToEntityId: Record<string, string> = { ...memberIds, ...contactIds, ...companyIds };
-
-  const signalDefs = generateActivitySignals();
-  let signalCount = 0;
-
-  for (const s of signalDefs) {
-    const actorEntityId = s.actorName ? nameToEntityId[s.actorName] ?? null : null;
-    const targetEntityIds = s.targetNames
-      ?.map((n) => nameToEntityId[n])
-      .filter(Boolean) ?? [];
-    const deptId = s.department ? deptIds[s.department] : undefined;
-
-    await prisma.activitySignal.create({
-      data: {
-        operatorId,
-        signalType: s.signalType,
-        actorEntityId,
-        targetEntityIds: targetEntityIds.length > 0 ? JSON.stringify(targetEntityIds) : null,
-        domainIds: deptId ? JSON.stringify([deptId]) : null,
-        metadata: JSON.stringify(s.metadata),
-        occurredAt: daysAgo(s.daysAgo),
-      },
-    });
-    signalCount++;
-  }
-  console.log(`[demo-seed] Created ${signalCount} activity signals`);
-
   // ═══════════════════════════════════════════════════════════════════
   // Prompt 3 layers: Situation Types + Action Capabilities + Situations
   // ═══════════════════════════════════════════════════════════════════
@@ -849,7 +811,7 @@ export async function runDemoSeed(operatorId: string) {
   }
   console.log(`[demo-seed] Created ${ACTION_CAPABILITIES.length} action capabilities`);
 
-  // ─── P3 Layer 3: Situations + Execution Plans ─────────────────────
+  // ─── P3 Layer 3: Situation Wiki Pages ──────────────────────────────
   const allEntityIds: Record<string, string> = { ...memberIds, ...contactIds, ...companyIds, ...dealIds, ...invoiceIds, ...ticketIds };
 
   function hoursAgoDate(h: number): Date {
@@ -862,82 +824,42 @@ export async function runDemoSeed(operatorId: string) {
 
   let situationCount = 0;
   for (const s of SITUATIONS) {
-    let executionPlanId: string | null = null;
+    const triggerEntityId = allEntityIds[s.triggerEntityName] ?? null;
 
-    // Create execution plan if present
-    if (s.plan) {
-      const plan = await prisma.executionPlan.create({
-        data: {
-          operatorId,
-          sourceType: "situation",
-          sourceId: "pending", // will be updated after situation creation
-          status: s.plan.status,
-          currentStepOrder: s.plan.steps.findIndex((st) => st.status === "pending") + 1 || s.plan.steps.length,
-          modelId: s.modelId,
-          promptVersion: s.promptVersion,
-          createdAt: hoursAgoDate(s.hoursAgo - 0.5), // plan created shortly after detection
-        },
-      });
-      executionPlanId = plan.id;
-
-      // Create steps
-      for (let i = 0; i < s.plan.steps.length; i++) {
-        const step = s.plan.steps[i];
-        await prisma.executionStep.create({
-          data: {
-            planId: plan.id,
-            sequenceOrder: i + 1,
-            title: step.title,
-            description: step.description,
-            executionMode: step.executionMode,
-            actionCapabilityId: capabilityIds[step.capabilitySlug] ?? null,
-            parameters: JSON.stringify(step.parameters),
-            status: step.status,
-            executedAt: step.completedHoursAgo ? hoursAgoDate(step.completedHoursAgo) : null,
-          },
-        });
-      }
-    }
-
-    const situation = await prisma.situation.create({
+    const createdAt = hoursAgoDate(s.hoursAgo);
+    await prisma.knowledgePage.create({
       data: {
         operatorId,
-        situationTypeId: sitTypeIds[s.typeSlug],
-        severity: s.severity,
+        pageType: "situation_instance",
+        scope: "operator",
+        subjectEntityId: triggerEntityId,
+        title: s.reasoning?.analysis?.slice(0, 80) ?? `Situation: ${s.typeSlug}`,
+        slug: `demo-situation-${s.typeSlug}-${situationCount}`,
+        content: `## Analysis\n\n${JSON.stringify(s.reasoning ?? {})}\n\n## Context\n\n${JSON.stringify(s.contextSnapshot ?? {})}`,
+        contentTokens: 100,
+        properties: {
+          situation_id: `demo-sit-${situationCount}`,
+          status: s.status,
+          severity: 0.5,
+          confidence: s.confidence,
+          situation_type: s.typeSlug,
+          detected_at: createdAt.toISOString(),
+          source: "demo",
+          outcome: s.outcome ?? null,
+        },
         confidence: s.confidence,
-        source: "detected",
-        status: s.status,
-        triggerEntityId: allEntityIds[s.triggerEntityName] ?? null,
-        contextSnapshot: JSON.stringify(s.contextSnapshot),
-        reasoning: JSON.stringify(s.reasoning),
-        modelId: s.modelId,
-        promptVersion: s.promptVersion,
-        reasoningDurationMs: s.reasoningDurationMs,
-        apiCostCents: s.apiCostCents,
-        billedCents: s.billedCents ?? null,
-        billedAt: s.billedCents ? hoursAgoDate(s.resolvedHoursAgo ?? s.hoursAgo) : null,
-        outcome: s.outcome ?? null,
-        outcomeDetails: s.outcomeDetails ? JSON.stringify(s.outcomeDetails) : null,
-        feedback: s.feedback ?? null,
-        feedbackRating: s.feedbackRating ?? null,
-        feedbackCategory: s.feedbackCategory ?? null,
-        resolvedAt: s.resolvedHoursAgo !== undefined ? hoursAgoDate(s.resolvedHoursAgo) : null,
-        executionPlanId,
-        createdAt: hoursAgoDate(s.hoursAgo),
+        status: s.status === "resolved" ? "published" : "draft",
+        sourceCount: 1,
+        synthesisPath: "demo",
+        synthesizedByModel: "demo",
+        lastSynthesizedAt: createdAt,
+        createdAt,
       },
     });
 
-    // Update plan sourceId to point to the situation
-    if (executionPlanId) {
-      await prisma.executionPlan.update({
-        where: { id: executionPlanId },
-        data: { sourceId: situation.id },
-      });
-    }
-
     situationCount++;
   }
-  console.log(`[demo-seed] Created ${situationCount} situations`);
+  console.log(`[demo-seed] Created ${situationCount} situation wiki pages`);
 
   // ═══════════════════════════════════════════════════════════════════
   // Prompt 4 layers: Initiatives, Insights, etc.
@@ -947,45 +869,12 @@ export async function runDemoSeed(operatorId: string) {
   console.log("[demo-seed] Creating initiatives...");
 
   for (const init of INITIATIVES) {
-    let executionPlanId: string | null = null;
-
-    if (init.plan) {
-      const plan = await prisma.executionPlan.create({
-        data: {
-          operatorId,
-          sourceType: "initiative",
-          sourceId: "pending",
-          status: init.plan.status,
-          currentStepOrder: init.plan.steps.findIndex((s) => s.status !== "completed") + 1 || init.plan.steps.length,
-          createdAt: daysAgo(init.daysAgoCreated),
-        },
-      });
-      executionPlanId = plan.id;
-
-      for (let i = 0; i < init.plan.steps.length; i++) {
-        const step = init.plan.steps[i];
-        await prisma.executionStep.create({
-          data: {
-            planId: plan.id,
-            sequenceOrder: i + 1,
-            title: step.title,
-            description: step.description,
-            executionMode: step.executionMode,
-            actionCapabilityId: capabilityIds[step.capabilitySlug] ?? null,
-            parameters: JSON.stringify(step.parameters),
-            status: step.status,
-            executedAt: step.completedHoursAgo ? hoursAgoDate(step.completedHoursAgo) : null,
-          },
-        });
-      }
-    }
-
     // Resolve AI entity ID
     const aiEntityId = init.aiEntityType === "hq"
       ? hqAiId
       : deptAiIds[init.aiEntityDept ?? ""] ?? hqAiId;
 
-    const initiative = await prisma.initiative.create({
+    await prisma.initiative.create({
       data: {
         operatorId,
         aiEntityId,
@@ -998,13 +887,6 @@ export async function runDemoSeed(operatorId: string) {
         impactAssessment: init.impactAssessment ?? null,
       },
     });
-
-    if (executionPlanId) {
-      await prisma.executionPlan.update({
-        where: { id: executionPlanId },
-        data: { sourceId: initiative.id },
-      });
-    }
   }
 
   // ─── P4 Layer 2: Operational Insights ─────────────────────────────
@@ -1027,42 +909,6 @@ export async function runDemoSeed(operatorId: string) {
         shareScope: ins.shareScope,
         status: ins.invalidated ? "invalidated" : "active",
         createdAt: daysAgo(ins.daysAgoCreated),
-      },
-    });
-  }
-
-  // ─── P4 Layer 6: Follow-Ups ───────────────────────────────────────
-  console.log("[demo-seed] Creating follow-ups...");
-  for (const fu of FOLLOW_UPS) {
-    const plan = await prisma.executionPlan.create({
-      data: {
-        operatorId,
-        sourceType: "situation",
-        sourceId: "follow-up-tracking",
-        status: fu.status === "expired" ? "completed" : "pending",
-      },
-    });
-
-    const step = await prisma.executionStep.create({
-      data: {
-        planId: plan.id,
-        sequenceOrder: 1,
-        title: fu.title,
-        description: "Follow-up tracking step",
-        executionMode: "human_task",
-        status: fu.status === "triggered" ? "completed" : fu.status === "expired" ? "completed" : "pending",
-      },
-    });
-
-    await prisma.followUp.create({
-      data: {
-        operatorId,
-        executionStepId: step.id,
-        triggerCondition: JSON.stringify(fu.triggerCondition),
-        fallbackAction: JSON.stringify(fu.fallbackAction),
-        status: fu.status,
-        triggerAt: fu.triggerDaysFromNow ? daysFromNow(fu.triggerDaysFromNow) : null,
-        triggeredAt: fu.triggeredDaysAgo ? daysAgo(fu.triggeredDaysAgo) : null,
       },
     });
   }
@@ -1138,13 +984,11 @@ export async function runDemoSeed(operatorId: string) {
       invoices: INVOICES.length,
       tickets: TICKETS.length,
       contentChunks: chunkCount,
-      activitySignals: signalCount,
       situationTypesUpdated: SITUATION_TYPE_UPDATES.length,
       actionCapabilities: ACTION_CAPABILITIES.length,
-      situations: situationCount,
+      situationPages: situationCount,
       initiatives: INITIATIVES.length,
       insights: OPERATIONAL_INSIGHTS.length,
-      followUps: FOLLOW_UPS.length,
       notifications: NOTIFICATIONS.length,
       copilotSessions: COPILOT_SESSIONS.length,
     },

@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/db", () => ({
   prisma: {
     situationType: { findFirst: vi.fn() },
-    situation: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn(), count: vi.fn(), findMany: vi.fn() },
+    knowledgePage: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn(), count: vi.fn(), findMany: vi.fn() },
     user: { findUnique: vi.fn(), findMany: vi.fn() },
     sourceConnector: { findFirst: vi.fn() },
     actionCapability: { findFirst: vi.fn(), create: vi.fn() },
@@ -44,15 +44,15 @@ beforeEach(() => {
   (prisma.notification.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "n1" });
 });
 
-// ── 1. request_meeting: creates situations for invitees ─────────────────────
+// ── 1. request_meeting: creates wiki pages for invitees ─────────────────────
 
 describe("handleRequestMeeting", () => {
-  it("creates meeting_request situations for each invitee", async () => {
+  it("creates meeting_request wiki pages for each invitee", async () => {
     (prisma.situationType.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "st-meeting", slug: "meeting_request" });
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "Alice" });
-    (prisma.situation.create as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ id: "sit-1" })
-      .mockResolvedValueOnce({ id: "sit-2" });
+    (prisma.knowledgePage.create as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ id: "page-1" })
+      .mockResolvedValueOnce({ id: "page-2" });
 
     const result = await handleRequestMeeting({
       participantUserIds: ["organizer-1", "invitee-1", "invitee-2"],
@@ -61,7 +61,7 @@ describe("handleRequestMeeting", () => {
       topic: "Q2 Strategy",
     }, "op1");
 
-    expect(prisma.situation.create).toHaveBeenCalledTimes(2); // 2 invitees
+    expect(prisma.knowledgePage.create).toHaveBeenCalledTimes(2); // 2 invitees
     expect(result.type).toBe("data");
     expect((result as any).payload.situationIds).toHaveLength(2);
   });
@@ -69,7 +69,7 @@ describe("handleRequestMeeting", () => {
   it("sends notifications to each invitee", async () => {
     (prisma.situationType.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "st-meeting", slug: "meeting_request" });
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "Alice" });
-    (prisma.situation.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "sit-1" });
+    (prisma.knowledgePage.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "page-1" });
 
     await handleRequestMeeting({
       participantUserIds: ["org-1", "inv-1"],
@@ -88,10 +88,10 @@ describe("handleRequestMeeting", () => {
   });
 });
 
-// ── 3. All accept → calendar events created ─────────────────────────────────
+// ── 3. All accept -> calendar events created ─────────────────────────────────
 
 describe("createCalendarEventsForMeeting", () => {
-  it("all participants accept → calendar events created", async () => {
+  it("all participants accept -> calendar events created", async () => {
     (prisma.user.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: "u1", email: "alice@co.com" },
       { id: "u2", email: "bob@co.com" },
@@ -159,57 +159,70 @@ describe("createCalendarEventsForMeeting", () => {
 // ── 4-7. Meeting resolution options ─────────────────────────────────────────
 
 describe("handleMeetingRequestResolution", () => {
-  it("one participant declines → situation resolved with declined", async () => {
-    (prisma.situation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "sit-1", operatorId: "op1", spawningStepId: "step-1",
-      contextSnapshot: JSON.stringify({ topic: "Meeting", round: 1 }),
-      assignedUserId: "inv-1", situationTypeId: "st-1",
+  it("one participant declines -> wiki page resolved with declined", async () => {
+    (prisma.knowledgePage.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "page-1", operatorId: "op1",
+      properties: {
+        situation_id: "sit-1", situation_type_id: "st-1",
+        status: "detected", assigned_user_id: "inv-1",
+        context: { topic: "Meeting", round: 1 },
+      },
     });
-    (prisma.situation.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     const result = await handleMeetingRequestResolution("sit-1", "declined", { reason: "Not available" });
 
     expect(result.resolved).toBe(true);
-    expect(prisma.situation.update).toHaveBeenCalledWith(
+    expect(prisma.knowledgePage.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          status: "resolved",
+          properties: expect.objectContaining({
+            status: "resolved",
+          }),
         }),
       }),
     );
   });
 
-  it("counter-proposal creates new situation for organizer", async () => {
-    (prisma.situation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "sit-1", operatorId: "op1", spawningStepId: "step-1",
-      contextSnapshot: JSON.stringify({ topic: "Meeting", round: 1, organizerUserId: "org-1" }),
-      assignedUserId: "inv-1", situationTypeId: "st-1",
+  it("counter-proposal creates new wiki page for organizer", async () => {
+    (prisma.knowledgePage.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "page-1", operatorId: "op1",
+      properties: {
+        situation_id: "sit-1", situation_type_id: "st-1",
+        status: "detected", assigned_user_id: "inv-1",
+        context: { topic: "Meeting", round: 1, organizerUserId: "org-1" },
+      },
     });
-    (prisma.situation.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
-    (prisma.situation.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "sit-counter" });
+    (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prisma.knowledgePage.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "page-counter" });
 
     const result = await handleMeetingRequestResolution("sit-1", "counter_proposal", {
       proposedTimes: [{ start: "2026-04-02T14:00:00Z", end: "2026-04-02T15:00:00Z" }],
     });
 
     expect(result.resolved).toBe(false);
-    expect(prisma.situation.create).toHaveBeenCalledWith(
+    expect(prisma.knowledgePage.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          assignedUserId: "org-1",
-          spawningStepId: "step-1",
+          pageType: "situation_instance",
+          properties: expect.objectContaining({
+            assigned_user_id: "org-1",
+          }),
         }),
       }),
     );
   });
 
-  it("organizer accepts counter-proposal → situation resolves", async () => {
-    (prisma.situation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "sit-counter", operatorId: "op1", spawningStepId: "step-1",
-      contextSnapshot: JSON.stringify({ topic: "Meeting", round: 2, originalSituationId: "sit-1" }),
-      assignedUserId: "org-1", situationTypeId: "st-1",
+  it("organizer accepts counter-proposal -> page resolves", async () => {
+    (prisma.knowledgePage.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "page-counter", operatorId: "op1",
+      properties: {
+        situation_id: "sit-counter", situation_type_id: "st-1",
+        status: "detected", assigned_user_id: "org-1",
+        context: { topic: "Meeting", round: 2, originalSituationId: "sit-1" },
+      },
     });
-    (prisma.situation.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     const result = await handleMeetingRequestResolution("sit-counter", "accepted", {
       acceptedTime: { start: "2026-04-02T14:00:00Z", end: "2026-04-02T15:00:00Z" },
@@ -218,13 +231,16 @@ describe("handleMeetingRequestResolution", () => {
     expect(result.resolved).toBe(true);
   });
 
-  it("3 rounds of counter-proposals → auto-fallback", async () => {
-    (prisma.situation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "sit-1", operatorId: "op1", spawningStepId: "step-1",
-      contextSnapshot: JSON.stringify({ topic: "Meeting", round: 3, organizerUserId: "org-1" }),
-      assignedUserId: "inv-1", situationTypeId: "st-1",
+  it("3 rounds of counter-proposals -> auto-fallback", async () => {
+    (prisma.knowledgePage.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "page-1", operatorId: "op1",
+      properties: {
+        situation_id: "sit-1", situation_type_id: "st-1",
+        status: "detected", assigned_user_id: "inv-1",
+        context: { topic: "Meeting", round: 3, organizerUserId: "org-1" },
+      },
     });
-    (prisma.situation.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     const result = await handleMeetingRequestResolution("sit-1", "counter_proposal", {
       proposedTimes: [{ start: "2026-04-03T10:00:00Z", end: "2026-04-03T11:00:00Z" }],
@@ -232,61 +248,70 @@ describe("handleMeetingRequestResolution", () => {
 
     expect(result.resolved).toBe(true);
     expect(result.action).toBe("fallback_to_human");
-    // Should NOT create a new counter-proposal situation
-    expect(prisma.situation.create).not.toHaveBeenCalled();
+    // Should NOT create a new counter-proposal page
+    expect(prisma.knowledgePage.create).not.toHaveBeenCalled();
   });
 
-  it("accept stores acceptedTime in resolution data", async () => {
-    (prisma.situation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "sit-1", operatorId: "op1", spawningStepId: "step-1",
-      contextSnapshot: JSON.stringify({ suggestedTimes: [{ start: "2026-04-01T10:00:00Z", end: "2026-04-01T11:00:00Z" }], round: 1 }),
-      assignedUserId: "inv-1", situationTypeId: "st-1",
+  it("accept stores acceptedTime in properties", async () => {
+    (prisma.knowledgePage.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "page-1", operatorId: "op1",
+      properties: {
+        situation_id: "sit-1", situation_type_id: "st-1",
+        status: "detected", assigned_user_id: "inv-1",
+        context: { suggestedTimes: [{ start: "2026-04-01T10:00:00Z", end: "2026-04-01T11:00:00Z" }], round: 1 },
+      },
     });
-    (prisma.situation.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     await handleMeetingRequestResolution("sit-1", "accepted", {
       acceptedTime: { start: "2026-04-01T10:00:00Z", end: "2026-04-01T11:00:00Z" },
     });
 
-    const updateCall = (prisma.situation.update as ReturnType<typeof vi.fn>).mock.calls[0];
-    const snapshot = JSON.parse(updateCall[0].data.contextSnapshot);
-    expect(snapshot.decision).toBe("accepted");
-    expect(snapshot.acceptedTime).toBeDefined();
+    const updateCall = (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mock.calls[0];
+    const properties = updateCall[0].data.properties;
+    expect(properties.context.decision).toBe("accepted");
+    expect(properties.context.acceptedTime).toBeDefined();
   });
 
   it("decline stores reason", async () => {
-    (prisma.situation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "sit-1", operatorId: "op1", spawningStepId: null,
-      contextSnapshot: JSON.stringify({ round: 1 }),
-      assignedUserId: "inv-1", situationTypeId: "st-1",
+    (prisma.knowledgePage.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "page-1", operatorId: "op1",
+      properties: {
+        situation_id: "sit-1", situation_type_id: "st-1",
+        status: "detected", assigned_user_id: "inv-1",
+        context: { round: 1 },
+      },
     });
-    (prisma.situation.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
 
     await handleMeetingRequestResolution("sit-1", "declined", { reason: "Out of office" });
 
-    const updateCall = (prisma.situation.update as ReturnType<typeof vi.fn>).mock.calls[0];
-    const snapshot = JSON.parse(updateCall[0].data.contextSnapshot);
-    expect(snapshot.decision).toBe("declined");
-    expect(snapshot.reason).toBe("Out of office");
+    const updateCall = (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mock.calls[0];
+    const properties = updateCall[0].data.properties;
+    expect(properties.context.decision).toBe("declined");
+    expect(properties.context.reason).toBe("Out of office");
   });
 
   it("suggest_different_time does NOT resolve the situation", async () => {
-    (prisma.situation.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "sit-1", operatorId: "op1", spawningStepId: "step-1",
-      contextSnapshot: JSON.stringify({ round: 1, organizerUserId: "org-1" }),
-      assignedUserId: "inv-1", situationTypeId: "st-1",
+    (prisma.knowledgePage.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "page-1", operatorId: "op1",
+      properties: {
+        situation_id: "sit-1", situation_type_id: "st-1",
+        status: "detected", assigned_user_id: "inv-1",
+        context: { round: 1, organizerUserId: "org-1" },
+      },
     });
-    (prisma.situation.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
-    (prisma.situation.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "sit-counter" });
+    (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
+    (prisma.knowledgePage.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "page-counter" });
 
     const result = await handleMeetingRequestResolution("sit-1", "counter_proposal", {
       proposedTimes: [{ start: "2026-04-02T14:00:00Z", end: "2026-04-02T15:00:00Z" }],
     });
 
     expect(result.resolved).toBe(false);
-    // Original situation should NOT have status: "resolved"
-    const updateCall = (prisma.situation.update as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(updateCall[0].data.status).toBeUndefined();
+    // Original page should NOT have status: "resolved" in the update
+    const updateCall = (prisma.knowledgePage.update as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(updateCall[0].data.properties.status).not.toBe("resolved");
   });
 });
 
@@ -299,7 +324,7 @@ describe("Meeting workstream inheritance", () => {
     // the necessary fields for workstream inheritance
     (prisma.situationType.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "st-meeting", slug: "meeting_request" });
     (prisma.user.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ name: "Alice" });
-    (prisma.situation.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "sit-1" });
+    (prisma.knowledgePage.create as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "page-1" });
 
     const result = await handleRequestMeeting({
       participantUserIds: ["org-1", "inv-1"],
@@ -308,12 +333,15 @@ describe("Meeting workstream inheritance", () => {
       topic: "Sync",
     }, "op1");
 
-    // Situations are created with spawn metadata
-    expect(prisma.situation.create).toHaveBeenCalledWith(
+    // Wiki pages are created with situation_instance pageType
+    expect(prisma.knowledgePage.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           operatorId: "op1",
-          situationTypeId: "st-meeting",
+          pageType: "situation_instance",
+          properties: expect.objectContaining({
+            situation_type_id: "st-meeting",
+          }),
         }),
       }),
     );

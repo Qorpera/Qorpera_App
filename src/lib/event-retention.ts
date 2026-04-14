@@ -20,10 +20,6 @@ export async function cleanupOldEvents(
 
   const eventIds = oldEvents.map((e) => e.id);
 
-  await prisma.situationEvent.deleteMany({
-    where: { eventId: { in: eventIds } },
-  });
-
   const result = await prisma.event.deleteMany({
     where: {
       id: { in: eventIds },

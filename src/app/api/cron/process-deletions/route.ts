@@ -93,28 +93,7 @@ async function deleteUser(userId: string, operatorId: string) {
   });
   const aiEntityId = aiEntity?.id;
 
-  // Step 1: Reassign situations
-  const situations = await prisma.situation.findMany({
-    where: { assignedUserId: userId, operatorId },
-    select: { id: true },
-  });
-
-  for (const sit of situations) {
-    const reassignTarget = await findReassignmentTarget(null, userId, operatorId);
-    if (reassignTarget) {
-      await prisma.situation.update({
-        where: { id: sit.id },
-        data: { assignedUserId: reassignTarget },
-      });
-      console.log(`[process-deletions] Reassigned situation ${sit.id} from ${userId} to ${reassignTarget}`);
-    } else {
-      // No target — null out assignment
-      await prisma.situation.update({
-        where: { id: sit.id },
-        data: { assignedUserId: null },
-      });
-    }
-  }
+  // Situation table dropped — no situation reassignment needed
 
   // Step 2: Delete personal data (order matters for FK constraints)
   await prisma.contentChunk.deleteMany({ where: { userId } });
@@ -124,7 +103,6 @@ async function deleteUser(userId: string, operatorId: string) {
     await prisma.operationalInsight.deleteMany({
       where: { aiEntityId, shareScope: "personal" },
     });
-    await prisma.activitySignal.deleteMany({ where: { actorEntityId: aiEntityId } });
   }
 
   await prisma.notificationPreference.deleteMany({ where: { userId } });
@@ -207,10 +185,6 @@ async function deleteOperator(operatorId: string) {
   });
 
   // Delete in reverse dependency order (mirrors admin operator delete)
-  await prisma.situationEvent.deleteMany({ where: { situation: { operatorId } } });
-  await prisma.executionStep.deleteMany({ where: { plan: { operatorId } } });
-  await prisma.executionPlan.deleteMany({ where: { operatorId } });
-  await prisma.situation.deleteMany({ where: { operatorId } });
   await prisma.situationType.deleteMany({ where: { operatorId } });
   await prisma.notification.deleteMany({ where: { operatorId } });
   await prisma.copilotMessage.deleteMany({ where: { operatorId } });
@@ -218,13 +192,11 @@ async function deleteOperator(operatorId: string) {
   await prisma.policyRule.deleteMany({ where: { operatorId } });
   await prisma.actionCapability.deleteMany({ where: { operatorId } });
   await prisma.event.deleteMany({ where: { operatorId } });
-  await prisma.activitySignal.deleteMany({ where: { operatorId } });
   await prisma.syncLog.deleteMany({ where: { connector: { operatorId } } });
   await prisma.sourceConnector.deleteMany({ where: { operatorId } });
   await prisma.contentChunk.deleteMany({ where: { operatorId } });
   await prisma.internalDocument.deleteMany({ where: { operatorId } });
   await prisma.operationalInsight.deleteMany({ where: { operatorId } });
-  await prisma.followUp.deleteMany({ where: { operatorId } });
   await prisma.initiative.deleteMany({ where: { operatorId } });
   await prisma.priorityOverride.deleteMany({ where: { operatorId } });
   await prisma.entityMention.deleteMany({ where: { entity: { operatorId } } });

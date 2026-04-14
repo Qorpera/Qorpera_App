@@ -45,6 +45,43 @@ export async function createProjectFromInitiative(
   userId: string,
   configOverrides?: Partial<ProjectConfig>,
 ): Promise<string> {
+  // Try wiki page first (slug or initiative_id property)
+  const page = await prisma.knowledgePage.findFirst({
+    where: {
+      OR: [
+        { slug: initiativeId },
+        { properties: { path: ["initiative_id"], equals: initiativeId } },
+      ],
+      pageType: "initiative",
+    },
+    select: { slug: true, title: true, properties: true, content: true, operatorId: true },
+  });
+
+  if (page && page.operatorId) {
+    const props = (page.properties ?? {}) as Record<string, unknown>;
+    const wikiConfig = (props.project_config ?? {}) as Record<string, unknown>;
+
+    const project = await prisma.project.create({
+      data: {
+        operatorId: page.operatorId,
+        name: (wikiConfig.title as string) ?? page.title,
+        description: (wikiConfig.description as string) ?? page.content.slice(0, 500),
+        status: "active",
+        createdById: userId,
+        config: { sourceInitiativeSlug: page.slug },
+      },
+    });
+
+    // Mark wiki page as completed
+    const { updatePageWithLock } = await import("@/lib/wiki-engine");
+    await updatePageWithLock(page.operatorId, page.slug, (p) => ({
+      properties: { ...(p.properties ?? {}), status: "completed", project_id: project.id },
+    }));
+
+    return project.id;
+  }
+
+  // Fallback: legacy Initiative table
   const initiative = await prisma.initiative.findUnique({
     where: { id: initiativeId },
     select: {

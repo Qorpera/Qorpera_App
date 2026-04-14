@@ -97,7 +97,6 @@ model Operator {
   // v2: Situation-driven architecture
   events               Event[]
   situationTypes       SituationType[]
-  situations           Situation[]
   orientationSessions  OrientationSession[]
   copilotMessages      CopilotMessage[]
   actionCapabilities   ActionCapability[]
@@ -105,10 +104,7 @@ model Operator {
   users                User[]
   internalDocuments    InternalDocument[]
   contentChunks        ContentChunk[]
-  activitySignals      ActivitySignal[]
   initiatives          Initiative[]
-  executionPlans       ExecutionPlan[]
-  followUps            FollowUp[]
   operationalInsights  OperationalInsight[]
   systemJobs           SystemJob[]
   systemJobRuns        SystemJobRun[]
@@ -174,7 +170,6 @@ model User {
   priorityOverrides             PriorityOverride[]
   passwordResetTokens           PasswordResetToken[]
   contentChunks                 ContentChunk[]
-  situationViews                SituationView[]
   // v4: Projects
   createdProjects               Project[]                @relation("ProjectCreator")
   projectMemberships            ProjectMember[]          @relation("ProjectMemberUser")
@@ -472,7 +467,6 @@ model Event {
 
   operator   Operator         @relation(fields: [operatorId], references: [id])
   connector  SourceConnector? @relation(fields: [connectorId], references: [id])
-  situations SituationEvent[]
 
   @@index([operatorId, createdAt(sort: Desc)])
   @@index([operatorId, source, eventType])
@@ -527,109 +521,12 @@ model SituationType {
   createdAt            DateTime  @default(now())
 
   operator           Operator           @relation(fields: [operatorId], references: [id])
-  situations         Situation[]
 
   @@unique([operatorId, slug])
 }
 
-model Situation {
-  id              String @id @default(cuid())
-  operatorId      String
-  situationTypeId String
-  severity        Float  @default(0.5) // 0-1
-  confidence      Float  @default(0.5) // 0-1
-  source          String @default("detected") // detected, retrospective, manual
-  status          String @default("detected")
-  // detected → reasoning → proposed → approved → executing → monitoring → resolved
-  // monitoring: all current cycle steps complete, waiting for external signal to trigger next cycle
-  // detected → reasoning → proposed → rejected → closed
-  // detected → auto_executing → resolved (autonomous mode)
-
-  // Context snapshot at detection time
-  contextSnapshot String? // JSON - entities, events, priors
-  triggerEvidence String? // JSON - the raw evidence that caused detection
-  triggerSummary  String? // Human-readable 1-2 sentence headline
-  resumeSummary   String? // Haiku-generated cumulative situation briefing (only for 2+ cycle situations)
-  triggerEntityId  String? // the primary entity this situation is about
-  triggerPageSlug  String? // wiki page slug of the entity/object this situation is about
-  triggerEventId   String?
-  assignedUserId   String?
-
-  // Wiki page slug references
-  assignedPageSlug    String?  // wiki page slug of the assigned person/team
-  ownerPageSlug       String?  // wiki page slug of the situation owner
-  domainPageSlug      String?  // wiki page slug of the domain hub
-  situationTypeSlug   String?  // slug of the situation type wiki page
-  wikiPageSlug        String?  // Link to situation_instance wiki page
-
-  // AI reasoning
-  investigationDepth String  @default("standard") // "standard" | "thorough"
-  analysisDocument   Json? // ContentDoc JSON — thorough analysis for deep situations
-  reasoning          String? // JSON - analysis, considered actions, justification
-  proposedAction     String? // JSON - { batch, afterBatch, reEvaluationReason, monitorDurationHours }
-  afterBatch         String? // "resolve" | "re_evaluate" | "monitor"
-  monitorUntil       DateTime? // for "monitor" — when to trigger re-evaluation
-
-  // Outcome tracking
-  actionTaken      String? // JSON - what actually happened
-  outcome          String? // positive, negative, neutral, unknown
-  outcomeDetails   String? // JSON
-  feedback         String? // human feedback text
-  feedbackRating   Int? // 1-5
-  feedbackCategory String? // "detection_wrong", "action_wrong", "timing_wrong", "missing_context"
-  editInstruction  String? // freeform text from Edit & Approve flow
-
-  // LLM tracking
-  modelId             String? // LLM model string used for reasoning (e.g., "gpt-4o", "claude-sonnet-4-20250514")
-  promptVersion       Int? // reasoning prompt version number at time of reasoning
-  reasoningDurationMs Int? // wall-clock time of the reasoning LLM call in milliseconds
-
-  // Billing
-  apiCostCents Int? // Actual API cost in cents for reasoning
-  billedCents  Int? // Amount billed to customer
-  billedAt     DateTime?
-
-  resolvedAt      DateTime?
-  executionPlanId String?   @unique
-  spawningStepId  String? // ExecutionStep.id that spawned this situation (not FK — avoids circular deps)
-  createdAt       DateTime  @default(now())
-
-  operator       Operator         @relation(fields: [operatorId], references: [id])
-  situationType  SituationType    @relation(fields: [situationTypeId], references: [id])
-  events         SituationEvent[]
-  executionPlan  ExecutionPlan?   @relation(fields: [executionPlanId], references: [id])
-  cycles         SituationCycle[]
-  views              SituationView[]
-  toolCallTraces     ToolCallTrace[]
-  contextEvaluations ContextEvaluation[]
-
-  @@index([operatorId, status])
-  @@index([situationTypeId, createdAt(sort: Desc)])
-  @@index([situationTypeId, triggerEntityId])
-}
-
-model SituationEvent {
-  situationId String
-  eventId     String
-
-  situation Situation @relation(fields: [situationId], references: [id])
-  event     Event     @relation(fields: [eventId], references: [id])
-
-  @@id([situationId, eventId])
-}
-
-model SituationView {
-  id          String   @id @default(cuid())
-  userId      String
-  situationId String
-  viewedAt    DateTime @default(now())
-
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  situation Situation @relation(fields: [situationId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, situationId])
-  @@index([userId])
-}
+// Situation, SituationEvent, SituationView models dropped (v0.3.26)
+// All situation data now lives in KnowledgePage with pageType "situation_instance"
 
 // ─── Orientation / Onboarding ────────────────────────
 
@@ -878,26 +775,6 @@ model AnalysisPromptVersion {
 
 // ─── Activity Signals ───────────────────────────────────
 
-model ActivitySignal {
-  id              String    @id @default(cuid())
-  operatorId      String
-  connectorId     String?
-  signalType      String // "email_sent" | "email_received" | "slack_message" | "doc_edit" | "meeting_held" | "doc_created" | "doc_shared"
-  actorEntityId   String? // who did it (resolved to entity if possible)
-  targetEntityIds String? // JSON array — who/what was it about
-  domainIds       String? @map("departmentIds") // JSON array — derived from participant routing
-  metadata        String? // JSON: { response_time_ms, thread_id, channel, file_name, attendees, etc. }
-  occurredAt      DateTime // when the activity happened (not when we ingested it)
-  wikiProcessedAt DateTime?
-  createdAt       DateTime  @default(now())
-
-  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-
-  @@index([operatorId, signalType, occurredAt(sort: Desc)])
-  @@index([operatorId, actorEntityId, occurredAt(sort: Desc)])
-  @@index([operatorId, occurredAt(sort: Desc)])
-}
-
 // ─── Initiatives & Execution ────────────────────────────
 
 model Initiative {
@@ -930,84 +807,7 @@ model Initiative {
   @@index([operatorId, status])
 }
 
-model ExecutionPlan {
-  id                     String    @id @default(cuid())
-  operatorId             String
-  sourceType             String // "situation" | "initiative" | "recurring" | "delegation"
-  sourceId               String // ID of the source record
-  status                 String    @default("pending") // pending, approved, executing, completed, failed, paused, amended
-  currentStepOrder       Int       @default(1)
-  approvedAt             DateTime?
-  approvedById           String?
-  completedAt            DateTime?
-  priorityScore          Float?
-  modelId                String? // LLM model string used for plan reasoning
-  promptVersion          Int? // reasoning prompt version at time of plan creation
-  totalStepExecutions    Int       @default(0) // counter incremented on every step execution attempt
-  maxStepExecutions      Int       @default(15) // hard ceiling; plan fails if exceeded
-  modifiedBeforeApproval Boolean   @default(false)
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
 
-  operator         Operator          @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  steps            ExecutionStep[]
-  situation        Situation?
-  cycle            SituationCycle?
-  priorityOverride PriorityOverride?
-
-  @@index([operatorId, status])
-  @@index([operatorId, sourceType, sourceId])
-}
-
-model ExecutionStep {
-  id                  String    @id @default(cuid())
-  planId              String
-  sequenceOrder       Int
-  title               String
-  description         String
-  executionMode       String // "action" | "generate" | "human_task"
-  actionCapabilityId  String?
-  assignedUserId      String?
-  parameters          String? // JSON — structured action parameters for preview UI
-  inputContext        String? // JSON
-  outputResult        String? // JSON — typed StepOutput
-  status              String    @default("pending") // pending, awaiting_approval, approved, executing, completed, failed, skipped, amended, awaiting_situation
-  approvedAt          DateTime?
-  approvedById        String?
-  executedAt          DateTime?
-  errorMessage        String?
-  originalDescription String? // preserved when amended
-  apiCostCents        Int? // Actual API cost for this step's LLM call
-  retryCount          Int       @default(0)
-  lastError           String?
-  createdAt           DateTime  @default(now())
-
-  plan     ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  followUp FollowUp?
-
-  @@unique([planId, sequenceOrder])
-  @@index([planId, status])
-}
-
-model FollowUp {
-  id               String    @id @default(cuid())
-  operatorId       String
-  executionStepId  String    @unique
-  situationId      String?
-  triggerCondition String // JSON: { type: "timeout" | "response_received" | "property_change", ... }
-  fallbackAction   String // JSON: { type: "escalate" | "new_plan" | "notify" | "skip", ... }
-  status           String    @default("watching") // watching, triggered, expired, cancelled
-  triggerAt        DateTime?
-  reminderSent     Boolean   @default(false)
-  createdAt        DateTime  @default(now())
-  triggeredAt      DateTime?
-
-  operator      Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  executionStep ExecutionStep @relation(fields: [executionStepId], references: [id], onDelete: Cascade)
-
-  @@index([operatorId, status])
-  @@index([status, triggerAt])
-}
 
 model SystemJob {
   id                   String    @id @default(cuid())
@@ -1115,13 +915,12 @@ model NotificationPreference {
 model PriorityOverride {
   id              String        @id @default(dbgenerated("gen_random_uuid()"))
   operatorId      String
-  executionPlanId String        @unique
+  executionPlanId String        @unique // Was FK to ExecutionPlan — now plain string
   overrideType    String // "pin" | "snooze"
   snoozeUntil     DateTime?
   createdById     String
   createdAt       DateTime      @default(now())
   operator        Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  executionPlan   ExecutionPlan @relation(fields: [executionPlanId], references: [id], onDelete: Cascade)
   createdBy       User          @relation(fields: [createdById], references: [id], onDelete: Cascade)
 }
 
@@ -1249,21 +1048,17 @@ model WorkerJob {
 
 model SituationCycle {
   id              String    @id @default(cuid())
-  situationId     String
+  situationId     String    // Was FK to Situation — now stores situation_id CUID (no FK)
   cycleNumber     Int
   triggerType     String // "detection", "response_received", "timeout", "manual", "signal"
   triggerSummary  String // Human-readable: "No response after 3 days", "Reply received from accounting@nygade.dk"
   cycleSummary    String? // Haiku-generated plain-language summary of what happened in this cycle
   triggerData     Json? // Raw trigger context (email content, signal data, etc.)
   reasoning       Json? // The reasoning output JSON for this cycle
-  executionPlanId String?   @unique
   status          String    @default("active") // "active", "completed", "superseded"
   completedAt     DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
-
-  situation     Situation      @relation(fields: [situationId], references: [id], onDelete: Cascade)
-  executionPlan ExecutionPlan? @relation(fields: [executionPlanId], references: [id])
 
   @@index([situationId, cycleNumber])
   @@index([situationId, status])
@@ -1271,7 +1066,7 @@ model SituationCycle {
 
 model ToolCallTrace {
   id            String   @id @default(cuid())
-  situationId   String
+  situationId   String   // Was FK to Situation — now plain string
   cycleNumber   Int      @default(1)
   callIndex     Int // Sequential index within this reasoning session (0-based)
   toolName      String // e.g., "lookup_entity", "search_communications"
@@ -1280,8 +1075,6 @@ model ToolCallTrace {
   resultTokens  Int // Estimated token count of result
   durationMs    Int // How long the tool call took to execute
   createdAt     DateTime @default(now())
-
-  situation Situation @relation(fields: [situationId], references: [id], onDelete: Cascade)
 
   @@index([situationId])
   @@index([toolName])
@@ -1727,7 +1520,7 @@ model ResearchPlan {
 model ContextEvaluation {
   id            String    @id @default(cuid())
   operatorId    String
-  situationId   String
+  situationId   String    // Was FK to Situation — now plain string
 
   contextSections Json   // Array<{ type, id, slug?, pageType?, tokenCount }>
   citedSections   Json   // Array<{ type, id, citationCount }>
@@ -1738,7 +1531,6 @@ model ContextEvaluation {
   createdAt DateTime @default(now())
 
   operator  Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  situation Situation @relation(fields: [situationId], references: [id], onDelete: Cascade)
 
   @@index([operatorId])
   @@index([situationId])

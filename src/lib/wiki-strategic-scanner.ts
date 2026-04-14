@@ -453,22 +453,56 @@ async function createInitiativeFromProposal(
   operatorId: string,
   proposal: InitiativeProposal,
 ): Promise<string> {
-  const initiative = await prisma.initiative.create({
+  const slug = `initiative-${Date.now()}-${proposal.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+
+  const initiativeProps = {
+    status: "proposed",
+    proposal_type: mapPatternType(proposal.patternType),
+    proposed_at: new Date().toISOString(),
+    source: "strategic_scanner",
+    domain: proposal.domainPageSlug ?? undefined,
+    owner: proposal.ownerPageSlug ?? undefined,
+    severity: proposal.severity,
+    rationale: proposal.description,
+    impact_assessment: `Severity: ${proposal.severity}\n\nEvidence:\n${proposal.evidence.map(e => `- [[${e.pageSlug}]]: ${e.claim}`).join("\n")}`,
+    evidence: proposal.evidence,
+  };
+
+  const articleBody = [
+    `## Trigger`,
+    proposal.description,
+    ``,
+    `## Evidence`,
+    ...proposal.evidence.map(e => `- [[${e.pageSlug}]]: ${e.claim}`),
+    ``,
+    `## Proposed Action`,
+    proposal.proposedAction || proposal.description,
+    ``,
+    `## Timeline`,
+    `${new Date().toISOString().slice(0, 16)} — Proposed by strategic scanner`,
+  ].join("\n");
+
+  const contentTokens = Math.ceil(articleBody.length / 4);
+  const crossRefs = proposal.evidence.map(e => e.pageSlug).filter(Boolean);
+  if (proposal.domainPageSlug) crossRefs.push(proposal.domainPageSlug);
+  if (proposal.ownerPageSlug) crossRefs.push(proposal.ownerPageSlug);
+
+  const page = await prisma.knowledgePage.create({
     data: {
       operatorId,
-      proposalType: mapPatternType(proposal.patternType),
-      triggerSummary: proposal.title,
-      evidence: proposal.evidence as any,
-      proposal: {
-        title: proposal.title,
-        description: proposal.proposedAction || proposal.description,
-        type: proposal.patternType,
-      } as any,
-      status: "proposed",
-      rationale: proposal.description,
-      impactAssessment: `Severity: ${proposal.severity}\n\nEvidence:\n${proposal.evidence.map(e => `- [[${e.pageSlug}]]: ${e.claim}`).join("\n")}`,
-      ownerPageSlug: proposal.ownerPageSlug,
-      domainPageSlug: proposal.domainPageSlug,
+      slug,
+      title: proposal.title,
+      pageType: "initiative",
+      scope: "operator",
+      status: "draft",
+      content: articleBody,
+      contentTokens,
+      crossReferences: [...new Set(crossRefs)],
+      properties: initiativeProps as any,
+      synthesisPath: "detection",
+      synthesizedByModel: "strategic_scanner",
+      confidence: 0.5,
+      lastSynthesizedAt: new Date(),
     },
   });
 
@@ -476,7 +510,7 @@ async function createInitiativeFromProposal(
     data: {
       operatorId,
       sourceType: "wiki_scanner",
-      sourceId: initiative.id,
+      sourceId: slug,
       classification: "initiative_created",
       evaluatedAt: new Date(),
       metadata: {
@@ -494,10 +528,10 @@ async function createInitiativeFromProposal(
     title: `New initiative: ${proposal.title}`,
     body: proposal.description,
     sourceType: "wiki_scanner",
-    sourceId: initiative.id,
+    sourceId: slug,
   }).catch(() => {});
 
-  return initiative.id;
+  return page.id;
 }
 
 // ── Main Entry Point ───────────────────────────────────────────────────────────
@@ -516,11 +550,23 @@ export async function runWikiStrategicScan(operatorId: string): Promise<WikiScan
   };
 
   // Activity level determines agent count
-  const activeSituations = await prisma.situation.count({
-    where: { operatorId, status: { in: ["detected", "investigating", "active", "monitoring", "proposed"] } },
+  const activeSituations = await prisma.knowledgePage.count({
+    where: {
+      operatorId,
+      pageType: "situation_instance",
+      scope: "operator",
+      OR: [
+        { properties: { path: ["status"], equals: "detected" } },
+        { properties: { path: ["status"], equals: "investigating" } },
+        { properties: { path: ["status"], equals: "active" } },
+        { properties: { path: ["status"], equals: "monitoring" } },
+        { properties: { path: ["status"], equals: "proposed" } },
+      ],
+    },
   });
-  const activeInitiatives = await prisma.initiative.count({
-    where: { operatorId, status: { in: ["proposed", "approved", "executing"] } },
+  const activeInitiatives = await prisma.knowledgePage.count({
+    where: { operatorId, pageType: "initiative", scope: "operator",
+      properties: { path: ["status"], string_contains: "proposed" } },
   });
   const activityLevel = activeSituations + activeInitiatives;
   const agentCount = activityLevel < 5 ? 3 : 1;
@@ -528,11 +574,11 @@ export async function runWikiStrategicScan(operatorId: string): Promise<WikiScan
   report.scanDepth = activityLevel < 5 ? "deep" : "light";
 
   // Existing initiative titles for dedup
-  const existing = await prisma.initiative.findMany({
-    where: { operatorId, status: { in: ["proposed", "approved", "executing", "completed"] } },
-    select: { triggerSummary: true },
+  const existing = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "initiative", scope: "operator" },
+    select: { title: true },
   });
-  const existingTitles = existing.map(e => e.triggerSummary);
+  const existingTitles = existing.map(e => e.title);
 
   // Stage 1: Assign hubs
   const hubAssignments = await assignHubs(operatorId, agentCount);
@@ -591,13 +637,25 @@ export async function runWikiStrategicScan(operatorId: string): Promise<WikiScan
 // ── Activity-Aware Scan Scheduling ─────────────────────────────────────────────
 
 export async function shouldRunScan(operatorId: string): Promise<boolean> {
-  const activeSituations = await prisma.situation.count({
-    where: { operatorId, status: { in: ["detected", "investigating", "active", "monitoring", "proposed"] } },
+  const activeSituations2 = await prisma.knowledgePage.count({
+    where: {
+      operatorId,
+      pageType: "situation_instance",
+      scope: "operator",
+      OR: [
+        { properties: { path: ["status"], equals: "detected" } },
+        { properties: { path: ["status"], equals: "investigating" } },
+        { properties: { path: ["status"], equals: "active" } },
+        { properties: { path: ["status"], equals: "monitoring" } },
+        { properties: { path: ["status"], equals: "proposed" } },
+      ],
+    },
   });
-  const activeInitiatives = await prisma.initiative.count({
-    where: { operatorId, status: { in: ["proposed", "approved", "executing"] } },
+  const activeInitiatives = await prisma.knowledgePage.count({
+    where: { operatorId, pageType: "initiative", scope: "operator",
+      properties: { path: ["status"], string_contains: "proposed" } },
   });
-  const activityLevel = activeSituations + activeInitiatives;
+  const activityLevel = activeSituations2 + activeInitiatives;
 
   const lastScan = await prisma.evaluationLog.findFirst({
     where: { operatorId, sourceType: "wiki_scanner" },

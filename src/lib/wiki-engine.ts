@@ -1142,11 +1142,15 @@ export async function updateWikiOutcomeSignals(
 ): Promise<void> {
   if (outcome === "dismissed") return;
 
-  const situation = await prisma.situation.findUnique({
-    where: { id: situationId },
+  const situationPage = await prisma.knowledgePage.findFirst({
+    where: {
+      pageType: "situation_instance",
+      scope: "operator",
+      properties: { path: ["situation_id"], equals: situationId },
+    },
     select: { operatorId: true },
   });
-  if (!situation) return;
+  if (!situationPage) return;
 
   // Find wiki pages accessed via tool calls during reasoning
   const traces = await prisma.toolCallTrace.findMany({
@@ -1165,14 +1169,14 @@ export async function updateWikiOutcomeSignals(
   const field = outcome === "approved" ? "outcomeApproved" : "outcomeRejected";
 
   const pages = await prisma.knowledgePage.findMany({
-    where: { operatorId: situation.operatorId, scope: "operator", slug: { in: [...pageSlugs] } },
+    where: { operatorId: situationPage.operatorId, scope: "operator", slug: { in: [...pageSlugs] } },
     select: { id: true, slug: true },
   });
   const pageIdBySlug = new Map(pages.map((p) => [p.slug, p.id]));
 
   for (const slug of pageSlugs) {
     await prisma.knowledgePage.updateMany({
-      where: { operatorId: situation.operatorId, scope: "operator", slug },
+      where: { operatorId: situationPage.operatorId, scope: "operator", slug },
       data: { [field]: { increment: 1 } },
     }).catch(() => {});
 

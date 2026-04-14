@@ -79,14 +79,23 @@ export async function POST(req: NextRequest) {
   if (ctxType && ctxId && visibleDomains !== "all") {
     try {
       if (ctxType === "situation") {
-        const sit = await prisma.situation.findFirst({
-          where: { id: ctxId, operatorId },
-          select: { situationType: { select: { scopeEntityId: true } } },
-        });
-        if (!sit) {
+        const sitPages = await prisma.$queryRawUnsafe<Array<{
+          properties: Record<string, unknown> | null;
+        }>>(
+          `SELECT properties FROM "KnowledgePage"
+           WHERE "operatorId" = $1
+             AND "pageType" = 'situation_instance'
+             AND properties->>'situation_id' = $2
+           LIMIT 1`,
+          operatorId, ctxId,
+        );
+        if (sitPages.length === 0) {
           ctxType = null; ctxId = null;
-        } else if (sit.situationType.scopeEntityId && !visibleDomains.includes(sit.situationType.scopeEntityId)) {
-          ctxType = null; ctxId = null;
+        } else {
+          const domain = sitPages[0].properties?.domain as string | undefined;
+          if (domain && !visibleDomains.includes(domain)) {
+            ctxType = null; ctxId = null;
+          }
         }
       } else if (ctxType === "initiative") {
         const init = await prisma.initiative.findFirst({

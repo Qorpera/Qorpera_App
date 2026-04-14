@@ -3,13 +3,13 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, user.id);
   const daysSchema = z.object({ days: daysParam });
   const parsed = parseQuery(daysSchema, req.nextUrl.searchParams);
   if (!parsed.success) {
@@ -18,105 +18,68 @@ export async function GET(req: NextRequest) {
   const { days } = parsed.data;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  // Load situations with feedback in the period
-  const feedbackSituations = await prisma.situation.findMany({
-    where: {
-      operatorId,
-      createdAt: { gte: since },
-      feedback: { not: null },
-      ...situationScopeFilter(visibleDomains),
-    },
-    select: {
-      id: true,
-      situationTypeId: true,
-      feedbackCategory: true,
-      feedback: true,
-      createdAt: true,
-      situationType: {
-        select: {
-          name: true,
-          scopeEntityId: true,
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
+  // Load situation instances with feedback from KnowledgePage
+  const sitPages = await prisma.$queryRawUnsafe<Array<{
+    properties: Record<string, unknown> | null;
+    createdAt: Date;
+  }>>(
+    `SELECT properties, "createdAt"
+     FROM "KnowledgePage"
+     WHERE "operatorId" = $1
+       AND "pageType" = 'situation_instance'
+       AND scope = 'operator'
+       AND "createdAt" >= $2
+       AND properties->>'feedback' IS NOT NULL
+     ORDER BY "createdAt" DESC
+     LIMIT 50`,
+    operatorId, since,
+  );
 
-  // Resolve department names — prefer wiki page titles
-  const scopeEntityIds = [
-    ...new Set(
-      feedbackSituations
-        .map((s) => s.situationType.scopeEntityId)
-        .filter((id): id is string => id !== null),
-    ),
-  ];
-  // Resolve department names from wiki pages
-  const hubPages = scopeEntityIds.length > 0
+  // Map and filter by domain visibility
+  const feedbackSituations = sitPages
+    .map((p) => {
+      const props = p.properties ?? {};
+      return {
+        id: (props.situation_id as string) ?? "",
+        situationTypeId: (props.situation_type_id as string) ?? "",
+        situationTypeName: (props.situation_type as string) ?? "",
+        feedbackCategory: (props.feedback_category as string) ?? null,
+        feedback: (props.feedback as string) ?? null,
+        domain: (props.domain as string) ?? null,
+        createdAt: p.createdAt,
+      };
+    })
+    .filter((s) => {
+      if (visibleDomains === "all") return true;
+      return !s.domain || visibleDomains.includes(s.domain);
+    });
+
+  // Resolve domain names from wiki pages
+  const domainSlugs = [...new Set(feedbackSituations.map((s) => s.domain).filter(Boolean))] as string[];
+  const domainHubs = domainSlugs.length > 0
     ? await prisma.knowledgePage.findMany({
-        where: { operatorId, scope: "operator", pageType: "domain_hub", subjectEntityId: { in: scopeEntityIds } },
-        select: { subjectEntityId: true, title: true },
+        where: { operatorId, scope: "operator", pageType: "domain_hub", slug: { in: domainSlugs } },
+        select: { slug: true, title: true },
       })
     : [];
-  const deptNameMap = new Map(hubPages.filter(p => p.subjectEntityId).map(p => [p.subjectEntityId!, p.title]));
+  const deptNameMap = new Map(domainHubs.map(p => [p.slug, p.title]));
 
-  // Calculate before/after approval rates for each feedback entry
-  const recentFeedback = await Promise.all(
-    feedbackSituations.map(async (s) => {
-      const feedbackDate = s.createdAt;
-      const sevenDaysBefore = new Date(feedbackDate.getTime() - 7 * 24 * 60 * 60 * 1000);
-      const sevenDaysAfter = new Date(feedbackDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+  // Build feedback entries (simplified -- no before/after approval rate queries since Situation table is gone)
+  const recentFeedback = feedbackSituations.map((s) => {
+    const deptName = s.domain ? deptNameMap.get(s.domain) ?? null : null;
 
-      const [before, after] = await Promise.all([
-        prisma.situation.findMany({
-          where: {
-            situationTypeId: s.situationTypeId,
-            createdAt: { gte: sevenDaysBefore, lt: feedbackDate },
-            status: { in: ["resolved", "closed", "rejected"] },
-          },
-          select: { status: true },
-        }),
-        prisma.situation.findMany({
-          where: {
-            situationTypeId: s.situationTypeId,
-            createdAt: { gt: feedbackDate, lte: sevenDaysAfter },
-            status: { in: ["resolved", "closed", "rejected"] },
-          },
-          select: { status: true },
-        }),
-      ]);
-
-      const rateBefore = before.length > 0
-        ? Math.round(
-            (before.filter((b) => b.status === "resolved").length / before.length) * 100,
-          ) / 100
-        : null;
-      const rateAfter = after.length > 0
-        ? Math.round(
-            (after.filter((a) => a.status === "resolved").length / after.length) * 100,
-          ) / 100
-        : null;
-
-      const likelyLearned =
-        rateBefore !== null && rateAfter !== null ? rateAfter > rateBefore : false;
-
-      const deptName = s.situationType.scopeEntityId
-        ? deptNameMap.get(s.situationType.scopeEntityId) ?? null
-        : null;
-
-      return {
-        id: s.id,
-        situationTypeName: s.situationType.name,
-        domainName: deptName,
-        feedbackCategory: s.feedbackCategory,
-        feedback: s.feedback,
-        createdAt: s.createdAt.toISOString(),
-        approvalRateBefore: rateBefore,
-        approvalRateAfter: rateAfter,
-        likelyLearned,
-      };
-    }),
-  );
+    return {
+      id: s.id,
+      situationTypeName: s.situationTypeName,
+      domainName: deptName,
+      feedbackCategory: s.feedbackCategory,
+      feedback: s.feedback,
+      createdAt: s.createdAt.toISOString(),
+      approvalRateBefore: null as number | null,
+      approvalRateAfter: null as number | null,
+      likelyLearned: false,
+    };
+  });
 
   // Feedback theme summary — group by category
   const categoryCounts = new Map<string, number>();

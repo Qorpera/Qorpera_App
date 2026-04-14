@@ -128,19 +128,29 @@ async function enrichWithLiveData(
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  // Batch query: all situations for these types in the last 30 days
-  const recentSituations = await prisma.situation.findMany({
+  // Batch query: situation instances from KnowledgePage for these types in the last 30 days
+  const sitPages = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
-      situationTypeId: { in: allStIds },
+      pageType: "situation_instance",
+      scope: "operator",
       createdAt: { gte: thirtyDaysAgo },
     },
-    select: {
-      situationTypeId: true,
-      status: true,
-      createdAt: true,
-    },
+    select: { properties: true, createdAt: true },
   });
+
+  // Map to compatible shape, filtering by situation type IDs
+  const stIdSet = new Set(allStIds);
+  const recentSituations = sitPages
+    .map((p) => {
+      const props = p.properties as Record<string, unknown> | null ?? {};
+      return {
+        situationTypeId: (props?.situation_type_id as string) ?? "",
+        status: (props?.status as string) ?? "detected",
+        createdAt: p.createdAt,
+      };
+    })
+    .filter((s) => stIdSet.has(s.situationTypeId));
 
   // Also get all-time counts from SituationType
   const situationTypes = await prisma.situationType.findMany({

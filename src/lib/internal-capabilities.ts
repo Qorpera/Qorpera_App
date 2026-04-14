@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import type { StepOutput } from "@/lib/execution-engine";
+import type { StepOutput } from "@/lib/types/execution";
 import { buildSystemJobWikiContent } from "@/lib/system-job-wiki";
 
 // ── Capability Definitions ──────────────────────────────────────────────────

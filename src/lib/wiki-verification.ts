@@ -60,13 +60,7 @@ export async function verifyPage(pageId: string): Promise<VerificationResult> {
           sourceTexts.push({ id: src.id, type: "chunk", content: `[${raw.sourceType}/${raw.sourceId}] ${(raw.rawBody ?? "").slice(0, 1500)}` });
         }
       } else if (src.type === "signal") {
-        const signal = await prisma.activitySignal.findUnique({
-          where: { id: src.id },
-          select: { signalType: true, metadata: true, occurredAt: true },
-        });
-        if (signal) {
-          sourceTexts.push({ id: src.id, type: "signal", content: `[${signal.signalType} at ${signal.occurredAt.toISOString()}] ${JSON.stringify(signal.metadata ?? {})}` });
-        }
+        // ActivitySignal table dropped — skip signal verification
       } else if (src.type === "entity") {
         const entity = await prisma.entity.findUnique({
           where: { id: src.id },

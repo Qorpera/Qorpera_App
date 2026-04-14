@@ -32,23 +32,10 @@ export async function GET(request: NextRequest) {
   }
   const weekEnd = new Date(weekStart.getTime() + 7 * 86_400_000);
 
-  // Query both sources in parallel
-  const [activitySignals, contentChunks] = await Promise.all([
-    prisma.activitySignal.findMany({
-      where: {
-        operatorId,
-        signalType: "meeting_held",
-        occurredAt: { gte: weekStart, lt: weekEnd },
-      },
-      orderBy: { occurredAt: "asc" },
-      select: {
-        id: true,
-        actorEntityId: true,
-        metadata: true,
-        occurredAt: true,
-        domainIds: true,
-      },
-    }),
+  // Query content chunks (ActivitySignal table has been removed)
+  const activitySignals: Array<{ id: string; actorEntityId: string | null; metadata: string | null; occurredAt: Date; domainIds: string | null }> = [];
+  const [, contentChunks] = await Promise.all([
+    Promise.resolve(activitySignals),
     prisma.contentChunk.findMany({
       where: {
         operatorId,

@@ -46,9 +46,7 @@ export async function GET(req: NextRequest) {
     prisma.contentChunk.count({
       where: { operatorId, wikiProcessedAt: null },
     }),
-    prisma.activitySignal.count({
-      where: { operatorId, wikiProcessedAt: null },
-    }),
+    Promise.resolve(0), // ActivitySignal table removed
     prisma.initiative.count({
       where: { operatorId },
     }),

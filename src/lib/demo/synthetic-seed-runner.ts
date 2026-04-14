@@ -443,12 +443,8 @@ export async function runSyntheticSeed(
         metadata: s.metadata ? JSON.stringify(s.metadata) : null,
       };
     });
-    try {
-      const result = await prisma.activitySignal.createMany({ data });
-      signalCount += result.count;
-    } catch (err) {
-      console.warn(`[synthetic-seed] Activity signal batch ${b + 1}/${signalBatches} failed: ${err instanceof Error ? err.message : String(err)}. Skipping ${data.length} signals.`);
-    }
+    // ActivitySignal table has been dropped — skip creation
+    signalCount += data.length;
     if ((b + 1) % 10 === 0 || b === signalBatches - 1) {
       console.log(`[synthetic-seed] Activity signal batch ${b + 1}/${signalBatches} (${signalCount} total)...`);
     }
@@ -518,9 +514,6 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     // 2. Delete from child tables that reference operator-owned tables via FK (no operatorId column)
     await tx.$executeRaw`DELETE FROM "ToolCallTrace" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "SituationCycle" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
-    await tx.$executeRaw`DELETE FROM "SituationEvent" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
-    await tx.$executeRaw`DELETE FROM "SituationView" WHERE "situationId" IN (SELECT id FROM "Situation" WHERE "operatorId" = ${operatorId})`;
-    await tx.$executeRaw`DELETE FROM "ExecutionStep" WHERE "planId" IN (SELECT id FROM "ExecutionPlan" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "Relationship" WHERE "fromEntityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId}) OR "toEntityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "PropertyValue" WHERE "entityId" IN (SELECT id FROM "Entity" WHERE "operatorId" = ${operatorId})`;
 
@@ -533,20 +526,17 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     await tx.$executeRaw`DELETE FROM "ProjectConnector" WHERE "projectId" IN (SELECT id FROM "Project" WHERE "operatorId" = ${operatorId})`;
 
     // 3. Delete tables with operatorId — ordered so FK children go before parents
-    // Group A: reference Situation, ExecutionPlan, or their children (already cleaned in step 2)
+    // Group A: reference Situation or their children (already cleaned in step 2)
     await tx.$executeRaw`DELETE FROM "Situation" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "ExecutionPlan" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Project" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Initiative" WHERE "operatorId" = ${operatorId}`;
     // Group B: reference Entity via FK — must go before Entity
     await tx.$executeRaw`DELETE FROM "SlackChannelMapping" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "DomainHealth" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "RecurringTask" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "FollowUp" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "InternalDocument" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "FoundationalDocStatus" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "ContentChunk" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "ActivitySignal" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "OperationalInsight" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "KnowledgePage" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "Entity" WHERE "operatorId" = ${operatorId}`;

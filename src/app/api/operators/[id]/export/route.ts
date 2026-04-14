@@ -28,7 +28,7 @@ export async function GET(
   const counts = await Promise.all([
     prisma.user.count({ where: { operatorId: targetOperatorId } }),
     prisma.entity.count({ where: { operatorId: targetOperatorId } }),
-    prisma.situation.count({ where: { operatorId: targetOperatorId } }),
+    prisma.knowledgePage.count({ where: { operatorId: targetOperatorId, pageType: "situation_instance" } }),
     prisma.operationalInsight.count({ where: { operatorId: targetOperatorId } }),
     prisma.appSetting.count({ where: { operatorId: targetOperatorId } }),
     prisma.sourceConnector.count({ where: { operatorId: targetOperatorId } }),
@@ -68,22 +68,15 @@ export async function GET(
         propertyValues: { select: { property: { select: { name: true } }, value: true } },
       },
     }),
-    prisma.situation.findMany({
-      where: { operatorId: targetOperatorId },
+    prisma.knowledgePage.findMany({
+      where: { operatorId: targetOperatorId, pageType: "situation_instance", scope: "operator" },
       select: {
         id: true,
-        severity: true,
-        confidence: true,
-        source: true,
-        status: true,
-        reasoning: true,
-        proposedAction: true,
-        actionTaken: true,
-        outcome: true,
-        feedback: true,
+        slug: true,
+        title: true,
+        properties: true,
         createdAt: true,
-        resolvedAt: true,
-        situationType: { select: { name: true, slug: true } },
+        updatedAt: true,
       },
     }),
     prisma.operationalInsight.findMany({

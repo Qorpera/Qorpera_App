@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { createId } from "@paralleldrive/cuid2";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { ensureInternalCapabilities } from "@/lib/internal-capabilities";
 import { CronExpressionParser } from "cron-parser";
+import { createSituationWikiPage, generateSituationSlug, formatDate } from "@/lib/situation-wiki-helpers";
 
 // ── Zod Output Schema ──────────────────────────────────────────────────────
 
@@ -24,7 +26,7 @@ const ProposedSituationSchema = z.object({
 
 const ProposedInitiativeSchema = z.object({
   proposalType: z.enum([
-    "project_creation", "policy_change", "autonomy_graduation",
+    "project_creation", "policy_change",
     "system_job_creation", "strategy_revision", "wiki_update",
     "resource_recommendation", "general",
   ]),
@@ -166,9 +168,14 @@ async function executeSystemJob(
   });
 
   try {
-    // Execution plan branch — runs as a recurring task instead of agentic reasoning
+    // Legacy execution plan branch removed — skip if template present
     if (job.executionPlanTemplate) {
-      return executeAsRecurringTask(job, run);
+      console.warn(`[system-job] Skipping legacy execution plan template for job ${job.id}`);
+      await prisma.systemJobRun.update({
+        where: { id: run.id },
+        data: { status: "compressed", summary: "Legacy execution plan template — skipped", durationMs: 0 },
+      });
+      return "compressed";
     }
 
     await ensureInternalCapabilities(job.operatorId);
@@ -193,20 +200,50 @@ async function executeSystemJob(
       },
     });
 
-    // Load active situations + initiatives for dedup
-    const activeSituations = await prisma.situation.findMany({
-      where: { operatorId: job.operatorId, status: { notIn: ["resolved", "closed", "dismissed"] } },
-      select: { triggerSummary: true, status: true, situationType: { select: { name: true } } },
+    // Load active situations from wiki pages for dedup
+    const activeSituationPages = await prisma.knowledgePage.findMany({
+      where: {
+        operatorId: job.operatorId,
+        pageType: "situation_instance",
+        scope: "operator",
+        NOT: {
+          properties: { path: ["status"], string_contains: "resolved" },
+        },
+      },
+      select: { title: true, properties: true },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 40,
     });
+    const activeSituations = activeSituationPages
+      .filter(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        const status = props.status as string | undefined;
+        return !status || !["resolved", "closed", "dismissed"].includes(status);
+      })
+      .map(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        return {
+          triggerSummary: p.title,
+          status: (props.status as string) ?? "detected",
+          situationType: { name: (props.situation_type as string) ?? "unknown" },
+        };
+      });
 
-    const activeInitiatives = await prisma.initiative.findMany({
-      where: { operatorId: job.operatorId, status: { notIn: ["rejected", "failed", "completed"] } },
-      select: { rationale: true, status: true, proposalType: true },
+    const activeInitiativePages = await prisma.knowledgePage.findMany({
+      where: { operatorId: job.operatorId, pageType: "initiative", scope: "operator" },
+      select: { title: true, properties: true },
       orderBy: { createdAt: "desc" },
       take: 20,
     });
+    const activeInitiatives = activeInitiativePages
+      .filter(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        return !["rejected", "failed", "completed"].includes(props.status as string);
+      })
+      .map(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        return { rationale: p.title, status: (props.status as string) ?? "proposed", proposalType: (props.proposal_type as string) ?? "general" };
+      });
 
     // Load job's wiki page for detailed instructions
     let jobInstructions = job.description;
@@ -410,43 +447,98 @@ async function dispatchOutput(
         triggerPageSlug = page?.slug ?? null;
       }
 
-      await prisma.situation.create({
-        data: {
-          operatorId: job.operatorId,
-          situationTypeId,
-          triggerPageSlug,
-          triggerSummary: proposed.description,
-          status: "detected",
-          severity: { high: 0.9, medium: 0.6, low: 0.3 }[proposed.urgency] ?? 0.5,
-          confidence: 0.7,
-          source: "system_job",
-        },
+      // Look up situation type slug for wiki page
+      const stRow = await prisma.situationType.findUnique({
+        where: { id: situationTypeId },
+        select: { name: true, slug: true },
       });
+      const situationId = createId();
+      const severity = { high: 0.9, medium: 0.6, low: 0.3 }[proposed.urgency] ?? 0.5;
+      const subjectSlug = triggerPageSlug ?? "system-job";
+      const wikiPageSlug = await generateSituationSlug(job.operatorId, stRow?.slug ?? "situation", subjectSlug);
+
+      await createSituationWikiPage({
+        operatorId: job.operatorId,
+        slug: wikiPageSlug,
+        title: `${stRow?.name ?? "Situation"}: ${proposed.description.slice(0, 100)}`,
+        properties: {
+          situation_id: situationId,
+          status: "detected",
+          severity,
+          confidence: 0.7,
+          situation_type: stRow?.slug ?? "situation",
+          detected_at: new Date().toISOString(),
+          source: "detected",
+          trigger_ref: `system-job:${job.id}`,
+          domain: job.domainPageSlug ?? undefined,
+        },
+        triggerContent: `System Job "${job.title}" proposed this situation:\n\n${proposed.description}`,
+        contextContent: proposed.evidence.map(e => `- ${e}`).join("\n"),
+        timelineEntries: [`${formatDate(new Date().toISOString())} — Detected by system job: ${job.title}`],
+      });
+
+      // Dispatch reasoning
+      const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+      enqueueWorkerJob("reason_situation", job.operatorId, { situationId, wikiPageSlug }).catch(err =>
+        console.error("[system-job] Failed to enqueue reasoning:", err),
+      );
       situationsCreated++;
     } catch (err) {
       console.error(`[system-job] Failed to create situation:`, err);
     }
   }
 
-  // Dispatch proposed initiatives
+  // Dispatch proposed initiatives as wiki pages
   for (const proposed of output.proposedInitiatives) {
     try {
-      await prisma.initiative.create({
+      const slug = `initiative-${Date.now()}-${proposed.triggerSummary.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+
+      const articleBody = [
+        `## Trigger`,
+        proposed.triggerSummary,
+        ``,
+        `## Rationale`,
+        proposed.rationale,
+        ``,
+        `## Impact`,
+        proposed.impactAssessment,
+        ``,
+        `## Timeline`,
+        `${new Date().toISOString().slice(0, 16)} — Proposed by system job: ${job.title}`,
+      ].join("\n");
+
+      const crossRefs: string[] = [];
+      if (job.domainPageSlug) crossRefs.push(job.domainPageSlug);
+      if (job.ownerPageSlug) crossRefs.push(job.ownerPageSlug);
+
+      await prisma.knowledgePage.create({
         data: {
           operatorId: job.operatorId,
-          aiEntityId: job.aiEntityId,
-          ownerPageSlug: job.ownerPageSlug,
-          domainPageSlug: job.domainPageSlug,
-          proposalType: proposed.proposalType,
-          triggerSummary: proposed.triggerSummary,
-          evidence: JSON.stringify([{ source: "system_job", claim: proposed.triggerSummary }]),
-          proposal: proposed.proposal as Prisma.InputJsonValue,
-          status: "proposed",
-          rationale: proposed.rationale,
-          impactAssessment: proposed.impactAssessment,
-          ...(proposed.proposalType === "project_creation" ? {
-            proposedProjectConfig: proposed.proposal as Prisma.InputJsonValue,
-          } : {}),
+          slug,
+          title: proposed.triggerSummary,
+          pageType: "initiative",
+          scope: "operator",
+          status: "draft",
+          content: articleBody,
+          contentTokens: Math.ceil(articleBody.length / 4),
+          crossReferences: crossRefs,
+          properties: {
+            status: "proposed",
+            proposal_type: proposed.proposalType,
+            proposed_at: new Date().toISOString(),
+            source: "system_job",
+            source_job_id: job.id,
+            domain: job.domainPageSlug,
+            owner: job.ownerPageSlug,
+            rationale: proposed.rationale,
+            impact_assessment: proposed.impactAssessment,
+            evidence: [{ source: "system_job", claim: proposed.triggerSummary }],
+            ...(proposed.proposalType === "project_creation" ? { project_config: proposed.proposal } : {}),
+          },
+          synthesisPath: "detection",
+          synthesizedByModel: "system_job_reasoning",
+          confidence: 0.5,
+          lastSynthesizedAt: new Date(),
         },
       });
 
@@ -456,7 +548,7 @@ async function dispatchOutput(
         title: `New initiative: ${proposed.triggerSummary.slice(0, 80)}`,
         body: proposed.rationale.slice(0, 200),
         sourceType: "initiative",
-        sourceId: job.id,
+        sourceId: slug,
       }).catch(() => {});
 
       initiativesCreated++;
@@ -503,7 +595,6 @@ After investigation, produce a JSON assessment with:
   Each initiative has a proposalType:
   - "project_creation": propose creating a project with specific config (title, description, deliverables, team)
   - "policy_change": propose adding, modifying, or removing a governance policy (include the policy text)
-  - "autonomy_graduation": propose changing a situation type's autonomy level (include which type and to what level)
   - "system_job_creation": propose creating a new system job (include title, description, cron schedule)
   - "strategy_revision": propose updating a strategic wiki page (include the proposed content)
   - "wiki_update": propose updating any wiki page (include slug and proposed content)
@@ -523,89 +614,3 @@ RULES:
 Respond with ONLY valid JSON (no markdown fences).`;
 }
 
-// ── Execution Plan Branch (merged from RecurringTask) ─────────────────────
-
-async function executeAsRecurringTask(
-  job: SystemJobRow,
-  run: { id: string },
-): Promise<"completed" | "compressed"> {
-  const startTime = Date.now();
-
-  try {
-    const template = JSON.parse(job.executionPlanTemplate!);
-    const steps: Array<{ title: string; description?: string; capabilityName?: string; params?: Record<string, unknown> }> =
-      Array.isArray(template.steps) ? template.steps : [];
-
-    if (steps.length === 0) {
-      await prisma.systemJobRun.update({
-        where: { id: run.id },
-        data: { status: "compressed", summary: "Empty execution plan template", durationMs: Date.now() - startTime },
-      });
-      return "compressed";
-    }
-
-    // Load domain context from wiki page
-    const deptPage = job.domainPageSlug
-      ? await prisma.knowledgePage.findFirst({
-          where: { operatorId: job.operatorId, slug: job.domainPageSlug, scope: "operator" },
-          select: { title: true, content: true },
-        })
-      : null;
-    const departmentContext = deptPage
-      ? `\nDepartment: ${deptPage.title}\n${deptPage.content.slice(0, 800)}`
-      : "";
-
-    // Load job wiki page for additional instructions
-    let jobContext = job.description;
-    if (job.wikiPageSlug) {
-      const jobPage = await prisma.knowledgePage.findFirst({
-        where: { operatorId: job.operatorId, slug: job.wikiPageSlug, scope: "operator" },
-        select: { content: true },
-      });
-      if (jobPage) jobContext = jobPage.content;
-    }
-
-    // Build step definitions for execution plan
-    const { createExecutionPlan } = await import("@/lib/execution-engine");
-    const stepDefs = steps.map((s) => ({
-      title: s.title,
-      description: s.description ?? s.title,
-      executionMode: (s.capabilityName ? "action" : "generate") as "action" | "generate",
-      actionCapabilityId: s.capabilityName ?? undefined,
-      inputContext: { params: s.params ?? {}, departmentContext, jobContext },
-    }));
-
-    const planId = await createExecutionPlan(
-      job.operatorId,
-      "recurring",
-      job.id,
-      stepDefs,
-    );
-
-    await prisma.systemJobRun.update({
-      where: { id: run.id },
-      data: {
-        status: "completed",
-        summary: `Created execution plan with ${steps.length} step(s)`,
-        durationMs: Date.now() - startTime,
-        rawReasoning: JSON.stringify({ planId, steps: steps.length }),
-      },
-    });
-
-    return "completed";
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[system-job] Recurring task execution failed for job ${job.id}:`, err);
-
-    await prisma.systemJobRun.update({
-      where: { id: run.id },
-      data: {
-        status: "failed",
-        errorMessage: message.slice(0, 2000),
-        durationMs: Date.now() - startTime,
-      },
-    });
-
-    throw err;
-  }
-}

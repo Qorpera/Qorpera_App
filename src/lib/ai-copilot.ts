@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
 import { callLLM, streamLLM, getModel, type AIMessage, type AITool, type LLMMessage } from "@/lib/ai-provider";
-import { listEntityTypes } from "@/lib/entity-model-store";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { buildOrientationSystemPrompt, buildDomainDataContext } from "@/lib/orientation-prompts";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
@@ -368,19 +367,43 @@ async function buildSystemPrompt(operatorId: string, userRole?: string, scopeInf
     : {};
 
   const [entityTypes, businessCtx, situationTypes, unreadNotifCount, pendingSituations, deptContext] = await Promise.all([
-    listEntityTypes(operatorId),
+    prisma.entityType.findMany({
+      where: { operatorId },
+      include: { _count: { select: { entities: true } } },
+      orderBy: { name: "asc" },
+    }),
     getBusinessContext(operatorId),
     prisma.situationType.findMany({
       where: { operatorId, enabled: true, ...situationTypeScopeWhere },
       select: { name: true, slug: true, description: true, autonomyLevel: true },
     }),
     prisma.notification.count({ where: { operatorId, read: false } }),
-    prisma.situation.findMany({
-      where: { operatorId, status: { in: ["proposed", "detected"] }, ...situationScopeWhere },
-      include: { situationType: { select: { name: true } } },
-      orderBy: { severity: "desc" },
-      take: 5,
-    }),
+    prisma.knowledgePage.findMany({
+      where: {
+        operatorId,
+        pageType: "situation_instance",
+        scope: "operator",
+        NOT: { properties: { path: ["status"], string_contains: "resolved" } },
+      },
+      select: { title: true, properties: true },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }).then(pages => pages
+      .filter(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        const status = props.status as string | undefined;
+        return !status || ["proposed", "detected"].includes(status);
+      })
+      .slice(0, 5)
+      .map(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        return {
+          status: (props.status as string) ?? "detected",
+          severity: Number(props.severity ?? 0.5),
+          situationType: { name: (props.situation_type as string) ?? "unknown" },
+        };
+      })
+    ),
     buildDomainDataContext(operatorId, visibleDomains),
   ]);
 
@@ -854,27 +877,48 @@ export async function executeTool(
 
     case "create_retrospective_situation": {
       const situationTypeId = String(args.situationTypeId ?? "");
-      const entityDescription = String(args.entityDescription ?? "");
       const summary = String(args.summary ?? "");
       const actionTaken = String(args.actionTaken ?? "");
       const outcome = String(args.outcome ?? "neutral");
       const outcomeDetails = args.outcomeDetails ? String(args.outcomeDetails) : null;
 
-      const situation = await prisma.situation.create({
+      const { createId } = await import("@paralleldrive/cuid2");
+      const situationId = createId();
+
+      const stRow = await prisma.situationType.findUnique({
+        where: { id: situationTypeId },
+        select: { name: true, slug: true },
+      });
+
+      const slug = `retro-${situationId.slice(0, 8)}-${summary.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+      await prisma.knowledgePage.create({
         data: {
           operatorId,
-          situationTypeId,
-          source: "retrospective",
-          status: "resolved",
-          contextSnapshot: JSON.stringify({ entityDescription, summary }),
-          actionTaken: JSON.stringify({ description: actionTaken }),
-          outcome,
-          outcomeDetails: outcomeDetails ? JSON.stringify({ details: outcomeDetails }) : null,
-          resolvedAt: new Date(),
+          slug,
+          title: `Retrospective: ${summary.slice(0, 120)}`,
+          pageType: "situation_instance",
+          scope: "operator",
+          status: "verified",
+          content: `## Summary\n\n${summary}\n\n## Action Taken\n\n${actionTaken}\n\n## Outcome\n\n${outcome}${outcomeDetails ? `\n\n${outcomeDetails}` : ""}`,
+          contentTokens: Math.ceil((summary.length + actionTaken.length) / 4),
+          properties: {
+            situation_id: situationId,
+            status: "resolved",
+            severity: 0.5,
+            confidence: 1.0,
+            situation_type: stRow?.slug ?? "unknown",
+            detected_at: new Date().toISOString(),
+            source: "retrospective",
+            outcome,
+          },
+          synthesisPath: "copilot",
+          synthesizedByModel: "copilot",
+          confidence: 1.0,
+          lastSynthesizedAt: new Date(),
         },
       });
 
-      return `Recorded retrospective example (ID: ${situation.id}): "${summary}" — outcome: ${outcome}. This helps me learn from your past experience.`;
+      return `Recorded retrospective example (ID: ${situationId}): "${summary}" — outcome: ${outcome}. This helps me learn from your past experience.`;
     }
 
     case "list_departments": {
@@ -968,16 +1012,29 @@ export async function executeTool(
         }
       }
 
-      // Active situations
-      const activeSits = await prisma.situation.findMany({
+      // Active situations from wiki pages
+      const activeSitPages = await prisma.knowledgePage.findMany({
         where: {
           operatorId,
-          situationType: { scopeEntityId: dept.id },
-          status: { in: ["detected", "proposed", "reasoning", "executing", "auto_executing"] },
+          pageType: "situation_instance",
+          scope: "operator",
+          NOT: { properties: { path: ["status"], string_contains: "resolved" } },
         },
-        include: { situationType: { select: { name: true } } },
-        take: 10,
+        select: { properties: true },
+        orderBy: { createdAt: "desc" },
+        take: 20,
       });
+      const activeSits = activeSitPages
+        .filter(p => {
+          const props = (p.properties ?? {}) as Record<string, unknown>;
+          const status = props.status as string | undefined;
+          return status && ["detected", "proposed", "reasoning", "executing", "auto_executing"].includes(status);
+        })
+        .slice(0, 10)
+        .map(p => {
+          const props = (p.properties ?? {}) as Record<string, unknown>;
+          return { situationType: { name: (props.situation_type as string) ?? "unknown" }, status: (props.status as string) ?? "detected" };
+        });
 
       const lines: string[] = [
         `Department: ${dept.displayName}`,
@@ -1133,6 +1190,28 @@ export async function executeTool(
       }
 
       // Query all sections in parallel
+      // Load all situation wiki pages for the period, then bucket by department
+      const allSituationPages = await prisma.knowledgePage.findMany({
+        where: {
+          operatorId,
+          pageType: "situation_instance",
+          scope: "operator",
+          createdAt: { gte: periodStart },
+        },
+        select: { title: true, properties: true, crossReferences: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+      });
+      const situationPagesMapped = allSituationPages.map(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        return {
+          status: (props.status as string) ?? "detected",
+          severity: Number(props.severity ?? 0.5),
+          situationType: { name: (props.situation_type as string) ?? "unknown" },
+          domain: (props.domain as string) ?? null,
+          crossRefs: p.crossReferences as string[],
+        };
+      });
+
       const [
         situationsByDept,
         unscopedSituations,
@@ -1145,61 +1224,35 @@ export async function executeTool(
         urgentFollowUps,
         recentInsights,
       ] = await Promise.all([
-        // Situations by department
-        Promise.all(targetDepts.map(async (dept) => {
-          const situations = await prisma.situation.findMany({
-            where: {
-              operatorId,
-              createdAt: { gte: periodStart },
-              situationType: { scopeEntityId: dept.id },
-            },
-            include: { situationType: { select: { name: true } } },
-            orderBy: { createdAt: "desc" },
-          });
+        // Situations by department (from wiki pages)
+        Promise.resolve(targetDepts.map(dept => {
+          // Match by domain cross-reference
+          const situations = situationPagesMapped.filter(s =>
+            s.crossRefs?.includes(dept.id) || s.domain === dept.id
+          );
           return { dept, situations };
         })),
-        // Unscoped situations
-        prisma.situation.findMany({
-          where: {
-            operatorId, createdAt: { gte: periodStart },
-            situationType: { scopeEntityId: null },
-          },
-          include: { situationType: { select: { name: true } } },
+        // Unscoped situations (no domain reference)
+        Promise.resolve(situationPagesMapped.filter(s => !s.domain && (!s.crossRefs || s.crossRefs.length === 0))),
+        // Priority plans (ExecutionPlan table dropped — return empty)
+        Promise.resolve([] as Array<{ id: string; sourceType: string; sourceId: string; priorityScore: number | null; currentStepOrder: number; priorityOverride: { overrideType: string; snoozeUntil: Date | null } | null; steps: Array<{ title: string; sequenceOrder: number }> }>),
+        // Executing initiatives count (wiki pages)
+        prisma.knowledgePage.count({
+          where: { operatorId, pageType: "initiative", scope: "operator",
+            properties: { path: ["status"], equals: "executing" } },
         }),
-        // Top 5 priority items
-        prisma.executionPlan.findMany({
-          ...({ where: planScopeFilter }),
-          orderBy: [{ priorityScore: "desc" }, { createdAt: "desc" }],
-          take: 5,
-          select: {
-            id: true,
-            sourceType: true,
-            sourceId: true,
-            priorityScore: true,
-            currentStepOrder: true,
-            priorityOverride: { select: { overrideType: true, snoozeUntil: true } },
-            steps: { select: { title: true, sequenceOrder: true }, orderBy: { sequenceOrder: "asc" } },
-          },
+        // Proposed initiatives awaiting approval (wiki pages)
+        prisma.knowledgePage.count({
+          where: { operatorId, pageType: "initiative", scope: "operator",
+            properties: { path: ["status"], equals: "proposed" } },
         }),
-        // Executing initiatives count
-        prisma.initiative.count({ where: { ...initScopeFilter, status: "executing" } }),
-        // Proposed initiatives awaiting approval
-        prisma.initiative.count({ where: { ...initScopeFilter, status: "proposed" } }),
         // Delegations removed (model dropped v0.3.17)
         Promise.resolve(0),
         Promise.resolve(0),
-        // Active FollowUps count
-        prisma.followUp.count({ where: { operatorId, status: "watching" } }),
-        // FollowUps triggering within 24 hours
-        prisma.followUp.findMany({
-          where: {
-            operatorId,
-            status: "watching",
-            triggerAt: { lte: twentyFourHoursFromNow, gte: now },
-          },
-          select: { id: true, triggerAt: true },
-          take: 5,
-        }),
+        // FollowUp table dropped — return 0
+        Promise.resolve(0),
+        // FollowUp table dropped — return empty
+        Promise.resolve([] as Array<{ id: string; triggerAt: Date }>),
         // Recent insights (last 7 days)
         prisma.operationalInsight.findMany({
           where: insightScopeFilter,
@@ -1239,26 +1292,8 @@ export async function executeTool(
         sections.push(`Global (no department scope): ${unscopedSituations.length} situations`);
       }
 
-      // Resolve priority plan titles
-      const priSitIds = priorityPlans.filter(p => p.sourceType === "situation").map(p => p.sourceId);
-      const priInitIds = priorityPlans.filter(p => p.sourceType === "initiative").map(p => p.sourceId);
-      const [priSits, priInits] = await Promise.all([
-        priSitIds.length > 0
-          ? prisma.situation.findMany({
-              where: { id: { in: priSitIds }, operatorId },
-              select: { id: true, situationType: { select: { name: true } } },
-            })
-          : [],
-        priInitIds.length > 0
-          ? prisma.initiative.findMany({
-              where: { id: { in: priInitIds }, operatorId },
-              select: { id: true, rationale: true },
-            })
-          : [],
-      ]);
+      // Resolve priority plan titles (ExecutionPlan dropped — priorityPlans is empty)
       const priTitleMap = new Map<string, string>();
-      for (const s of priSits) priTitleMap.set(s.id, s.situationType.name);
-      for (const i of priInits) priTitleMap.set(i.id, i.rationale.slice(0, 80));
 
       // Build priority section
       let prioritySection = "";
@@ -1591,15 +1626,20 @@ export async function executeTool(
         if (scopeDeptIds.size === 0) return "No departments available for activity summary.";
       }
 
-      // Fetch raw signals (domainIds is JSON, can't groupBy with scope filter)
-      const rawCurrent = await prisma.activitySignal.findMany({
-        where: { operatorId, occurredAt: { gte: since }, ...entityFilter },
-        select: { signalType: true, domainIds: true, metadata: true },
-      });
-      const rawPrior = await prisma.activitySignal.findMany({
-        where: { operatorId, occurredAt: { gte: priorStart, lt: since }, ...entityFilter },
-        select: { signalType: true, domainIds: true },
-      });
+      // ActivitySignal table dropped — read from person page activityContent
+      if (entityFilter.actorEntityId) {
+        const personPage = await prisma.knowledgePage.findFirst({
+          where: { operatorId, pageType: "person_profile", scope: "operator",
+            properties: { path: ["entity_id"], equals: entityFilter.actorEntityId } },
+          select: { activityContent: true },
+        });
+        if (personPage?.activityContent) {
+          return `Activity Summary for ${entityLabel} (last ${days} days):\n\n${personPage.activityContent.slice(0, 2000)}`;
+        }
+      }
+      // Fallback: return empty summary
+      const rawCurrent: Array<{ signalType: string; domainIds: string | null; metadata: string | null }> = [];
+      const rawPrior: Array<{ signalType: string; domainIds: string | null }> = [];
 
       // Department scope filter helper
       function inScope(deptIdsJson: string | null): boolean {
@@ -1679,36 +1719,30 @@ export async function executeTool(
     // ── Phase 3 Tools ──────────────────────────────────────────────────────
 
     case "get_initiatives": {
-      const domainId = args.domainId ? String(args.domainId) : undefined;
       const status = args.status ? String(args.status) : undefined;
 
-      const where: Record<string, unknown> = { operatorId };
-      if (status) where.status = status;
+      const where: Record<string, unknown> = { operatorId, pageType: "initiative", scope: "operator" };
+      if (status) where.properties = { path: ["status"], equals: status };
 
-      // If domainId filter, find AI entities in that department
-      if (domainId) {
-        const deptAiEntities = await prisma.entity.findMany({
-          where: { operatorId, primaryDomainId: domainId, entityType: { slug: { in: ["domain-ai", "ai-agent"] } } },
-          select: { id: true },
-        });
-        where.aiEntityId = { in: deptAiEntities.map(e => e.id) };
-      }
-
-      const initiatives = await prisma.initiative.findMany({
+      const pages = await prisma.knowledgePage.findMany({
         where,
+        select: { slug: true, title: true, properties: true },
         orderBy: { createdAt: "desc" },
         take: 20,
       });
 
-      if (initiatives.length === 0) return "No initiatives found matching those criteria.";
+      if (pages.length === 0) return "No initiatives found matching those criteria.";
 
-      return JSON.stringify(initiatives.map(i => ({
-        id: i.id,
-        title: i.rationale.slice(0, 200),
-        rationale: i.rationale.slice(0, 200),
-        status: i.status,
-        proposalType: i.proposalType,
-      })));
+      return JSON.stringify(pages.map(p => {
+        const props = (p.properties ?? {}) as Record<string, unknown>;
+        return {
+          id: p.slug,
+          title: p.title.slice(0, 200),
+          rationale: p.title.slice(0, 200),
+          status: (props.status as string) ?? "proposed",
+          proposalType: (props.proposal_type as string) ?? "general",
+        };
+      }));
     }
 
     case "create_system_job": {
@@ -1837,91 +1871,8 @@ export async function executeTool(
     }
 
     case "get_priorities": {
-      const n = Math.min(Math.max(typeof args.n === "number" ? args.n : 5, 1), 20);
-
-      const where: Record<string, unknown> = {
-        operatorId,
-        status: { in: ["pending", "approved", "executing"] },
-      };
-
-      // Scope filter
-      if (visibleDomains && visibleDomains !== "all") {
-        where.OR = [
-          {
-            sourceType: "situation",
-            situation: {
-              OR: [
-                { situationType: { scopeEntityId: { in: visibleDomains } } },
-                { situationType: { scopeEntityId: null } },
-              ],
-            },
-          },
-          { sourceType: "initiative" },
-          { sourceType: { in: ["recurring", "delegation"] } },
-        ];
-      }
-
-      const plans = await prisma.executionPlan.findMany({
-        where,
-        orderBy: [{ priorityScore: "desc" }, { createdAt: "desc" }],
-        take: n,
-        select: {
-          id: true,
-          sourceType: true,
-          sourceId: true,
-          status: true,
-          priorityScore: true,
-          currentStepOrder: true,
-          priorityOverride: { select: { overrideType: true, snoozeUntil: true } },
-          steps: {
-            select: { title: true, sequenceOrder: true },
-            orderBy: { sequenceOrder: "asc" },
-          },
-        },
-      });
-
-      if (plans.length === 0) return "No priority items found.";
-
-      // Resolve source titles
-      const sitIds = plans.filter(p => p.sourceType === "situation").map(p => p.sourceId);
-      const initIds = plans.filter(p => p.sourceType === "initiative").map(p => p.sourceId);
-
-      const [sitNames, initNames] = await Promise.all([
-        sitIds.length > 0
-          ? prisma.situation.findMany({
-              where: { id: { in: sitIds }, operatorId },
-              select: { id: true, situationType: { select: { name: true } } },
-            })
-          : [],
-        initIds.length > 0
-          ? prisma.initiative.findMany({
-              where: { id: { in: initIds }, operatorId },
-              select: { id: true, rationale: true },
-            })
-          : [],
-      ]);
-
-      const titleMap = new Map<string, string>();
-      for (const s of sitNames) titleMap.set(s.id, s.situationType.name);
-      for (const i of initNames) titleMap.set(i.id, i.rationale.slice(0, 100));
-
-      return JSON.stringify(plans.map(p => {
-        const currentStep = p.steps.find(s => s.sequenceOrder === p.currentStepOrder);
-        const isPinned = p.priorityOverride?.overrideType === "pin";
-        const isSnoozed = p.priorityOverride?.overrideType === "snooze"
-          && p.priorityOverride.snoozeUntil
-          && p.priorityOverride.snoozeUntil > new Date();
-        return {
-          planId: p.id,
-          sourceType: p.sourceType,
-          sourceTitle: titleMap.get(p.sourceId) ?? null,
-          priorityScore: p.priorityScore,
-          currentStep: currentStep?.title ?? null,
-          isPinned,
-          isSnoozed: !!isSnoozed,
-          urgencyReason: isPinned ? "Pinned by user" : (isSnoozed ? "Snoozed" : null),
-        };
-      }));
+      // ExecutionPlan table dropped — return empty
+      return "No priority items found. (Priority queue migrated to wiki-based workflow.)";
     }
 
     case "get_email_thread": {

@@ -65,57 +65,28 @@ async function main() {
     console.log(`Query failed: ${msg}`);
   }
 
-  // 2. ActivitySignal Query Performance
-  header("ActivitySignal Query");
-  try {
-    const signalPlan = await prisma.$queryRawUnsafe<
-      { "QUERY PLAN": string }[]
-    >(
-      `EXPLAIN ANALYZE
-       SELECT * FROM "ActivitySignal"
-       WHERE "operatorId" = $1
-         AND "occurredAt" > NOW() - INTERVAL '30 days'
-       ORDER BY "occurredAt" DESC
-       LIMIT 500`,
-      testOperatorId
-    );
-    const signalPlanText = signalPlan.map((r) => r["QUERY PLAN"]).join("\n");
-    console.log(signalPlanText);
-    const rowMatch = signalPlanText.match(/actual[\s\S]*?rows=(\d+)/);
-    const timeMatch = signalPlanText.match(/Execution Time:\s*([\d.]+)\s*ms/);
-    if (rowMatch) console.log(`\nRows returned: ${rowMatch[1]}`);
-    if (timeMatch) console.log(`Execution time: ${timeMatch[1]}ms`);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.log(`Query failed: ${msg}`);
-  }
-
-  // 3. Data Volume
+  // 2. Data Volume
   header("Data Volume");
   const volRows: string[][] = [];
   for (const op of operators) {
-    const [entities, chunks, signals, situations] = await Promise.all([
+    const [entities, chunks] = await Promise.all([
       prisma.entity.count({
         where: { operatorId: op.id, mergedIntoId: null },
       }),
       prisma.contentChunk.count({ where: { operatorId: op.id } }),
-      prisma.activitySignal.count({ where: { operatorId: op.id } }),
-      prisma.situation.count({ where: { operatorId: op.id } }),
     ]);
     volRows.push([
       op.displayName || op.id,
       String(entities),
       String(chunks),
-      String(signals),
-      String(situations),
     ]);
   }
   table(
-    ["Operator", "Entities", "Chunks", "Signals", "Situations"],
+    ["Operator", "Entities", "Chunks"],
     volRows
   );
 
-  // 4. Recent Sync Performance
+  // 3. Recent Sync Performance
   header("Recent Sync Performance");
   try {
     const syncLogs = await prisma.$queryRaw<
@@ -154,7 +125,7 @@ async function main() {
     console.log(`Query failed: ${msg}`);
   }
 
-  // 5. Connector Health
+  // 4. Connector Health
   header("Connector Health");
   const connectors = await prisma.sourceConnector.findMany({
     where: { status: { not: "deleted" } },

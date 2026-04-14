@@ -51,38 +51,12 @@ export async function POST(req: NextRequest) {
       }
 
       case "activity": {
-        const { signalType, actorEntityId, targetEntityIds, domainIds, metadata, occurredAt } = data;
-        if (!signalType) {
-          return NextResponse.json({ error: "Activity injection requires: signalType" }, { status: 400 });
-        }
-        if (!domainIds || !Array.isArray(domainIds) || domainIds.length === 0) {
-          return NextResponse.json(
-            { error: "Activity injection requires domainIds (non-empty array)" },
-            { status: 400 },
-          );
-        }
-
-        const signal = await prisma.activitySignal.create({
-          data: {
-            operatorId,
-            signalType,
-            actorEntityId: actorEntityId ?? null,
-            targetEntityIds: targetEntityIds ? JSON.stringify(targetEntityIds) : null,
-            domainIds: JSON.stringify(domainIds),
-            metadata: metadata ? JSON.stringify(metadata) : null,
-            occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
-          },
-        });
-
+        // ActivitySignal table has been removed — return a no-op response
         return NextResponse.json({
           success: true,
           type: "activity",
-          activitySignal: {
-            id: signal.id,
-            signalType: signal.signalType,
-            actorEntityId: signal.actorEntityId,
-            occurredAt: formatTimestamp(signal.occurredAt),
-          },
+          activitySignal: null,
+          note: "ActivitySignal table has been removed. Activity injection is a no-op.",
           timestamp: formatTimestamp(new Date()),
         });
       }

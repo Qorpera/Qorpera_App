@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-import { getVisibleDomainIds, getVisibleDomainSlugs, situationScopeFilter } from "@/lib/domain-scope";
+import { getVisibleDomainIds, getVisibleDomainSlugs } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
@@ -62,16 +62,28 @@ export async function GET(req: NextRequest) {
     },
   });
 
-  // Load all situations in the period
-  const situations = await prisma.situation.findMany({
-    where: { operatorId, createdAt: { gte: since }, ...situationScopeFilter(visibleDomains) },
-    select: {
-      id: true,
-      situationTypeId: true,
-      status: true,
-      outcome: true,
-    },
+  // Load situation instances from KnowledgePage
+  const sitPages = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "situation_instance", scope: "operator", createdAt: { gte: since } },
+    select: { properties: true },
   });
+
+  // Map to a compatible shape and apply domain visibility
+  const situations = sitPages
+    .map((p) => {
+      const props = p.properties as Record<string, unknown> | null;
+      return {
+        id: (props?.situation_id as string) ?? "",
+        situationTypeId: (props?.situation_type_id as string) ?? "",
+        status: (props?.status as string) ?? "detected",
+        outcome: (props?.outcome as string) ?? null,
+      };
+    })
+    .filter((s) => {
+      if (visibleDomains === "all") return true;
+      // situation type scoping is handled below via stByScope
+      return true;
+    });
 
   // Index situations by situation type
   const sitsByType = new Map<string, typeof situations>();

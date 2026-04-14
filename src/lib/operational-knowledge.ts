@@ -57,24 +57,18 @@ export async function getSituationsSinceLastExtraction(
     select: { ownerUserId: true, ownerDomainId: true, entityType: { select: { slug: true } } },
   });
 
-  const where: Record<string, unknown> = {
+  const kpWhere: Record<string, unknown> = {
     operatorId,
-    status: "resolved",
+    pageType: "situation_instance",
+    scope: "operator",
+    properties: { path: ["status"], equals: "resolved" },
   };
   if (lastExtraction) {
-    where.resolvedAt = { gt: lastExtraction };
+    kpWhere.updatedAt = { gt: lastExtraction };
   }
 
-  if (aiEntity?.ownerUserId) {
-    // Personal AI: count situations assigned to the owning user
-    where.assignedUserId = aiEntity.ownerUserId;
-  } else if (aiEntity?.ownerDomainId) {
-    // Department AI: count situations scoped to this department
-    where.situationType = { scopeEntityId: aiEntity.ownerDomainId };
-  }
-  // HQ AI: all operator situations (no additional filter)
-
-  return prisma.situation.count({ where });
+  // Note: user/domain scoping not available on wiki pages directly; count all operator situations
+  return prisma.knowledgePage.count({ where: kpWhere });
 }
 
 // ── Data Assembly ────────────────────────────────────────────────────────────
@@ -110,242 +104,61 @@ export async function assembleExtractionData(
     domainName = dept?.displayName ?? "Unknown";
   }
 
-  // Build situation filter based on AI entity type
-  const baseSituationFilter: Record<string, unknown> = {
-    operatorId,
-    resolvedAt: { gte: ninetyDaysAgo },
-  };
+  // Load resolved + dismissed situation pages from wiki
+  const situationPages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      pageType: "situation_instance",
+      scope: "operator",
+      updatedAt: { gte: ninetyDaysAgo },
+      OR: [
+        { properties: { path: ["status"], equals: "resolved" } },
+        { properties: { path: ["status"], equals: "dismissed" } },
+      ],
+    },
+    select: { id: true, title: true, content: true, properties: true, createdAt: true, updatedAt: true },
+  });
 
-  if (aiEntity.ownerUserId) {
-    baseSituationFilter.assignedUserId = aiEntity.ownerUserId;
-  } else if (aiEntity.ownerDomainId) {
-    baseSituationFilter.situationType = { scopeEntityId: aiEntity.ownerDomainId };
+  // Resolve situation type names from IDs found in pages
+  const sitTypeIds = new Set<string>();
+  for (const p of situationPages) {
+    const stId = (p.properties as Record<string, unknown> | null)?.situation_type_id as string | undefined;
+    if (stId) sitTypeIds.add(stId);
   }
-
-  // Load resolved + dismissed situations
-  const [resolvedSituations, dismissedSituations] = await Promise.all([
-    prisma.situation.findMany({
-      where: { ...baseSituationFilter, status: "resolved" },
-      select: {
-        id: true,
-        situationTypeId: true,
-        reasoning: true,
-        resolvedAt: true,
-        createdAt: true,
-        assignedUserId: true,
-        triggerEntityId: true,
-        situationType: { select: { id: true, name: true, slug: true } },
-        executionPlan: {
-          select: {
-            id: true,
-            status: true,
-            steps: {
-              select: {
-                executionMode: true,
-                actionCapabilityId: true,
-                status: true,
-              },
-              orderBy: { sequenceOrder: "asc" },
-            },
-          },
-        },
-      },
-    }),
-    prisma.situation.findMany({
-      where: { ...baseSituationFilter, status: "dismissed" },
-      select: {
-        id: true,
-        situationTypeId: true,
-        situationType: { select: { id: true, name: true } },
-      },
-    }),
-  ]);
-
-  // Find peer AI entities in the same department for cross-AI analysis
-  if (domainId) {
-    const peerEntities = await prisma.entity.findMany({
-      where: {
-        operatorId,
-        id: { not: aiEntityId },
-        entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
-        OR: [
-          { ownerDomainId: domainId },
-          { primaryDomainId: domainId },
-        ],
-        status: "active",
-      },
-      select: { id: true, displayName: true, ownerUserId: true },
-    });
-    // Load peer situations for comparative analysis
-    if (peerEntities.length > 0) {
-      const peerUserIds = peerEntities
-        .map((p) => p.ownerUserId)
-        .filter(Boolean) as string[];
-
-      if (peerUserIds.length > 0) {
-        const peerSituations = await prisma.situation.findMany({
-          where: {
-            operatorId,
-            status: "resolved",
-            resolvedAt: { gte: ninetyDaysAgo },
-            assignedUserId: { in: peerUserIds },
-          },
-          select: {
-            id: true,
-            situationTypeId: true,
-            triggerEntityId: true,
-            reasoning: true,
-            resolvedAt: true,
-            createdAt: true,
-            assignedUserId: true,
-            situationType: { select: { id: true, name: true, slug: true } },
-            executionPlan: {
-              select: {
-                id: true,
-                status: true,
-                steps: {
-                  select: {
-                    executionMode: true,
-                    actionCapabilityId: true,
-                    status: true,
-                  },
-                  orderBy: { sequenceOrder: "asc" },
-                },
-              },
-            },
-          },
-        });
-        resolvedSituations.push(...peerSituations);
-      }
-    }
-  }
-
-  // Resolve action capability names
-  const capabilityIds = new Set<string>();
-  for (const sit of resolvedSituations) {
-    if (sit.executionPlan) {
-      for (const step of sit.executionPlan.steps) {
-        if (step.actionCapabilityId) capabilityIds.add(step.actionCapabilityId);
-      }
-    }
-  }
-  const capabilities = capabilityIds.size > 0
-    ? await prisma.actionCapability.findMany({
-        where: { id: { in: [...capabilityIds] } },
-        select: { id: true, name: true },
+  const sitTypeRecords = sitTypeIds.size > 0
+    ? await prisma.situationType.findMany({
+        where: { id: { in: [...sitTypeIds] } },
+        select: { id: true, name: true, slug: true },
       })
     : [];
-  const capMap = new Map(capabilities.map((c) => [c.id, c.name]));
-
-  // Resolve AI entity names for peer situations
-  const allAiUserIds = new Set<string>();
-  for (const sit of resolvedSituations) {
-    if (sit.assignedUserId) allAiUserIds.add(sit.assignedUserId);
-  }
-  const aiEntities = allAiUserIds.size > 0
-    ? await prisma.entity.findMany({
-        where: {
-          operatorId,
-          ownerUserId: { in: [...allAiUserIds] },
-          entityType: { slug: { in: ["ai-agent", "domain-ai", "hq-ai"] } },
-        },
-        select: { id: true, displayName: true, ownerUserId: true },
-      })
-    : [];
-  const userToAiEntity = new Map(
-    aiEntities.map((e) => [e.ownerUserId!, { id: e.id, name: e.displayName }]),
-  );
+  const sitTypeMap = new Map(sitTypeRecords.map((st) => [st.id, st]));
 
   // Group by situation type
   const typeMap = new Map<string, SituationTypeGroup>();
 
-  // Count dismissed
-  for (const sit of dismissedSituations) {
-    const key = sit.situationTypeId;
-    if (!typeMap.has(key)) {
-      typeMap.set(key, {
-        situationTypeId: sit.situationType.id,
-        situationTypeName: sit.situationType.name,
-        totalDetected: 0,
-        totalResolved: 0,
-        totalDismissed: 0,
-        approaches: [],
-      });
-    }
-    typeMap.get(key)!.totalDismissed++;
-    typeMap.get(key)!.totalDetected++;
-  }
+  for (const page of situationPages) {
+    const props = (page.properties ?? {}) as Record<string, unknown>;
+    const stId = (props.situation_type_id as string) ?? "unknown";
+    const stInfo = sitTypeMap.get(stId);
+    const status = props.status as string;
 
-  // Process resolved
-  for (const sit of resolvedSituations) {
-    const key = sit.situationTypeId;
-    if (!typeMap.has(key)) {
-      typeMap.set(key, {
-        situationTypeId: sit.situationType.id,
-        situationTypeName: sit.situationType.name,
+    if (!typeMap.has(stId)) {
+      typeMap.set(stId, {
+        situationTypeId: stId,
+        situationTypeName: stInfo?.name ?? "Unknown",
         totalDetected: 0,
         totalResolved: 0,
         totalDismissed: 0,
         approaches: [],
       });
     }
-    const group = typeMap.get(key)!;
-    group.totalResolved++;
+    const group = typeMap.get(stId)!;
     group.totalDetected++;
 
-    // Determine primary action capability (first action step)
-    const plan = sit.executionPlan;
-    if (!plan) continue;
-
-    const firstActionStep = plan.steps.find(
-      (s) => s.executionMode === "action" && s.actionCapabilityId,
-    );
-    if (!firstActionStep?.actionCapabilityId) continue;
-
-    const capId = firstActionStep.actionCapabilityId;
-    const capName = capMap.get(capId) ?? "unknown";
-    const isSuccess = plan.status === "completed";
-
-    // Determine which AI entity handled this
-    const aiInfo = sit.assignedUserId
-      ? userToAiEntity.get(sit.assignedUserId)
-      : null;
-    const handlerAiId = aiInfo?.id ?? aiEntityId;
-    const handlerAiName = aiInfo?.name ?? aiEntity.displayName;
-
-    // Find or create approach entry
-    let approach = group.approaches.find(
-      (a) => a.actionCapabilityId === capId && a.aiEntityId === handlerAiId,
-    );
-    if (!approach) {
-      approach = {
-        actionCapabilityId: capId,
-        actionCapabilityName: capName,
-        aiEntityId: handlerAiId,
-        aiEntityName: handlerAiName,
-        count: 0,
-        successCount: 0,
-        failedCount: 0,
-        avgResolutionHours: 0,
-        exampleSituationIds: [],
-      };
-      group.approaches.push(approach);
-    }
-
-    approach.count++;
-    if (isSuccess) approach.successCount++;
-    else approach.failedCount++;
-
-    // Resolution time
-    if (sit.resolvedAt && sit.createdAt) {
-      const hours = (sit.resolvedAt.getTime() - sit.createdAt.getTime()) / (1000 * 60 * 60);
-      // Running average
-      approach.avgResolutionHours =
-        ((approach.avgResolutionHours * (approach.count - 1)) + hours) / approach.count;
-    }
-
-    if (approach.exampleSituationIds.length < 5) {
-      approach.exampleSituationIds.push(sit.id);
+    if (status === "resolved") {
+      group.totalResolved++;
+    } else if (status === "dismissed") {
+      group.totalDismissed++;
     }
   }
 
@@ -585,18 +398,50 @@ export async function extractOperatorInsights(operatorId: string): Promise<{
     },
   });
 
-  // 3. Load recent situation history (last 30 days)
+  // 3. Load recent situation history (last 30 days) from wiki pages
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
-  const recentSituations = await prisma.situation.findMany({
-    where: { operatorId, createdAt: { gte: thirtyDaysAgo } },
-    select: {
-      status: true, triggerSummary: true, createdAt: true, resolvedAt: true,
-      severity: true, confidence: true,
-      situationType: { select: { name: true, slug: true } },
-      domainPageSlug: true, triggerPageSlug: true,
+  const recentSituationPages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      pageType: "situation_instance",
+      scope: "operator",
+      createdAt: { gte: thirtyDaysAgo },
     },
+    select: { title: true, properties: true, createdAt: true, updatedAt: true },
     orderBy: { createdAt: "desc" },
     take: 200,
+  });
+
+  // Resolve situation type names for display
+  const recentStIds = new Set<string>();
+  for (const p of recentSituationPages) {
+    const stId = (p.properties as Record<string, unknown> | null)?.situation_type_id as string | undefined;
+    if (stId) recentStIds.add(stId);
+  }
+  const recentStRecords = recentStIds.size > 0
+    ? await prisma.situationType.findMany({
+        where: { id: { in: [...recentStIds] } },
+        select: { id: true, name: true, slug: true },
+      })
+    : [];
+  const recentStMap = new Map(recentStRecords.map((st) => [st.id, st]));
+
+  // Adapt to the shape the LLM prompt expects
+  const recentSituations = recentSituationPages.map((p) => {
+    const props = (p.properties ?? {}) as Record<string, unknown>;
+    const stId = props.situation_type_id as string | undefined;
+    const stInfo = stId ? recentStMap.get(stId) : undefined;
+    return {
+      status: (props.status as string) ?? "unknown",
+      triggerSummary: p.title,
+      createdAt: p.createdAt,
+      resolvedAt: props.resolved_at ? new Date(props.resolved_at as string) : null,
+      severity: (props.severity as string) ?? null,
+      confidence: (props.confidence as number) ?? null,
+      situationType: { name: stInfo?.name ?? "Unknown", slug: stInfo?.slug ?? "unknown" },
+      domainPageSlug: (props.domain as string) ?? null,
+      triggerPageSlug: (props.trigger_page_slug as string) ?? null,
+    };
   });
 
   // 4. Total communication volume (30d)
@@ -717,8 +562,13 @@ export async function checkInsightExtractionTrigger(
 
   // Count recent situations as trigger
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
-  const recentCount = await prisma.situation.count({
-    where: { operatorId, createdAt: { gte: thirtyDaysAgo } },
+  const recentCount = await prisma.knowledgePage.count({
+    where: {
+      operatorId,
+      pageType: "situation_instance",
+      scope: "operator",
+      createdAt: { gte: thirtyDaysAgo },
+    },
   });
 
   const threshold = ageDays <= 28 ? 20 : 40;

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { sendNotification } from "@/lib/notification-dispatch";
 import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig } from "@/lib/config-encryption";
-import type { StepOutput } from "@/lib/execution-engine";
+import type { StepOutput } from "@/lib/types/execution";
 
 const MAX_COUNTER_ROUNDS = 3;
 
@@ -41,25 +41,41 @@ export async function handleRequestMeeting(
   const situationIds: string[] = [];
 
   for (const inviteeUserId of inviteeUserIds) {
-    const situation = await prisma.situation.create({
+    const situationId = `meeting-${Date.now()}-${inviteeUserId.slice(0, 8)}`;
+    const slug = `sit-meeting-${Date.now()}-${inviteeUserId.slice(0, 8)}`;
+
+    const page = await prisma.knowledgePage.create({
       data: {
         operatorId,
-        situationTypeId: situationType.id,
-        source: "detected",
-        status: "detected",
-        contextSnapshot: JSON.stringify({
-          suggestedTimes,
-          agenda,
-          topic,
-          organizerUserId,
-          allParticipantUserIds: participantUserIds,
-          round: 1,
-        }),
-        assignedUserId: inviteeUserId,
+        slug,
+        title: `Meeting request: ${topic}`,
+        pageType: "situation_instance",
+        scope: "operator",
+        content: `Meeting requested by ${organizer?.name || "colleague"}.\n\nAgenda: ${agenda}`,
+        status: "draft",
+        confidence: 0.8,
+        synthesisPath: "reasoning",
+        synthesizedByModel: "system",
+        lastSynthesizedAt: new Date(),
+        properties: {
+          situation_id: situationId,
+          situation_type_id: situationType.id,
+          source: "detected",
+          status: "detected",
+          context: {
+            suggestedTimes,
+            agenda,
+            topic,
+            organizerUserId,
+            allParticipantUserIds: participantUserIds,
+            round: 1,
+          },
+          assigned_user_id: inviteeUserId,
+        },
       },
     });
 
-    situationIds.push(situation.id);
+    situationIds.push(page.id);
 
     await sendNotification({
       operatorId,
@@ -68,7 +84,7 @@ export async function handleRequestMeeting(
       title: `Meeting request: ${topic}`,
       body: `${organizer?.name || "A colleague"} would like to meet about: ${agenda}`,
       sourceType: "situation",
-      sourceId: situation.id,
+      sourceId: page.id,
     });
   }
 
@@ -86,108 +102,135 @@ export async function handleMeetingRequestResolution(
   decision: string,
   resolutionData: Record<string, unknown>,
 ): Promise<{ resolved: boolean; action?: string }> {
-  const situation = await prisma.situation.findUnique({
-    where: { id: situationId },
-    select: { id: true, operatorId: true, spawningStepId: true, contextSnapshot: true, assignedUserId: true, situationTypeId: true },
+  const situationPage = await prisma.knowledgePage.findFirst({
+    where: {
+      pageType: "situation_instance",
+      scope: "operator",
+      properties: { path: ["situation_id"], equals: situationId },
+    },
+    select: { id: true, operatorId: true, properties: true },
   });
-  if (!situation) throw new Error("Situation not found");
+  if (!situationPage) throw new Error("Situation not found");
 
-  const metadata = situation.contextSnapshot ? JSON.parse(situation.contextSnapshot) : {};
+  const props = (situationPage.properties ?? {}) as Record<string, unknown>;
+  const metadata = (props.context ?? {}) as Record<string, unknown>;
 
   switch (decision) {
     case "accepted": {
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: {
-          status: "resolved",
-          resolvedAt: new Date(),
-          contextSnapshot: JSON.stringify({
-            ...metadata,
-            decision: "accepted",
-            acceptedTime: resolutionData.acceptedTime || metadata.suggestedTimes?.[0],
-          }),
+      const acceptedProps = {
+        ...props,
+        status: "resolved",
+        resolved_at: new Date().toISOString(),
+        context: {
+          ...metadata,
+          decision: "accepted",
+          acceptedTime: resolutionData.acceptedTime || (metadata.suggestedTimes as unknown[])?.[0],
         },
+      };
+      await prisma.knowledgePage.update({
+        where: { id: situationPage.id },
+        data: { properties: acceptedProps as object },
       });
       return { resolved: true };
     }
 
     case "declined": {
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: {
-          status: "resolved",
-          resolvedAt: new Date(),
-          contextSnapshot: JSON.stringify({
-            ...metadata,
-            decision: "declined",
-            reason: resolutionData.reason || undefined,
-          }),
+      const declinedProps = {
+        ...props,
+        status: "resolved",
+        resolved_at: new Date().toISOString(),
+        context: {
+          ...metadata,
+          decision: "declined",
+          reason: resolutionData.reason || undefined,
         },
+      };
+      await prisma.knowledgePage.update({
+        where: { id: situationPage.id },
+        data: { properties: declinedProps as object },
       });
       return { resolved: true };
     }
 
     case "counter_proposal": {
-      const currentRound = metadata.round || 1;
+      const currentRound = (metadata.round as number) || 1;
 
       if (currentRound >= MAX_COUNTER_ROUNDS) {
         // Auto-resolve with needs_manual_coordination
-        await prisma.situation.update({
-          where: { id: situationId },
-          data: {
-            status: "resolved",
-            resolvedAt: new Date(),
-            contextSnapshot: JSON.stringify({
-              ...metadata,
-              decision: "needs_manual_coordination",
-              reason: `Maximum ${MAX_COUNTER_ROUNDS} rounds of counter-proposals reached`,
-            }),
+        const maxRoundProps = {
+          ...props,
+          status: "resolved",
+          resolved_at: new Date().toISOString(),
+          context: {
+            ...metadata,
+            decision: "needs_manual_coordination",
+            reason: `Maximum ${MAX_COUNTER_ROUNDS} rounds of counter-proposals reached`,
           },
+        };
+        await prisma.knowledgePage.update({
+          where: { id: situationPage.id },
+          data: { properties: maxRoundProps as object },
         });
         return { resolved: true, action: "fallback_to_human" };
       }
 
       // Update round count on original situation
-      await prisma.situation.update({
-        where: { id: situationId },
-        data: {
-          contextSnapshot: JSON.stringify({
-            ...metadata,
-            round: currentRound + 1,
-            lastCounterProposal: resolutionData.proposedTimes,
-          }),
+      const counterProps = {
+        ...props,
+        context: {
+          ...metadata,
+          round: currentRound + 1,
+          lastCounterProposal: resolutionData.proposedTimes,
         },
+      };
+      await prisma.knowledgePage.update({
+        where: { id: situationPage.id },
+        data: { properties: counterProps as object },
       });
 
       // Create counter-proposal situation for the organizer
-      const organizerUserId = metadata.organizerUserId;
+      const organizerUserId = metadata.organizerUserId as string | undefined;
       if (organizerUserId) {
-        await prisma.situation.create({
+        const counterSlug = `sit-meeting-counter-${Date.now()}-${organizerUserId.slice(0, 8)}`;
+        const counterProperties = {
+          situation_id: `meeting-counter-${Date.now()}-${organizerUserId.slice(0, 8)}`,
+          situation_type_id: props.situation_type_id as string,
+          source: "detected",
+          status: "detected",
+          assigned_user_id: organizerUserId,
+          context: {
+            ...metadata,
+            suggestedTimes: resolutionData.proposedTimes,
+            round: currentRound + 1,
+            counterProposalFrom: props.assigned_user_id as string,
+            originalSituationId: situationId,
+          },
+        };
+        const counterPage = await prisma.knowledgePage.create({
           data: {
-            operatorId: situation.operatorId,
-            situationTypeId: situation.situationTypeId,
-            spawningStepId: situation.spawningStepId,
-            source: "detected",
-            status: "detected",
-            assignedUserId: organizerUserId,
-            contextSnapshot: JSON.stringify({
-              ...metadata,
-              suggestedTimes: resolutionData.proposedTimes,
-              round: currentRound + 1,
-              counterProposalFrom: situation.assignedUserId,
-              originalSituationId: situationId,
-            }),
+            operatorId: situationPage.operatorId,
+            slug: counterSlug,
+            title: `Counter-proposal for: ${(metadata.topic as string) || "Meeting"}`,
+            pageType: "situation_instance",
+            scope: "operator",
+            content: `Counter-proposal round ${currentRound + 1}.`,
+            status: "draft",
+            confidence: 0.8,
+            synthesisPath: "reasoning",
+            synthesizedByModel: "system",
+            lastSynthesizedAt: new Date(),
+            properties: counterProperties as object,
           },
         });
 
         await sendNotification({
-          operatorId: situation.operatorId,
+          operatorId: situationPage.operatorId!,
           userId: organizerUserId,
           type: "situation_proposed",
-          title: `Counter-proposal for: ${metadata.topic || "Meeting"}`,
+          title: `Counter-proposal for: ${(metadata.topic as string) || "Meeting"}`,
           body: `Alternative times proposed. Round ${currentRound + 1} of ${MAX_COUNTER_ROUNDS}.`,
           sourceType: "situation",
-          sourceId: situationId,
+          sourceId: counterPage.id,
         });
       }
 

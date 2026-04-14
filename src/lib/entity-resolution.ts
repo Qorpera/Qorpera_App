@@ -288,17 +288,43 @@ export async function upsertEntity(
   });
   if (!entityType) throw new Error(`Entity type "${typeSlug}" not found`);
 
-  const { createEntity } = await import("@/lib/entity-model-store");
-  const created = await createEntity(operatorId, {
-    entityTypeId: entityType.id,
-    displayName: input.displayName,
-    sourceSystem: externalRef?.sourceSystem ?? input.sourceSystem,
-    externalId: externalRef?.externalId ?? input.externalId,
-    metadata: input.metadata,
-    properties: validatedProperties,
+  const created = await prisma.$transaction(async (tx) => {
+    const et = await tx.entityType.findUnique({
+      where: { id: entityType.id },
+      select: { defaultCategory: true },
+    });
+
+    const entity = await tx.entity.create({
+      data: {
+        operatorId,
+        entityTypeId: entityType.id,
+        displayName: input.displayName,
+        sourceSystem: externalRef?.sourceSystem ?? input.sourceSystem ?? null,
+        externalId: externalRef?.externalId ?? input.externalId ?? null,
+        metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+        category: et?.defaultCategory ?? "digital",
+      },
+    });
+
+    if (validatedProperties && Object.keys(validatedProperties).length > 0) {
+      const props = await tx.entityProperty.findMany({
+        where: { entityTypeId: entityType.id },
+      });
+      const slugToId = new Map(props.map((p) => [p.slug, p.id]));
+      for (const [slug, value] of Object.entries(validatedProperties)) {
+        const propId = slugToId.get(slug);
+        if (propId && value) {
+          await tx.propertyValue.create({
+            data: { entityId: entity.id, propertyId: propId, value },
+          });
+        }
+      }
+    }
+
+    return entity;
   });
 
-  return created!.id;
+  return created.id;
 }
 
 // ── Entity Context ───────────────────────────────────────────────────────────

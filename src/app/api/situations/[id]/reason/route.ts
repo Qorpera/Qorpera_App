@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
-import { getVisibleDomainSlugs, getVisibleDomainIds } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 import { updatePageWithLock } from "@/lib/wiki-engine";
 import type { SituationProperties } from "@/lib/situation-wiki-helpers";
 
@@ -57,11 +57,7 @@ export async function POST(
       properties: { ...(current.properties ?? {}), status: "detected" },
     }));
 
-    // Update thin Situation record (fire-and-forget)
-    prisma.situation.update({
-      where: { id },
-      data: { status: "detected", reasoning: null, proposedAction: null },
-    }).catch((err) => console.error(`[reason] Thin record update failed for ${id}:`, err));
+    // Thin Situation record no longer exists — wiki page is the source of truth
 
     await enqueueWorkerJob("reason_situation", operatorId, {
       situationId: id, wikiPageSlug: page.slug,
@@ -70,38 +66,6 @@ export async function POST(
     return NextResponse.json({ id, status: "reasoning_triggered" });
   }
 
-  // Legacy fallback
-  const situation = await prisma.situation.findFirst({
-    where: { id, operatorId },
-    include: { situationType: { select: { scopeEntityId: true } } },
-  });
-
-  if (!situation) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  const visibleDomainIds = await getVisibleDomainIds(operatorId, su.effectiveUserId);
-  if (visibleDomainIds !== "all") {
-    const scopeDept = situation.situationType?.scopeEntityId;
-    if (scopeDept && !visibleDomainIds.includes(scopeDept)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
-  }
-
-  const allowedStatuses = ["detected", "proposed", "reasoning"];
-  if (!allowedStatuses.includes(situation.status)) {
-    return NextResponse.json(
-      { error: `Cannot re-reason on situation with status "${situation.status}"` },
-      { status: 400 },
-    );
-  }
-
-  await prisma.situation.update({
-    where: { id },
-    data: { status: "detected", reasoning: null, proposedAction: null },
-  });
-
-  await enqueueWorkerJob("reason_situation", operatorId, { situationId: id });
-
-  return NextResponse.json({ id, status: "reasoning_triggered" });
+  // No wiki page found for this situation
+  return NextResponse.json({ error: "Not found" }, { status: 404 });
 }

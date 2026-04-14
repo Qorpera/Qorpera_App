@@ -114,38 +114,7 @@ async function findQualifyingEvents(operatorId: string): Promise<CalendarEvent[]
     });
   }
 
-  // Source B: ActivitySignal meeting_organized
-  const signals = await prisma.activitySignal.findMany({
-    where: {
-      operatorId,
-      signalType: "meeting_organized",
-      occurredAt: { gte: from, lte: to },
-    },
-    take: 50,
-  });
-
-  for (const s of signals) {
-    const meta = parseMeta(s.metadata);
-    const title = (meta.subject as string) ?? (meta.title as string) ?? "";
-    if (!title) continue;
-
-    const daysUntil = Math.ceil((s.occurredAt.getTime() - now.getTime()) / 86_400_000);
-    const attendees = Array.isArray(meta.attendees) ? (meta.attendees as string[]) : [];
-    const key = `${title.toLowerCase()}|${s.occurredAt.toISOString().slice(0, 10)}`;
-
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    events.push({
-      id: s.id,
-      title,
-      date: s.occurredAt.toISOString(),
-      daysUntil,
-      attendees,
-      description: (meta.description as string) ?? "",
-      source: "activity_signal",
-    });
-  }
+  // Source B: ActivitySignal table dropped — calendar events come from content chunks only
 
   // Determine operator's internal domain from users
   const firstUser = await prisma.user.findFirst({
@@ -166,16 +135,17 @@ async function findQualifyingEvents(operatorId: string): Promise<CalendarEvent[]
 // ── Already Handled Check ───────────────────────────────────────────────
 
 async function isAlreadyHandled(operatorId: string, event: CalendarEvent): Promise<boolean> {
-  // Check 1: Initiative with matching title
-  const initiative = await prisma.initiative.findFirst({
+  // Check 1: Initiative wiki page with matching title
+  const initiativePage = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      status: { notIn: ["rejected", "failed"] },
-      rationale: { contains: event.title.slice(0, 50) },
+      pageType: "initiative",
+      scope: "operator",
+      title: { contains: event.title.slice(0, 50), mode: "insensitive" },
     },
-    select: { id: true },
+    select: { slug: true },
   });
-  if (initiative) return true;
+  if (initiativePage) return true;
 
   // Check 2: EvaluationLog from a prior proactive scan for this event
   const evalLog = await prisma.evaluationLog.findFirst({
@@ -188,17 +158,18 @@ async function isAlreadyHandled(operatorId: string, event: CalendarEvent): Promi
   });
   if (evalLog) return true;
 
-  // Check 3: Situation with triggerEvidence mentioning this event title (last 7 days)
+  // Check 3: Wiki page with trigger_ref mentioning this event (last 7 days)
   const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000);
-  const situation = await prisma.situation.findFirst({
+  const sitPage = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
+      pageType: "situation_instance",
       createdAt: { gte: sevenDaysAgo },
-      triggerEvidence: { contains: event.title.slice(0, 50) },
+      content: { contains: event.title.slice(0, 50) },
     },
-    select: { id: true },
+    select: { slug: true },
   });
-  if (situation) return true;
+  if (sitPage) return true;
 
   return false;
 }

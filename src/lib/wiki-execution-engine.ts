@@ -437,11 +437,6 @@ export async function approveSituationStep(
       return { content, properties: props as unknown as Record<string, unknown> };
     });
 
-    await prisma.situation.updateMany({
-      where: { operatorId, wikiPageSlug: pageSlug },
-      data: { status: "rejected" },
-    }).catch(() => {});
-
     await sendNotificationToAdmins({
       operatorId,
       type: "system_alert",
@@ -591,34 +586,14 @@ async function executeApiAction(
 
   // Governance check — verify action is permitted by policy
   {
-    let entityTypeSlug = "";
-    let entityId = "";
-
-    const situation = await prisma.situation.findFirst({
-      where: { operatorId, wikiPageSlug: pageSlug },
-      select: { id: true, triggerEntityId: true },
+    // Read entity type slug from wiki page properties (source of truth)
+    const govPage = await prisma.knowledgePage.findUnique({
+      where: { operatorId_slug: { operatorId, slug: pageSlug } },
+      select: { properties: true },
     });
-
-    if (situation?.triggerEntityId) {
-      const entity = await prisma.entity.findUnique({
-        where: { id: situation.triggerEntityId },
-        select: { entityType: { select: { slug: true } } },
-      });
-      if (entity) {
-        entityTypeSlug = entity.entityType.slug;
-        entityId = situation.triggerEntityId;
-      }
-    }
-
-    // Fallback for wiki-first (entity-free): use situation_type from page properties
-    if (!entityTypeSlug) {
-      const sitPage = await prisma.knowledgePage.findUnique({
-        where: { operatorId_slug: { operatorId, slug: pageSlug } },
-        select: { properties: true },
-      });
-      const props = (sitPage?.properties ?? {}) as Record<string, unknown>;
-      entityTypeSlug = (props.situation_type as string) ?? "";
-    }
+    const govProps = (govPage?.properties ?? {}) as unknown as SituationProperties;
+    const entityTypeSlug = (govProps.situation_type as string) ?? "";
+    const entityId = "";
 
     const policyResult = await evaluateActionPolicies(
       operatorId,
@@ -817,11 +792,6 @@ async function executeMonitor(
     let content = appendTimelineEntry(page.content, "Entering monitoring phase");
     return { content, properties: props as unknown as Record<string, unknown> };
   });
-
-  await prisma.situation.updateMany({
-    where: { operatorId, wikiPageSlug: pageSlug },
-    data: { status: "monitoring" },
-  }).catch(() => {});
 }
 
 // ─── Plan Advancement ───────────────────────────────────
@@ -870,7 +840,7 @@ async function completeSituationPlan(
 ): Promise<void> {
   const page = await prisma.knowledgePage.findUnique({
     where: { operatorId_slug: { operatorId, slug: pageSlug } },
-    select: { content: true, properties: true },
+    select: { content: true, properties: true, title: true },
   });
   if (!page) return;
 
@@ -885,10 +855,20 @@ async function completeSituationPlan(
     || afterBatch === "resolve";
   const shouldMonitor = !shouldResolve && (resolutionType === "response_dependent" || afterBatch === "monitor");
 
-  const situation = await prisma.situation.findFirst({
-    where: { operatorId, wikiPageSlug: pageSlug },
-    select: { id: true, assignedUserId: true, triggerSummary: true },
-  });
+  // Read from wiki page properties — no thin Situation record needed
+  const situationId = props.situation_id as string | undefined;
+  const triggerSummary = page.title ?? "Situation resolved";
+
+  // Resolve assignedUserId from assigned_to page slug
+  let assignedUserId: string | null = null;
+  const assignedToSlug = props.assigned_to as string | undefined;
+  if (assignedToSlug) {
+    const assignedUser = await prisma.user.findFirst({
+      where: { operatorId, wikiPageSlug: assignedToSlug },
+      select: { id: true },
+    });
+    assignedUserId = assignedUser?.id ?? null;
+  }
 
   // Build receipt from completed steps
   const completedSteps = plan.steps.filter((s) => s.status === "completed");
@@ -905,25 +885,16 @@ async function completeSituationPlan(
       return { content, properties: updatedProps as unknown as Record<string, unknown> };
     });
 
-    if (situation) {
-      await prisma.situation.update({
-        where: { id: situation.id },
-        data: {
-          status: "resolved",
-          resolvedAt: new Date(),
-          outcome: resolutionType === "informational" ? "information_delivered" : "action_completed",
-        },
-      }).catch(() => {});
-
-      // Complete the active cycle
+    // Complete the active cycle
+    if (situationId) {
       await prisma.situationCycle.updateMany({
-        where: { situationId: situation.id, status: "active" },
+        where: { situationId, status: "active" },
         data: { status: "completed", completedAt: new Date() },
       }).catch(() => {});
     }
 
-    const notifyUserId = situation?.assignedUserId;
-    const title = situation?.triggerSummary?.slice(0, 80) ?? "Situation resolved";
+    const notifyUserId = assignedUserId;
+    const title = triggerSummary.slice(0, 80);
     if (notifyUserId) {
       await sendNotification({ operatorId, userId: notifyUserId, type: "situation_resolved", title, body: receiptLines || "All actions completed.", sourceType: "wiki_page", sourceId: pageSlug }).catch(() => {});
     } else {
@@ -937,19 +908,12 @@ async function completeSituationPlan(
       return { content, properties: updatedProps as unknown as Record<string, unknown> };
     });
 
-    if (situation) {
-      await prisma.situation.update({
-        where: { id: situation.id },
-        data: { status: "monitoring" },
-      }).catch(() => {});
-    }
-
     const monitorMsg = props.monitoring_criteria
       ? `Waiting for: ${props.monitoring_criteria.waitingFor}. Follow-up in ${props.monitoring_criteria.expectedWithinDays ?? 3} business days.`
       : "Monitoring — waiting for external response.";
 
-    if (situation?.assignedUserId) {
-      await sendNotification({ operatorId, userId: situation.assignedUserId, type: "situation_resolved", title: "Actions completed, monitoring", body: monitorMsg, sourceType: "wiki_page", sourceId: pageSlug }).catch(() => {});
+    if (assignedUserId) {
+      await sendNotification({ operatorId, userId: assignedUserId, type: "situation_resolved", title: "Actions completed, monitoring", body: monitorMsg, sourceType: "wiki_page", sourceId: pageSlug }).catch(() => {});
     }
   }
 
@@ -974,27 +938,6 @@ export async function completeHumanSituationStep(
     const content = appendTimelineEntry(page.content, `Step ${stepOrder} completed by user`);
     return { content };
   });
-
-  // Cancel watching FollowUps for this step
-  const situation = await prisma.situation.findFirst({
-    where: { operatorId, wikiPageSlug: pageSlug },
-    select: { id: true },
-  });
-  if (situation) {
-    // Match by triggerCondition containing the step order
-    const followUps = await prisma.followUp.findMany({
-      where: { situationId: situation.id, status: "watching" },
-      select: { id: true, triggerCondition: true },
-    });
-    for (const fu of followUps) {
-      try {
-        const cond = JSON.parse(fu.triggerCondition);
-        if (cond.wikiStep === stepOrder) {
-          await prisma.followUp.update({ where: { id: fu.id }, data: { status: "cancelled" } });
-        }
-      } catch { /* skip malformed */ }
-    }
-  }
 
   // TODO: dispatch re_evaluate_wiki_plan worker job if notes suggest plan revision
 
@@ -1101,11 +1044,6 @@ async function handleCatastrophicStepError(
     return { content, properties: props as unknown as Record<string, unknown> };
   });
 
-  await prisma.situation.updateMany({
-    where: { operatorId, wikiPageSlug: pageSlug },
-    data: { status: "proposed" },
-  }).catch(() => {});
-
   await sendNotificationToAdmins({
     operatorId,
     type: "system_alert",
@@ -1149,11 +1087,6 @@ async function amendPlanFromStepError(
       const content = appendTimelineEntry(p.content, `Plan failed — no remaining steps to amend after step ${failedStepOrder}`);
       return { content, properties: props as unknown as Record<string, unknown> };
     });
-
-    await prisma.situation.updateMany({
-      where: { operatorId, wikiPageSlug: pageSlug },
-      data: { status: "proposed" },
-    }).catch(() => {});
 
     await sendNotificationToAdmins({
       operatorId,
@@ -1267,11 +1200,6 @@ async function escalatePlan(
     content = appendTimelineEntry(content, `Plan escalated for human review after step ${failedStepOrder} failure`);
     return { content, properties: props as unknown as Record<string, unknown> };
   });
-
-  await prisma.situation.updateMany({
-    where: { operatorId, wikiPageSlug: pageSlug },
-    data: { status: "proposed" },
-  }).catch(() => {});
 
   await sendNotificationToAdmins({
     operatorId,

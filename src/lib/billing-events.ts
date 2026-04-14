@@ -90,20 +90,23 @@ export async function checkBudgetAlerts(operatorId: string): Promise<void> {
  * Called when situation reaches terminal state (resolved/closed with work done).
  */
 export async function emitSituationBillingEvent(situationId: string): Promise<void> {
-  const situation = await prisma.situation.findUnique({
-    where: { id: situationId },
-    include: {
-      situationType: true,
-      executionPlan: {
-        include: { steps: { select: { apiCostCents: true } } },
-      },
+  // Find the situation wiki page by situation_id property
+  const page = await prisma.knowledgePage.findFirst({
+    where: {
+      pageType: "situation_instance",
+      scope: "operator",
+      properties: { path: ["situation_id"], equals: situationId },
     },
+    select: { operatorId: true, properties: true, synthesisCostCents: true },
   });
 
-  if (!situation) return;
+  if (!page || !page.operatorId) return;
+
+  const operatorId = page.operatorId;
+  const props = (page.properties ?? {}) as Record<string, unknown>;
 
   const operator = await prisma.operator.findUnique({
-    where: { id: situation.operatorId },
+    where: { id: operatorId },
   });
   if (!operator) return;
 
@@ -112,17 +115,30 @@ export async function emitSituationBillingEvent(situationId: string): Promise<vo
 
   const orchestrationFeeMultiplier = getOrchestrationFeeMultiplier(operator);
 
+  // Resolve situation type name for the deduction description
+  const stSlug = props.situation_type as string | undefined;
+  let situationTypeName = "Unknown";
+  if (stSlug) {
+    const st = await prisma.situationType.findFirst({
+      where: { operatorId, slug: stSlug },
+      select: { name: true },
+    });
+    if (st) situationTypeName = st.name;
+  }
+
+  // Use synthesisCostCents as the total AI cost; step execution costs are
+  // tracked separately in the wiki execution engine.
   const billedCents = calculateSituationFee({
-    situationApiCostCents: situation.apiCostCents ?? 0,
-    stepApiCostsCents: situation.executionPlan?.steps.map((s) => s.apiCostCents ?? 0) ?? [],
-    autonomyLevel: situation.situationType.autonomyLevel,
+    situationApiCostCents: page.synthesisCostCents ?? 0,
+    stepApiCostsCents: [],
+    autonomyLevel: "supervised",
     orchestrationFeeMultiplier,
   });
 
   if (billedCents <= 0) return;
 
   // Budget gate — check before deducting
-  const currentPeriodSpendCents = await getCurrentPeriodSpendCents(situation.operatorId, operator.budgetPeriodStart);
+  const currentPeriodSpendCents = await getCurrentPeriodSpendCents(operatorId, operator.budgetPeriodStart);
   const gate = checkBudgetGate({
     billingStatus: operator.billingStatus,
     monthlyBudgetCents: operator.monthlyBudgetCents,
@@ -130,23 +146,17 @@ export async function emitSituationBillingEvent(situationId: string): Promise<vo
     currentPeriodSpendCents,
   });
 
-  // Always record billedCents for cost visibility (spend calculation uses CreditTransaction, not this)
-  await prisma.situation.update({
-    where: { id: situationId },
-    data: { billedCents, billedAt: new Date() },
-  });
-
   if (!gate.allowed) {
     console.warn(`[billing] Budget gate blocked situation ${situationId}: ${gate.reason}`);
     return;
   }
 
-  // Deduct from prepaid balance
+  // Deduct from prepaid balance (CreditTransaction is the billing source of truth)
   try {
     await deductBalance(
-      situation.operatorId,
+      operatorId,
       billedCents,
-      `Situation: ${situation.situationType.name} (${situation.situationType.autonomyLevel})`,
+      `Situation: ${situationTypeName} (supervised)`,
       { situationId },
     );
   } catch (err) {
@@ -155,7 +165,7 @@ export async function emitSituationBillingEvent(situationId: string): Promise<vo
   }
 
   // Check budget alerts after billing
-  checkBudgetAlerts(situation.operatorId).catch((err) =>
+  checkBudgetAlerts(operatorId).catch((err) =>
     console.error(`[billing] Budget alert check failed:`, err),
   );
 }

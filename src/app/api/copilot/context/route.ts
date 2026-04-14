@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { listEntityTypes } from "@/lib/entity-model-store";
 
 export async function GET() {
   const su = await getSessionUser();
@@ -10,7 +9,14 @@ export async function GET() {
 
   const [entityTypes, totalRelationships] =
     await Promise.all([
-      listEntityTypes(operatorId),
+      prisma.entityType.findMany({
+        where: { operatorId },
+        include: {
+          properties: { orderBy: { displayOrder: "asc" } },
+          _count: { select: { entities: true } },
+        },
+        orderBy: { name: "asc" },
+      }),
       prisma.relationship.count({ where: { fromEntity: { operatorId } } }),
     ]);
 

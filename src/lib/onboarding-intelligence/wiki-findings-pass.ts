@@ -786,12 +786,8 @@ export async function runWikiFindingsPass(
     take: 10000,
   });
 
-  const calendarSignals = await prisma.activitySignal.findMany({
-    where: { operatorId, signalType: { in: ["meeting_held"] } },
-    select: { metadata: true, occurredAt: true },
-    orderBy: { occurredAt: "desc" },
-    take: 500,
-  });
+  // ActivitySignal table removed — calendar signals no longer available here
+  const calendarSignals: { metadata: unknown; occurredAt: Date }[] = [];
 
   // Content counts for overview
   const emailCount = rawItems.filter(r => r.sourceType === "email").length;

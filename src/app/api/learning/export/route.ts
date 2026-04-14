@@ -3,13 +3,13 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { daysParam, parseQuery } from "@/lib/api-validation";
-import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
+import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, user.id);
   const exportSchema = z.object({ days: daysParam, format: z.enum(["csv"]).default("csv") });
   const parsed = parseQuery(exportSchema, req.nextUrl.searchParams);
   if (!parsed.success) {
@@ -18,42 +18,33 @@ export async function GET(req: NextRequest) {
   const { days } = parsed.data;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  // Load situations with related data
-  const situations = await prisma.situation.findMany({
-    where: { operatorId, createdAt: { gte: since }, ...situationScopeFilter(visibleDomains) },
-    include: {
-      situationType: {
-        select: {
-          name: true,
-          scopeEntityId: true,
-        },
-      },
-    },
+  // Load situation instances from KnowledgePage
+  type SitPage = {
+    title: string;
+    properties: Record<string, unknown> | null;
+    createdAt: Date;
+    crossReferences: string[];
+  };
+  const sitPages = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "situation_instance", scope: "operator", createdAt: { gte: since } },
+    select: { title: true, properties: true, createdAt: true, crossReferences: true },
     orderBy: { createdAt: "desc" },
-  });
+  }) as SitPage[];
 
-  // Resolve trigger names via wiki pages
-  const triggerSlugs = [
-    ...new Set(
-      situations
-        .map((s) => s.triggerPageSlug)
-        .filter((s): s is string => s !== null),
-    ),
-  ];
-  const triggerPages = triggerSlugs.length > 0
-    ? await prisma.knowledgePage.findMany({
-        where: { operatorId, slug: { in: triggerSlugs }, scope: "operator" },
-        select: { slug: true, title: true },
-      })
-    : [];
-  const triggerNameMap = new Map(triggerPages.map((p) => [p.slug, p.title]));
+  // Filter by visible domains
+  const filteredPages = visibleDomains === "all"
+    ? sitPages
+    : sitPages.filter((p) => {
+        const domain = p.properties?.domain as string | undefined;
+        return !domain || visibleDomains.includes(domain);
+      });
 
-  // Resolve department names via wiki pages
+  // Resolve domain slugs to names
   const domainSlugs = [
     ...new Set(
-      situations
-        .map((s) => s.domainPageSlug)
-        .filter((s): s is string => s !== null),
+      filteredPages
+        .map((p) => p.properties?.domain as string | undefined)
+        .filter((s): s is string => !!s),
     ),
   ];
   const domainPages = domainSlugs.length > 0
@@ -66,40 +57,22 @@ export async function GET(req: NextRequest) {
 
   // Build CSV
   const header = "date,situation_type,department,entity,status,outcome,severity,confidence,reasoning_summary,feedback_category,feedback_text";
-  const rows = situations.map((s) => {
-    const date = s.createdAt.toISOString().slice(0, 10);
-    const sitType = csvEscape(s.situationType.name);
-    const dept = csvEscape(
-      s.domainPageSlug
-        ? deptNameMap.get(s.domainPageSlug) ?? ""
-        : "",
-    );
-    const entity = csvEscape(
-      s.triggerPageSlug
-        ? triggerNameMap.get(s.triggerPageSlug) ?? s.triggerPageSlug
-        : "",
-    );
-    const status = s.status;
-    const outcome = s.outcome ?? "";
-    const severity = s.severity.toFixed(2);
-    const confidence = s.confidence.toFixed(2);
+  const rows = filteredPages.map((p) => {
+    const props = p.properties ?? {};
+    const date = p.createdAt.toISOString().slice(0, 10);
+    const sitType = csvEscape((props.situation_type as string) ?? "");
+    const domain = props.domain as string | undefined;
+    const dept = csvEscape(domain ? deptNameMap.get(domain) ?? "" : "");
+    const entity = csvEscape(p.title ?? "");
+    const status = (props.status as string) ?? "";
+    const outcome = (props.outcome as string) ?? "";
+    const severity = typeof props.severity === "number" ? (props.severity as number).toFixed(2) : "0.00";
+    const confidence = typeof props.confidence === "number" ? (props.confidence as number).toFixed(2) : "0.00";
+    const reasoningSummary = "";
+    const feedbackCategory = "";
+    const feedbackText = "";
 
-    let reasoningSummary = "";
-    if (s.reasoning) {
-      try {
-        const parsed = JSON.parse(s.reasoning);
-        if (typeof parsed.analysis === "string") {
-          reasoningSummary = parsed.analysis.slice(0, 200);
-        }
-      } catch {
-        // ignore parse errors
-      }
-    }
-
-    const feedbackCategory = s.feedbackCategory ?? "";
-    const feedbackText = csvEscape(s.feedback ?? "");
-
-    return `${date},${sitType},${dept},${entity},${status},${outcome},${severity},${confidence},${csvEscape(reasoningSummary)},${feedbackCategory},${feedbackText}`;
+    return `${date},${sitType},${dept},${entity},${status},${outcome},${severity},${confidence},${csvEscape(reasoningSummary)},${feedbackCategory},${csvEscape(feedbackText)}`;
   });
 
   const csv = [header, ...rows].join("\n");

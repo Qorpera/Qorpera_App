@@ -125,13 +125,13 @@ export const REASONING_TOOLS: AITool[] = [
   {
     name: "get_prior_situations",
     description:
-      "Load previously resolved or closed situations, optionally filtered by type or trigger entity. Useful for understanding precedent and past outcomes.",
+      "Load previously resolved or closed situations from the wiki, optionally filtered by situation type slug. Useful for understanding precedent and past outcomes.",
     parameters: {
       type: "object",
       properties: {
-        situationTypeId: {
+        situationTypeSlug: {
           type: "string",
-          description: "Filter by situation type ID (also matches sibling types with the same archetype)",
+          description: "Filter by situation type slug (e.g. 'situation-type-late-invoice')",
         },
         triggerPageSlug: {
           type: "string",
@@ -542,57 +542,45 @@ async function executeGetPriorSituations(
   operatorId: string,
   args: Record<string, unknown>,
 ): Promise<string> {
-  const situationTypeId = args.situationTypeId ? String(args.situationTypeId) : undefined;
+  const situationTypeSlug = args.situationTypeSlug ? String(args.situationTypeSlug) : undefined;
   const triggerPageSlug = args.triggerPageSlug ? String(args.triggerPageSlug) : undefined;
   const limit = typeof args.limit === "number" ? args.limit : 5;
 
-  // If situationTypeId provided, also find sibling types with the same archetype
-  let typeIds: string[] | undefined;
-  if (situationTypeId) {
-    const sourceType = await prisma.situationType.findFirst({
-      where: { id: situationTypeId, operatorId },
-      select: { archetypeSlug: true },
-    });
-    if (sourceType?.archetypeSlug) {
-      const siblings = await prisma.situationType.findMany({
-        where: { operatorId, archetypeSlug: sourceType.archetypeSlug },
-        select: { id: true },
-      });
-      typeIds = siblings.map((s) => s.id);
-    } else {
-      typeIds = [situationTypeId];
-    }
+  // Build AND conditions for JSONB property filters
+  const propertyFilters: Array<{ properties: { path: string[]; equals: string } }> = [];
+  if (situationTypeSlug) {
+    propertyFilters.push({ properties: { path: ["situation_type"], equals: situationTypeSlug } });
+  }
+  if (triggerPageSlug) {
+    propertyFilters.push({ properties: { path: ["trigger_page"], equals: triggerPageSlug } });
   }
 
-  const situations = await prisma.situation.findMany({
+  const pages = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
-      status: { in: ["resolved", "closed"] },
-      ...(typeIds ? { situationTypeId: { in: typeIds } } : {}),
-      ...(triggerPageSlug ? { triggerPageSlug } : {}),
+      pageType: "situation_instance",
+      scope: "operator",
+      ...(propertyFilters.length > 0 ? { AND: propertyFilters } : {}),
     },
-    include: {
-      situationType: { select: { name: true } },
-    },
+    select: { slug: true, title: true, content: true, properties: true, createdAt: true },
     orderBy: { createdAt: "desc" },
-    take: limit,
+    take: limit * 2, // Fetch extra — status filter applied in JS (no JSONB "in" in Prisma)
   });
 
-  if (situations.length === 0) return "No prior resolved/closed situations found matching the criteria.";
+  // Filter to resolved/closed in JS (Prisma JSON path doesn't support "in" for status)
+  const resolved = pages.filter(p => {
+    const status = ((p.properties ?? {}) as Record<string, unknown>).status as string | undefined;
+    return status === "resolved" || status === "closed";
+  }).slice(0, limit);
 
-  const lines: string[] = [`Found ${situations.length} prior situations:`];
+  if (resolved.length === 0) return "No prior resolved situations found.";
 
-  for (const s of situations) {
-    const reasoning = s.reasoning ? String(s.reasoning).slice(0, 300) : "N/A";
-    const action = s.actionTaken ? String(s.actionTaken).slice(0, 200) : "none";
-    lines.push(`\n[${s.situationType.name}] Created: ${s.createdAt.toISOString().split("T")[0]}`);
-    lines.push(`  Outcome: ${s.outcome ?? "unknown"}`);
-    if (s.feedback) lines.push(`  Feedback: ${s.feedback} (rating: ${s.feedbackRating ?? "N/A"})`);
-    lines.push(`  Reasoning: ${reasoning}`);
-    lines.push(`  Action taken: ${action}`);
-  }
-
-  return lines.join("\n");
+  return resolved.map(p => {
+    const pageProps = (p.properties ?? {}) as Record<string, unknown>;
+    const outcomeMatch = p.content.match(/## Outcome Summary\n([\s\S]*?)(?=\n## |\n---|\Z)/);
+    const outcome = outcomeMatch?.[1]?.trim()?.slice(0, 300) ?? "No outcome recorded";
+    return `### [[${p.slug}]] ${p.title}\nResolved: ${(pageProps.resolved_at as string) ?? "unknown"}\n${outcome}`;
+  }).join("\n\n");
 }
 
 async function executeGetDomainContext(

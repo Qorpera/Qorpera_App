@@ -481,64 +481,54 @@ async function main() {
   }
   console.log(`Situation types: ${sitTypeIds.length}`);
 
-  // 10. Create ~100 situations (idempotent — skip if situations already exist for these types)
-  const STATUSES = ["detected", "proposed", "approved", "rejected", "resolved", "resolved", "resolved"];
-  const OUTCOMES = ["positive", "positive", "positive", "negative", "neutral", null];
-  const FB_CATEGORIES = ["detection_wrong", "action_wrong", "timing_wrong", "missing_context"];
+  // 10. Create ~100 situation wiki pages (idempotent — skip if pages already exist)
+  const STATUSES = ["draft", "published", "published", "published", "published"];
 
-  const existingSituations = await prisma.situation.count({
-    where: { operatorId, situationTypeId: { in: sitTypeIds.map((s) => s.id) } },
+  const existingPages = await prisma.knowledgePage.count({
+    where: { operatorId, pageType: "situation_instance" },
   });
 
-  let situationCount = existingSituations;
-  if (existingSituations >= 100) {
-    console.log(`Situations: ${existingSituations} (already exist)`);
+  let situationPageCount = existingPages;
+  if (existingPages >= 100) {
+    console.log(`Situation pages: ${existingPages} (already exist)`);
   } else {
-  situationCount = 0;
+  situationPageCount = 0;
   for (let i = 0; i < 100; i++) {
     const stInfo = pick(sitTypeIds);
     const status = pick(STATUSES);
     const createdAt = daysAgo(rand(0, 30));
-    const resolvedAt = status === "resolved" ? new Date(createdAt.getTime() + rand(1, 48) * 3600000) : null;
-    const outcome = status === "resolved" ? pick(OUTCOMES) : null;
-    const hasFeedback = Math.random() < 0.3;
+    const triggerEntityId = pick([...dealIds.slice(0, 50), ...invoiceIds.slice(0, 50), ...contactIds.slice(0, 20)]);
 
-    await prisma.situation.create({
+    await prisma.knowledgePage.create({
       data: {
-        operatorId, situationTypeId: stInfo.id,
-        severity: randFloat(0.1, 1.0), confidence: randFloat(0.3, 1.0),
-        status, source: "detected",
-        triggerEntityId: pick([...dealIds.slice(0, 50), ...invoiceIds.slice(0, 50), ...contactIds.slice(0, 20)]),
-        reasoning: JSON.stringify({
-          analysis: `Automated analysis for situation ${i + 1}. Detected pattern matching ${pick(SITUATION_DEFS).name.toLowerCase()}.`,
-          consideredActions: [
-            { action: "Send notification", expectedOutcome: "Alert stakeholder", pros: ["Fast"], cons: ["May be noisy"] },
-            { action: "Auto-resolve", expectedOutcome: "Save time", pros: ["Efficient"], cons: ["Risk of error"] },
-          ],
+        operatorId,
+        pageType: "situation_instance",
+        scope: "operator",
+        subjectEntityId: triggerEntityId,
+        title: `Situation ${i + 1}: ${pick(SITUATION_DEFS).name}`,
+        slug: `stress-situation-${i + 1}`,
+        content: `## Analysis\n\nAutomated analysis for situation ${i + 1}. Detected pattern matching ${pick(SITUATION_DEFS).name.toLowerCase()}.`,
+        contentTokens: 50,
+        properties: {
+          situation_id: `stress-sit-${i + 1}`,
+          status,
+          severity: randFloat(0.3, 0.9),
           confidence: randFloat(0.4, 0.95),
-          missingContext: Math.random() < 0.3 ? ["Recent communication history", "Customer sentiment data"] : null,
-        }),
-        proposedAction: status !== "detected" ? JSON.stringify({
-          action: pick(["send_email", "create_task", "update_field", "notify_team"]),
-          connector: pick(["hubspot", "slack", "gmail"]),
-          params: { target: `entity-${rand(1, 100)}` },
-          justification: "Based on pattern analysis and historical outcomes.",
-        }) : null,
-        actionTaken: status === "resolved" ? JSON.stringify({
-          action: "send_email", result: "sent", executedAt: resolvedAt?.toISOString(),
-        }) : null,
-        outcome,
-        outcomeDetails: outcome ? JSON.stringify({ note: `Outcome recorded for situation ${i + 1}` }) : null,
-        feedback: hasFeedback ? `Feedback note for situation ${i + 1}: ${pick(["Good catch", "Too aggressive", "Missed context", "Timing was off"])}` : null,
-        feedbackCategory: hasFeedback ? pick(FB_CATEGORIES) : null,
-        feedbackRating: hasFeedback ? rand(1, 5) : null,
-        resolvedAt,
+          situation_type: stInfo.id,
+          detected_at: createdAt.toISOString(),
+          source: "stress_seed",
+        },
+        confidence: randFloat(0.3, 1.0),
+        sourceCount: 1,
+        synthesisPath: "stress_seed",
+        synthesizedByModel: "stress_seed",
+        lastSynthesizedAt: createdAt,
         createdAt,
       },
     });
-    situationCount++;
+    situationPageCount++;
   }
-  console.log(`Situations: ${situationCount}`);
+  console.log(`Situation pages: ${situationPageCount}`);
   }
 
   // 10b. Create demo connectors + ActionCapabilities
@@ -735,7 +725,7 @@ Stress seed complete:
   Digital entities: ${dealIds.length + invoiceIds.length}
   External entities: ${contactIds.length + companyIds.length}
   Situation types: ${sitTypeIds.length}
-  Situations: ${situationCount}
+  Situation pages: ${situationPageCount}
 
 Completed in ${(elapsed / 1000).toFixed(1)}s`);
 }

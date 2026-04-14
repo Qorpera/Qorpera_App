@@ -71,134 +71,49 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      // ── Activity Signals ────────────────────────────────────────────────
+      // ── Activity Signals (table removed) ────────────────────────────────
       case "activity-signals": {
-        const signals = await prisma.activitySignal.findMany({
-          where: { operatorId },
-          orderBy: { occurredAt: "desc" },
-          take: limit,
-        });
-
-        // Resolve actor entity names
-        const actorIds = [...new Set(signals.map((s) => s.actorEntityId).filter(Boolean))] as string[];
-        const actorEntities = actorIds.length > 0
-          ? await prisma.entity.findMany({
-              where: { id: { in: actorIds } },
-              select: { id: true, displayName: true },
-            })
-          : [];
-        const actorMap = new Map(actorEntities.map((e) => [e.id, e.displayName]));
-
-        // Resolve target entity names
-        const allTargetIds = new Set<string>();
-        for (const s of signals) {
-          if (s.targetEntityIds) {
-            try {
-              const ids = JSON.parse(s.targetEntityIds) as string[];
-              ids.forEach((id) => allTargetIds.add(id));
-            } catch {}
-          }
-        }
-        const targetEntities = allTargetIds.size > 0
-          ? await prisma.entity.findMany({
-              where: { id: { in: [...allTargetIds] } },
-              select: { id: true, displayName: true },
-            })
-          : [];
-        const targetMap = new Map(targetEntities.map((e) => [e.id, e.displayName]));
-
         return NextResponse.json({
           layer: "activity-signals",
           operatorId,
-          count: signals.length,
-          items: signals.map((s) => {
-            const targetIds = s.targetEntityIds ? (safeParseJSON(s.targetEntityIds) as string[]) : [];
-            return {
-              id: s.id,
-              signalType: s.signalType,
-              actorEntityId: s.actorEntityId,
-              actorName: s.actorEntityId ? actorMap.get(s.actorEntityId) ?? null : null,
-              targets: Array.isArray(targetIds)
-                ? targetIds.map((id: string) => ({ id, name: targetMap.get(id) ?? null }))
-                : [],
-              domainIds: s.domainIds ? safeParseJSON(s.domainIds) : null,
-              metadata: s.metadata ? safeParseJSON(s.metadata) : null,
-              occurredAt: formatTimestamp(s.occurredAt),
-            };
-          }),
+          count: 0,
+          items: [],
+          note: "ActivitySignal table has been removed.",
         });
       }
 
-      // ── Situations ──────────────────────────────────────────────────────
+      // ── Situations (from KnowledgePage) ─────────────────────────────────
       case "situations": {
-        const situations = await prisma.situation.findMany({
-          where: { operatorId },
-          include: {
-            situationType: { select: { name: true, autonomyLevel: true, scopeEntityId: true } },
-          },
+        const sitPages = await prisma.knowledgePage.findMany({
+          where: { operatorId, pageType: "situation_instance", scope: "operator" },
+          select: { slug: true, title: true, properties: true, createdAt: true },
           orderBy: { createdAt: "desc" },
           take: limit,
         });
 
-        // Resolve trigger entity names
-        const triggerIds = [...new Set(situations.map((s) => s.triggerEntityId).filter(Boolean))] as string[];
-        const triggerEntities = triggerIds.length > 0
-          ? await prisma.entity.findMany({
-              where: { id: { in: triggerIds } },
-              select: { id: true, displayName: true, entityType: { select: { slug: true } } },
-            })
-          : [];
-        const triggerMap = new Map(triggerEntities.map((e) => [e.id, e]));
-
-        // Resolve department names for scope
-        const deptIds = [...new Set(situations.map((s) => s.situationType.scopeEntityId).filter(Boolean))] as string[];
-        const deptEntities = deptIds.length > 0
-          ? await prisma.entity.findMany({
-              where: { id: { in: deptIds } },
-              select: { id: true, displayName: true },
-            })
-          : [];
-        const deptMap = new Map(deptEntities.map((e) => [e.id, e.displayName]));
-
         return NextResponse.json({
           layer: "situations",
           operatorId,
-          count: situations.length,
-          items: situations.map((s) => {
-            const trigger = s.triggerEntityId ? triggerMap.get(s.triggerEntityId) : null;
-            let reasoningSummary = null;
-            if (s.reasoning) {
-              try {
-                const r = JSON.parse(s.reasoning);
-                reasoningSummary = {
-                  analysis: r.analysis?.slice(0, 200) ?? null,
-                  chosenAction: (r.actionBatch ?? r.actionPlan)?.[0]?.actionCapabilityName ?? null,
-                  confidence: r.confidence ?? null,
-                  isMultiAgent: !!r._multiAgent,
-                };
-              } catch {}
-            }
+          count: sitPages.length,
+          items: sitPages.map((p) => {
+            const props = p.properties as Record<string, unknown> | null ?? {};
             return {
-              id: s.id,
-              status: s.status,
-              source: s.source,
-              triggerEntity: trigger
-                ? { id: trigger.id, displayName: trigger.displayName, type: trigger.entityType.slug }
-                : null,
+              id: (props?.situation_id as string) ?? p.slug,
+              status: (props?.status as string) ?? "unknown",
+              source: (props?.source as string) ?? null,
+              triggerEntity: null,
               situationType: {
-                name: s.situationType.name,
-                autonomyLevel: s.situationType.autonomyLevel,
+                name: (props?.situation_type as string) ?? "unknown",
+                autonomyLevel: (props?.autonomy_level as string) ?? "supervised",
               },
-              department: s.situationType.scopeEntityId
-                ? deptMap.get(s.situationType.scopeEntityId) ?? null
-                : null,
-              severity: s.severity,
-              confidence: s.confidence,
-              reasoning: reasoningSummary,
-              feedback: s.feedback,
-              feedbackRating: s.feedbackRating,
-              createdAt: formatTimestamp(s.createdAt),
-              resolvedAt: s.resolvedAt ? formatTimestamp(s.resolvedAt) : null,
+              department: (props?.domain as string) ?? null,
+              severity: (props?.severity as number) ?? 0,
+              confidence: (props?.confidence as number) ?? 0,
+              reasoning: null,
+              feedback: null,
+              feedbackRating: null,
+              createdAt: formatTimestamp(p.createdAt),
+              resolvedAt: props?.resolved_at ? String(props.resolved_at) : null,
             };
           }),
         });
