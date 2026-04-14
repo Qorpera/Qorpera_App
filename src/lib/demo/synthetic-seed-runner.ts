@@ -142,7 +142,7 @@ export async function runSyntheticSeed(
 
   // ── 5. Entity types + relationship types ─────────────────────────
   console.time(`[synthetic-seed] Entity creation — ${company.slug}`);
-  const typeSlugs = ["organization", "department", "team-member", "company", "contact", "deal", "invoice", "ticket"];
+  const typeSlugs = ["organization", "domain", "team-member", "company", "contact", "deal", "invoice", "ticket"];
   const types: Record<string, { typeId: string; props: Record<string, string> }> = {};
   for (const slug of typeSlugs) {
     types[slug] = await getTypeAndProps(operatorId, slug);
