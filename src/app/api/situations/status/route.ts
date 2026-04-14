@@ -15,54 +15,63 @@ export async function GET() {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
-    // 1. Situation type count
-    const situationTypeCount = await prisma.situationType.count({
-      where: { operatorId },
-    });
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
 
-    // 2. Last detection run
-    const lastSituation = await prisma.situation.findFirst({
-      where: { operatorId },
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true },
-    });
-    const lastDetectionRun = lastSituation?.createdAt?.toISOString() ?? null;
+    const [
+      situationTypeCount,
+      statusCounts,
+      lastDetectionResult,
+      activeConnectors,
+      aiConfig,
+      recentWorkerActivity,
+      recentAnalysis,
+    ] = await Promise.all([
+      prisma.situationType.count({ where: { operatorId } }),
+      prisma.$queryRawUnsafe<Array<{ status: string; count: bigint }>>(
+        `SELECT properties->>'status' as status, COUNT(*) as count
+         FROM "KnowledgePage"
+         WHERE "operatorId" = $1
+           AND "pageType" = 'situation_instance'
+           AND properties->>'situation_id' IS NOT NULL
+         GROUP BY properties->>'status'`,
+        operatorId,
+      ),
+      prisma.$queryRawUnsafe<Array<{ detected_at: string }>>(
+        `SELECT properties->>'detected_at' as detected_at
+         FROM "KnowledgePage"
+         WHERE "operatorId" = $1
+           AND "pageType" = 'situation_instance'
+           AND properties->>'situation_id' IS NOT NULL
+         ORDER BY (properties->>'detected_at')::timestamp DESC NULLS LAST
+         LIMIT 1`,
+        operatorId,
+      ),
+      prisma.sourceConnector.count({ where: { operatorId, status: "active" } }),
+      getAIConfig("reasoning"),
+      prisma.workerJob.findFirst({
+        where: {
+          OR: [
+            { claimedAt: { gte: thirtyMinAgo } },
+            { completedAt: { gte: thirtyMinAgo } },
+          ],
+        },
+        select: { id: true },
+      }),
+      prisma.onboardingAnalysis.findFirst({
+        where: { workerClaimedAt: { gte: thirtyMinAgo } },
+        select: { id: true },
+      }),
+    ]);
 
-    // 3. Total situations detected
-    const totalSituationsDetected = await prisma.situation.count({
-      where: { operatorId },
-    });
-
-    // 4. Active connectors
-    const activeConnectors = await prisma.sourceConnector.count({
-      where: { operatorId, status: "active" },
-    });
-
-    // 5+6. AI provider configured & reachable — use getAIConfig() so DB + env fallback is respected
-    const aiConfig = await getAIConfig("reasoning");
+    const totalSituationsDetected = statusCounts.reduce(
+      (sum, r) => sum + Number(r.count),
+      0,
+    );
+    const lastDetectionRun = lastDetectionResult[0]?.detected_at ?? null;
     const aiProviderConfigured = !!aiConfig.provider;
-    let aiReachable = false;
-    if (aiConfig.provider === "ollama") {
-      aiReachable = !!aiConfig.baseUrl;
-    } else {
-      aiReachable = !!aiConfig.apiKey;
-    }
-
-    // 7. Cron running
-    // Check if worker has claimed any job in the last 30 minutes (proxy for "worker is alive")
-    const recentWorkerActivity = await prisma.workerJob.findFirst({
-      where: {
-        OR: [
-          { claimedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
-          { completedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
-        ],
-      },
-      select: { id: true },
-    });
-    const recentAnalysis = await prisma.onboardingAnalysis.findFirst({
-      where: { workerClaimedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
-      select: { id: true },
-    });
+    const aiReachable = aiConfig.provider === "ollama"
+      ? !!aiConfig.baseUrl
+      : !!aiConfig.apiKey;
     const cronRunning = !!(recentWorkerActivity || recentAnalysis);
 
     return NextResponse.json({
@@ -78,7 +87,7 @@ export async function GET() {
     console.error("[situations/status] Error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to get status" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

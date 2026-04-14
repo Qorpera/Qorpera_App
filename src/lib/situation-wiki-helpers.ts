@@ -14,6 +14,7 @@ import { extractCrossReferences } from "@/lib/wiki-engine";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface SituationProperties {
+  situation_id: string;   // CUID — shared with thin Situation record
   status: "detected" | "reasoning" | "proposed" | "approved" | "executing" | "monitoring" | "resolved" | "rejected";
   severity: number;       // 0–1
   confidence: number;     // 0–1
@@ -72,6 +73,8 @@ export function renderPropertyTable(props: SituationProperties): string {
     "| Property | Value |",
     "|---|---|",
   ];
+
+  if (props.situation_id) lines.push(`| ID | ${props.situation_id} |`);
 
   const STATUS_DISPLAY: Record<string, string> = {
     detected: "Detected", reasoning: "Reasoning", proposed: "Proposed",

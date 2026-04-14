@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { amendExecutionPlan } from "@/lib/execution-engine";
+import { updatePageWithLock } from "@/lib/wiki-engine";
+import { parseActionPlan, renderActionPlan, replaceSection } from "@/lib/wiki-execution-engine";
 
 export async function POST(
   req: NextRequest,
@@ -16,11 +18,6 @@ export async function POST(
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
 
-  const plan = await prisma.executionPlan.findFirst({
-    where: { id: planId, operatorId },
-  });
-  if (!plan) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
-
   const body = await req.json();
   const { amendments } = body;
 
@@ -33,6 +30,48 @@ export async function POST(
       return NextResponse.json({ error: "Each amendment requires stepSequenceOrder (number) and newDescription (string)" }, { status: 400 });
     }
   }
+
+  const plan = await prisma.executionPlan.findFirst({
+    where: { id: planId, operatorId },
+  });
+
+  // Wiki-first fallback
+  if (!plan && planId.startsWith("situation-")) {
+    const wikiPage = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: planId, pageType: "situation_instance" },
+      select: { slug: true, content: true },
+    });
+    if (!wikiPage) {
+      return NextResponse.json({ error: "Plan not found" }, { status: 404 });
+    }
+
+    const updated = await updatePageWithLock(operatorId, wikiPage.slug, (current) => {
+      const parsed = parseActionPlan(current.content);
+      for (const a of amendments) {
+        const step = parsed.steps.find(s => s.order === a.stepSequenceOrder);
+        if (step) step.description = a.newDescription;
+      }
+      const newSection = renderActionPlan(parsed.steps);
+      const content = replaceSection(current.content, "Action Plan", newSection);
+      return { content };
+    });
+
+    const updatedPlan = parseActionPlan(updated.content);
+
+    return NextResponse.json({
+      id: planId,
+      steps: updatedPlan.steps.map(s => ({
+        id: `wiki-step-${s.order}`,
+        sequenceOrder: s.order,
+        title: s.title,
+        description: s.description,
+        status: s.status,
+      })),
+      _wikiFirst: true,
+    });
+  }
+
+  if (!plan) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
 
   try {
     await amendExecutionPlan(planId, amendments);

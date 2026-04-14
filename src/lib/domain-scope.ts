@@ -193,6 +193,55 @@ export function situationScopeFilter(visibleDomains: string[] | "all"): Record<s
   };
 }
 
+// ── Wiki-first situation scoping ───────────────────────────────────────────
+
+/**
+ * Build a raw SQL WHERE fragment for wiki-based situation domain scoping.
+ * Filters situation_instance KnowledgePages by domain visibility.
+ *
+ * Returns the domain slugs array. The caller builds the SQL with proper
+ * parameter offsets (Prisma $queryRawUnsafe doesn't support Prisma-typed
+ * JSONB operators, so raw SQL is needed).
+ *
+ * - "all" → no filtering needed (admins)
+ * - [] → impossible filter (no visible domains)
+ * - string[] → match pages whose domain property is in the list, or has no domain set
+ */
+export function wikiSituationScopeFilter(
+  visibleDomains: string[] | "all",
+): { needed: false } | { needed: true; domainSlugs: string[] } {
+  if (visibleDomains === "all") {
+    return { needed: false };
+  }
+  // Even with zero visible domains we return the array — caller decides
+  // whether to short-circuit or include the NULL-domain fallback.
+  return { needed: true, domainSlugs: visibleDomains };
+}
+
+/**
+ * Build the SQL WHERE clause fragment for wiki situation domain filtering.
+ * Caller provides paramOffset — the count of existing bind parameters.
+ * First domain placeholder will be `$(paramOffset + 1)`.
+ *
+ * Returns { clause, params } where clause is a parenthesized SQL condition
+ * and params are the bind values to append to the query's parameter array.
+ *
+ * Empty domainSlugs → returns FALSE (user sees nothing).
+ */
+export function buildWikiSituationDomainClause(
+  domainSlugs: string[],
+  paramOffset: number,
+): { clause: string; params: string[] } {
+  if (domainSlugs.length === 0) {
+    return { clause: "FALSE", params: [] };
+  }
+  const placeholders = domainSlugs.map((_, i) => `$${paramOffset + i + 1}`).join(", ");
+  return {
+    clause: `(kp.properties->>'domain' IN (${placeholders}) OR kp.properties->>'domain' IS NULL)`,
+    params: domainSlugs,
+  };
+}
+
 /**
  * Check if a user can access a specific domain.
  */

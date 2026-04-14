@@ -1,83 +1,164 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDomainIds, situationScopeFilter } from "@/lib/domain-scope";
+import {
+  getVisibleDomainSlugs,
+  wikiSituationScopeFilter,
+  buildWikiSituationDomainClause,
+} from "@/lib/domain-scope";
+import type { SituationProperties } from "@/lib/situation-wiki-helpers";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
-  const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
-  const params = req.nextUrl.searchParams;
+  const visibleDomains = await getVisibleDomainSlugs(operatorId, su.effectiveUserId);
 
+  const params = req.nextUrl.searchParams;
   const statusParam = params.get("status");
-  const typeId = params.get("typeId");
+  const typeSlug = params.get("typeId");
   const severityMin = params.get("severity_min");
   const severityMax = params.get("severity_max");
-  const sort = params.get("sort");
   const limit = Math.min(Math.max(parseInt(params.get("limit") ?? "50", 10) || 50, 1), 200);
   const offset = Math.max(parseInt(params.get("offset") ?? "0", 10) || 0, 0);
-
-  // Build where clause
-  const where: Record<string, unknown> = { operatorId, ...situationScopeFilter(visibleDomains) };
-
-  // Visibility filtering based on role and toggle
   const showAll = params.get("showAll");
-  if (su.effectiveRole === "member") {
-    // Members always see only their assigned situations
-    where.assignedUserId = su.effectiveUserId;
-  } else if (showAll === "false") {
-    // Admin/operator with toggle OFF — show only their assigned situations
-    where.assignedUserId = su.effectiveUserId;
-  }
-  // Admin/operator with showAll=true (default) — no assignedUserId filter, sees everything
 
+  // ── Build parameterized WHERE clause ──────────────────────────────────────
+  const conditions: string[] = [
+    `kp."operatorId" = $1`,
+    `kp."pageType" = 'situation_instance'`,
+    `kp.properties->>'situation_id' IS NOT NULL`,
+  ];
+  const queryParams: unknown[] = [operatorId];
+  let paramIdx = 1; // tracks the last used $N
+
+  // Status filter
   if (statusParam) {
-    const statuses = statusParam.split(",").map((s) => s.trim()).filter(s => s !== "detected" && s !== "reasoning");
-    where.status = { in: statuses };
+    const statuses = statusParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s && s !== "detected" && s !== "reasoning");
+    if (statuses.length > 0) {
+      const placeholders = statuses.map((_, i) => `$${paramIdx + i + 1}`).join(", ");
+      conditions.push(`kp.properties->>'status' IN (${placeholders})`);
+      queryParams.push(...statuses);
+      paramIdx += statuses.length;
+    }
   } else {
-    // Default: exclude closed and resolved
-    where.status = { notIn: ["closed", "resolved"] };
+    conditions.push(`kp.properties->>'status' NOT IN ('closed', 'resolved')`);
   }
 
-  if (typeId) where.situationTypeId = typeId;
-  if (severityMin || severityMax) {
-    const severity: Record<string, number> = {};
-    if (severityMin) { const v = parseFloat(severityMin); if (isFinite(v)) severity.gte = v; }
-    if (severityMax) { const v = parseFloat(severityMax); if (isFinite(v)) severity.lte = v; }
-    where.severity = severity;
+  // Domain scoping
+  const domainScope = wikiSituationScopeFilter(visibleDomains);
+  if (domainScope.needed) {
+    const { clause, params: domainParams } = buildWikiSituationDomainClause(
+      domainScope.domainSlugs,
+      paramIdx,
+    );
+    conditions.push(clause);
+    queryParams.push(...domainParams);
+    paramIdx += domainParams.length;
   }
 
-  const orderBy =
-    sort === "priority"
-      ? [{ executionPlan: { priorityScore: "desc" as const } }, { createdAt: "desc" as const }]
-      : [{ severity: "desc" as const }, { createdAt: "desc" as const }];
+  // Assigned user filter
+  if (su.effectiveRole === "member" || showAll === "false") {
+    const userRecord = await prisma.user.findUnique({
+      where: { id: su.effectiveUserId },
+      select: { wikiPageSlug: true },
+    });
+    if (userRecord?.wikiPageSlug) {
+      paramIdx++;
+      conditions.push(`kp.properties->>'assigned_to' = $${paramIdx}`);
+      queryParams.push(userRecord.wikiPageSlug);
+    }
+  }
 
-  const [situations, total] = await Promise.all([
-    prisma.situation.findMany({
-      where,
-      include: {
-        situationType: { select: { name: true, slug: true, autonomyLevel: true, scopeEntityId: true } },
-        ...(sort === "priority" ? { executionPlan: { select: { priorityScore: true } } } : {}),
-      },
-      orderBy,
-      skip: offset,
-      take: limit,
-    }),
-    prisma.situation.count({ where }),
+  // Severity filter
+  if (severityMin) {
+    const v = parseFloat(severityMin);
+    if (isFinite(v)) {
+      paramIdx++;
+      conditions.push(`(kp.properties->>'severity')::float >= $${paramIdx}`);
+      queryParams.push(v);
+    }
+  }
+  if (severityMax) {
+    const v = parseFloat(severityMax);
+    if (isFinite(v)) {
+      paramIdx++;
+      conditions.push(`(kp.properties->>'severity')::float <= $${paramIdx}`);
+      queryParams.push(v);
+    }
+  }
+
+  // Situation type filter (slug)
+  if (typeSlug) {
+    paramIdx++;
+    conditions.push(`kp.properties->>'situation_type' = $${paramIdx}`);
+    queryParams.push(typeSlug);
+  }
+
+  const whereClause = conditions.join("\n  AND ");
+
+  // ── Execute list + count in parallel ──────────────────────────────────────
+  const listSQL = `
+SELECT kp.id, kp.slug, kp.title, kp.properties, kp."crossReferences", kp."createdAt"
+FROM "KnowledgePage" kp
+WHERE ${whereClause}
+ORDER BY (kp.properties->>'severity')::float DESC NULLS LAST, kp."createdAt" DESC
+LIMIT $${paramIdx + 1} OFFSET $${paramIdx + 2}`;
+
+  const countSQL = `
+SELECT COUNT(*) as count
+FROM "KnowledgePage" kp
+WHERE ${whereClause}`;
+
+  const listParams = [...queryParams, limit, offset];
+
+  type WikiRow = {
+    id: string;
+    slug: string;
+    title: string;
+    properties: SituationProperties | null;
+    crossReferences: string[];
+    createdAt: Date;
+  };
+
+  const [rows, countResult] = await Promise.all([
+    prisma.$queryRawUnsafe<WikiRow[]>(listSQL, ...listParams),
+    prisma.$queryRawUnsafe<[{ count: bigint }]>(countSQL, ...queryParams),
   ]);
 
-  // Resolve trigger + domain display names via wiki pages
-  const situationIds = situations.map((s) => s.id);
-  const triggerSlugs = situations.map((s) => s.triggerPageSlug).filter(Boolean) as string[];
-  const domainSlugs = situations.map((s) => s.domainPageSlug).filter(Boolean) as string[];
-  const allSlugs = [...new Set([...triggerSlugs, ...domainSlugs])];
+  const total = Number(countResult[0]?.count ?? 0);
 
-  const [wikiPages, views] = await Promise.all([
-    allSlugs.length > 0
+  // ── Resolve display names ─────────────────────────────────────────────────
+  const domainSlugs = new Set<string>();
+  for (const row of rows) {
+    if (row.properties?.domain) {
+      domainSlugs.add(row.properties.domain);
+    }
+  }
+
+  const situationIds = rows
+    .map((r) => r.properties?.situation_id)
+    .filter(Boolean) as string[];
+  const typeSlugs = [
+    ...new Set(
+      rows.map((r) => r.properties?.situation_type).filter(Boolean) as string[],
+    ),
+  ];
+
+  const [domainPages, types, views] = await Promise.all([
+    domainSlugs.size > 0
       ? prisma.knowledgePage.findMany({
-          where: { operatorId, slug: { in: allSlugs }, scope: "operator" },
-          select: { slug: true, title: true, pageType: true },
+          where: { operatorId, slug: { in: [...domainSlugs] }, scope: "operator" },
+          select: { slug: true, title: true },
+        })
+      : Promise.resolve([]),
+    typeSlugs.length > 0
+      ? prisma.situationType.findMany({
+          where: { operatorId, slug: { in: typeSlugs } },
+          select: { slug: true, name: true, autonomyLevel: true },
         })
       : Promise.resolve([]),
     situationIds.length > 0
@@ -87,43 +168,54 @@ export async function GET(req: NextRequest) {
         })
       : Promise.resolve([]),
   ]);
-  const pageMap = new Map(wikiPages.map((p) => [p.slug, p]));
+
+  const domainMap = new Map(domainPages.map((p) => [p.slug, p.title]));
+  const typeMap = new Map(types.map((t) => [t.slug, t]));
   const viewMap = new Map(views.map((v) => [v.situationId, v.viewedAt]));
 
-  const items = situations.map((s) => {
-    let reasoning = null;
-    let proposedAction = null;
-    try { reasoning = s.reasoning ? JSON.parse(s.reasoning) : null; } catch {}
-    try { proposedAction = s.proposedAction ? JSON.parse(s.proposedAction) : null; } catch {}
+  // ── Build response items ──────────────────────────────────────────────────
+  const items = rows.map((row) => {
+    const props = row.properties;
+    if (!props) return null;
 
-    const item: Record<string, unknown> = {
-      id: s.id,
-      situationType: s.situationType,
-      severity: s.severity,
-      confidence: s.confidence,
-      status: s.status,
-      source: s.source,
-      triggerEntityId: s.triggerEntityId,
-      triggerPageSlug: s.triggerPageSlug,
-      triggerName: s.triggerPageSlug ? pageMap.get(s.triggerPageSlug)?.title ?? null : null,
-      triggerPageType: s.triggerPageSlug ? pageMap.get(s.triggerPageSlug)?.pageType ?? null : null,
-      domainPageSlug: s.domainPageSlug,
-      domainName: s.domainPageSlug
-        ? pageMap.get(s.domainPageSlug)?.title ?? null
-        : null,
-      reasoning,
-      proposedAction,
-      triggerSummary: s.triggerSummary ?? null,
-      editInstruction: s.editInstruction,
-      createdAt: s.createdAt.toISOString(),
-      resolvedAt: s.resolvedAt?.toISOString() ?? null,
-      viewedAt: viewMap.get(s.id)?.toISOString() ?? null,
+    const typeInfo = props.situation_type ? typeMap.get(props.situation_type) : undefined;
+
+    return {
+      id: props.situation_id,
+      slug: row.slug,
+      status: props.status,
+      severity: props.severity,
+      confidence: props.confidence,
+      situationType: typeInfo
+        ? { slug: typeInfo.slug, name: typeInfo.name, autonomyLevel: typeInfo.autonomyLevel }
+        : props.situation_type
+          ? { slug: props.situation_type, name: props.situation_type, autonomyLevel: null }
+          : null,
+      source: props.source,
+      triggerSummary: row.title,
+      triggerPageSlug: findTriggerSlug(row.crossReferences, props.domain),
+      domainName: props.domain ? domainMap.get(props.domain) ?? null : null,
+      domainPageSlug: props.domain ?? null,
+      assignedTo: props.assigned_to ?? null,
+      autonomyLevel: props.autonomy_level ?? null,
+      createdAt: props.detected_at ?? row.createdAt.toISOString(),
+      resolvedAt: props.resolved_at ?? null,
+      viewedAt: viewMap.get(props.situation_id)?.toISOString() ?? null,
+      _wikiFirst: true,
     };
-    if (sort === "priority" && "executionPlan" in s) {
-      item.priorityScore = (s as { executionPlan?: { priorityScore: number | null } | null }).executionPlan?.priorityScore ?? null;
-    }
-    return item;
-  });
+  }).filter(Boolean);
 
   return NextResponse.json({ items, total, limit, offset });
+}
+
+/** Pick the first cross-reference that isn't the domain slug itself. */
+function findTriggerSlug(
+  crossReferences: string[] | null,
+  domainSlug: string | undefined,
+): string | null {
+  if (!crossReferences || crossReferences.length === 0) return null;
+  for (const ref of crossReferences) {
+    if (ref !== domainSlug) return ref;
+  }
+  return null;
 }

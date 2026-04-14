@@ -12,7 +12,7 @@ const isLocalhost = () => (process.env.NEXT_PUBLIC_APP_URL || "").includes("loca
 
 // ── Types ────────────────────────────────────────────────
 
-type SessionUser = {
+export type SessionUser = {
   user: User & { operator: Operator };
   operatorId: string;
   isSuperadmin: boolean;

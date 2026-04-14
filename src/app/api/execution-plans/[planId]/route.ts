@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { parseActionPlan, deriveActionPlanStatus } from "@/lib/wiki-execution-engine";
 
 export async function GET(
   _req: NextRequest,
@@ -48,7 +49,51 @@ export async function GET(
     },
   });
 
-  if (!plan) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!plan) {
+    // Wiki-first fallback: if planId looks like a situation slug, try wiki page
+    if (planId.startsWith("situation-")) {
+      const wikiPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug: planId, pageType: "situation_instance" },
+        select: { content: true, properties: true },
+      });
+      if (wikiPage) {
+        const parsed = parseActionPlan(wikiPage.content ?? "");
+        const props = wikiPage.properties as Record<string, unknown> | null;
+        const status = deriveActionPlanStatus(parsed.steps);
+
+        return NextResponse.json({
+          id: planId,
+          sourceType: "situation",
+          sourceId: (props?.situation_id as string) ?? null,
+          status,
+          steps: parsed.steps.map(s => ({
+            id: `wiki-step-${s.order}`,
+            sequenceOrder: s.order,
+            title: s.title,
+            description: s.description,
+            executionMode: s.actionType,
+            actionCapabilityId: null,
+            status: s.status,
+            assignedUserId: null,
+            parameters: s.params ?? null,
+            outputResult: s.result ?? null,
+            approvedAt: null,
+            approvedById: null,
+            executedAt: null,
+            errorMessage: null,
+            originalDescription: null,
+            createdAt: null,
+            uncertainties: null,
+            actionCapability: s.capabilityName
+              ? { id: null, slug: s.capabilityName, name: s.capabilityName }
+              : null,
+          })),
+          _wikiFirst: true,
+        });
+      }
+    }
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   // Batch-load action capabilities for preview component mapping
   const capIds = [...new Set(plan.steps.map(s => s.actionCapabilityId).filter(Boolean))] as string[];

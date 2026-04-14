@@ -359,6 +359,19 @@ export function appendDeliverable(
   return before + "\n\n" + newDeliverable + "\n" + (after ? "\n" + after : "");
 }
 
+// ─── Derived status ──────────────────────────────────────
+
+export function deriveActionPlanStatus(
+  steps: ParsedActionStep[],
+): "executing" | "approved" | "completed" | "failed" | "pending" {
+  if (steps.length === 0) return "pending";
+  if (steps.some((s) => s.status === "executing")) return "executing";
+  if (steps.every((s) => s.status === "completed" || s.status === "skipped")) return "completed";
+  if (steps.some((s) => s.status === "failed")) return "failed";
+  if (steps.some((s) => s.status === "approved")) return "approved";
+  return "pending";
+}
+
 // ─── Utility ────────────────────────────────────────────
 
 export function formatTimestamp(): string {

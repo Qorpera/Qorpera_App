@@ -1,3 +1,4 @@
+import { createId } from "@paralleldrive/cuid2";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { callLLM, getModel } from "@/lib/ai-provider";
@@ -897,6 +898,7 @@ async function handleActionRequired(
   const triggerSummary = `${senderName}${subjectStr} — ${result.summary}`.slice(0, 300);
 
   // ── Wiki page creation (additive — failures must not block detection) ────
+  const situationId = createId();
   let wikiPageSlug: string | undefined;
   try {
     const situationTypeWikiSlug = situationTypeRef.slug;
@@ -935,6 +937,7 @@ async function handleActionRequired(
 
     // source: "detected" (wiki property enum) — DB record uses "content_detected" for backward compat
     const situationProps: SituationProperties = {
+      situation_id: situationId,
       status: "detected",
       severity: 0.5,
       confidence,
@@ -982,6 +985,7 @@ async function handleActionRequired(
 
   const situation = await prisma.situation.create({
     data: {
+      id: situationId,
       operatorId,
       situationTypeId,
       triggerEntityId: batch.actorEntityId,
