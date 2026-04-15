@@ -1070,7 +1070,7 @@ function DetailPane({
   }, [detail]);
 
   const isThisCard = activeMode?.id === s.id;
-  const currentMode = isThisCard ? activeMode!.mode : null;
+  const currentMode = isThisCard && activeMode ? activeMode.mode : null;
   const canAct = showAllStatuses
     ? (s.status === "detected" || s.status === "proposed")
     : s.status === "proposed";

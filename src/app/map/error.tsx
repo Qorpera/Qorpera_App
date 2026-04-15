@@ -30,20 +30,12 @@ export default function Error({
             {error.message}
           </p>
         )}
-        <div className="flex gap-3 justify-center">
-          <button
-            onClick={reset}
-            className="px-4 py-2 bg-accent hover:bg-accent text-foreground text-sm rounded-lg transition"
-          >
-            Try again
-          </button>
-          <a
-            href="/map"
-            className="px-4 py-2 bg-hover hover:bg-hover text-[var(--fg2)] text-sm rounded-lg transition"
-          >
-            Go to Map
-          </a>
-        </div>
+        <button
+          onClick={() => window.history.back()}
+          className="px-4 py-2 bg-accent hover:bg-accent text-foreground text-sm rounded-lg transition"
+        >
+          Back
+        </button>
       </div>
     </div>
   );
