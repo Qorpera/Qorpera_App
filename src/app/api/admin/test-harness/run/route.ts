@@ -529,7 +529,6 @@ export async function POST(req: NextRequest) {
                 id: true,
                 content: true,
                 metadata: true,
-                domainIds: true,
               },
               take: 5,
               orderBy: { createdAt: "desc" },
@@ -542,20 +541,6 @@ export async function POST(req: NextRequest) {
               return "embedding" in obj && obj.embedding !== undefined;
             });
             assert(assertions, "search_emails: no embedding data leaked", !hasEmbeddingField);
-
-            // Verify department scoping
-            if (emailChunks.length > 0) {
-              const allHaveDepts = emailChunks.every((c) => {
-                if (!c.domainIds) return true; // null is OK (system-level)
-                try {
-                  const ids = JSON.parse(c.domainIds) as string[];
-                  return ids.length >= 0;
-                } catch {
-                  return false;
-                }
-              });
-              assert(assertions, "search_emails: results have parseable domainIds", allHaveDepts);
-            }
           } catch (err) {
             toolResults.search_emails = { count: 0, error: err instanceof Error ? err.message : String(err) };
             assert(assertions, "search_emails: returns without error", false, toolResults.search_emails.error);
@@ -569,7 +554,6 @@ export async function POST(req: NextRequest) {
                 id: true,
                 content: true,
                 metadata: true,
-                domainIds: true,
               },
               take: 5,
               orderBy: { createdAt: "desc" },

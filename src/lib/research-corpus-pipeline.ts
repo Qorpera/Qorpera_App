@@ -11,7 +11,7 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSON, extractJSONArray } from "@/lib/json-helpers";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import { logSystemIntelligenceChange } from "@/lib/system-intelligence-signals";
 
 // ── Types ──────────────────────────────────────────────
@@ -1086,7 +1086,7 @@ function topologicalSort(pages: PagePlan[]): PagePlan[] {
 }
 
 function embedPage(pageId: string, content: string): void {
-  embedChunks([content]).then(([embedding]) => {
+  embedTexts([content]).then(([embedding]) => {
     if (embedding) {
       const embeddingStr = `[${embedding.join(",")}]`;
       prisma.$executeRawUnsafe(

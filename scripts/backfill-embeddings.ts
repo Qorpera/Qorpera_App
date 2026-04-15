@@ -15,7 +15,7 @@ const prisma = new PrismaClient();
 
 const BATCH_SIZE = 20;
 
-// ── Embedding config (mirrors src/lib/rag/embedder.ts) ──
+// ── Embedding config (mirrors src/lib/wiki-embedder.ts) ──
 
 interface EmbeddingConfig {
   provider: string;

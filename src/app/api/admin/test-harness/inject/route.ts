@@ -16,16 +16,10 @@ export async function POST(req: NextRequest) {
 
     switch (type) {
       case "content": {
-        const { sourceType, sourceId, text, entityId, domainIds, metadata } = data;
+        const { sourceType, sourceId, text, metadata } = data;
         if (!sourceType || !sourceId || !text) {
           return NextResponse.json(
             { error: "Content injection requires: sourceType, sourceId, text" },
-            { status: 400 },
-          );
-        }
-        if (!domainIds || !Array.isArray(domainIds) || domainIds.length === 0) {
-          return NextResponse.json(
-            { error: "Content injection requires domainIds (non-empty array)" },
             { status: 400 },
           );
         }

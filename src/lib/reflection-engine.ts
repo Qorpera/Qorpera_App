@@ -10,7 +10,7 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSON } from "@/lib/json-helpers";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import { createVersionSnapshot } from "@/lib/wiki-engine";
 
 // ── Types ──────────────────────────────────────────────
@@ -227,7 +227,7 @@ export async function reflectOnOutcome(params: {
     });
 
     // Re-embed (fire-and-forget)
-    embedChunks([result.updatedContent])
+    embedTexts([result.updatedContent])
       .then(([embedding]) => {
         if (embedding) {
           const embeddingStr = `[${embedding.join(",")}]`;
@@ -268,7 +268,7 @@ export async function reflectOnOutcome(params: {
     });
 
     // Embed (fire-and-forget)
-    embedChunks([result.updatedContent])
+    embedTexts([result.updatedContent])
       .then(([embedding]) => {
         if (embedding) {
           const embeddingStr = `[${embedding.join(",")}]`;

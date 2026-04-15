@@ -1,5 +1,5 @@
 vi.mock("@/lib/db", () => ({ prisma: {} }));
-vi.mock("@/lib/rag/embedder", () => ({ embedChunks: vi.fn() }));
+vi.mock("@/lib/wiki-embedder", () => ({ embedTexts: vi.fn() }));
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 

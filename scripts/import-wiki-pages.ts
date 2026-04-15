@@ -9,7 +9,7 @@
  */
 
 import { prisma } from "@/lib/db";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -65,7 +65,7 @@ async function importFolder(folderPath: string, domain: string) {
       });
 
       // Generate embedding
-      const embeddings = await embedChunks([content]).catch(() => [null]);
+      const embeddings = await embedTexts([content]).catch(() => [null]);
       const embedding = embeddings[0];
 
       // Create KnowledgePage

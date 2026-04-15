@@ -30,18 +30,18 @@ export async function GET(request: NextRequest) {
   }
   const weekEnd = new Date(weekStart.getTime() + 7 * 86_400_000);
 
-  // Query calendar content chunks
-  const contentChunks = await prisma.contentChunk.findMany({
+  // Query calendar raw content
+  const calendarItems = await prisma.rawContent.findMany({
     where: {
       operatorId,
-      sourceType: { in: ["calendar_note", "calendar_event"] },
-      createdAt: { gte: new Date(weekStart.getTime() - 90 * 86_400_000) },
+      sourceType: { in: ["calendar_event", "calendar_note"] },
+      occurredAt: { gte: new Date(weekStart.getTime() - 90 * 86_400_000) },
     },
     select: {
       id: true,
-      content: true,
-      metadata: true,
-      createdAt: true,
+      rawBody: true,
+      rawMetadata: true,
+      occurredAt: true,
     },
   });
 
@@ -49,9 +49,9 @@ export async function GET(request: NextRequest) {
   const eventMap = new Map<string, CalendarEvent>();
 
   // Calendar events are personal (user's own calendar) — no domain scoping needed
-  for (const chunk of contentChunks) {
-    const meta = parseJson(chunk.metadata);
-    const eventId = (meta.eventId as string) || (meta.sourceId as string) || chunk.id;
+  for (const item of calendarItems) {
+    const meta = (item.rawMetadata ?? {}) as Record<string, unknown>;
+    const eventId = (meta.eventId as string) || (meta.sourceId as string) || item.id;
 
     // Skip if already have from ActivitySignal
     if (eventMap.has(eventId)) continue;
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
     const isAllDay = !!(meta.isAllDay || meta.allDay);
 
     eventMap.set(eventId, {
-      id: chunk.id,
+      id: item.id,
       title,
       startTime: startDate.toISOString(),
       endTime,
@@ -95,15 +95,6 @@ export async function GET(request: NextRequest) {
     weekEnd: weekEnd.toISOString().slice(0, 10),
     source: "ingested" as const,
   });
-}
-
-function parseJson(raw: string | null | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    return typeof raw === "object" ? (raw as Record<string, unknown>) : JSON.parse(raw);
-  } catch {
-    return {};
-  }
 }
 
 function parseAttendees(meta: Record<string, unknown>): string[] {

@@ -9,7 +9,7 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSONArray } from "@/lib/json-helpers";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -328,7 +328,7 @@ Write a comprehensive knowledge page. Requirements:
       });
 
       // Re-embed (fire-and-forget)
-      embedChunks([content]).then(([embedding]) => {
+      embedTexts([content]).then(([embedding]) => {
         if (embedding) {
           const embeddingStr = `[${embedding.join(",")}]`;
           return prisma.$executeRawUnsafe(
@@ -401,7 +401,7 @@ Write a comprehensive knowledge page. Requirements:
   });
 
   // Embed for vector search (fire-and-forget)
-  embedChunks([content])
+  embedTexts([content])
     .then(([embedding]) => {
       if (embedding) {
         const embeddingStr = `[${embedding.join(",")}]`;

@@ -88,8 +88,6 @@ async function main() {
         operatorId: chunk.operatorId,
         sourceType: "uploaded_doc",
         sourceId,
-        entityId: chunk.entityId,
-        domainIds,
         chunkIndex: chunk.chunkIndex,
         content: chunk.content,
         tokenCount: chunk.tokenCount,

@@ -658,8 +658,6 @@ model ContentChunk {
   userId               String?
   sourceType           String // "email" | "slack_message" | "drive_doc" | "uploaded_doc" | "calendar_note"
   sourceId             String // reference to origin (Event.id, InternalDocument.id, etc.)
-  entityId             String? // entity this content is about (if resolvable)
-  domainIds            String? @map("departmentIds") // JSON array of domain IDs (derived from participant routing)
   chunkIndex           Int
   content              String
   embedding            String? // actually vector(1536) — see raw SQL migration
@@ -684,7 +682,6 @@ model ContentChunk {
   fileUpload          FileUpload?          @relation(fields: [fileUploadId], references: [id])
 
   @@index([operatorId, sourceType])
-  @@index([entityId])
   @@index([operatorId, sourceId])
   @@index([connectorId])
   @@index([operatorId, userId])
@@ -1342,7 +1339,6 @@ model KnowledgePage {
   // SYSTEM: fundamentals, methodology, practices, statistics,
   //   theory, ontology_index
   subjectEntityId String?
-  domainIds       String[] @default([]) @map("departmentIds")
   title           String
   slug            String
 

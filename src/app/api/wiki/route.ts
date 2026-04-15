@@ -88,6 +88,7 @@ export async function GET(req: NextRequest) {
       verifiedAt: true,
       citedByPages: true,
       subjectEntityId: true,
+      crossReferences: true,
     },
     orderBy: [{ pageType: "asc" }, { title: "asc" }],
   });
@@ -103,9 +104,9 @@ export async function GET(req: NextRequest) {
     for (const e of entities) entityMap.set(e.id, e.displayName);
   }
 
-  const pages = rawPages.map(({ subjectEntityId, ...p }) => ({
+  const pages = rawPages.map((p) => ({
     ...p,
-    subjectEntityName: subjectEntityId ? entityMap.get(subjectEntityId) ?? undefined : undefined,
+    subjectEntityName: p.subjectEntityId ? entityMap.get(p.subjectEntityId) ?? undefined : undefined,
   }));
 
   const byType: Record<string, number> = {};

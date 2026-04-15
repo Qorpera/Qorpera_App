@@ -8,7 +8,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import { verifyPage } from "@/lib/wiki-verification";
 
 import { getDefaultVisibility } from "@/lib/wiki-visibility";
@@ -147,7 +147,7 @@ async function createPage(params: {
   const crossReferences = extractCrossReferences(params.content);
   const sourceTypes = [...new Set(params.sourceCitations.map((c) => c.sourceType))];
   // Embed content for search
-  const embeddings = await embedChunks([params.content]).catch(() => [null]);
+  const embeddings = await embedTexts([params.content]).catch(() => [null]);
   const embedding = embeddings[0];
 
   // Create page via Prisma (generates cuid), then set embedding via raw SQL
@@ -253,7 +253,7 @@ async function updatePage(params: {
   await createVersionSnapshot(existing.id, "synthesis", params.synthesizedByModel ?? "unknown");
 
   // Re-embed updated content
-  const embeddings = await embedChunks([params.content]).catch(() => [null]);
+  const embeddings = await embedTexts([params.content]).catch(() => [null]);
   const embedding = embeddings[0];
 
   if (embedding) {
@@ -447,7 +447,7 @@ export async function searchPages(
   const statusFilter = options?.statusFilter ?? ["verified", "stale"];
 
   // Try embedding-based search first
-  const embeddings = await embedChunks([query]).catch(() => [null]);
+  const embeddings = await embedTexts([query]).catch(() => [null]);
   const queryEmbedding = embeddings[0];
 
   if (queryEmbedding) {
@@ -556,7 +556,7 @@ export async function getSystemWikiPages(params: {
 
   // Semantic search if query provided and embedding available
   if (params.query) {
-    const embeddings = await embedChunks([params.query]).catch(() => [null]);
+    const embeddings = await embedTexts([params.query]).catch(() => [null]);
     if (embeddings[0]) {
       const embeddingStr = `[${embeddings[0].join(",")}]`;
       const conditions = [
@@ -623,7 +623,7 @@ export async function searchSystemPages(
 }>> {
   const limit = options?.limit ?? 5;
 
-  const embeddings = await embedChunks([query]).catch(() => [null]);
+  const embeddings = await embedTexts([query]).catch(() => [null]);
   if (embeddings[0]) {
     const embeddingStr = `[${embeddings[0].join(",")}]`;
     const conditions = [
@@ -753,7 +753,7 @@ export async function getRelevantPagesForSeed(
 
   // 3. Semantic retrieval — embed the situation and find relevant pages via vector similarity
   if (situationDescription && tokensUsed < TOKEN_BUDGET - 1000) {
-    const [queryEmbedding] = await embedChunks([situationDescription]);
+    const [queryEmbedding] = await embedTexts([situationDescription]);
 
     if (queryEmbedding) {
       const embeddingStr = `[${queryEmbedding.join(",")}]`;
@@ -1254,7 +1254,7 @@ export async function rollbackPage(pageId: string, targetVersionNumber: number):
   });
 
   // Re-embed the restored content
-  const [embedding] = await embedChunks([targetVersion.content]).catch(() => [null]);
+  const [embedding] = await embedTexts([targetVersion.content]).catch(() => [null]);
   if (embedding) {
     const embeddingStr = `[${embedding.join(",")}]`;
     await prisma.$executeRawUnsafe(

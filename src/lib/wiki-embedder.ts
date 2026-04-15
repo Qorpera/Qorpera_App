@@ -1,9 +1,9 @@
 /**
- * Embedding provider: generates vector embeddings for text chunks.
+ * Embedding provider: generates vector embeddings for text.
  *
  * Supports OpenAI (text-embedding-3-small) and Ollama (nomic-embed-text).
  * Configuration: reads from AppSetting, falls back to AI provider config.
- * Batch size: 20 chunks per API call.
+ * Batch size: 20 texts per API call.
  */
 
 import { prisma } from "@/lib/db";
@@ -59,7 +59,7 @@ export function clearEmbeddingConfigCache() {
 
 const BATCH_SIZE = 20;
 
-export async function embedChunks(texts: string[]): Promise<(number[] | null)[]> {
+export async function embedTexts(texts: string[]): Promise<(number[] | null)[]> {
   const config = await getEmbeddingConfig();
 
   // If no API key and not using Ollama, skip embedding — store chunks without vectors

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 
 export interface WikiDiscoveryEntry {
   slug: string;
@@ -31,7 +31,7 @@ export async function discoverSystemExpertise(
   });
   if (!operator?.intelligenceAccess) return [];
 
-  const embeddings = await embedChunks([query]).catch(() => [null]);
+  const embeddings = await embedTexts([query]).catch(() => [null]);
   if (!embeddings[0]) return [];
 
   const embeddingStr = `[${embeddings[0].join(",")}]`;

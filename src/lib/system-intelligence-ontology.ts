@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -53,7 +53,7 @@ export async function findOntologyGaps(vertical: string): Promise<OntologyNode[]
 
   for (const req of allRequirements) {
     const searchQuery = `${req.domain} ${req.subDomain} ${req.knowledgeRequirement}`;
-    const embeddings = await embedChunks([searchQuery]).catch(() => [null]);
+    const embeddings = await embedTexts([searchQuery]).catch(() => [null]);
 
     if (!embeddings[0]) {
       gaps.push(req);
@@ -215,7 +215,7 @@ export async function seedOntology(vertical: string, content: string): Promise<s
   });
 
   // Embed
-  embedChunks([content]).then(([embedding]) => {
+  embedTexts([content]).then(([embedding]) => {
     if (embedding) {
       const embeddingStr = `[${embedding.join(",")}]`;
       prisma.$executeRawUnsafe(

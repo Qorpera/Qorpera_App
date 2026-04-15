@@ -38,10 +38,6 @@ vi.mock("@/lib/auth", () => ({
   getSessionUser: vi.fn(),
 }));
 
-vi.mock("@/lib/rag/retriever", () => ({
-  retrieveRelevantContext: vi.fn(),
-}));
-
 vi.mock("@/lib/entity-resolution", () => ({
   searchEntities: vi.fn(),
   getEntityContext: vi.fn(),

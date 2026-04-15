@@ -61,13 +61,8 @@ vi.mock("@/lib/connector-filters", () => ({
   ACTIVE_CONNECTOR: { deletedAt: null },
 }));
 
-vi.mock("@/lib/rag/retriever", () => ({
-  retrieveRelevantChunks: vi.fn(),
-  retrieveRelevantContext: vi.fn(),
-}));
-
-vi.mock("@/lib/rag/embedder", () => ({
-  embedChunks: vi.fn(),
+vi.mock("@/lib/wiki-embedder", () => ({
+  embedTexts: vi.fn(),
 }));
 
 vi.mock("@/lib/entity-resolution", () => ({

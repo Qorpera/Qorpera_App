@@ -268,8 +268,7 @@ async function main() {
         await prisma.contentChunk.createMany({ data: chunkData });
         totalChunks += 10;
       } else {
-        const chunkCount = await prisma.contentChunk.count({ where: { entityId: entity.id } });
-        totalChunks += chunkCount;
+        totalChunks += 0; // ContentChunk no longer created per-entity
       }
       totalDocs++;
     }

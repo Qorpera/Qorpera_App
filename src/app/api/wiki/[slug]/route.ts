@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import { createVersionSnapshot } from "@/lib/wiki-engine";
 import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 
@@ -82,9 +82,12 @@ export async function GET(
     for (const src of sources.slice(0, 30)) {
       try {
         if (src.type === "chunk") {
+          // Source citations reference ContentChunk IDs (legacy). New wiki pages
+          // use RawContent but store source references differently.
+          // TODO: migrate source citation format to RawContent sourceIds
           const chunk = await prisma.contentChunk.findFirst({
             where: { id: src.id, operatorId: sourceOperatorId },
-            select: { content: true, sourceType: true, sourceId: true, createdAt: true },
+            select: { content: true, sourceType: true, createdAt: true },
           });
           if (chunk) {
             sourceDetails.push({
@@ -182,7 +185,7 @@ export async function PATCH(
   });
 
   // Re-embed edited content (fire-and-forget)
-  embedChunks([content])
+  embedTexts([content])
     .then(([embedding]) => {
       if (embedding) {
         const embeddingStr = `[${embedding.join(",")}]`;

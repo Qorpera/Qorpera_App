@@ -1,8 +1,7 @@
 vi.mock("@/lib/db", () => ({ prisma: {} }));
 vi.mock("@/lib/entity-resolution", () => ({ getEntityContext: vi.fn() }));
 vi.mock("@/lib/graph-traversal", () => ({ searchAround: vi.fn() }));
-vi.mock("@/lib/rag/retriever", () => ({ retrieveRelevantContext: vi.fn(), retrieveRelevantChunks: vi.fn() }));
-vi.mock("@/lib/rag/embedder", () => ({ embedChunks: vi.fn() }));
+vi.mock("@/lib/wiki-embedder", () => ({ embedTexts: vi.fn() }));
 vi.mock("@/lib/business-context", () => ({ getBusinessContext: vi.fn(), formatBusinessContext: vi.fn() }));
 
 import { describe, it, expect, vi } from "vitest";

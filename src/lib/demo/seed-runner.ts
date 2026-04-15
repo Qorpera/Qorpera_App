@@ -7,7 +7,7 @@ import { hashPassword, createSession } from "@/lib/auth";
 import { encryptConfig } from "@/lib/config-encryption";
 import { ensureHardcodedEntityType } from "@/lib/entity-type-bootstrap";
 import { seedNotificationPreferences } from "@/lib/ai-entity-helpers";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import {
   COMPANY,
@@ -697,7 +697,7 @@ export async function runDemoSeed(operatorId: string) {
     console.log(`[demo-seed] Embedding batch ${batchNum}/${totalBatches}...`);
 
     const batch = allTexts.slice(i, i + EMBED_BATCH);
-    const embeddings = await embedChunks(batch);
+    const embeddings = await embedTexts(batch);
     allEmbeddings.push(...embeddings);
   }
 
@@ -713,7 +713,6 @@ export async function runDemoSeed(operatorId: string) {
         userId: c.personal ? adminUser.id : null,
         sourceType: c.sourceType,
         sourceId: `demo-${c.sourceType}-${i}`,
-        domainIds: deptId ? JSON.stringify([deptId]) : null,
         chunkIndex: 0,
         content: c.content,
         tokenCount: Math.round(c.content.length / 4),

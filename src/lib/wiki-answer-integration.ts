@@ -6,7 +6,7 @@
 
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import { searchPages, createVersionSnapshot } from "@/lib/wiki-engine";
 
 const MAX_WIKI_UPDATES = 10;
@@ -168,7 +168,7 @@ Output the updated page content:`,
     });
 
     // Re-embed the updated content
-    const embeddings = await embedChunks([updatedContent]).catch(() => [null]);
+    const embeddings = await embedTexts([updatedContent]).catch(() => [null]);
     const embedding = embeddings[0];
     if (embedding) {
       const embeddingStr = `[${embedding.join(",")}]`;
@@ -243,7 +243,7 @@ async function createPageFromAnswer(
     });
 
     // Embed the new page
-    const embeddings = await embedChunks([content]).catch(() => [null]);
+    const embeddings = await embedTexts([content]).catch(() => [null]);
     const embedding = embeddings[0];
     if (embedding) {
       const embeddingStr = `[${embedding.join(",")}]`;

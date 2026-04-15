@@ -100,9 +100,17 @@ export default function MapPage() {
           if (dom && stats[dom.id]) stats[dom.id].situations++;
         }
       }
+      // Build slug → entityId mapping from domain hub pages
+      const slugToEntityId = new Map<string, string>();
       for (const p of (wikiData.pages ?? [])) {
-        for (const did of (p.domainIds ?? [])) {
-          if (stats[did]) stats[did].wikiPages++;
+        if (p.subjectEntityId && stats[p.subjectEntityId]) {
+          slugToEntityId.set(p.slug, p.subjectEntityId);
+        }
+      }
+      for (const p of (wikiData.pages ?? [])) {
+        for (const ref of (p.crossReferences ?? [])) {
+          const entityId = slugToEntityId.get(ref);
+          if (entityId && stats[entityId]) stats[entityId].wikiPages++;
         }
       }
       setDomainStats(stats);

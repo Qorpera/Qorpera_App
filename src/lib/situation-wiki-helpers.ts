@@ -8,7 +8,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import { extractCrossReferences } from "@/lib/wiki-engine";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ export async function createSituationWikiPage(params: CreateSituationPageParams)
   const crossReferences = extractCrossReferences(fullContent);
 
   // Embed for search_wiki discoverability
-  const embeddings = await embedChunks([fullContent]).catch(() => [null]);
+  const embeddings = await embedTexts([fullContent]).catch(() => [null]);
   const embedding = embeddings[0];
 
   const page = await prisma.knowledgePage.create({
@@ -217,7 +217,7 @@ export async function updateSituationWikiPage(params: UpdateSituationPageParams)
   }
 
   // Re-embed updated content
-  const embeddings = await embedChunks([fullContent]).catch(() => [null]);
+  const embeddings = await embedTexts([fullContent]).catch(() => [null]);
   const embedding = embeddings[0];
 
   if (embedding) {

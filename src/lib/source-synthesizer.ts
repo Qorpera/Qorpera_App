@@ -13,7 +13,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSONArray } from "@/lib/json-helpers";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -182,7 +182,7 @@ async function resolveUniqueSlug(baseSlug: string): Promise<string> {
 }
 
 function embedPage(pageId: string, content: string): void {
-  embedChunks([content]).then(([embedding]) => {
+  embedTexts([content]).then(([embedding]) => {
     if (embedding) {
       const embeddingStr = `[${embedding.join(",")}]`;
       prisma.$executeRawUnsafe(

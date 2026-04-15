@@ -5,18 +5,18 @@ import { prisma } from "@/lib/db";
  * Called after onboarding confirmation. Idempotent — skips jobs that already exist by title.
  */
 export async function seedDefaultSystemJobs(operatorId: string): Promise<number> {
-  const hqAi = await prisma.entity.findFirst({
-    where: { operatorId, entityType: { slug: { in: ["hq-ai", "ai-agent"] } }, status: "active" },
-    select: { id: true },
+  // Find a domain hub wiki page for domainPageSlug
+  const domainHub = await prisma.knowledgePage.findFirst({
+    where: { operatorId, pageType: "domain_overview" },
+    select: { slug: true },
   });
-  if (!hqAi) return 0;
 
-  // Find first department for domainEntityId (required field)
-  const firstDomain = await prisma.entity.findFirst({
-    where: { operatorId, category: "foundational", status: "active" },
-    select: { id: true },
+  // Find the admin user's wiki page slug for ownerPageSlug
+  const adminUser = await prisma.user.findFirst({
+    where: { operatorId, role: "admin" },
+    select: { wikiPageSlug: true },
   });
-  if (!firstDomain) return 0;
+  const ownerSlug = adminUser?.wikiPageSlug ?? null;
 
   const defaults: Array<{
     title: string;
@@ -106,8 +106,6 @@ This job should have a higher bar — only propose when something genuinely warr
     await prisma.systemJob.create({
       data: {
         operatorId,
-        aiEntityId: hqAi.id,
-        domainEntityId: firstDomain.id,
         title: job.title,
         description: job.description,
         cronExpression: job.cronExpression,
@@ -116,6 +114,8 @@ This job should have a higher bar — only propose when something genuinely warr
         importanceThreshold: job.importanceThreshold ?? 0.3,
         nextTriggerAt: nextTrigger,
         source: "onboarding",
+        ownerPageSlug: ownerSlug,
+        domainPageSlug: domainHub?.slug ?? null,
       },
     });
     created++;

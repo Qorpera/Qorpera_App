@@ -248,7 +248,6 @@ const COPILOT_TOOLS: AITool[] = [
         description: { type: "string", description: "Detailed description of what this job monitors and investigates" },
         cronExpression: { type: "string", description: "Cron expression for schedule (e.g., '0 8 * * 1' for every Monday at 8am)" },
         scope: { type: "string", enum: ["domain", "company_wide"], description: "Scope of the job. Default: company_wide" },
-        domainEntityId: { type: "string", description: "ID of the department (foundational entity) this job is scoped to. If not provided, uses the first available department." },
       },
       required: ["title", "description", "cronExpression"],
     },

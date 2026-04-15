@@ -2,14 +2,12 @@ import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { encryptConfig } from "@/lib/config-encryption";
 import { ensureHardcodedEntityType } from "@/lib/entity-type-bootstrap";
-import { embedChunks } from "@/lib/rag/embedder";
 import { seedNotificationPreferences } from "@/lib/ai-entity-helpers";
 import type { SyntheticCompany } from "./synthetic-types";
 
 // ── Constants ───────────────────────────────────────────────────────
 
 const DEMO_PASSWORD = "demo1234";
-const EMBED_BATCH_SIZE = 20;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -336,73 +334,7 @@ export async function runSyntheticSeed(
   console.log(`[synthetic-seed] Created ${relationshipCount} entity relationships`);
   console.timeEnd(`[synthetic-seed] Entity creation — ${company.slug}`);
 
-  // ── 7. Content Chunks with embeddings ────────────────────────────
-  console.log(`[synthetic-seed] Embedding ${company.content.length} content chunks...`);
-  console.time(`[synthetic-seed] Content ingestion + embedding — ${company.slug}`);
-
-  const allTexts = company.content.map((c) => c.content);
-  const allEmbeddings: (number[] | null)[] = [];
-  const totalBatches = Math.ceil(allTexts.length / EMBED_BATCH_SIZE);
-  let embeddingFailures = 0;
-
-  for (let i = 0; i < allTexts.length; i += EMBED_BATCH_SIZE) {
-    const batchNum = Math.floor(i / EMBED_BATCH_SIZE) + 1;
-    console.log(`[synthetic-seed] Embedding batch ${batchNum}/${totalBatches}...`);
-    const batch = allTexts.slice(i, i + EMBED_BATCH_SIZE);
-    try {
-      const embeddings = await embedChunks(batch);
-      allEmbeddings.push(...embeddings);
-    } catch (err) {
-      const failedStart = i;
-      const failedEnd = Math.min(i + EMBED_BATCH_SIZE - 1, allTexts.length - 1);
-      console.warn(`[synthetic-seed] Embedding batch ${batchNum} failed (indices ${failedStart}-${failedEnd}): ${String(err)}`);
-      allEmbeddings.push(...batch.map(() => null));
-      embeddingFailures++;
-    }
-  }
-  if (embeddingFailures > 0) {
-    console.warn(`[synthetic-seed] ${embeddingFailures}/${totalBatches} embedding batches failed`);
-  }
-  const nullEmbeddingCount = allEmbeddings.filter(e => e === null).length;
-  if (nullEmbeddingCount > 0) {
-    console.warn(`[synthetic-seed] ${nullEmbeddingCount} of ${allEmbeddings.length} chunks have null embeddings and won't be searchable`);
-  }
-
-  let chunkCount = 0;
-  for (let i = 0; i < company.content.length; i++) {
-    const c = company.content[i];
-    const connectorId = connectorIds[c.connectorProvider] ?? null;
-
-    const created = await prisma.contentChunk.create({
-      data: {
-        operatorId,
-        connectorId,
-        sourceType: c.sourceType,
-        sourceId: `synth-${company.slug}-${c.sourceType}-${i}`,
-        chunkIndex: 0,
-        content: c.content,
-        tokenCount: Math.round(c.content.length / 4),
-        metadata: JSON.stringify(c.metadata),
-        createdAt: c.daysAgo ? daysAgo(c.daysAgo) : new Date(),
-      },
-      select: { id: true },
-    });
-
-    const emb = allEmbeddings[i];
-    if (emb) {
-      const embStr = `[${emb.join(",")}]`;
-      await prisma.$executeRawUnsafe(
-        `UPDATE "ContentChunk" SET embedding = $1::vector WHERE id = $2`,
-        embStr,
-        created.id,
-      );
-    }
-    chunkCount++;
-  }
-  console.log(`[synthetic-seed] Created ${chunkCount} content chunks`);
-  console.timeEnd(`[synthetic-seed] Content ingestion + embedding — ${company.slug}`);
-
-  // ── 7a. RawContent records ──────────────────────────────────────
+  // ── 7. RawContent records ───────────────────────────────────────
   const rawContentData = company.content.map((c, i) => ({
     operatorId,
     accountId: connectorIds[c.connectorProvider] ?? null,
@@ -507,7 +439,6 @@ export async function runSyntheticSeed(
       invoices: company.invoices.length,
       tickets: company.tickets?.length ?? 0,
       relationships: relationshipCount,
-      contentChunks: chunkCount,
       rawContent: rawContentCount,
       activitySignals: signalCount,
     },

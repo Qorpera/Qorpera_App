@@ -12,7 +12,7 @@ import { prisma } from "@/lib/db";
 import { callLLM, getModel, getMaxOutputTokens, getThinkingBudget } from "@/lib/ai-provider";
 import type { AITool, LLMMessage } from "@/lib/ai-provider";
 import { extractJSONAny } from "@/lib/json-helpers";
-import { embedChunks } from "@/lib/rag/embedder";
+import { embedTexts } from "@/lib/wiki-embedder";
 import { searchRawContent } from "@/lib/storage/raw-content-store";
 
 // ── Configuration ──────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ async function toolReadWikiPage(operatorId: string, slug: string): Promise<strin
 }
 
 function embedPageAsync(pageId: string, content: string): void {
-  embedChunks([content])
+  embedTexts([content])
     .then((embeddings) => {
       if (embeddings[0]) {
         const embStr = `[${embeddings[0].join(",")}]`;
