@@ -41,9 +41,7 @@ export interface OperationalInsightContext {
 
 export async function loadCommunicationContext(
   operatorId: string,
-  entityId: string,
   situationDescription: string,
-  domainIds: string[],
   limit: number,
 ): Promise<CommunicationContext> {
   try {

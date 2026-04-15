@@ -44,7 +44,14 @@ export async function GET(req: NextRequest) {
 
   // Domain filter — show pages linked to a specific domain
   if (domainFilter) {
-    where.domainIds = { has: domainFilter };
+    // domainFilter may be an entity ID (from map page) or a slug — resolve to slug
+    let domainSlug = domainFilter;
+    const domainHub = await prisma.knowledgePage.findFirst({
+      where: { operatorId, subjectEntityId: domainFilter, pageType: { in: ["domain_overview", "domain_hub"] } },
+      select: { slug: true },
+    });
+    if (domainHub) domainSlug = domainHub.slug;
+    where.crossReferences = { has: domainSlug };
   }
 
   // Domain scope for members (operator-scoped pages only)
@@ -55,7 +62,7 @@ export async function GET(req: NextRequest) {
         ...(Array.isArray(where.AND) ? where.AND as Record<string, unknown>[] : []),
         { OR: [
           { crossReferences: { hasSome: visibleDomains } },
-          { domainIds: { isEmpty: true } },
+          { crossReferences: { isEmpty: true } },
         ] },
       ];
     }

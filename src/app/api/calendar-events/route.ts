@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { resolveAccessContext } from "@/lib/domain-scope";
 
 interface CalendarEvent {
   id: string;
@@ -19,7 +18,6 @@ export async function GET(request: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
-  const accessCtx = await resolveAccessContext(operatorId, su.effectiveUserId);
 
   const weekOf = request.nextUrl.searchParams.get("weekOf");
   if (!weekOf) {
@@ -32,69 +30,26 @@ export async function GET(request: NextRequest) {
   }
   const weekEnd = new Date(weekStart.getTime() + 7 * 86_400_000);
 
-  // Query content chunks (ActivitySignal table has been removed)
-  const activitySignals: Array<{ id: string; actorEntityId: string | null; metadata: string | null; occurredAt: Date; domainIds: string | null }> = [];
-  const [, contentChunks] = await Promise.all([
-    Promise.resolve(activitySignals),
-    prisma.contentChunk.findMany({
-      where: {
-        operatorId,
-        sourceType: { in: ["calendar_note", "calendar_event"] },
-        createdAt: { gte: new Date(weekStart.getTime() - 90 * 86_400_000) },
-      },
-      select: {
-        id: true,
-        content: true,
-        metadata: true,
-        createdAt: true,
-        domainIds: true,
-      },
-    }),
-  ]);
-
-  // Scope filter: members only see events in their visible departments
-  const visibleSet = accessCtx.isScoped ? new Set(accessCtx.userDomainSlugs) : null;
-
-  function passesScope(domainIds: string | null): boolean {
-    if (!accessCtx.isScoped || !visibleSet) return true;
-    if (!domainIds) return true; // unrouted events visible to all
-    try {
-      const ids: string[] = JSON.parse(domainIds);
-      return ids.some((id) => visibleSet.has(id));
-    } catch {
-      return true;
-    }
-  }
+  // Query calendar content chunks
+  const contentChunks = await prisma.contentChunk.findMany({
+    where: {
+      operatorId,
+      sourceType: { in: ["calendar_note", "calendar_event"] },
+      createdAt: { gte: new Date(weekStart.getTime() - 90 * 86_400_000) },
+    },
+    select: {
+      id: true,
+      content: true,
+      metadata: true,
+      createdAt: true,
+    },
+  });
 
   // Build event map keyed by eventId for deduplication
   const eventMap = new Map<string, CalendarEvent>();
 
-  // 1. ActivitySignals (preferred source)
-  for (const sig of activitySignals) {
-    if (!passesScope(sig.domainIds)) continue;
-    const meta = parseJson(sig.metadata);
-    const eventId = (meta.eventId as string) || sig.id;
-    const duration = (meta.durationMinutes as number) || null;
-    const startTime = sig.occurredAt.toISOString();
-    const endTime = duration
-      ? new Date(sig.occurredAt.getTime() + duration * 60_000).toISOString()
-      : null;
-
-    eventMap.set(eventId, {
-      id: sig.id,
-      title: (meta.summary as string) || "Meeting",
-      startTime,
-      endTime,
-      durationMinutes: duration,
-      attendees: parseAttendees(meta),
-      location: (meta.location as string) || undefined,
-      isAllDay: false,
-    });
-  }
-
-  // 2. ContentChunks (fill gaps)
+  // Calendar events are personal (user's own calendar) — no domain scoping needed
   for (const chunk of contentChunks) {
-    if (!passesScope(chunk.domainIds)) continue;
     const meta = parseJson(chunk.metadata);
     const eventId = (meta.eventId as string) || (meta.sourceId as string) || chunk.id;
 

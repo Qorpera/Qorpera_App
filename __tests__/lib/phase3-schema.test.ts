@@ -59,7 +59,7 @@ const mockPrisma = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ prisma: mockPrisma }));
 
-import { ensureDepartmentAi, ensureHqAi, seedNotificationPreferences } from "@/lib/ai-entity-helpers";
+import { seedNotificationPreferences } from "@/lib/ai-entity-helpers";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -519,118 +519,6 @@ describe("NotificationPreference seeding", () => {
     for (const call of mockPrisma.notificationPreference.createMany.mock.calls) {
       expect(call[0].skipDuplicates).toBe(true);
     }
-  });
-});
-
-// ── Test 10: Department AI auto-creation ────────────────────────────────────
-
-describe("Department AI auto-creation", () => {
-  it("creates department AI entity with correct type and ownerDomainId", async () => {
-    // No existing department AI
-    mockPrisma.entity.findFirst.mockResolvedValue(null);
-
-    // EntityType exists
-    mockPrisma.entityType.findFirst.mockResolvedValue({
-      id: "et-dept-ai",
-      slug: "domain-ai",
-    });
-
-    mockPrisma.entity.create.mockResolvedValue({
-      id: "ent-dept-ai-1",
-      displayName: "Sales AI",
-      entityTypeId: "et-dept-ai",
-      ownerDomainId: "dept-sales",
-      primaryDomainId: "dept-sales",
-      category: "base",
-    });
-
-    const result = await ensureDepartmentAi("op1", "dept-sales", "Sales");
-
-    expect(result).toBe("ent-dept-ai-1");
-    expect(mockPrisma.entity.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        operatorId: "op1",
-        displayName: "Sales AI",
-        ownerDomainId: "dept-sales",
-        primaryDomainId: "dept-sales",
-        category: "base",
-      }),
-    });
-  });
-
-  it("returns existing entity ID when department AI already exists (idempotent)", async () => {
-    mockPrisma.entity.findFirst.mockResolvedValue({
-      id: "existing-dept-ai",
-    });
-
-    const result = await ensureDepartmentAi("op1", "dept-sales", "Sales");
-
-    expect(result).toBe("existing-dept-ai");
-    expect(mockPrisma.entity.create).not.toHaveBeenCalled();
-  });
-
-  it("creates EntityType if missing", async () => {
-    mockPrisma.entity.findFirst.mockResolvedValue(null);
-    mockPrisma.entityType.findFirst.mockResolvedValue(null);
-    mockPrisma.entityType.create.mockResolvedValue({
-      id: "new-et-dept-ai",
-      slug: "domain-ai",
-    });
-    mockPrisma.entity.create.mockResolvedValue({ id: "new-ent" });
-
-    await ensureDepartmentAi("op1", "dept1", "Engineering");
-
-    expect(mockPrisma.entityType.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        operatorId: "op1",
-        slug: "domain-ai",
-        name: "Department AI",
-      }),
-    });
-  });
-});
-
-// ── Test 11: HQ AI auto-creation ────────────────────────────────────────────
-
-describe("HQ AI auto-creation", () => {
-  it("creates HQ AI entity with correct type", async () => {
-    mockPrisma.entity.findFirst.mockResolvedValue(null);
-    mockPrisma.entityType.findFirst.mockResolvedValue({
-      id: "et-hq-ai",
-      slug: "hq-ai",
-    });
-    mockPrisma.entity.create.mockResolvedValue({
-      id: "ent-hq-ai-1",
-      displayName: "Acme Corp HQ AI",
-      entityTypeId: "et-hq-ai",
-      category: "base",
-    });
-
-    const result = await ensureHqAi("op1", "Acme Corp");
-
-    expect(result).toBe("ent-hq-ai-1");
-    expect(mockPrisma.entity.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        operatorId: "op1",
-        displayName: "Acme Corp HQ AI",
-        category: "base",
-      }),
-    });
-    // HQ AI should NOT have primaryDomainId or ownerDomainId
-    const createCall = mockPrisma.entity.create.mock.calls[0][0].data;
-    expect(createCall.primaryDomainId).toBeUndefined();
-    expect(createCall.ownerDomainId).toBeUndefined();
-  });
-
-  it("returns existing entity ID when HQ AI already exists (idempotent)", async () => {
-    mockPrisma.entity.findFirst.mockResolvedValue({
-      id: "existing-hq-ai",
-    });
-
-    const result = await ensureHqAi("op1", "Acme Corp");
-
-    expect(result).toBe("existing-hq-ai");
-    expect(mockPrisma.entity.create).not.toHaveBeenCalled();
   });
 });
 

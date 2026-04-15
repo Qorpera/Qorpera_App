@@ -1,3 +1,10 @@
+/**
+ * @deprecated v0.3.32 — OperationalInsight promotion system is built
+ * on entity-based AI agents (domain-ai, hq-ai). Will be replaced by
+ * wiki-based learning in a future version. The insight cron and API
+ * routes still call this, so it's kept functional but not maintained.
+ */
+
 import { prisma } from "@/lib/db";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 

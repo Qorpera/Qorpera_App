@@ -41,47 +41,6 @@ export interface ProcessWikiUpdatesParams {
   synthesisDurationMs?: number;
 }
 
-// ─── Department derivation ─────────────────────────────
-
-/**
- * Derive department IDs for a wiki page from its subject entity and source data.
- * Returns empty array for org-wide pages (visible to all members).
- */
-async function resolveDepartmentIds(
-  operatorId: string,
-  subjectEntityId?: string,
-  sourceCitations?: WikiUpdate["sourceCitations"],
-): Promise<string[]> {
-  const deptIds = new Set<string>();
-
-  // From subject entity
-  if (subjectEntityId) {
-    const entity = await prisma.entity.findFirst({
-      where: { id: subjectEntityId, operatorId },
-      select: { primaryDomainId: true, entityType: { select: { slug: true } } },
-    });
-    if (entity?.primaryDomainId) {
-      deptIds.add(entity.primaryDomainId);
-    }
-    // If the subject IS a department, add itself
-    if (entity?.entityType?.slug === "domain") {
-      deptIds.add(subjectEntityId);
-    }
-  }
-
-  // From source citation chunks
-  if (sourceCitations?.length) {
-    const chunkIds = sourceCitations
-      .filter(c => c.sourceType === "chunk")
-      .map(c => c.sourceId);
-
-    // RawContent doesn't carry domainIds — wiki pages derive scope from entity relations
-    void chunkIds;
-  }
-
-  return [...deptIds];
-}
-
 // ─── Main entry point ───────────────────────────────────
 
 export async function processWikiUpdates(params: ProcessWikiUpdatesParams): Promise<{
@@ -187,12 +146,6 @@ async function createPage(params: {
   const contentTokens = Math.ceil(params.content.length / 4);
   const crossReferences = extractCrossReferences(params.content);
   const sourceTypes = [...new Set(params.sourceCitations.map((c) => c.sourceType))];
-  const domainIds = await resolveDepartmentIds(
-    params.operatorId,
-    params.subjectEntityId,
-    params.sourceCitations,
-  );
-
   // Embed content for search
   const embeddings = await embedChunks([params.content]).catch(() => [null]);
   const embedding = embeddings[0];
@@ -205,7 +158,6 @@ async function createPage(params: {
       visibility: getDefaultVisibility(params.pageType),
       pageType: params.pageType,
       subjectEntityId: params.subjectEntityId ?? null,
-      domainIds,
       title: params.title,
       slug,
       content: params.content,
@@ -297,12 +249,6 @@ async function updatePage(params: {
     ...existing.sourceTypes,
     ...params.sourceCitations.map((c) => c.sourceType),
   ])];
-  const domainIds = await resolveDepartmentIds(
-    params.operatorId,
-    params.subjectEntityId,
-    params.sourceCitations,
-  );
-
   // Snapshot current version before update
   await createVersionSnapshot(existing.id, "synthesis", params.synthesizedByModel ?? "unknown");
 
@@ -323,9 +269,8 @@ async function updatePage(params: {
            "verifiedAt" = NULL, "verifiedByModel" = NULL,
            "verificationLog" = NULL, "quarantineReason" = NULL, "staleReason" = NULL,
            "embedding" = $11::vector,
-           "departmentIds" = $12::text[],
-           "properties" = COALESCE($13::jsonb, "properties")
-       WHERE "id" = $14`,
+           "properties" = COALESCE($12::jsonb, "properties")
+       WHERE "id" = $13`,
       params.title,
       params.content,
       contentTokens,
@@ -337,7 +282,6 @@ async function updatePage(params: {
       params.synthesizedByModel,
       params.situationId ?? null,
       embeddingStr,
-      domainIds,
       params.properties ? JSON.stringify(params.properties) : null,
       existing.id,
     );
@@ -352,7 +296,6 @@ async function updatePage(params: {
         sources: mergedSources as unknown as Prisma.InputJsonValue,
         sourceCount: mergedSources.length,
         sourceTypes,
-        domainIds,
         status: "draft",
         version: { increment: 1 },
         synthesisPath: params.synthesisPath,
@@ -919,22 +862,25 @@ export async function getRelevantPagesForSeed(
   // 4. Fallback: if semantic search didn't run or returned too few pages,
   //    use the old heuristic (department overview + high-use pages)
   if (pages.length < 3 && tokensUsed < TOKEN_BUDGET - 500) {
-    const entity = await prisma.entity.findFirst({
-      where: { id: triggerEntityId, operatorId },
-      select: { primaryDomainId: true },
+    // Find domain overview from trigger entity's wiki cross-references
+    const triggerPage = await prisma.knowledgePage.findFirst({
+      where: { operatorId, subjectEntityId: triggerEntityId, scope: "operator", status: { not: "quarantined" } },
+      select: { crossReferences: true },
     });
-    if (entity?.primaryDomainId) {
-      const deptPage = await getPageForEntity(operatorId, entity.primaryDomainId, projectId, "domain_overview");
-      if (deptPage && !usedSlugs.has(deptPage.slug) && tokensUsed + Math.ceil(deptPage.content.length / 4) < TOKEN_BUDGET) {
-        pages.push({
-          slug: deptPage.slug,
-          title: "Domain overview",
-          pageType: "domain_overview",
-          status: deptPage.status,
-          content: deptPage.content,
-          trustLevel: deptPage.trustLevel ?? "provisional",
-        });
-        tokensUsed += Math.ceil(deptPage.content.length / 4);
+    if (triggerPage?.crossReferences.length) {
+      const deptPage = await prisma.knowledgePage.findFirst({
+        where: {
+          operatorId,
+          slug: { in: triggerPage.crossReferences },
+          pageType: { in: ["domain_overview", "domain_hub"] },
+          status: { not: "quarantined" },
+          projectId: projectId ?? null,
+        },
+        select: { slug: true, title: true, pageType: true, status: true, content: true, contentTokens: true, trustLevel: true },
+      });
+      if (deptPage && !usedSlugs.has(deptPage.slug) && tokensUsed + deptPage.contentTokens < TOKEN_BUDGET) {
+        pages.push({ ...deptPage, trustLevel: deptPage.trustLevel ?? "provisional" });
+        tokensUsed += deptPage.contentTokens;
         usedSlugs.add(deptPage.slug);
       }
     }

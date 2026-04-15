@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { hashPassword, createSession } from "@/lib/auth";
 import { encryptConfig } from "@/lib/config-encryption";
 import { ensureHardcodedEntityType } from "@/lib/entity-type-bootstrap";
-import { ensureHqAi, ensureDepartmentAi, seedNotificationPreferences } from "@/lib/ai-entity-helpers";
+import { seedNotificationPreferences } from "@/lib/ai-entity-helpers";
 import { embedChunks } from "@/lib/rag/embedder";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import {
@@ -309,16 +309,9 @@ export async function runDemoSeed(operatorId: string) {
   });
 
   // ─── Layer 4: AI Entities ────────────────────────────────────────
-  // Operator AI (HQ level)
-  const hqAiId = await ensureHqAi(operatorId, COMPANY.name);
-
-  // Department AIs (one per department, skip CompanyHQ which is organization type)
+  // Legacy hq-ai / domain-ai entities removed — aiEntityId is deprecated on Initiative/OperationalInsight
+  const hqAiId: string | null = null;
   const deptAiIds: Record<string, string> = {};
-  for (const d of DEPARTMENTS) {
-    if (d.entityTypeSlug === "domain") {
-      deptAiIds[d.name] = await ensureDepartmentAi(operatorId, deptIds[d.name], d.name);
-    }
-  }
 
   // Personal AIs for users (ai-agent entities with ownerUserId)
   const personalAiIds: Record<string, string> = {};

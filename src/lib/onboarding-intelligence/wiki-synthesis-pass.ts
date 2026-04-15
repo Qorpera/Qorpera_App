@@ -954,7 +954,7 @@ Otherwise use "natural" with a naturalLanguage description of what to detect.`,
 
   const allPages = await prisma.knowledgePage.findMany({
     where: { operatorId, scope: "operator", mapX: null },
-    select: { id: true, slug: true, pageType: true, domainIds: true },
+    select: { id: true, slug: true, pageType: true, crossReferences: true },
   });
 
   // Identify company hub and department hubs separately
@@ -988,10 +988,6 @@ Otherwise use "natural" with a naturalLanguage description of what to detect.`,
       data: { mapX: x, mapY: y },
     });
     hubPositions.set(hub.slug, { x, y });
-    // Also index by domainIds for child matching
-    for (const did of hub.domainIds) {
-      hubPositions.set(`domain:${did}`, { x, y });
-    }
   }
 
   // Leaf pages clustered around their department hub
@@ -1006,10 +1002,10 @@ Otherwise use "natural" with a naturalLanguage description of what to detect.`,
   const domainLeafCounters = new Map<string, number>();
 
   for (const leaf of internalLeaves) {
-    // Find parent hub position
+    // Find parent hub position via crossReferences
     let parentPos: { x: number; y: number } | undefined;
-    for (const did of leaf.domainIds) {
-      parentPos = hubPositions.get(`domain:${did}`);
+    for (const ref of leaf.crossReferences) {
+      parentPos = hubPositions.get(ref);
       if (parentPos) break;
     }
     if (!parentPos) {

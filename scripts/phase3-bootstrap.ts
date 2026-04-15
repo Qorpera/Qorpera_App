@@ -10,41 +10,18 @@
  */
 
 import { prisma } from "../src/lib/db";
-import { ensureHqAi, ensureDepartmentAi, seedNotificationPreferences } from "../src/lib/ai-entity-helpers";
+import { seedNotificationPreferences } from "../src/lib/ai-entity-helpers";
 import { ensureInternalCapabilities } from "../src/lib/internal-capabilities";
 import { backfillCalendarWriteCapabilities, seedMeetingRequestSituationType, seedRequestMeetingCapability } from "../src/lib/meeting-coordination";
 
 async function main() {
-  let hqAiCount = 0;
-  let deptAiCount = 0;
   let notifPrefCount = 0;
 
-  // 1. Create HQ AI for each operator
   const operators = await prisma.operator.findMany({
     select: { id: true, displayName: true },
   });
 
-  for (const op of operators) {
-    await ensureHqAi(op.id, op.displayName);
-    hqAiCount++;
-  }
-
-  // 2. Create department AIs for existing departments
-  const departments = await prisma.entity.findMany({
-    where: {
-      category: "foundational",
-      entityType: { slug: "department" },
-      status: "active",
-    },
-    select: { id: true, operatorId: true, displayName: true },
-  });
-
-  for (const dept of departments) {
-    await ensureDepartmentAi(dept.operatorId, dept.id, dept.displayName);
-    deptAiCount++;
-  }
-
-  // 3. Seed notification preferences for users without them
+  // 1. Seed notification preferences for users without them
   const users = await prisma.user.findMany({
     where: {
       notificationPreferences: { none: {} },
@@ -76,7 +53,7 @@ async function main() {
   }
 
   console.log(
-    `Created ${hqAiCount} HQ AIs, ${deptAiCount} department AIs, ${notifPrefCount} notification preference sets, bootstrapped internal capabilities for ${internalCapCount} operators, backfilled ${calCapCount} calendar capabilities, seeded meeting types for ${meetingTypeCount} operators`,
+    `Created ${notifPrefCount} notification preference sets, bootstrapped internal capabilities for ${internalCapCount} operators, backfilled ${calCapCount} calendar capabilities, seeded meeting types for ${meetingTypeCount} operators`,
   );
 }
 

@@ -70,11 +70,6 @@ export const REASONING_TOOLS: AITool[] = [
           type: "string",
           description: "Search query for semantic matching against communication content",
         },
-        domainIds: {
-          type: "array",
-          items: { type: "string" },
-          description: "Optional department IDs to scope search",
-        },
         limit: {
           type: "number",
           description: "Maximum excerpts to return (default 8)",
@@ -93,11 +88,6 @@ export const REASONING_TOOLS: AITool[] = [
         query: {
           type: "string",
           description: "Search query for semantic matching against document content",
-        },
-        domainIds: {
-          type: "array",
-          items: { type: "string" },
-          description: "Optional department IDs to scope search",
         },
         limit: {
           type: "number",
@@ -455,11 +445,9 @@ async function executeSearchCommunications(
   args: Record<string, unknown>,
 ): Promise<string> {
   const query = String(args.query ?? "");
-  const entityId = args.entityId ? String(args.entityId) : undefined;
-  const domainIds = Array.isArray(args.domainIds) ? args.domainIds.map(String) : [];
   const limit = typeof args.limit === "number" ? args.limit : 8;
 
-  const comms = await loadCommunicationContext(operatorId, entityId ?? "", query, domainIds, limit);
+  const comms = await loadCommunicationContext(operatorId, query, limit);
 
   if (comms.excerpts.length === 0) return `No communications found matching "${query}".`;
 
