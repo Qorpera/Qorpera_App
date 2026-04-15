@@ -7,6 +7,8 @@ import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 
 import { buildSystemJobWikiContent } from "@/lib/system-job-wiki";
+import { searchRawContent } from "@/lib/storage/raw-content-store";
+import { type PageAccessContext, resolveAccessContext } from "@/lib/domain-scope";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -538,56 +540,93 @@ async function getVisibleAiEntityIds(
   return entities.map(e => e.id);
 }
 
+// ── Email extraction from raw metadata ────────────────────────────────────
+
+function extractParticipantEmails(meta: Record<string, unknown>): Set<string> {
+  const emails = new Set<string>();
+  for (const field of ["from", "to", "cc", "sender", "authorEmail"]) {
+    const val = meta[field];
+    if (typeof val === "string") {
+      for (const part of val.split(/[,;]\s*/)) {
+        const trimmed = part.trim().toLowerCase();
+        if (trimmed.includes("@")) emails.add(trimmed);
+      }
+    } else if (Array.isArray(val)) {
+      for (const v of val) {
+        if (typeof v === "string" && v.includes("@")) emails.add(v.trim().toLowerCase());
+      }
+    }
+  }
+  return emails;
+}
+
+// ── Wiki-based user email resolution ──────────────────────────────────────
+
+const userEmailCache = new Map<string, { email: string | null; cachedAt: number }>();
+const USER_EMAIL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+async function getUserEmailFromWiki(
+  operatorId: string,
+  personSlug: string | null,
+): Promise<string | null> {
+  if (!personSlug) return null;
+
+  const cacheKey = `${operatorId}:${personSlug}`;
+  const cached = userEmailCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < USER_EMAIL_CACHE_TTL_MS) {
+    return cached.email;
+  }
+
+  const page = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug: personSlug, scope: "operator" },
+    select: { properties: true },
+  });
+
+  let email: string | null = null;
+  if (page) {
+    const props = (page.properties ?? {}) as Record<string, unknown>;
+    if (typeof props.email === "string" && props.email.includes("@")) {
+      email = props.email.toLowerCase();
+    }
+  }
+
+  userEmailCache.set(cacheKey, { email, cachedAt: Date.now() });
+  return email;
+}
+
 /**
- * Check if any participant in a set of RawContent items belongs to a visible department.
- * Returns true if the user has access (admin, or at least one participant in scope).
+ * Check if any participant in a set of RawContent items matches the user's email.
+ * Returns true if the user has access (admin, or is a participant in at least one item).
  */
 async function checkParticipantScope(
   operatorId: string,
   rawItems: Array<{ rawMetadata: unknown }>,
-  visibleDomains: string[] | "all" | undefined,
+  accessCtx: PageAccessContext,
 ): Promise<boolean> {
-  if (!visibleDomains || visibleDomains === "all") return true;
+  if (accessCtx.isAdmin) return true;
   if (rawItems.length === 0) return true;
 
-  // Extract all participant emails from rawMetadata
-  const emails = new Set<string>();
+  // Check if ANY item has participant metadata at all
+  let anyParticipantsFound = false;
   for (const r of rawItems) {
     const meta = (r.rawMetadata ?? {}) as Record<string, unknown>;
-    for (const field of ["from", "to", "cc", "sender", "authorEmail"]) {
-      const val = meta[field];
-      if (typeof val === "string") {
-        for (const part of val.split(/[,;]\s*/)) {
-          const trimmed = part.trim().toLowerCase();
-          if (trimmed.includes("@")) emails.add(trimmed);
-        }
-      } else if (Array.isArray(val)) {
-        for (const v of val) {
-          if (typeof v === "string" && v.includes("@")) emails.add(v.trim().toLowerCase());
-        }
-      }
+    if (extractParticipantEmails(meta).size > 0) {
+      anyParticipantsFound = true;
+      break;
     }
   }
+  if (!anyParticipantsFound) return true; // No participants = permissive
 
-  if (emails.size === 0) return true; // No participants to check — allow
+  const userEmail = await getUserEmailFromWiki(operatorId, accessCtx.userPersonSlug);
+  if (!userEmail) return true; // No person page = permissive default
 
-  // Find entities matching participant emails that belong to a visible department
-  const matchingEntities = await prisma.entity.findMany({
-    where: {
-      operatorId,
-      propertyValues: {
-        some: {
-          property: { identityRole: "email" },
-          value: { in: [...emails] },
-        },
-      },
-      primaryDomainId: { in: visibleDomains },
-    },
-    select: { id: true },
-    take: 1,
-  });
+  for (const r of rawItems) {
+    const meta = (r.rawMetadata ?? {}) as Record<string, unknown>;
+    const participantEmails = extractParticipantEmails(meta);
+    if (participantEmails.has(userEmail)) return true;
+  }
 
-  return matchingEntities.length > 0;
+  return false;
 }
 
 export async function executeTool(
@@ -599,6 +638,27 @@ export async function executeTool(
   userId?: string,
 ): Promise<string> {
   const domainVisFilter = visibleDomains && visibleDomains !== "all" ? { id: { in: visibleDomains } } : {};
+
+  // Lazy access context — only resolved when participant scope checks are needed
+  let _cachedAccessCtx: PageAccessContext | undefined;
+  async function getAccessCtx(): Promise<PageAccessContext> {
+    if (!_cachedAccessCtx) {
+      if (userId) {
+        _cachedAccessCtx = await resolveAccessContext(operatorId, userId);
+      } else {
+        _cachedAccessCtx = {
+          userDomainSlugs: [],
+          userPersonSlug: null,
+          managedPersonSlugs: [],
+          role: "unknown",
+          isAdmin: !visibleDomains || visibleDomains === "all",
+          isScoped: false,
+        };
+      }
+    }
+    return _cachedAccessCtx;
+  }
+
   switch (toolName) {
     case "get_related_pages": {
       const slug = String(args.slug ?? "");
@@ -1371,49 +1431,37 @@ export async function executeTool(
       if (!query) return "Please provide a search query.";
       const limit = typeof args.limit === "number" ? args.limit : 5;
 
-      // Resolve visible department IDs for scoping
-      let searchDeptIds: string[] = [];
-      const depts = await prisma.entity.findMany({
-        where: {
-          operatorId, category: "foundational", entityType: { slug: "domain" },
-          ...domainVisFilter,
-        },
-        select: { id: true },
+      let results = await searchRawContent(operatorId, query, {
+        sourceType: "email",
+        limit,
       });
-      searchDeptIds = depts.map(d => d.id);
 
-      if (searchDeptIds.length === 0) return "No departments available to search.";
-
-      try {
-        const { retrieveRelevantChunks } = await import("@/lib/rag/retriever");
-        const { embedChunks } = await import("@/lib/rag/embedder");
-        const [queryEmbedding] = await embedChunks([query]);
-        if (!queryEmbedding) return "Email search is not available — embeddings may not be configured.";
-
-        const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
-          sourceTypes: ["email"],
-          limit,
-          domainIds: searchDeptIds.length > 0 ? searchDeptIds : undefined,
-          userId: userId ?? undefined,
-          skipUserFilter: false,
-        });
-
-        if (results.length === 0) return "No emails found matching this query.";
-        return results
-          .map((r) => {
-            const m = r.metadata || {};
-            const from = m.from || "unknown";
-            const to = Array.isArray(m.to) ? m.to.join(", ") : m.to || "unknown";
-            const date = m.date ? new Date(m.date as string).toLocaleDateString() : "unknown";
-            const subject = m.subject || "(no subject)";
-            const direction = m.direction || "unknown";
-            const threadId = m.threadId || "";
-            return `From: ${from} | To: ${to} | Date: ${date} | ${direction}\nSubject: ${subject}${threadId ? ` | Thread: ${threadId}` : ""}\n${r.content.slice(0, 500)}`;
-          })
-          .join("\n\n---\n\n");
-      } catch {
-        return "Email search is not available — embeddings may not be configured.";
+      // Scope filter for non-admin users
+      const emailSearchCtx = await getAccessCtx();
+      if (!emailSearchCtx.isAdmin) {
+        const scopeEmail = await getUserEmailFromWiki(operatorId, emailSearchCtx.userPersonSlug);
+        if (scopeEmail) {
+          results = results.filter(r => {
+            const participants = extractParticipantEmails(r.rawMetadata);
+            if (participants.size === 0) return true;
+            return participants.has(scopeEmail);
+          });
+        }
       }
+
+      if (results.length === 0) return "No emails found matching this query.";
+      return results
+        .map((r) => {
+          const m = r.rawMetadata;
+          const from = m.from || "unknown";
+          const to = Array.isArray(m.to) ? (m.to as string[]).join(", ") : m.to || "unknown";
+          const date = m.date ? new Date(m.date as string).toLocaleDateString() : "unknown";
+          const subject = m.subject || "(no subject)";
+          const direction = m.direction || "unknown";
+          const threadId = m.threadId || "";
+          return `From: ${from} | To: ${to} | Date: ${date} | ${direction}\nSubject: ${subject}${threadId ? ` | Thread: ${threadId}` : ""}\n${(r.rawBody ?? "").slice(0, 500)}`;
+        })
+        .join("\n\n---\n\n");
     }
 
     case "search_documents": {
@@ -1421,56 +1469,41 @@ export async function executeTool(
       if (!query) return "Please provide a search query.";
       const limit = typeof args.limit === "number" ? args.limit : 5;
 
-      // Resolve visible department IDs for scoping
-      const docDepts = await prisma.entity.findMany({
-        where: {
-          operatorId, category: "foundational", entityType: { slug: "domain" },
-          ...domainVisFilter,
-        },
-        select: { id: true },
-      });
-      const docDeptIds = docDepts.map(d => d.id);
+      const [driveResults, uploadedResults] = await Promise.all([
+        searchRawContent(operatorId, query, { sourceType: "drive_doc", limit }),
+        searchRawContent(operatorId, query, { sourceType: "uploaded_doc", limit: Math.max(2, Math.floor(limit / 2)) }),
+      ]);
 
-      if (docDeptIds.length === 0) return "No departments available to search.";
+      let results = [...driveResults, ...uploadedResults]
+        .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
+        .slice(0, limit);
 
-      try {
-        const { retrieveRelevantChunks } = await import("@/lib/rag/retriever");
-        const { embedChunks } = await import("@/lib/rag/embedder");
-        const [queryEmbedding] = await embedChunks([query]);
-        if (!queryEmbedding) return "Document search is not available — embeddings may not be configured.";
-
-        const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
-          sourceTypes: ["drive_doc", "uploaded_doc"],
-          limit,
-          domainIds: docDeptIds.length > 0 ? docDeptIds : undefined,
-          includeParentContext: true,
-          userId: userId ?? undefined,
-          skipUserFilter: false,
-        });
-
-        if (results.length === 0) return "No documents found matching this query.";
-
-        return results
-          .map((r) => {
-            const m = r.metadata || {};
-            const isSummary = m.isDocumentSummary === true;
-            const fileName = (m.fileName as string) || "Unknown";
-
-            if (isSummary) {
-              return `Document Overview: ${fileName}\n${r.content.slice(0, 600)}`;
-            }
-
-            const mimeType = (m.mimeType as string) || "";
-            const modifiedTime = m.modifiedTime ? new Date(m.modifiedTime as string).toLocaleDateString() : "unknown";
-            const sectionTitle = m.sectionTitle ? ` | Section: ${m.sectionTitle}` : "";
-            const chunkInfo = m.chunkTotal ? ` | Part ${r.chunkIndex} of ${m.chunkTotal}` : "";
-            const sheetName = m.sheetName ? ` (Sheet: ${m.sheetName})` : "";
-            return `File: ${fileName}${sheetName}${sectionTitle}${chunkInfo} | Type: ${mimeType} | Modified: ${modifiedTime} | Relevance: ${r.score.toFixed(2)}\n${r.content.slice(0, 500)}`;
-          })
-          .join("\n\n---\n\n");
-      } catch {
-        return "Document search is not available — embeddings may not be configured.";
+      // Scope filter for non-admin users
+      const docSearchCtx = await getAccessCtx();
+      if (!docSearchCtx.isAdmin) {
+        const scopeEmail = await getUserEmailFromWiki(operatorId, docSearchCtx.userPersonSlug);
+        if (scopeEmail) {
+          results = results.filter(r => {
+            const participants = extractParticipantEmails(r.rawMetadata);
+            if (participants.size === 0) return true;
+            return participants.has(scopeEmail);
+          });
+        }
       }
+
+      if (results.length === 0) return "No documents found matching this query.";
+
+      return results
+        .map((r) => {
+          const m = r.rawMetadata;
+          const fileName = (m.fileName as string) || "Unknown";
+          const mimeType = (m.mimeType as string) || "";
+          const modifiedTime = m.modifiedTime ? new Date(m.modifiedTime as string).toLocaleDateString() : "unknown";
+          const sectionTitle = m.sectionTitle ? ` | Section: ${m.sectionTitle}` : "";
+          const sheetName = m.sheetName ? ` (Sheet: ${m.sheetName})` : "";
+          return `File: ${fileName}${sheetName}${sectionTitle} | Type: ${mimeType} | Modified: ${modifiedTime}\n${(r.rawBody ?? "").slice(0, 500)}`;
+        })
+        .join("\n\n---\n\n");
     }
 
     case "search_messages": {
@@ -1478,72 +1511,55 @@ export async function executeTool(
       if (!query) return "Please provide a search query.";
       const limit = typeof args.limit === "number" ? args.limit : 5;
 
-      // Resolve visible department IDs for scoping
-      const msgDepts = await prisma.entity.findMany({
-        where: {
-          operatorId, category: "foundational", entityType: { slug: "domain" },
-          ...domainVisFilter,
-        },
-        select: { id: true },
-      });
-      const msgDeptIds = msgDepts.map(d => d.id);
+      const [slackResults, teamsResults] = await Promise.all([
+        searchRawContent(operatorId, query, { sourceType: "slack_message", limit }),
+        searchRawContent(operatorId, query, { sourceType: "teams_message", limit }),
+      ]);
 
-      if (msgDeptIds.length === 0) return "No departments available to search.";
+      let results = [...slackResults, ...teamsResults]
+        .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
+        .slice(0, limit);
 
-      try {
-        const { retrieveRelevantChunks } = await import("@/lib/rag/retriever");
-        const { embedChunks } = await import("@/lib/rag/embedder");
-        const [queryEmbedding] = await embedChunks([query]);
-        if (!queryEmbedding) return "Message search is not available — embeddings may not be configured.";
-
-        const results = await retrieveRelevantChunks(operatorId, queryEmbedding, {
-          sourceTypes: ["slack_message", "teams_message"],
-          limit,
-          domainIds: msgDeptIds.length > 0 ? msgDeptIds : undefined,
-          userId: userId ?? undefined,
-          skipUserFilter: false,
-        });
-
-        if (results.length === 0) return "No messages found matching this query.";
-
-        return results
-          .map((r) => {
-            const m = r.metadata || {};
-            const channelName = (m.channelName as string) || (m.teamName ? `${m.teamName}/${m.channelName}` : "unknown");
-            const authorEmail = (m.authorEmail as string) || "unknown";
-            let timestamp = "unknown";
-            if (m.timestamp) {
-              const tsStr = m.timestamp as string;
-              // Slack timestamps are epoch floats (e.g. "1710000000.000100"), Teams are ISO strings
-              const parsed = tsStr.includes("T")
-                ? new Date(tsStr)
-                : new Date(parseFloat(tsStr) * 1000);
-              if (!isNaN(parsed.getTime())) timestamp = parsed.toLocaleDateString();
-            }
-            const isThread = m.isThread ? " (thread)" : "";
-            const source = r.sourceType === "teams_message" ? "Teams" : "Slack";
-            return `[${source}] #${channelName} | ${authorEmail} | ${timestamp}${isThread}\n${r.content.slice(0, 500)}`;
-          })
-          .join("\n\n---\n\n");
-      } catch {
-        return "Message search is not available — embeddings may not be configured.";
+      // Scope filter for non-admin users
+      const msgSearchCtx = await getAccessCtx();
+      if (!msgSearchCtx.isAdmin) {
+        const scopeEmail = await getUserEmailFromWiki(operatorId, msgSearchCtx.userPersonSlug);
+        if (scopeEmail) {
+          results = results.filter(r => {
+            const participants = extractParticipantEmails(r.rawMetadata);
+            if (participants.size === 0) return true;
+            return participants.has(scopeEmail);
+          });
+        }
       }
+
+      if (results.length === 0) return "No messages found matching this query.";
+
+      return results
+        .map((r) => {
+          const m = r.rawMetadata;
+          const channelName = (m.channelName as string) || (m.teamName ? `${m.teamName}/${m.channelName}` : "unknown");
+          const authorEmail = (m.authorEmail as string) || "unknown";
+          let timestamp = "unknown";
+          if (m.timestamp) {
+            const tsStr = m.timestamp as string;
+            // Slack timestamps are epoch floats (e.g. "1710000000.000100"), Teams are ISO strings
+            const parsed = tsStr.includes("T")
+              ? new Date(tsStr)
+              : new Date(parseFloat(tsStr) * 1000);
+            if (!isNaN(parsed.getTime())) timestamp = parsed.toLocaleDateString();
+          }
+          const isThread = m.isThread ? " (thread)" : "";
+          const source = r.sourceType === "teams_message" ? "Teams" : "Slack";
+          return `[${source}] #${channelName} | ${authorEmail} | ${timestamp}${isThread}\n${(r.rawBody ?? "").slice(0, 500)}`;
+        })
+        .join("\n\n---\n\n");
     }
 
     case "get_message_thread": {
       const threadId = String(args.threadId ?? "");
       if (!threadId) return "Please provide a thread ID.";
       const sourceType = (args.sourceType as string) || "slack_message";
-
-      // Department scope: resolve visible departments for filtering
-      const msgThreadDepts = await prisma.entity.findMany({
-        where: {
-          operatorId, category: "foundational", entityType: { slug: "domain" },
-          ...domainVisFilter,
-        },
-        select: { id: true },
-      });
-      const msgThreadDeptIds = new Set(msgThreadDepts.map(d => d.id));
 
       try {
         // Query RawContent that match the thread
@@ -1578,8 +1594,9 @@ export async function executeTool(
 
         if (rawItems.length === 0) return "No messages found for this thread ID.";
 
-        // Department scope: check if any participant belongs to user's visible departments
-        const hasAccess = await checkParticipantScope(operatorId, rawItems, visibleDomains);
+        // Participant scope: check if user is a participant in the thread
+        const msgAccessCtx = await getAccessCtx();
+        const hasAccess = await checkParticipantScope(operatorId, rawItems, msgAccessCtx);
         if (!hasAccess) {
           return "I don't have visibility into that message thread's department.";
         }
@@ -1879,16 +1896,6 @@ export async function executeTool(
       const threadId = String(args.threadId ?? "");
       if (!threadId) return "Please provide a thread ID.";
 
-      // Department scope: resolve visible departments for filtering
-      const threadDepts = await prisma.entity.findMany({
-        where: {
-          operatorId, category: "foundational", entityType: { slug: "domain" },
-          ...domainVisFilter,
-        },
-        select: { id: true },
-      });
-      const threadDeptIds = new Set(threadDepts.map(d => d.id));
-
       // Find RawContent for this email thread via metadata threadId
       const rawEmails = await prisma.rawContent.findMany({
         where: {
@@ -1905,8 +1912,9 @@ export async function executeTool(
         return "No emails found for this thread ID.";
       }
 
-      // Department scope: check if any participant belongs to user's visible departments
-      const hasThreadAccess = await checkParticipantScope(operatorId, rawEmails, visibleDomains);
+      // Participant scope: check if user is a participant in the thread
+      const emailAccessCtx = await getAccessCtx();
+      const hasThreadAccess = await checkParticipantScope(operatorId, rawEmails, emailAccessCtx);
       if (!hasThreadAccess) {
         return "I don't have visibility into that email thread's department.";
       }
