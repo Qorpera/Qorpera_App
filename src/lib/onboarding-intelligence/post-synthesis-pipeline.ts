@@ -46,7 +46,7 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
       });
       if (latestPlan) {
         const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
-        await enqueueWorkerJob("execute_research_plan", operatorId, { planId: latestPlan.id });
+        await enqueueWorkerJob("execute_research_plan", operatorId, { operatorId, planId: latestPlan.id });
       }
     } catch (err) {
       console.error("[post-synthesis] Failed to enqueue research plan:", err);

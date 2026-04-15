@@ -707,7 +707,7 @@ Respond with ONLY JSON:
 }`,
     messages: [{ role: "user", content: "Evaluate these proposals." }],
     model: getModel("agenticReasoning"),
-    maxTokens: 16_384,
+    maxTokens: 65_536,
     thinking: true,
     thinkingBudget: 16_384,
   });

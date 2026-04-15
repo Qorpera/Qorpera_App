@@ -402,6 +402,20 @@ export async function runSyntheticSeed(
   console.log(`[synthetic-seed] Created ${chunkCount} content chunks`);
   console.timeEnd(`[synthetic-seed] Content ingestion + embedding — ${company.slug}`);
 
+  // ── 7a. RawContent records ──────────────────────────────────────
+  const rawContentData = company.content.map((c, i) => ({
+    operatorId,
+    accountId: connectorIds[c.connectorProvider] ?? null,
+    sourceType: c.sourceType,
+    sourceId: `synth-${company.slug}-${c.sourceType}-${i}`,
+    rawBody: c.content,
+    rawMetadata: (c.metadata ?? {}) as any,
+    occurredAt: c.daysAgo ? daysAgo(c.daysAgo) : new Date(),
+    sizeBytes: Buffer.byteLength(c.content, "utf8"),
+  }));
+  const { count: rawContentCount } = await prisma.rawContent.createMany({ data: rawContentData });
+  console.log(`[synthetic-seed] Created ${rawContentCount} raw content records`);
+
   // ── 8. Activity Signals ──────────────────────────────────────────
   console.log(`[synthetic-seed] Creating ${company.activitySignals.length} activity signals...`);
   console.time(`[synthetic-seed] Activity signals — ${company.slug}`);
@@ -494,6 +508,7 @@ export async function runSyntheticSeed(
       tickets: company.tickets?.length ?? 0,
       relationships: relationshipCount,
       contentChunks: chunkCount,
+      rawContent: rawContentCount,
       activitySignals: signalCount,
     },
     analysisId: analysis.id,
