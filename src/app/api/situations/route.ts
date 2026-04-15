@@ -27,7 +27,6 @@ export async function GET(req: NextRequest) {
   const conditions: string[] = [
     `kp."operatorId" = $1`,
     `kp."pageType" = 'situation_instance'`,
-    `kp.properties->>'situation_id' IS NOT NULL`,
   ];
   const queryParams: unknown[] = [operatorId];
   let paramIdx = 1; // tracks the last used $N
