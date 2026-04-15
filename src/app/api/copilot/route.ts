@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
   // System-health context: scope filtering done inside the loader
   if (ctxType === "system-health") {
     try {
-      const contextText = await loadSystemHealthContext(operatorId, visibleDomains);
+      const contextText = await loadSystemHealthContext(operatorId);
       if (contextText) {
         const roleInstruction = getContextRoleInstruction(ctxType);
         contextInfo = {

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { parseSituationPage } from "@/lib/situation-page-parser";
-import type { OperatorSnapshot, DomainSnapshot } from "@/lib/system-health/compute-snapshot";
+import type { OperatorHealthSnapshot } from "@/lib/system-health/compute-snapshot";
 
 // ── Situation Context ────────────────────────────────────────────────────────
 
@@ -103,86 +103,60 @@ export async function loadInitiativeContext(
 
 export async function loadSystemHealthContext(
   operatorId: string,
-  visibleDomains: string[] | "all",
 ): Promise<string | null> {
-  const healthRows = await prisma.domainHealth.findMany({
-    where: { operatorId },
-    select: { domainEntityId: true, snapshot: true, computedAt: true },
+  const healthRow = await prisma.domainHealth.findFirst({
+    where: { operatorId, domainEntityId: null },
+    select: { snapshot: true, computedAt: true },
   });
 
-  if (healthRows.length === 0) return null;
+  if (!healthRow) return null;
 
-  // Scope filter: members only see their departments
-  const filteredRows = visibleDomains === "all"
-    ? healthRows
-    : healthRows.filter(
-        (r) => r.domainEntityId === null || visibleDomains.includes(r.domainEntityId),
-      );
-
-  return formatHealthContext(filteredRows);
+  return formatHealthContext(
+    healthRow.snapshot as unknown as OperatorHealthSnapshot,
+    healthRow.computedAt,
+  );
 }
 
 function formatHealthContext(
-  healthRows: { domainEntityId: string | null; snapshot: unknown; computedAt: Date }[],
+  snap: OperatorHealthSnapshot,
+  computedAt: Date,
 ): string {
   const lines: string[] = ["## Current System Health Status\n"];
 
-  const operatorRow = healthRows.find((r) => r.domainEntityId === null);
-  if (operatorRow) {
-    const snap = operatorRow.snapshot as OperatorSnapshot;
-    lines.push(`Overall: ${snap.overallStatus} (${snap.criticalIssueCount} critical issues)`);
-    lines.push(`Last computed: ${operatorRow.computedAt.toISOString()}\n`);
-  }
+  lines.push(`Overall: ${snap.overallStatus}`);
+  lines.push(`Last computed: ${computedAt.toISOString()}\n`);
 
-  const deptRows = healthRows.filter((r) => r.domainEntityId !== null);
-  for (const row of deptRows) {
-    const dept = row.snapshot as DomainSnapshot;
-
-    if (dept.overallStatus === "healthy") continue;
-
-    lines.push(`### ${dept.domainName} — ${dept.overallStatus}`);
-
-    if (dept.dataPipeline.status !== "healthy") {
-      lines.push(`Data Pipeline: ${dept.dataPipeline.status}`);
-      for (const conn of dept.dataPipeline.connectors) {
-        if (conn.issue) {
-          lines.push(`  - ${conn.name} (${conn.provider}): ${conn.issue}`);
-        }
-      }
+  // Connectors
+  const problemConnectors = snap.connectors.filter((c) => c.issue);
+  if (problemConnectors.length > 0) {
+    lines.push("### Connectors");
+    for (const c of problemConnectors) {
+      lines.push(`  - ${c.name} (${c.provider}): ${c.issue}`);
     }
-
-    if (dept.knowledge.status !== "complete") {
-      lines.push(`Knowledge: ${dept.knowledge.status}`);
-      for (const gap of dept.knowledge.people.gaps) {
-        lines.push(`  - ${gap}`);
-      }
-      if (dept.knowledge.documents.count === 0) {
-        lines.push("  - No operational documents uploaded");
-      }
-      if (dept.knowledge.operationalInsights.count === 0) {
-        lines.push("  - No operational patterns learned yet");
-      }
-    }
-
-    if (dept.detection.status !== "active") {
-      lines.push(`Detection: ${dept.detection.status}`);
-      for (const st of dept.detection.situationTypes) {
-        if (st.diagnosis !== "healthy") {
-          lines.push(`  - ${st.name}: ${st.diagnosis} — ${st.diagnosisDetail}`);
-        }
-      }
-    }
-
     lines.push("");
   }
 
-  const healthyDepts = deptRows
-    .filter((r) => (r.snapshot as DomainSnapshot).overallStatus === "healthy")
-    .map((r) => (r.snapshot as DomainSnapshot).domainName);
-
-  if (healthyDepts.length > 0) {
-    lines.push(`Healthy departments (no issues): ${healthyDepts.join(", ")}`);
+  // Wiki
+  lines.push(`Wiki: ${snap.wiki.totalPages} pages (${snap.wiki.verifiedPages} verified, ${snap.wiki.draftPages} draft, ${snap.wiki.stalePages} stale)`);
+  if (snap.wiki.totalPages > 0) {
+    lines.push(`  Avg confidence: ${(snap.wiki.avgConfidence * 100).toFixed(0)}%`);
   }
+
+  // People
+  lines.push(`People: ${snap.people.totalProfiles} profiles (${snap.people.withRoles} with roles, ${snap.people.withReportingLines} with reporting lines)`);
+
+  // Detection
+  if (snap.detection.totalSituationTypes > 0) {
+    lines.push(`Detection: ${snap.detection.activeSituationTypes}/${snap.detection.totalSituationTypes} active types, ${snap.detection.totalDetected30d} detected (30d)`);
+    if (snap.detection.confirmationRate !== null) {
+      lines.push(`  Confirmation rate: ${(snap.detection.confirmationRate * 100).toFixed(0)}%`);
+    }
+  } else {
+    lines.push("Detection: no situation types configured");
+  }
+
+  // Raw content
+  lines.push(`Raw content: ${snap.rawContent.totalItems} items`);
 
   return lines.join("\n");
 }

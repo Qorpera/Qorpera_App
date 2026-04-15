@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -15,155 +14,100 @@ export type ConnectorHealth = {
   action: { label: string; href: string } | null;
 };
 
-export type DataPipelineHealth = {
+export type OperatorHealthSnapshot = {
+  operatorId: string;
   connectors: ConnectorHealth[];
-  totalEntities: number;
-  lastIngestion: string | null;
-  status: "healthy" | "degraded" | "disconnected" | "empty";
-};
-
-export type KnowledgeHealth = {
+  wiki: {
+    totalPages: number;
+    verifiedPages: number;
+    draftPages: number;
+    stalePages: number;
+    avgConfidence: number;
+    byPageType: Record<string, number>;
+  };
   people: {
-    count: number;
+    totalProfiles: number;
     withRoles: number;
     withReportingLines: number;
-    gaps: string[];
   };
-  documents: {
-    count: number;           // InternalDocument count (uploaded docs)
-    ragChunks: number;       // Knowledge chunks (uploaded + drive + slack) with department assignment
-    operationalChunks: number; // Operational data chunks (email + calendar) with department assignment
-    staleCount: number;
+  detection: {
+    totalSituationTypes: number;
+    activeSituationTypes: number;
+    totalDetected30d: number;
+    confirmationRate: number | null;
   };
-  operationalInsights: {
-    count: number;
-    withPromptMods: number;
-    situationTypeCoverage: {
-      typeId: string;
-      typeName: string;
-      hasInsights: boolean;
-      insightCount: number;
-    }[];
+  rawContent: {
+    totalItems: number;
+    bySourceType: Record<string, number>;
   };
-  status: "complete" | "partial" | "minimal" | "empty";
-};
-
-export type SituationTypeHealth = {
-  id: string;
-  name: string;
-  autonomyLevel: string;
-  // last7d, last30d, confirmationRate are read LIVE by the API route
-  lastDetectionAt: string | null;
-  diagnosis:
-    | "healthy"
-    | "no_data"
-    | "no_matches"
-    | "low_accuracy"
-    | "inactive"
-    | "new";
-  diagnosisDetail: string;
-  action: { label: string; href: string } | null;
-};
-
-export type DetectionHealth = {
-  situationTypes: SituationTypeHealth[];
-  status: "active" | "sparse" | "silent" | "unconfigured";
-};
-
-export type DomainSnapshot = {
-  domainId: string;
-  domainName: string;
-  dataPipeline: DataPipelineHealth;
-  knowledge: KnowledgeHealth;
-  detection: DetectionHealth;
-  overallStatus: "healthy" | "attention" | "critical" | "unconfigured";
-  criticalIssueCount: number;
-};
-
-export type OperatorSnapshot = {
-  operatorId: string;
-  domains: DomainSnapshot[];
   overallStatus: "healthy" | "attention" | "critical";
-  criticalIssueCount: number;
-  staleJobCount: number;
   computedAt: string;
 };
 
-// ─── Extended types with live data (used by API route + UI) ──
+// ─── Connector mapping helper ───────────────────────────
 
-export type SituationTypeHealthWithLive = SituationTypeHealth & {
-  detectedCount: number;
-  confirmedCount: number;
-  dismissedCount: number;
-  confirmationRate: number | null;
-  last7d: { detected: number; confirmed: number; dismissed: number };
-  last30d: { detected: number; confirmed: number; dismissed: number };
+type ConnectorRow = {
+  id: string;
+  name: string;
+  provider: string;
+  status: string;
+  lastSyncAt: Date | null;
+  lastError: string | null;
+  consecutiveFailures: number;
 };
 
-export type DetectionHealthWithLive = Omit<DetectionHealth, "situationTypes"> & {
-  situationTypes: SituationTypeHealthWithLive[];
-};
+function mapConnectorToHealth(
+  c: ConnectorRow,
+  syncMap: Map<string, Date>,
+  chunkMap: Map<string | null, number>,
+): ConnectorHealth {
+  const effectiveStatus =
+    c.consecutiveFailures >= 3 && c.status === "active" ? "error" : c.status;
+  const lastSync = syncMap.get(c.id);
+  const entityCount = chunkMap.get(c.id) ?? 0;
 
-export type DomainSnapshotWithLive = Omit<DomainSnapshot, "detection"> & {
-  detection: DetectionHealthWithLive;
-};
+  let issue: string | null = null;
+  let action: { label: string; href: string } | null = null;
 
-export type OperatorSnapshotWithLive = Omit<OperatorSnapshot, "domains"> & {
-  domains: DomainSnapshotWithLive[];
-};
-
-// ─── Detection logic types (mirrors situation-detector.ts) ───
-
-type DetectionLogic = {
-  mode: "structured" | "natural" | "hybrid" | "content";
-  structured?: { entityType: string };
-  preFilter?: { entityType: string };
-};
-
-function safeParseDetection(str: string): DetectionLogic {
-  try {
-    return JSON.parse(str);
-  } catch {
-    return { mode: "natural" };
+  switch (effectiveStatus) {
+    case "error":
+      issue = c.lastError
+        ? `Sync failing — ${c.lastError.slice(0, 120)}`
+        : "Sync failing";
+      action = { label: "Reconnect", href: "/settings?tab=connections" };
+      break;
+    case "disconnected":
+      issue = "Authentication expired";
+      action = { label: "Reconnect", href: "/settings?tab=connections" };
+      break;
+    case "pending":
+      issue = "Setup incomplete";
+      action = { label: "Complete setup", href: "/settings?tab=connections" };
+      break;
+    case "paused":
+      issue = "Connector paused";
+      break;
   }
+
+  return {
+    id: c.id,
+    name: c.name || c.provider,
+    provider: c.provider,
+    status: effectiveStatus,
+    lastSyncAt: lastSync?.toISOString() ?? c.lastSyncAt?.toISOString() ?? null,
+    entityCount,
+    issue,
+    action,
+  };
 }
 
-function getTargetEntityType(detection: DetectionLogic): string | null {
-  if (detection.structured?.entityType) return detection.structured.entityType;
-  if (detection.preFilter?.entityType) return detection.preFilter.entityType;
-  return null;
-}
-
-// ─── Data Pipeline ───────────────────────────────────────
-
-async function computeDataPipeline(
+async function fetchConnectorContext(
+  connectors: ConnectorRow[],
   operatorId: string,
-  domainEntityId: string,
-): Promise<DataPipelineHealth> {
-  const connectors = await prisma.sourceConnector.findMany({
-    where: { operatorId, deletedAt: null },
-    select: {
-      id: true,
-      name: true,
-      provider: true,
-      status: true,
-      lastSyncAt: true,
-      lastError: true,
-      consecutiveFailures: true,
-    },
-  });
-
-  const totalEntities = await prisma.entity.count({
-    where: {
-      operatorId,
-      primaryDomainId: domainEntityId,
-      status: "active",
-      category: { in: ["digital", "external"] },
-    },
-  });
-
-  // Latest sync log per connector
+  accountFilter?: { in: string[] },
+): Promise<{ syncMap: Map<string, Date>; chunkMap: Map<string | null, number> }> {
   const connectorIds = connectors.map((c) => c.id);
+
   const latestSyncs: { connectorId: string; createdAt: Date }[] =
     connectorIds.length > 0
       ? await prisma.syncLog.findMany({
@@ -175,594 +119,192 @@ async function computeDataPipeline(
       : [];
   const syncMap = new Map(latestSyncs.map((s) => [s.connectorId, s.createdAt]));
 
-  // Slack channel bindings to this department
-  const slackBindings = await prisma.slackChannelMapping.findMany({
-    where: { operatorId, domainId: domainEntityId },
-    select: { connectorId: true },
-  });
-  const boundConnectorIds = new Set(slackBindings.map((b) => b.connectorId));
-
-  // Count raw content per source connector
   const rawCountsByConnector = await prisma.rawContent.groupBy({
     by: ["accountId"],
-    where: {
-      operatorId,
-      accountId: { not: null },
-    },
+    where: { operatorId, accountId: accountFilter ?? { not: null } },
     _count: true,
   });
-  const connectorChunkMap = new Map(
+  const chunkMap = new Map(
     rawCountsByConnector.map((g) => [g.accountId, g._count]),
   );
 
-  const allConnectors: ConnectorHealth[] = connectors.map((c) => {
-    const effectiveStatus =
-      c.consecutiveFailures >= 3 && c.status === "active" ? "error" : c.status;
-    const lastSync = syncMap.get(c.id);
-    const entityCount = connectorChunkMap.get(c.id) ?? 0;
-
-    let issue: string | null = null;
-    let action: { label: string; href: string } | null = null;
-
-    switch (effectiveStatus) {
-      case "error":
-        issue = c.lastError
-          ? `Sync failing — ${c.lastError.slice(0, 120)}`
-          : "Sync failing";
-        action = { label: "Reconnect", href: "/settings?tab=connections" };
-        break;
-      case "disconnected":
-        issue = "Authentication expired";
-        action = { label: "Reconnect", href: "/settings?tab=connections" };
-        break;
-      case "pending":
-        issue = "Setup incomplete";
-        action = { label: "Complete setup", href: "/settings?tab=connections" };
-        break;
-      case "paused":
-        issue = "Connector paused";
-        break;
-    }
-
-    return {
-      id: c.id,
-      name: c.name || c.provider,
-      provider: c.provider,
-      status: effectiveStatus,
-      lastSyncAt: lastSync?.toISOString() ?? c.lastSyncAt?.toISOString() ?? null,
-      entityCount,
-      issue,
-      action,
-    };
-  });
-
-  // Only return connectors relevant to this department
-  const relevantConnectors = allConnectors.filter(
-    (c) => boundConnectorIds.has(c.id) || c.provider !== "slack",
-  );
-
-  let pipelineStatus: DataPipelineHealth["status"];
-  if (relevantConnectors.length === 0) {
-    pipelineStatus = "empty";
-  } else {
-    const healthyCount = relevantConnectors.filter((c) => c.status === "active").length;
-    if (healthyCount === relevantConnectors.length && totalEntities > 0) {
-      pipelineStatus = "healthy";
-    } else if (healthyCount > 0) {
-      pipelineStatus = "degraded";
-    } else {
-      pipelineStatus = "disconnected";
-    }
-  }
-
-  const allSyncDates = relevantConnectors
-    .map((c) => c.lastSyncAt)
-    .filter(Boolean) as string[];
-  const lastIngestion =
-    allSyncDates.length > 0 ? allSyncDates.sort().reverse()[0] : null;
-
-  return {
-    connectors: relevantConnectors,
-    totalEntities,
-    lastIngestion,
-    status: pipelineStatus,
-  };
+  return { syncMap, chunkMap };
 }
 
-// ─── Knowledge ───────────────────────────────────────────
+// ─── Connector Health ───────────────────────────────────
 
-async function computeKnowledge(
+const CONNECTOR_SELECT = {
+  id: true,
+  name: true,
+  provider: true,
+  status: true,
+  lastSyncAt: true,
+  lastError: true,
+  consecutiveFailures: true,
+} as const;
+
+export async function computeConnectorHealth(
   operatorId: string,
-  domainEntityId: string,
-): Promise<KnowledgeHealth> {
-  // People: base entities in this department
-  const peopleCount = await prisma.entity.count({
-    where: {
-      operatorId,
-      primaryDomainId: domainEntityId,
-      category: "base",
-      status: "active",
-    },
+): Promise<ConnectorHealth[]> {
+  const connectors = await prisma.sourceConnector.findMany({
+    where: { operatorId, deletedAt: null },
+    select: CONNECTOR_SELECT,
   });
 
-  // People with roles
-  const roleProperties = await prisma.entityProperty.findMany({
-    where: { slug: { contains: "role" }, entityType: { operatorId } },
-    select: { id: true },
-  });
-  const titleProperties = await prisma.entityProperty.findMany({
-    where: { slug: { contains: "title" }, entityType: { operatorId } },
-    select: { id: true },
-  });
-  const rolePropertyIds = Array.from(
-    new Set([...roleProperties.map((p) => p.id), ...titleProperties.map((p) => p.id)]),
-  );
-
-  let withRoles = 0;
-  if (rolePropertyIds.length > 0) {
-    const entitiesWithRoles = await prisma.propertyValue.findMany({
-      where: {
-        propertyId: { in: rolePropertyIds },
-        entity: {
-          operatorId,
-          primaryDomainId: domainEntityId,
-          category: "base",
-          status: "active",
-        },
-      },
-      select: { entityId: true },
-      distinct: ["entityId"],
-    });
-    withRoles = entitiesWithRoles.length;
-  }
-
-  // Reporting lines
-  const reportsToType = await prisma.relationshipType.findFirst({
-    where: { operatorId, slug: "reports-to" },
-    select: { id: true },
-  });
-
-  let withReportingLines = 0;
-  if (reportsToType) {
-    const reportingEntities = await prisma.relationship.findMany({
-      where: {
-        relationshipTypeId: reportsToType.id,
-        fromEntity: {
-          operatorId,
-          primaryDomainId: domainEntityId,
-          category: "base",
-          status: "active",
-        },
-      },
-      select: { fromEntityId: true },
-      distinct: ["fromEntityId"],
-    });
-    withReportingLines = reportingEntities.length;
-  }
-
-  // Gaps
-  const gaps: string[] = [];
-  if (withRoles < peopleCount && peopleCount > 0) {
-    const missing = peopleCount - withRoles;
-    gaps.push(
-      `${missing} team member${missing === 1 ? " has" : "s have"} no role defined`,
-    );
-  }
-  if (withReportingLines === 0 && peopleCount > 1) {
-    gaps.push("No reporting structure defined");
-  }
-
-  // Documents
-  const docCount = await prisma.internalDocument.count({
-    where: { operatorId, domainId: domainEntityId },
-  });
-
-  // RAG chunks — ALL ContentChunks linked to this department (documents, emails, messages, etc.)
-  // domainIds is a JSON string array — use raw SQL jsonb ? operator
-  const ragChunkResult = await prisma.$queryRaw<[{ count: bigint }]>`
-    SELECT COUNT(*) as count FROM "ContentChunk"
-    WHERE "operatorId" = ${operatorId}
-      AND "departmentIds" IS NOT NULL
-      AND "departmentIds" != 'null'
-      AND "departmentIds" != '[]'
-      AND "departmentIds"::jsonb ? ${domainEntityId}
-  `;
-  const ragChunks = Number(ragChunkResult[0]?.count ?? 0);
-
-  // Operational data chunks (email + calendar) linked to this department
-  const operationalChunkResult = await prisma.$queryRaw<[{ count: bigint }]>`
-    SELECT COUNT(*) as count FROM "ContentChunk"
-    WHERE "operatorId" = ${operatorId}
-      AND "sourceType" IN ('email', 'calendar_note', 'calendar_event')
-      AND "departmentIds" IS NOT NULL
-      AND "departmentIds" != 'null'
-      AND "departmentIds" != '[]'
-      AND "departmentIds"::jsonb ? ${domainEntityId}
-  `;
-  const operationalChunks = Number(operationalChunkResult[0]?.count ?? 0);
-
-  // Stale docs: updated more than 90 days ago
-  const ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-  const staleCount = await prisma.internalDocument.count({
-    where: {
-      operatorId,
-      domainId: domainEntityId,
-      updatedAt: { lt: ninetyDaysAgo },
-    },
-  });
-
-  // Operational insights
-  const insights = await prisma.operationalInsight.findMany({
-    where: {
-      operatorId,
-      status: "active",
-      OR: [
-        { shareScope: "department", domainId: domainEntityId },
-        { shareScope: "operator" },
-      ],
-    },
-    select: { id: true, promptModification: true },
-  });
-  const insightCount = insights.length;
-  const withPromptMods = insights.filter((i) => i.promptModification !== null).length;
-
-  // Situation type coverage
-  const deptSituationTypes = await prisma.situationType.findMany({
-    where: { operatorId, scopeEntityId: domainEntityId },
-    select: { id: true, name: true },
-  });
-
-  const situationTypeCoverage = deptSituationTypes.map((st) => ({
-    typeId: st.id,
-    typeName: st.name,
-    hasInsights: insightCount > 0,
-    insightCount,
-  }));
-
-  // Knowledge status
-  let knowledgeStatus: KnowledgeHealth["status"];
-  if (peopleCount > 0 && docCount > 0 && insightCount > 0) {
-    knowledgeStatus = "complete";
-  } else if (peopleCount > 0 && (docCount > 0 || insightCount > 0 || ragChunks > 0)) {
-    knowledgeStatus = "partial";
-  } else if (peopleCount > 0) {
-    knowledgeStatus = "minimal";
-  } else if (ragChunks > 0) {
-    knowledgeStatus = "partial";
-  } else {
-    knowledgeStatus = "empty";
-  }
-
-  return {
-    people: { count: peopleCount, withRoles, withReportingLines, gaps },
-    documents: { count: docCount, ragChunks, operationalChunks, staleCount },
-    operationalInsights: { count: insightCount, withPromptMods, situationTypeCoverage },
-    status: knowledgeStatus,
-  };
+  const { syncMap, chunkMap } = await fetchConnectorContext(connectors, operatorId);
+  return connectors.map((c) => mapConnectorToHealth(c, syncMap, chunkMap));
 }
 
-// ─── Detection ───────────────────────────────────────────
+// ─── Personal Connector Health ──────────────────────────
 
-async function computeDetection(
+export async function getPersonalConnectorHealth(
   operatorId: string,
-  domainEntityId: string,
-): Promise<DetectionHealth> {
-  const situationTypes = await prisma.situationType.findMany({
-    where: { operatorId, scopeEntityId: domainEntityId },
-    select: {
-      id: true,
-      name: true,
-      autonomyLevel: true,
-      enabled: true,
-      detectionLogic: true,
-      detectedCount: true,
-      confirmedCount: true,
-      dismissedCount: true,
-      createdAt: true,
-    },
+  userId: string,
+): Promise<ConnectorHealth[]> {
+  const connectors = await prisma.sourceConnector.findMany({
+    where: { operatorId, userId, deletedAt: null },
+    select: CONNECTOR_SELECT,
   });
 
-  const typeIds = situationTypes.map((st) => st.id);
+  const connectorIds = connectors.map((c) => c.id);
+  const { syncMap, chunkMap } = await fetchConnectorContext(
+    connectors,
+    operatorId,
+    { in: connectorIds },
+  );
+  return connectors.map((c) => mapConnectorToHealth(c, syncMap, chunkMap));
+}
 
-  // Last detection per situation type (from wiki pages)
-  const lastDetectionPages =
-    typeIds.length > 0
-      ? await prisma.knowledgePage.findMany({
-          where: {
-            operatorId,
-            pageType: "situation_instance",
-            scope: "operator",
-            OR: typeIds.map((id) => ({
-              properties: { path: ["situation_type_id"], equals: id },
-            })),
-          },
-          orderBy: { createdAt: "desc" },
-          select: { properties: true, createdAt: true },
-        })
-      : [];
-  // Build map: situationTypeId -> most recent createdAt
-  const lastDetectionMap = new Map<string, Date>();
-  for (const p of lastDetectionPages) {
-    const stId = (p.properties as Record<string, unknown> | null)?.situation_type_id as string | undefined;
-    if (stId && !lastDetectionMap.has(stId)) {
-      lastDetectionMap.set(stId, p.createdAt);
-    }
-  }
+// ─── Operator Health ────────────────────────────────────
 
-  // Preload all entity type slugs for this operator
-  const entityTypes = await prisma.entityType.findMany({
-    where: { operatorId },
-    select: { slug: true },
-  });
-  const entityTypeSlugs = new Set(entityTypes.map((et) => et.slug));
+export async function computeOperatorHealth(
+  operatorId: string,
+): Promise<OperatorHealthSnapshot> {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-  const situationTypeHealthList: SituationTypeHealth[] = await Promise.all(
-    situationTypes.map(async (st) => {
-      const lastDetection = lastDetectionMap.get(st.id) ?? null;
-      const detection = safeParseDetection(st.detectionLogic);
-      const targetSlug = getTargetEntityType(detection);
-
-      let diagnosis: SituationTypeHealth["diagnosis"];
-      let diagnosisDetail: string;
-      let action: SituationTypeHealth["action"] = null;
-
-      const daysSinceCreation = Math.floor(
-        (Date.now() - st.createdAt.getTime()) / (1000 * 60 * 60 * 24),
-      );
-
-      // a) Content mode — skip entity matching
-      if (detection.mode === "content") {
-        if (!st.enabled) {
-          diagnosis = "inactive";
-          diagnosisDetail =
-            "Content detection is disabled and will not evaluate new messages.";
-          action = { label: "Enable", href: `/situations?configure=${st.id}` };
-        } else if (st.detectedCount === 0 && daysSinceCreation < 7) {
-          diagnosis = "new";
-          diagnosisDetail =
-            "Recently created — detection will start once matching messages flow in.";
-        } else if (st.detectedCount === 0) {
-          diagnosis = "no_data";
-          diagnosisDetail =
-            "No messages have matched this type. Check that communication connectors are syncing.";
-          action = { label: "Connect tools", href: "/settings?tab=connections" };
-        } else if (
-          st.detectedCount > 30 &&
-          st.confirmedCount / st.detectedCount < 0.4
-        ) {
-          const rate = Math.round((st.confirmedCount / st.detectedCount) * 100);
-          diagnosis = "low_accuracy";
-          diagnosisDetail = `Confirmation rate is ${rate}% — review trigger conditions or provide feedback`;
-          action = { label: "Review", href: `/learning?type=${st.id}` };
-        } else {
-          diagnosis = "healthy";
-          diagnosisDetail = "Operating normally";
-        }
-      }
-      // Not enabled
-      else if (!st.enabled) {
-        diagnosis = "inactive";
-        diagnosisDetail =
-          "This situation type is disabled and will not detect new situations.";
-        action = { label: "Enable", href: `/situations?configure=${st.id}` };
-      }
-      // b) Target entity type doesn't exist in schema
-      else if (targetSlug && !entityTypeSlugs.has(targetSlug)) {
-        diagnosis = "inactive";
-        diagnosisDetail = `Detection references unknown entity type '${targetSlug}'`;
-      }
-      // c) Count entities of target type in department
-      else if (targetSlug) {
-        const entityCount = await prisma.entity.count({
-          where: {
-            operatorId,
-            primaryDomainId: domainEntityId,
-            status: "active",
-            entityType: { slug: targetSlug },
-          },
-        });
-
-        if (entityCount === 0) {
-          const typeName = targetSlug.replace(/-/g, " ");
-          diagnosis = "no_data";
-          diagnosisDetail = `No ${typeName} data in this department — connect a data source that provides ${typeName} records`;
-          action = { label: "Connect tools", href: "/settings?tab=connections" };
-        }
-        // d) Entities exist — check recent detections
-        else if (st.detectedCount === 0 && daysSinceCreation > 7) {
-          const typeName = targetSlug.replace(/-/g, " ");
-          diagnosis = "no_matches";
-          diagnosisDetail = `${entityCount} ${typeName} records synced but none match trigger conditions — all may be within normal parameters`;
-        } else if (st.detectedCount === 0 && daysSinceCreation <= 7) {
-          diagnosis = "new";
-          diagnosisDetail =
-            "Recently created — waiting for first detection cycle";
-        }
-        // e) Low accuracy check
-        else if (
-          st.detectedCount > 30 &&
-          st.confirmedCount / st.detectedCount < 0.4
-        ) {
-          const rate = Math.round((st.confirmedCount / st.detectedCount) * 100);
-          diagnosis = "low_accuracy";
-          diagnosisDetail = `Confirmation rate is ${rate}% — review trigger conditions or provide feedback`;
-          action = { label: "Review", href: `/learning?type=${st.id}` };
-        }
-        // f) Healthy
-        else {
-          diagnosis = "healthy";
-          diagnosisDetail = "Operating normally";
-        }
-      }
-      // No target entity type (natural language only) — fallback to count-based
-      else {
-        if (st.detectedCount === 0 && daysSinceCreation > 7) {
-          diagnosis = "no_matches";
-          diagnosisDetail =
-            "No situations detected despite active data — review detection description";
-          action = {
-            label: "Review detection logic",
-            href: `/situations?configure=${st.id}`,
-          };
-        } else if (st.detectedCount === 0) {
-          diagnosis = "new";
-          diagnosisDetail =
-            "Recently created — waiting for first detection cycle";
-        } else if (
-          st.detectedCount > 30 &&
-          st.confirmedCount / st.detectedCount < 0.4
-        ) {
-          const rate = Math.round((st.confirmedCount / st.detectedCount) * 100);
-          diagnosis = "low_accuracy";
-          diagnosisDetail = `Confirmation rate is ${rate}% — review trigger conditions or provide feedback`;
-          action = { label: "Review", href: `/learning?type=${st.id}` };
-        } else {
-          diagnosis = "healthy";
-          diagnosisDetail = "Operating normally";
-        }
-      }
-
-      return {
-        id: st.id,
-        name: st.name,
-        autonomyLevel: st.autonomyLevel,
-        lastDetectionAt: lastDetection?.toISOString() ?? null,
-        diagnosis,
-        diagnosisDetail,
-        action,
-      };
+  // All queries are independent — run in parallel
+  const [
+    connectors,
+    wikiGroups,
+    totalProfiles,
+    withRolesResult,
+    withReportsToResult,
+    totalSituationTypes,
+    activeSituationTypes,
+    totalDetected30d,
+    stAggregates,
+    rawContentGroups,
+  ] = await Promise.all([
+    computeConnectorHealth(operatorId),
+    prisma.knowledgePage.groupBy({
+      by: ["pageType", "status"],
+      where: { operatorId, scope: "operator" },
+      _count: true,
+      _avg: { confidence: true },
     }),
-  );
-
-  // Detection status logic
-  let detectionStatus: DetectionHealth["status"];
-  if (situationTypeHealthList.length === 0) {
-    detectionStatus = "unconfigured";
-  } else {
-    const healthyWithRecent = situationTypeHealthList.filter(
-      (s) => s.diagnosis === "healthy" && s.lastDetectionAt !== null,
-    ).length;
-    const noDataOrInactive = situationTypeHealthList.filter(
-      (s) => s.diagnosis === "no_data" || s.diagnosis === "inactive",
-    ).length;
-    const noMatchesOrNew = situationTypeHealthList.filter(
-      (s) => s.diagnosis === "no_matches" || s.diagnosis === "new",
-    ).length;
-
-    if (healthyWithRecent > 0) {
-      detectionStatus = "active";
-    } else if (noMatchesOrNew > 0) {
-      detectionStatus = "sparse";
-    } else if (noDataOrInactive === situationTypeHealthList.length) {
-      detectionStatus = "silent";
-    } else {
-      detectionStatus = "sparse";
-    }
-  }
-
-  return {
-    situationTypes: situationTypeHealthList,
-    status: detectionStatus,
-  };
-}
-
-// ─── Snapshot Composition ────────────────────────────────
-
-export async function computeDomainSnapshot(
-  operatorId: string,
-  domainEntityId: string,
-): Promise<DomainSnapshot> {
-  const department = await prisma.entity.findFirst({
-    where: { id: domainEntityId, operatorId, category: "foundational" },
-    select: { displayName: true },
-  });
-
-  const domainName = department?.displayName ?? "Unknown Department";
-
-  const [dataPipeline, knowledge, detection] = await Promise.all([
-    computeDataPipeline(operatorId, domainEntityId),
-    computeKnowledge(operatorId, domainEntityId),
-    computeDetection(operatorId, domainEntityId),
+    prisma.knowledgePage.count({
+      where: { operatorId, scope: "operator", pageType: "person_profile" },
+    }),
+    // Expected person_profile properties schema (set by wiki-synthesis-pass.ts):
+    //   properties.role — job title/role string
+    //   properties.reportsTo — manager's person page slug
+    prisma.$queryRaw<[{ count: bigint }]>`
+      SELECT COUNT(*) as count FROM "KnowledgePage"
+      WHERE "operatorId" = ${operatorId}
+        AND "scope" = 'operator'
+        AND "pageType" = 'person_profile'
+        AND "properties" IS NOT NULL
+        AND "properties"->>'role' IS NOT NULL
+    `,
+    prisma.$queryRaw<[{ count: bigint }]>`
+      SELECT COUNT(*) as count FROM "KnowledgePage"
+      WHERE "operatorId" = ${operatorId}
+        AND "scope" = 'operator'
+        AND "pageType" = 'person_profile'
+        AND "properties" IS NOT NULL
+        AND "properties"->>'reportsTo' IS NOT NULL
+    `,
+    prisma.situationType.count({ where: { operatorId } }),
+    prisma.situationType.count({
+      where: { operatorId, enabled: true, detectedCount: { gt: 0 } },
+    }),
+    prisma.knowledgePage.count({
+      where: {
+        operatorId,
+        pageType: "situation_instance",
+        scope: "operator",
+        createdAt: { gte: thirtyDaysAgo },
+      },
+    }),
+    prisma.situationType.aggregate({
+      where: { operatorId },
+      _sum: { detectedCount: true, confirmedCount: true },
+    }),
+    prisma.rawContent.groupBy({
+      by: ["sourceType"],
+      where: { operatorId },
+      _count: true,
+    }),
   ]);
 
-  // criticalIssueCount = disconnected connectors + knowledge "empty" + detection types with "no_data"
-  let criticalIssueCount = 0;
-  for (const c of dataPipeline.connectors) {
-    if (c.status === "disconnected") criticalIssueCount++;
-  }
-  if (knowledge.status === "empty") criticalIssueCount++;
-  for (const st of detection.situationTypes) {
-    if (st.diagnosis === "no_data") criticalIssueCount++;
-  }
+  // ── Derive wiki stats from groupBy ──
+  let totalPages = 0;
+  let verifiedPages = 0;
+  let draftPages = 0;
+  let stalePages = 0;
+  let confidenceSum = 0;
+  let confidenceCount = 0;
+  const byPageType: Record<string, number> = {};
 
-  // Overall status
-  let overallStatus: DomainSnapshot["overallStatus"];
-  if (
-    dataPipeline.connectors.length === 0 &&
-    knowledge.people.count === 0 &&
-    detection.situationTypes.length === 0
-  ) {
-    overallStatus = "unconfigured";
-    criticalIssueCount = 0; // nothing is configured — no issues to report
-  } else if (criticalIssueCount > 0) {
-    overallStatus = "critical";
-  } else if (
-    dataPipeline.status === "degraded" ||
-    knowledge.status === "partial" ||
-    detection.status === "sparse"
-  ) {
-    overallStatus = "attention";
-  } else {
-    overallStatus = "healthy";
+  for (const g of wikiGroups) {
+    const count = g._count;
+    totalPages += count;
+    byPageType[g.pageType] = (byPageType[g.pageType] ?? 0) + count;
+
+    if (g.status === "verified") verifiedPages += count;
+    else if (g.status === "draft") draftPages += count;
+    else if (g.status === "stale") stalePages += count;
+
+    if (g._avg.confidence !== null) {
+      confidenceSum += g._avg.confidence * count;
+      confidenceCount += count;
+    }
   }
 
-  return {
-    domainId: domainEntityId,
-    domainName,
-    dataPipeline,
-    knowledge,
-    detection,
-    overallStatus,
-    criticalIssueCount,
-  };
-}
+  const avgConfidence = confidenceCount > 0 ? confidenceSum / confidenceCount : 0;
 
-export async function computeOperatorSnapshot(
-  operatorId: string,
-): Promise<OperatorSnapshot> {
-  const departments = await prisma.entity.findMany({
-    where: { operatorId, category: "foundational", status: "active" },
-    select: { id: true },
-    orderBy: { displayName: "asc" },
-  });
+  // ── Derive people stats ──
+  const withRoles = Number(withRolesResult[0]?.count ?? 0);
+  const withReportingLines = Number(withReportsToResult[0]?.count ?? 0);
 
-  const departmentSnapshots = await Promise.all(
-    departments.map((d) => computeDomainSnapshot(operatorId, d.id)),
+  // ── Derive detection stats ──
+  const totalDetected = stAggregates._sum.detectedCount ?? 0;
+  const totalConfirmed = stAggregates._sum.confirmedCount ?? 0;
+  const confirmationRate = totalDetected > 0 ? totalConfirmed / totalDetected : null;
+
+  // ── Derive raw content stats ──
+  let rawContentTotal = 0;
+  const bySourceType: Record<string, number> = {};
+  for (const g of rawContentGroups) {
+    rawContentTotal += g._count;
+    bySourceType[g.sourceType] = g._count;
+  }
+
+  // ── Overall status ──
+  const hasDisconnected = connectors.some(
+    (c) => c.status === "disconnected" || c.status === "error",
   );
-
-  let criticalIssueCount = departmentSnapshots.reduce(
-    (sum, d) => sum + d.criticalIssueCount,
-    0,
+  const wikiEmpty = totalPages === 0;
+  const connectorsDegraded = connectors.some(
+    (c) => c.status !== "active" && c.status !== "paused",
   );
+  const manyStale = totalPages > 0 && stalePages / totalPages > 0.3;
+  const detectionSilent = totalSituationTypes > 0 && activeSituationTypes === 0;
 
-  // Worker job queue health check
-  const staleJobCount = await prisma.workerJob.count({
-    where: {
-      operatorId,
-      status: "pending",
-      createdAt: { lt: new Date(Date.now() - 15 * 60 * 1000) },
-    },
-  });
-
-  if (staleJobCount > 0) {
-    criticalIssueCount += 1;
-  }
-
-  let overallStatus: OperatorSnapshot["overallStatus"];
-  if (staleJobCount > 0 || departmentSnapshots.some((d) => d.overallStatus === "critical")) {
+  let overallStatus: OperatorHealthSnapshot["overallStatus"];
+  if (hasDisconnected && wikiEmpty) {
     overallStatus = "critical";
-  } else if (departmentSnapshots.some((d) => d.overallStatus === "attention")) {
+  } else if (connectorsDegraded || manyStale || detectionSilent) {
     overallStatus = "attention";
   } else {
     overallStatus = "healthy";
@@ -770,10 +312,31 @@ export async function computeOperatorSnapshot(
 
   return {
     operatorId,
-    domains: departmentSnapshots,
+    connectors,
+    wiki: {
+      totalPages,
+      verifiedPages,
+      draftPages,
+      stalePages,
+      avgConfidence,
+      byPageType,
+    },
+    people: {
+      totalProfiles,
+      withRoles,
+      withReportingLines,
+    },
+    detection: {
+      totalSituationTypes,
+      activeSituationTypes,
+      totalDetected30d,
+      confirmationRate,
+    },
+    rawContent: {
+      totalItems: rawContentTotal,
+      bySourceType,
+    },
     overallStatus,
-    criticalIssueCount,
-    staleJobCount,
     computedAt: new Date().toISOString(),
   };
 }
@@ -782,156 +345,36 @@ export async function computeOperatorSnapshot(
 
 async function persistSnapshot(
   operatorId: string,
-  snapshot: OperatorSnapshot,
+  snapshot: OperatorHealthSnapshot,
 ): Promise<void> {
   const now = new Date();
   const snapshotJson = JSON.stringify(snapshot);
-  const activeDepartmentIds = snapshot.domains.map((d) => d.domainId);
 
   await prisma.$transaction([
-    // Per-department snapshots
-    ...snapshot.domains.map((dept) =>
-      prisma.domainHealth.upsert({
-        where: {
-          operatorId_domainEntityId: {
-            operatorId,
-            domainEntityId: dept.domainId,
-          },
-        },
-        create: {
-          operatorId,
-          domainEntityId: dept.domainId,
-          snapshot: dept as unknown as Prisma.InputJsonValue,
-          computedAt: now,
-        },
-        update: {
-          snapshot: dept as unknown as Prisma.InputJsonValue,
-          computedAt: now,
-        },
-      }),
-    ),
     // Operator-level aggregate (domainEntityId = null)
-    // Postgres NULL != NULL so @@unique can't back a Prisma upsert —
-    // use raw INSERT ON CONFLICT with partial unique index
     prisma.$executeRaw`
       INSERT INTO "DepartmentHealth" ("id", "operatorId", "departmentEntityId", "snapshot", "computedAt")
       VALUES (${randomUUID()}, ${operatorId}, NULL, ${snapshotJson}::jsonb, ${now})
       ON CONFLICT ("operatorId") WHERE "departmentEntityId" IS NULL
       DO UPDATE SET "snapshot" = EXCLUDED."snapshot", "computedAt" = EXCLUDED."computedAt"
     `,
-    // Remove rows for departments that no longer exist
-    ...(activeDepartmentIds.length > 0
-      ? [
-          prisma.domainHealth.deleteMany({
-            where: {
-              operatorId,
-              domainEntityId: { notIn: activeDepartmentIds, not: null },
-            },
-          }),
-        ]
-      : [
-          prisma.domainHealth.deleteMany({
-            where: { operatorId, domainEntityId: { not: null } },
-          }),
-        ]),
+    // Legacy cleanup: remove any per-domain rows
+    prisma.domainHealth.deleteMany({
+      where: { operatorId, domainEntityId: { not: null } },
+    }),
   ]);
 }
 
 /**
  * Public entry point called by sync/reconnection triggers.
  * Fire-and-forget safe — never throws.
- *
- * If domainEntityId provided: recompute just that department + operator aggregate.
- * If not provided: recompute all departments + operator aggregate.
  */
 export async function recomputeHealthSnapshots(
   operatorId: string,
-  domainEntityId?: string,
 ): Promise<void> {
   try {
-    if (domainEntityId) {
-      // Single-department recompute
-      const deptSnapshot = await computeDomainSnapshot(
-        operatorId,
-        domainEntityId,
-      );
-      const now = new Date();
-
-      // Upsert the single department row
-      await prisma.domainHealth.upsert({
-        where: {
-          operatorId_domainEntityId: {
-            operatorId,
-            domainEntityId,
-          },
-        },
-        create: {
-          operatorId,
-          domainEntityId,
-          snapshot: deptSnapshot as unknown as Prisma.InputJsonValue,
-          computedAt: now,
-        },
-        update: {
-          snapshot: deptSnapshot as unknown as Prisma.InputJsonValue,
-          computedAt: now,
-        },
-      });
-
-      // Rebuild operator aggregate from persisted department snapshots
-      // instead of recomputing every department
-      const allRows = await prisma.domainHealth.findMany({
-        where: { operatorId, domainEntityId: { not: null } },
-        select: { snapshot: true },
-      });
-      const departmentSnapshots = allRows.map(
-        (r) => r.snapshot as unknown as DomainSnapshot,
-      );
-
-      let criticalIssueCount = departmentSnapshots.reduce(
-        (sum, d) => sum + d.criticalIssueCount,
-        0,
-      );
-
-      const staleJobCount = await prisma.workerJob.count({
-        where: {
-          operatorId,
-          status: "pending",
-          createdAt: { lt: new Date(Date.now() - 15 * 60 * 1000) },
-        },
-      });
-      if (staleJobCount > 0) {
-        criticalIssueCount += 1;
-      }
-
-      let overallStatus: OperatorSnapshot["overallStatus"];
-      if (staleJobCount > 0 || departmentSnapshots.some((d) => d.overallStatus === "critical")) {
-        overallStatus = "critical";
-      } else if (departmentSnapshots.some((d) => d.overallStatus === "attention")) {
-        overallStatus = "attention";
-      } else {
-        overallStatus = "healthy";
-      }
-
-      const operatorSnapshot: OperatorSnapshot = {
-        operatorId,
-        domains: departmentSnapshots,
-        overallStatus,
-        criticalIssueCount,
-        staleJobCount,
-        computedAt: now.toISOString(),
-      };
-      const snapshotJson = JSON.stringify(operatorSnapshot);
-      await prisma.$executeRaw`
-        INSERT INTO "DepartmentHealth" ("id", "operatorId", "departmentEntityId", "snapshot", "computedAt")
-        VALUES (${randomUUID()}, ${operatorId}, NULL, ${snapshotJson}::jsonb, ${now})
-        ON CONFLICT ("operatorId") WHERE "departmentEntityId" IS NULL
-        DO UPDATE SET "snapshot" = EXCLUDED."snapshot", "computedAt" = EXCLUDED."computedAt"
-      `;
-    } else {
-      // Full recompute
-      const snapshot = await computeOperatorSnapshot(operatorId);
-      await persistSnapshot(operatorId, snapshot);
-    }
+    const snapshot = await computeOperatorHealth(operatorId);
+    await persistSnapshot(operatorId, snapshot);
   } catch (err) {
     console.error(
       `[system-health] Failed to recompute snapshots for operator ${operatorId}:`,
@@ -945,4 +388,3 @@ export async function recomputeHealthSnapshots(
     }
   }
 }
-
