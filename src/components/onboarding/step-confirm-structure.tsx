@@ -808,9 +808,9 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
                 </div>
 
                 {/* Functions */}
-                {dept.functions.length > 0 && (
+                {(dept.functions ?? []).length > 0 && (
                   <div className="flex flex-wrap gap-1 pl-5">
-                    {dept.functions.map(fn => (
+                    {(dept.functions ?? []).map(fn => (
                       <span key={fn} className="px-2 py-0.5 rounded-full bg-hover text-[10px] text-[var(--fg2)]">{fn}</span>
                     ))}
                   </div>
@@ -1176,7 +1176,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
                   style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
                 >
                   <p className="text-xs font-medium text-foreground">
-                    {init.proposedProjectConfig?.title ?? init.rationale.split(/[.!?\n]/)[0]}
+                    {init.proposedProjectConfig?.title ?? (init.rationale ?? "").split(/[.!?\n]/)[0]}
                   </p>
                   {init.proposedProjectConfig?.description && (
                     <p className="text-[11px] text-[var(--fg3)] mt-1">

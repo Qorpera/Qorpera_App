@@ -33,17 +33,15 @@ export async function GET(
      FROM "KnowledgePage"
      WHERE "operatorId" = $1
        AND "pageType" = 'situation_instance'
-       AND properties->>'situation_id' = $2
+       AND (slug = $2 OR id::text = $2)
      LIMIT 1`,
     operatorId, id,
   );
 
-  if (wikiRows.length > 0) {
-    return handleWikiFirstResponse(wikiRows[0], su, operatorId, id);
+  if (wikiRows.length === 0) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-
-  // ── Legacy fallback (pre-migration situations) ────────────────────────────
-  return handleLegacyResponse(su, operatorId, id);
+  return handleWikiFirstResponse(wikiRows[0], su, operatorId, id);
 }
 
 // ── Wiki-first detail handler ─────────────────────────────────────────────
@@ -149,15 +147,6 @@ async function handleWikiFirstResponse(
   });
 }
 
-// ── Legacy detail handler — Situation table removed, return 404 ──────────────
-async function handleLegacyResponse(
-  _su: SessionUser,
-  _operatorId: string,
-  _id: string,
-) {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -192,7 +181,7 @@ export async function PATCH(
      FROM "KnowledgePage"
      WHERE "operatorId" = $1
        AND "pageType" = 'situation_instance'
-       AND properties->>'situation_id' = $2
+       AND (slug = $2 OR id::text = $2)
      LIMIT 1`,
     operatorId, id,
   );

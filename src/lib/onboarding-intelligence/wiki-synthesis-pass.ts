@@ -1063,6 +1063,45 @@ Otherwise use "natural" with a naturalLanguage description of what to detect.`,
   };
 }
 
+// ── Domain Membership Reconciliation ──────────────────────────────────────────
+
+async function reconcileDomainMembership(operatorId: string): Promise<number> {
+  // Load all domain_hub pages
+  const hubs = await prisma.knowledgePage.findMany({
+    where: { operatorId, scope: "operator", pageType: "domain_hub" },
+    select: { slug: true, crossReferences: true },
+  });
+
+  let updatedCount = 0;
+
+  for (const hub of hubs) {
+    // Find person slugs in this hub's cross-references
+    const personSlugs = (hub.crossReferences as string[]).filter(
+      (ref) => ref.startsWith("person-"),
+    );
+
+    for (const personSlug of personSlugs) {
+      const personPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId, scope: "operator", slug: personSlug, pageType: "person_profile" },
+        select: { id: true, crossReferences: true },
+      });
+      if (!personPage) continue;
+
+      const refs = personPage.crossReferences as string[];
+      if (refs.includes(hub.slug)) continue;
+
+      // Add the hub slug to the person's cross-references
+      await prisma.knowledgePage.update({
+        where: { id: personPage.id },
+        data: { crossReferences: [...refs, hub.slug] },
+      });
+      updatedCount++;
+    }
+  }
+
+  return updatedCount;
+}
+
 // ── Main Entry Point ───────────────────────────────────────────────────────────
 
 export async function runWikiSynthesisPass(
@@ -1148,6 +1187,18 @@ export async function runWikiSynthesisPass(
     crossRef = { pagesUpdated: 0, linksAdded: 0, costCents: 0, durationMs: 0 };
   }
   totalCost += crossRef.costCents;
+
+  // Reconcile bidirectional domain membership links
+  try {
+    const reconciled = await reconcileDomainMembership(operatorId);
+    if (reconciled > 0) {
+      await progress(`Reconciled ${reconciled} person→hub back-links`);
+    }
+  } catch (err) {
+    const msg = `Domain membership reconciliation failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[wiki-synthesis] ${msg}`);
+    errors.push(msg);
+  }
 
   // Stage 4: Structure Derivation
   let derivation: DerivedStructure;

@@ -43,15 +43,21 @@ export async function GET(
       ownerName = ownerPage?.title ?? null;
     }
 
+    const proposalMatch = page.content?.match(/## Proposal\s*\n([\s\S]*?)(?=\n## |\n$|$)/);
+    const triggerMatch = page.content?.match(/## Trigger\s*\n([\s\S]*?)(?=\n## |\n$|$)/);
+
     return NextResponse.json({
       id: page.slug,
       aiEntityId: null,
       ownerPageSlug: ownerSlug,
       ownerName,
       proposalType: props.proposal_type ?? "general",
-      triggerSummary: page.title,
+      triggerSummary: page.title || "Untitled initiative",
       status: props.status ?? "proposed",
-      rationale: (props.rationale as string) ?? null,
+      rationale: (props.rationale as string)
+        ?? proposalMatch?.[1]?.trim()
+        ?? triggerMatch?.[1]?.trim()
+        ?? null,
       impactAssessment: (props.impact_assessment as string) ?? null,
       evidence: props.evidence ?? null,
       proposal: props.project_config ?? null,

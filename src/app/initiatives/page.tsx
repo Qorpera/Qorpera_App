@@ -18,10 +18,11 @@ interface InitiativeItem {
   proposalType: string;
   triggerSummary: string;
   status: string;
-  rationale: string;
+  rationale: string | null;
   impactAssessment: string | null;
   proposedProjectConfig: unknown | null;
   projectId: string | null;
+  content: string | null;
   createdAt: string;
 }
 
@@ -35,10 +36,11 @@ interface InitiativeDetail {
   evidence: Array<{ source: string; claim: string }> | null;
   proposal: Record<string, unknown> | null;
   status: string;
-  rationale: string;
+  rationale: string | null;
   impactAssessment: string | null;
   proposedProjectConfig: unknown | null;
   projectId: string | null;
+  content: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -342,12 +344,14 @@ function DetailPane({
       )}
 
       {/* ── Rationale ── */}
+      {d.rationale && (
       <div>
         <SectionLabel>{t("rationale")}</SectionLabel>
         <div style={{ padding: "14px 16px", background: "var(--surface)", border: "1px solid var(--elevated)", borderRadius: 6 }}>
           <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{d.rationale}</p>
         </div>
       </div>
+      )}
 
       {/* ── Proposal ── */}
       {d.proposal && (

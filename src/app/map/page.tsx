@@ -11,11 +11,11 @@ import { useTranslations } from "next-intl";
 /* ------------------------------------------------------------------ */
 
 interface Domain {
-  id: string;
-  displayName: string;
+  slug: string;
+  name: string;
   description: string | null;
-  entityType: { slug: string };
-  isHQ: boolean;
+  memberCount: number;
+  confidence: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -31,9 +31,7 @@ const ZOOM_SENSITIVITY = 0.001;
 /*  Layout: position domains in a circle around center                 */
 /* ------------------------------------------------------------------ */
 
-const HQ_W = 264;
-const HQ_H = 106;
-const DOMAIN_W = 198;  // 75% of HQ
+const DOMAIN_W = 198;
 const DOMAIN_H = 80;
 
 function layoutDomains(count: number, radius: number): Array<{ x: number; y: number }> {
@@ -54,8 +52,6 @@ export default function MapPage() {
 
   const [domains, setDomains] = useState<Domain[]>([]);
   const [loading, setLoading] = useState(true);
-  const [domainStats, setDomainStats] = useState<Record<string, { situations: number; wikiPages: number }>>({});
-
   // Pan & zoom
   const containerRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ startX: number; startY: number; origPanX: number; origPanY: number } | null>(null);
@@ -70,9 +66,8 @@ export default function MapPage() {
     try {
       const res = await fetchApi("/api/domains");
       if (!res.ok) return;
-      const data: Array<Omit<Domain, "isHQ"> & { entityType: { slug: string } }> = await res.json();
-      const mapped = data.map((d) => ({ ...d, isHQ: d.entityType.slug === "organization" })) as Domain[];
-      setDomains(mapped);
+      const data: Domain[] = await res.json();
+      setDomains(data);
     } finally {
       setLoading(false);
     }
@@ -83,39 +78,6 @@ export default function MapPage() {
     const iv = setInterval(loadDomains, POLL_MS);
     return () => clearInterval(iv);
   }, [loadDomains]);
-
-  useEffect(() => {
-    if (domains.length === 0) return;
-    Promise.all([
-      fetchApi("/api/situations?status=detected,proposed,reasoning,executing").then(r => r.ok ? r.json() : { items: [] }),
-      fetchApi("/api/wiki").then(r => r.ok ? r.json() : { pages: [] }),
-    ]).then(([sitData, wikiData]) => {
-      const stats: Record<string, { situations: number; wikiPages: number }> = {};
-      for (const dom of domains) {
-        stats[dom.id] = { situations: 0, wikiPages: 0 };
-      }
-      for (const s of sitData.items ?? []) {
-        if (s.domainName) {
-          const dom = domains.find(d => d.displayName === s.domainName);
-          if (dom && stats[dom.id]) stats[dom.id].situations++;
-        }
-      }
-      // Build slug → entityId mapping from domain hub pages
-      const slugToEntityId = new Map<string, string>();
-      for (const p of (wikiData.pages ?? [])) {
-        if (p.subjectEntityId && stats[p.subjectEntityId]) {
-          slugToEntityId.set(p.slug, p.subjectEntityId);
-        }
-      }
-      for (const p of (wikiData.pages ?? [])) {
-        for (const ref of (p.crossReferences ?? [])) {
-          const entityId = slugToEntityId.get(ref);
-          if (entityId && stats[entityId]) stats[entityId].wikiPages++;
-        }
-      }
-      setDomainStats(stats);
-    }).catch(() => {});
-  }, [domains]);
 
   /* ── Fit to center on load ── */
 
@@ -173,33 +135,31 @@ export default function MapPage() {
 
   /* ── Derived ── */
 
-  const hq = domains.find(d => d.isHQ);
-  const activeDomains = domains.filter(d => !d.isHQ);
-  const radius = Math.max(300, activeDomains.length * 55);
-  const initialPositions = layoutDomains(activeDomains.length, radius);
+  const radius = Math.max(300, domains.length * 55);
+  const initialPositions = layoutDomains(domains.length, radius);
 
   // Domain node positions — draggable
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
-  const draggingNode = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number; didMove: boolean } | null>(null);
+  const draggingNode = useRef<{ slug: string; startX: number; startY: number; origX: number; origY: number; didMove: boolean } | null>(null);
 
   // Initialize positions when domains load
   useEffect(() => {
-    if (activeDomains.length === 0) return;
+    if (domains.length === 0) return;
     setNodePositions(prev => {
       const next = { ...prev };
-      activeDomains.forEach((dom, i) => {
-        if (!next[dom.id]) next[dom.id] = initialPositions[i];
+      domains.forEach((dom, i) => {
+        if (!next[dom.slug]) next[dom.slug] = initialPositions[i];
       });
       return next;
     });
-  }, [activeDomains.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [domains.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onNodeMouseDown = useCallback((e: React.MouseEvent, domId: string) => {
+  const onNodeMouseDown = useCallback((e: React.MouseEvent, domSlug: string) => {
     e.stopPropagation();
     e.preventDefault();
-    const pos = nodePositions[domId];
+    const pos = nodePositions[domSlug];
     if (!pos) return;
-    draggingNode.current = { id: domId, startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y, didMove: false };
+    draggingNode.current = { slug: domSlug, startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y, didMove: false };
   }, [nodePositions]);
 
   useEffect(() => {
@@ -209,7 +169,7 @@ export default function MapPage() {
       const dx = (e.clientX - d.startX) / zoom;
       const dy = (e.clientY - d.startY) / zoom;
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) d.didMove = true;
-      setNodePositions(prev => ({ ...prev, [d.id]: { x: d.origX + dx, y: d.origY + dy } }));
+      setNodePositions(prev => ({ ...prev, [d.slug]: { x: d.origX + dx, y: d.origY + dy } }));
     };
     const onUp = () => { draggingNode.current = null; };
     window.addEventListener("mousemove", onMove);
@@ -232,7 +192,7 @@ export default function MapPage() {
           <p className="text-[var(--fg4)] text-sm absolute top-1/2 left-1/2 -translate-x-1/2">{tc("loading")}</p>
         )}
 
-        {!loading && activeDomains.length === 0 && !hq && (
+        {!loading && domains.length === 0 && (
           <p className="text-[var(--fg4)] text-sm absolute top-1/2 left-1/2 -translate-x-1/2">{t("emptyMapHint")}</p>
         )}
 
@@ -260,56 +220,28 @@ export default function MapPage() {
         }}>
           {/* SVG lines from center to domains */}
           <svg style={{ position: "absolute", overflow: "visible", width: 1, height: 1, pointerEvents: "none" }}>
-            {activeDomains.map((dom) => {
-              const pos = nodePositions[dom.id];
+            {domains.map((dom) => {
+              const pos = nodePositions[dom.slug];
               if (!pos) return null;
               return (
-                <line key={dom.id} x1={0} y1={0} x2={pos.x} y2={pos.y} stroke="var(--border)" strokeWidth={1} />
+                <line key={dom.slug} x1={0} y1={0} x2={pos.x} y2={pos.y} stroke="var(--border)" strokeWidth={1} />
               );
             })}
           </svg>
 
-          {/* Center card — company HQ */}
-          {hq && (
-            <div
-              data-node
-              onClick={() => router.push(`/wiki?domain=${hq.id}`)}
-              className="absolute cursor-pointer hover:brightness-110 transition"
-              style={{
-                left: -HQ_W / 2,
-                top: -HQ_H / 2,
-                width: HQ_W,
-                height: HQ_H,
-                borderRadius: 8,
-                background: "var(--elevated)",
-                border: "1.5px solid var(--border)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <span style={{ fontSize: 16, fontWeight: 600, color: "var(--foreground)" }}>{hq.displayName}</span>
-              <span style={{ fontSize: 11, color: "var(--fg3)", marginTop: 4 }}>
-                {activeDomains.length} {activeDomains.length === 1 ? "domain" : "domains"}
-              </span>
-            </div>
-          )}
-
           {/* Domain nodes — draggable, fixed size */}
-          {activeDomains.map((dom) => {
-            const pos = nodePositions[dom.id];
+          {domains.map((dom) => {
+            const pos = nodePositions[dom.slug];
             if (!pos) return null;
             return (
               <div
-                key={dom.id}
+                key={dom.slug}
                 data-node
-                onMouseDown={(e) => onNodeMouseDown(e, dom.id)}
+                onMouseDown={(e) => onNodeMouseDown(e, dom.slug)}
                 onMouseUp={() => {
                   const d = draggingNode.current;
-                  if (d && d.id === dom.id && !d.didMove) {
-                    router.push(`/wiki?domain=${dom.id}`);
+                  if (d && d.slug === dom.slug && !d.didMove) {
+                    router.push(`/wiki?domain=${dom.slug}`);
                   }
                 }}
                 className="absolute hover:brightness-125 transition"
@@ -326,12 +258,12 @@ export default function MapPage() {
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "center",
-                  cursor: draggingNode.current?.id === dom.id ? "grabbing" : "pointer",
+                  cursor: draggingNode.current?.slug === dom.slug ? "grabbing" : "pointer",
                   userSelect: "none",
                 }}
               >
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--foreground)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: DOMAIN_W - 20, textAlign: "center" }}>
-                  {dom.displayName}
+                  {dom.name}
                 </div>
               </div>
             );

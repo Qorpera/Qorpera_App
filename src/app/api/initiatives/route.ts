@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     select: {
       slug: true,
       title: true,
+      content: true,
       properties: true,
       createdAt: true,
     },
@@ -48,15 +49,20 @@ export async function GET(req: NextRequest) {
   const items = filtered.map(p => {
     const props = (p.properties ?? {}) as Record<string, unknown>;
     const ownerSlug = (props.owner as string) ?? null;
+    const proposalMatch = p.content?.match(/## Proposal\s*\n([\s\S]*?)(?=\n## |\n$|$)/);
+    const triggerMatch = p.content?.match(/## Trigger\s*\n([\s\S]*?)(?=\n## |\n$|$)/);
     return {
       id: p.slug,
       aiEntityId: null,
       ownerPageSlug: ownerSlug,
       ownerName: ownerSlug ? ownerPageMap.get(ownerSlug) ?? null : null,
       proposalType: props.proposal_type ?? "general",
-      triggerSummary: p.title,
+      triggerSummary: p.title || "Untitled initiative",
       status: props.status ?? "proposed",
-      rationale: (props.rationale as string) ?? null,
+      rationale: (props.rationale as string)
+        ?? proposalMatch?.[1]?.trim()
+        ?? triggerMatch?.[1]?.trim()
+        ?? null,
       impactAssessment: (props.impact_assessment as string) ?? null,
       proposedProjectConfig: props.project_config ?? null,
       projectId: (props.project_id as string) ?? null,
