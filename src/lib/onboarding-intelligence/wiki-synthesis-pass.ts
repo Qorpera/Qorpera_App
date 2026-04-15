@@ -53,6 +53,8 @@ interface DerivedStructure {
   durationMs: number;
 }
 
+import { getDefaultVisibility } from "@/lib/wiki-visibility";
+
 // ── Concurrency helper ─────────────────────────────────────────────────────────
 
 async function runWithConcurrency<T>(
@@ -174,6 +176,7 @@ async function toolWriteWikiPage(
       data: {
         title: args.title,
         pageType: args.pageType,
+        visibility: getDefaultVisibility(args.pageType),
         content: args.content,
         contentTokens,
         crossReferences: crossRefs,
@@ -192,6 +195,7 @@ async function toolWriteWikiPage(
     data: {
       operatorId,
       scope: "operator",
+      visibility: getDefaultVisibility(args.pageType),
       pageType: args.pageType,
       title: args.title,
       slug: args.slug,

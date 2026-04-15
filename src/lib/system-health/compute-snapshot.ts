@@ -362,10 +362,10 @@ async function computeKnowledge(
   const ragChunkResult = await prisma.$queryRaw<[{ count: bigint }]>`
     SELECT COUNT(*) as count FROM "ContentChunk"
     WHERE "operatorId" = ${operatorId}
-      AND "domainIds" IS NOT NULL
-      AND "domainIds" != 'null'
-      AND "domainIds" != '[]'
-      AND "domainIds"::jsonb ? ${domainEntityId}
+      AND "departmentIds" IS NOT NULL
+      AND "departmentIds" != 'null'
+      AND "departmentIds" != '[]'
+      AND "departmentIds"::jsonb ? ${domainEntityId}
   `;
   const ragChunks = Number(ragChunkResult[0]?.count ?? 0);
 
@@ -374,10 +374,10 @@ async function computeKnowledge(
     SELECT COUNT(*) as count FROM "ContentChunk"
     WHERE "operatorId" = ${operatorId}
       AND "sourceType" IN ('email', 'calendar_note', 'calendar_event')
-      AND "domainIds" IS NOT NULL
-      AND "domainIds" != 'null'
-      AND "domainIds" != '[]'
-      AND "domainIds"::jsonb ? ${domainEntityId}
+      AND "departmentIds" IS NOT NULL
+      AND "departmentIds" != 'null'
+      AND "departmentIds" != '[]'
+      AND "departmentIds"::jsonb ? ${domainEntityId}
   `;
   const operationalChunks = Number(operationalChunkResult[0]?.count ?? 0);
 
@@ -814,9 +814,9 @@ async function persistSnapshot(
     // Postgres NULL != NULL so @@unique can't back a Prisma upsert —
     // use raw INSERT ON CONFLICT with partial unique index
     prisma.$executeRaw`
-      INSERT INTO "DomainHealth" ("id", "operatorId", "domainEntityId", "snapshot", "computedAt")
+      INSERT INTO "DepartmentHealth" ("id", "operatorId", "departmentEntityId", "snapshot", "computedAt")
       VALUES (${randomUUID()}, ${operatorId}, NULL, ${snapshotJson}::jsonb, ${now})
-      ON CONFLICT ("operatorId") WHERE "domainEntityId" IS NULL
+      ON CONFLICT ("operatorId") WHERE "departmentEntityId" IS NULL
       DO UPDATE SET "snapshot" = EXCLUDED."snapshot", "computedAt" = EXCLUDED."computedAt"
     `,
     // Remove rows for departments that no longer exist
@@ -922,9 +922,9 @@ export async function recomputeHealthSnapshots(
       };
       const snapshotJson = JSON.stringify(operatorSnapshot);
       await prisma.$executeRaw`
-        INSERT INTO "DomainHealth" ("id", "operatorId", "domainEntityId", "snapshot", "computedAt")
+        INSERT INTO "DepartmentHealth" ("id", "operatorId", "departmentEntityId", "snapshot", "computedAt")
         VALUES (${randomUUID()}, ${operatorId}, NULL, ${snapshotJson}::jsonb, ${now})
-        ON CONFLICT ("operatorId") WHERE "domainEntityId" IS NULL
+        ON CONFLICT ("operatorId") WHERE "departmentEntityId" IS NULL
         DO UPDATE SET "snapshot" = EXCLUDED."snapshot", "computedAt" = EXCLUDED."computedAt"
       `;
     } else {

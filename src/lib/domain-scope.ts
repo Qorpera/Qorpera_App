@@ -1,6 +1,187 @@
 import { prisma } from "@/lib/db";
 
-// ── Wiki-first domain scoping ───────────────────────────────────────────────
+// ── Page access context ────────────────────────────────────────────────────
+
+export type PageAccessContext = {
+  userDomainSlugs: string[];       // domain hub slugs from person page crossRefs
+  userPersonSlug: string | null;   // the user's own person page slug
+  managedPersonSlugs: string[];    // person slugs of direct reports (cached)
+  role: string;                    // user role
+  isAdmin: boolean;
+  isScoped: boolean;               // true when non-admin with domain assignments
+};
+
+// ── Reporting chain cache ──────────────────────────────────────────────────
+
+const reportingCache = new Map<
+  string,
+  { slugs: string[]; cachedAt: number }
+>();
+const REPORTING_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+async function resolveDirectReportSlugs(
+  operatorId: string,
+  userPersonSlug: string,
+): Promise<string[]> {
+  const cacheKey = `${operatorId}:${userPersonSlug}`;
+  const cached = reportingCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < REPORTING_CACHE_TTL_MS) {
+    return cached.slugs;
+  }
+
+  // Push reportsTo filter to Postgres instead of loading all person_profile pages
+  const directReports = await prisma.$queryRaw<Array<{ slug: string }>>`
+    SELECT slug FROM "KnowledgePage"
+    WHERE "operatorId" = ${operatorId}
+      AND "pageType" = 'person_profile'
+      AND scope = 'operator'
+      AND status NOT IN ('archived', 'quarantined')
+      AND properties->>'reportsTo' = ${userPersonSlug}
+  `;
+
+  const slugs = directReports.map((r) => r.slug);
+
+  reportingCache.set(cacheKey, { slugs, cachedAt: Date.now() });
+  return slugs;
+}
+
+export function invalidateReportingCache(operatorId: string, personSlug: string): void {
+  reportingCache.delete(`${operatorId}:${personSlug}`);
+}
+
+// ── Core access resolution ─────────────────────────────────────────────────
+
+export async function resolveAccessContext(
+  operatorId: string,
+  userId: string,
+): Promise<PageAccessContext> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, wikiPageSlug: true },
+  });
+
+  if (!user) {
+    return {
+      userDomainSlugs: [],
+      userPersonSlug: null,
+      managedPersonSlugs: [],
+      role: "unknown",
+      isAdmin: false,
+      isScoped: false,
+    };
+  }
+
+  const isAdmin = user.role === "admin" || user.role === "superadmin";
+  if (isAdmin) {
+    return {
+      userDomainSlugs: [],
+      userPersonSlug: user.wikiPageSlug ?? null,
+      managedPersonSlugs: [],
+      role: user.role,
+      isAdmin: true,
+      isScoped: false,
+    };
+  }
+
+  const personSlug = user.wikiPageSlug ?? null;
+  let domainSlugs: string[] = [];
+  let managedSlugs: string[] = [];
+
+  if (personSlug) {
+    // Read the person's wiki page to find which domains they belong to
+    const personPage = await prisma.knowledgePage.findFirst({
+      where: { operatorId, slug: personSlug, scope: "operator" },
+      select: { crossReferences: true },
+    });
+
+    if (personPage) {
+      domainSlugs = personPage.crossReferences.filter(
+        (ref) => ref.startsWith("domain-"),
+      );
+    }
+
+    // Resolve direct reports
+    managedSlugs = await resolveDirectReportSlugs(operatorId, personSlug);
+  }
+
+  return {
+    userDomainSlugs: domainSlugs,
+    userPersonSlug: personSlug,
+    managedPersonSlugs: managedSlugs,
+    role: user.role,
+    isAdmin: false,
+    isScoped: domainSlugs.length > 0,
+  };
+}
+
+// ── Page visibility checks ─────────────────────────────────────────────────
+
+type PageForAccess = {
+  visibility?: string | null;
+  slug: string;
+  crossReferences?: string[];
+  properties?: Record<string, unknown> | null;
+  pageType?: string | null;
+};
+
+export function canViewPage(
+  page: PageForAccess,
+  ctx: PageAccessContext,
+): boolean {
+  const vis = page.visibility ?? "operator";
+
+  if (ctx.isAdmin) return true;
+
+  switch (vis) {
+    case "operator":
+      return true;
+
+    case "domain": {
+      const pageDomains: string[] = [];
+      if (page.crossReferences) {
+        pageDomains.push(...page.crossReferences.filter((ref) => ref.startsWith("domain-")));
+      }
+      if (page.properties?.domain && typeof page.properties.domain === "string") {
+        pageDomains.push(page.properties.domain);
+      }
+      // Page with no domain association is visible to all
+      if (pageDomains.length === 0) return true;
+      return pageDomains.some((d) => ctx.userDomainSlugs.includes(d));
+    }
+
+    case "management": {
+      const subjectSlug =
+        (typeof page.properties?.subjectSlug === "string" ? page.properties.subjectSlug : null)
+        ?? (page.pageType === "person_profile" ? page.slug : null);
+      // Pages without a subject (findings_overview, log, contradiction_log)
+      // fall through to visible. "management" on these types is a semantic
+      // marker, not an access gate — actual restriction only applies to
+      // person-specific pages via subjectSlug matching.
+      if (!subjectSlug) return true;
+      return ctx.managedPersonSlugs.includes(subjectSlug);
+    }
+
+    case "personal":
+      return page.slug === ctx.userPersonSlug;
+
+    case "operational":
+      return false; // never shown in UI
+
+    default:
+      return false;
+  }
+}
+
+export function canViewPage_ai(
+  page: PageForAccess,
+  ctx: PageAccessContext,
+): boolean {
+  const vis = page.visibility ?? "operator";
+  if (vis === "operational") return true; // AI can see operational pages
+  return canViewPage(page, ctx);
+}
+
+// ── Wiki-first domain scoping (kept) ───────────────────────────────────────
 
 /**
  * Get wiki page slugs of domains visible to this user.
@@ -10,202 +191,13 @@ export async function getVisibleDomainSlugs(
   operatorId: string,
   userId: string,
 ): Promise<string[] | "all"> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true, wikiPageSlug: true },
-  });
-
-  if (!user) return [];
-  if (user.role === "admin" || user.role === "superadmin") return "all";
-
-  // Find the user's person wiki page
-  const personSlug = user.wikiPageSlug;
-  if (!personSlug) return "all"; // No page = no scoping (permissive default)
-
-  // Read the person's wiki page to find which domains they belong to
-  const personPage = await prisma.knowledgePage.findFirst({
-    where: { operatorId, slug: personSlug, scope: "operator" },
-    select: { crossReferences: true },
-  });
-
-  if (!personPage) return "all";
-
-  // Domain slugs are cross-references that start with "domain-"
-  const domainSlugs = personPage.crossReferences.filter(ref => ref.startsWith("domain-"));
-
-  // Also check user scope assignments (if using explicit scope grants)
-  const scopeGrants = await prisma.userScope.findMany({
-    where: { userId },
-    select: { domainEntityId: true },
-  });
-
-  // UserScope may not have domainPageSlug yet — check if the field exists
-  // If not, fall back to the old domainEntityId pattern temporarily
-  for (const grant of scopeGrants) {
-    if ((grant as any).domainPageSlug && !domainSlugs.includes((grant as any).domainPageSlug)) {
-      domainSlugs.push((grant as any).domainPageSlug);
-    }
-  }
-
-  return domainSlugs.length > 0 ? domainSlugs : "all";
+  const ctx = await resolveAccessContext(operatorId, userId);
+  if (ctx.isAdmin) return "all";
+  return ctx.userDomainSlugs.length > 0 ? ctx.userDomainSlugs : "all";
 }
-
-// ── Legacy domain scoping (entity-based) ────────────────────────────────────
-
-const domainObservationCache = new Map<
-  string,
-  { domains: { domainId: string; confidence: number }[]; cachedAt: number }
->();
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
-export async function getObservedDomains(
-  operatorId: string,
-  userId: string,
-): Promise<{ domainId: string; confidence: number }[]> {
-  const cacheKey = `${operatorId}:${userId}`;
-  const cached = domainObservationCache.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
-    return cached.domains;
-  }
-
-  // Find the user's linked entity
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { entityId: true },
-  });
-  if (!user?.entityId) return [];
-
-  const entity = await prisma.entity.findUnique({
-    where: { id: user.entityId },
-    select: { displayName: true, primaryDomainId: true },
-  });
-  if (!entity) return [];
-
-  // Strategy 1: Direct domain assignment (primary domain)
-  const domains: Map<string, number> = new Map();
-  if (entity.primaryDomainId) {
-    domains.set(entity.primaryDomainId, 0.9);
-  }
-
-  // Strategy 2: Wiki pages that mention this person
-  const wikiMentions = await prisma.knowledgePage.findMany({
-    where: {
-      operatorId,
-      scope: "operator",
-      content: { contains: entity.displayName, mode: "insensitive" },
-      status: { notIn: ["archived", "quarantined"] },
-    },
-    select: { domainIds: true },
-  });
-
-  for (const page of wikiMentions) {
-    const pageDomains = (page.domainIds ?? []) as string[];
-    for (const did of pageDomains) {
-      domains.set(did, Math.min(1.0, (domains.get(did) ?? 0) + 0.15));
-    }
-  }
-
-  // Strategy 3: For solo operators (1-3 users), grant access to all domains
-  const userCount = await prisma.user.count({
-    where: { operatorId, accountSuspended: false },
-  });
-  if (userCount <= 3) {
-    const allDomains = await prisma.entity.findMany({
-      where: { operatorId, category: "foundational" },
-      select: { id: true },
-    });
-    for (const d of allDomains) {
-      domains.set(d.id, 1.0);
-    }
-  }
-
-  const result = Array.from(domains.entries())
-    .map(([domainId, confidence]) => ({ domainId, confidence }))
-    .filter((d) => d.confidence >= 0.3)
-    .sort((a, b) => b.confidence - a.confidence);
-
-  domainObservationCache.set(cacheKey, { domains: result, cachedAt: Date.now() });
-  return result;
-}
-
-/**
- * @deprecated Use getVisibleDomainSlugs instead — entity-based scoping will be removed.
- */
-export async function getVisibleDomainIds(
-  operatorId: string,
-  userId: string,
-): Promise<string[] | "all"> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true },
-  });
-  if (!user) return [];
-
-  // Admin and superadmin see everything
-  if (user.role === "admin" || user.role === "superadmin") return "all";
-
-  // Check explicit UserScope overrides first
-  const scopes = await prisma.userScope.findMany({
-    where: { userId },
-    select: { domainEntityId: true, domainPageSlug: true },
-  });
-
-  if (scopes.length > 0) {
-    // Explicit overrides exist — use them
-    return scopes.map((s) => s.domainEntityId ?? s.domainPageSlug ?? "").filter(Boolean);
-  }
-
-  // No explicit scopes — derive from wiki observations
-  const observed = await getObservedDomains(operatorId, userId);
-  if (observed.length === 0) {
-    // Fallback: if wiki has no observations, return all domains (safe default for new users)
-    return "all";
-  }
-
-  return observed.map((d) => d.domainId);
-}
-
-/**
- * Build a Prisma where clause that filters entities by visible domains.
- * @deprecated Use wiki-based domain scoping with getVisibleDomainSlugs instead.
- */
-export function domainScopeFilter(visibleDomains: string[] | "all"): Record<string, unknown> {
-  if (visibleDomains === "all") return {};
-  return {
-    OR: [
-      { primaryDomainId: { in: visibleDomains } },
-      { id: { in: visibleDomains } },
-      { category: "external" },
-    ],
-  };
-}
-
-/**
- * Build a Prisma where clause for situations scoped to visible domains.
- */
-export function situationScopeFilter(visibleDomains: string[] | "all"): Record<string, unknown> {
-  if (visibleDomains === "all") return {};
-  return {
-    OR: [
-      { situationType: { scopeEntityId: { in: visibleDomains } } },
-      { situationType: { scopeEntityId: null } },
-    ],
-  };
-}
-
-// ── Wiki-first situation scoping ───────────────────────────────────────────
 
 /**
  * Build a raw SQL WHERE fragment for wiki-based situation domain scoping.
- * Filters situation_instance KnowledgePages by domain visibility.
- *
- * Returns the domain slugs array. The caller builds the SQL with proper
- * parameter offsets (Prisma $queryRawUnsafe doesn't support Prisma-typed
- * JSONB operators, so raw SQL is needed).
- *
- * - "all" → no filtering needed (admins)
- * - [] → impossible filter (no visible domains)
- * - string[] → match pages whose domain property is in the list, or has no domain set
  */
 export function wikiSituationScopeFilter(
   visibleDomains: string[] | "all",
@@ -213,20 +205,11 @@ export function wikiSituationScopeFilter(
   if (visibleDomains === "all") {
     return { needed: false };
   }
-  // Even with zero visible domains we return the array — caller decides
-  // whether to short-circuit or include the NULL-domain fallback.
   return { needed: true, domainSlugs: visibleDomains };
 }
 
 /**
  * Build the SQL WHERE clause fragment for wiki situation domain filtering.
- * Caller provides paramOffset — the count of existing bind parameters.
- * First domain placeholder will be `$(paramOffset + 1)`.
- *
- * Returns { clause, params } where clause is a parenthesized SQL condition
- * and params are the bind values to append to the query's parameter array.
- *
- * Empty domainSlugs → returns FALSE (user sees nothing).
  */
 export function buildWikiSituationDomainClause(
   domainSlugs: string[],
@@ -250,52 +233,18 @@ export function canAccessDomain(visibleDomains: string[] | "all", domainId: stri
   return visibleDomains.includes(domainId);
 }
 
+// ── Backward-compat shim (temporary — removed in session 5) ────────────────
+
 /**
- * @deprecated Use wiki-based domain scoping instead.
+ * @deprecated Use resolveAccessContext + canViewPage instead.
+ * Returns domain slugs or "all" for callers not yet migrated.
  */
-export async function canAccessEntity(
-  entityId: string,
-  visibleDomains: string[] | "all",
+export async function getVisibleDomainIds(
   operatorId: string,
-): Promise<boolean> {
-  if (visibleDomains === "all") return true;
-
-  const entity = await prisma.entity.findUnique({
-    where: { id: entityId },
-    select: { id: true, primaryDomainId: true, category: true },
-  });
-
-  if (!entity) return false;
-
-  // Domains themselves
-  if (entity.category === "foundational") {
-    return visibleDomains.includes(entity.id);
-  }
-
-  // External entities float outside domains
-  if (entity.category === "external") return true;
-
-  // Base/internal: check primaryDomainId
-  if (entity.primaryDomainId) {
-    return visibleDomains.includes(entity.primaryDomainId);
-  }
-
-  // Digital without primaryDomainId: check domain-member relationships
-  const relType = await prisma.relationshipType.findFirst({
-    where: { operatorId, slug: "domain-member" },
-  });
-  if (!relType) return false;
-
-  const domainRelations = await prisma.relationship.findMany({
-    where: {
-      relationshipTypeId: relType.id,
-      OR: [{ fromEntityId: entityId }, { toEntityId: entityId }],
-    },
-    select: { fromEntityId: true, toEntityId: true },
-  });
-
-  return domainRelations.some((r) => {
-    const otherId = r.fromEntityId === entityId ? r.toEntityId : r.fromEntityId;
-    return visibleDomains.includes(otherId);
-  });
+  userId: string,
+): Promise<string[] | "all"> {
+  const ctx = await resolveAccessContext(operatorId, userId);
+  if (ctx.role === "unknown") return []; // deny-all for unknown users
+  if (ctx.isAdmin) return "all";
+  return ctx.userDomainSlugs.length > 0 ? ctx.userDomainSlugs : "all";
 }

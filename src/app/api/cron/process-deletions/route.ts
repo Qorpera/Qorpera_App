@@ -109,8 +109,6 @@ async function deleteUser(userId: string, operatorId: string) {
   await prisma.notification.deleteMany({ where: { userId } });
   await prisma.session.deleteMany({ where: { userId } });
   await prisma.passwordResetToken.deleteMany({ where: { userId } });
-  await prisma.userScope.deleteMany({ where: { userId } });
-
   // Delete user's personal connectors + their sync logs (SyncLog has no cascade)
   const userConnectors = await prisma.sourceConnector.findMany({
     where: { userId },
@@ -143,25 +141,7 @@ async function findReassignmentTarget(
   userId: string,
   operatorId: string,
 ): Promise<string | null> {
-  // Find first admin in user's department
-  const userScopes = await prisma.userScope.findMany({
-    where: { userId },
-    select: { domainEntityId: true },
-  });
-  if (userScopes.length > 0) {
-    const deptAdmin = await prisma.user.findFirst({
-      where: {
-        operatorId,
-        role: "admin",
-        id: { not: userId },
-        scopes: { some: { domainEntityId: { in: userScopes.map((s) => s.domainEntityId).filter(Boolean) as string[] } } },
-      },
-      select: { id: true },
-    });
-    if (deptAdmin) return deptAdmin.id;
-  }
-
-  // 3. Fall back to any admin in the operator
+  // Fall back to any admin in the operator
   const admin = await prisma.user.findFirst({
     where: { operatorId, role: "admin", id: { not: userId } },
     select: { id: true },
@@ -206,7 +186,6 @@ async function deleteOperator(operatorId: string) {
   await prisma.invite.deleteMany({ where: { operatorId } });
   await prisma.notificationPreference.deleteMany({ where: { user: { operatorId } } });
   await prisma.passwordResetToken.deleteMany({ where: { user: { operatorId } } });
-  await prisma.userScope.deleteMany({ where: { user: { operatorId } } });
   await prisma.session.deleteMany({ where: { user: { operatorId } } });
   await prisma.user.deleteMany({ where: { operatorId } });
   await prisma.entity.deleteMany({ where: { operatorId } });

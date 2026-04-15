@@ -173,8 +173,7 @@ function SettingsPageInner() {
   const [addingMapping, setAddingMapping] = useState<{ connectorId: string; channelId: string; channelName: string; domainId: string } | null>(null);
 
   // Team state
-  type TeamUserScope = { id: string; domainEntityId: string; domainName: string };
-  type TeamUser = { id: string; name: string; email: string; role: string; entityId: string | null; entityName: string | null; domainName: string | null; scopes: TeamUserScope[]; lastActive: string | null; createdAt: string };
+  type TeamUser = { id: string; name: string; email: string; role: string; entityId: string | null; entityName: string | null; domainName: string | null; lastActive: string | null; createdAt: string };
   type TeamInvite = { id: string; email: string; role: string; entityName: string; domainName: string | null; link: string; expiresAt: string; createdAt: string };
   type TeamDept = { id: string; displayName: string };
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
@@ -183,10 +182,6 @@ function SettingsPageInner() {
   const [teamLoading, setTeamLoading] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [bulkOpen, setBulkOpen] = useState(false);
-  const [bulkSource, setBulkSource] = useState("");
-  const [bulkTarget, setBulkTarget] = useState("");
-  const [bulkRunning, setBulkRunning] = useState(false);
 
   // Invite link state
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
@@ -978,38 +973,8 @@ function SettingsPageInner() {
 
         {/* Team Tab */}
         {activeTab === "team" && (() => {
-          const unboundMembers = teamUsers.filter(
-            (u) => u.role === "member" && u.scopes.length === 0
-          );
           return (
           <div className="space-y-6">
-            {/* Department binding warning */}
-            {unboundMembers.length > 0 && (
-              <div className="rounded-lg px-4 py-3 bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] border border-[color-mix(in_srgb,var(--warn)_15%,transparent)] text-warn flex items-start gap-3">
-                <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-                </svg>
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">
-                    {unboundMembers.length} member{unboundMembers.length !== 1 ? "s" : ""} without department access
-                  </p>
-                  <p className="text-xs text-warn/70">
-                    These users cannot receive situations until assigned to a department. Click <strong>Edit</strong> on each user to grant department access.
-                  </p>
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {unboundMembers.map((u) => (
-                      <button
-                        key={u.id}
-                        onClick={() => setEditingUserId(u.id)}
-                        className="text-xs bg-[color-mix(in_srgb,var(--warn)_12%,transparent)] hover:bg-[color-mix(in_srgb,var(--warn)_25%,transparent)] px-2 py-0.5 rounded transition"
-                      >
-                        {u.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* Invite Link */}
             {(isAdmin || isSuperadmin) && (
@@ -1129,57 +1094,7 @@ function SettingsPageInner() {
             <div className="wf-soft p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-medium text-foreground">{t("team.title")}</h2>
-                <Button variant="default" size="sm" onClick={() => setBulkOpen(!bulkOpen)}>
-                  {bulkOpen ? "Close" : "Grant Cross-Department Access"}
-                </Button>
               </div>
-
-              {/* Bulk Grant */}
-              {bulkOpen && (
-                <div className="bg-hover rounded-lg p-4 space-y-3">
-                  <p className="text-xs text-[var(--fg2)]">Allow all members of one department to also access another department.</p>
-                  <div className="flex items-end gap-3">
-                    <Select
-                      label="Source Department"
-                      options={[{ value: "", label: "Select..." }, ...teamDomains.map((d) => ({ value: d.id, label: d.displayName }))]}
-                      value={bulkSource}
-                      onChange={(e) => setBulkSource(e.target.value)}
-                    />
-                    <span className="text-[var(--fg3)] pb-2">→</span>
-                    <Select
-                      label="Target Department"
-                      options={[{ value: "", label: "Select..." }, ...teamDomains.map((d) => ({ value: d.id, label: d.displayName }))]}
-                      value={bulkTarget}
-                      onChange={(e) => setBulkTarget(e.target.value)}
-                    />
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={bulkRunning || !bulkSource || !bulkTarget || bulkSource === bulkTarget}
-                      onClick={async () => {
-                        setBulkRunning(true);
-                        try {
-                          const res = await fetch("/api/users/bulk-grant", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ sourceDepartmentId: bulkSource, targetDepartmentId: bulkTarget }),
-                          });
-                          const data = await res.json();
-                          if (res.ok) {
-                            toast(`Granted: ${data.granted}, already had: ${data.alreadyHad}`, "success");
-                            loadTeamData();
-                          } else {
-                            toast(data.error || "Failed", "error");
-                          }
-                        } catch { toast("Failed", "error"); }
-                        setBulkRunning(false);
-                      }}
-                    >
-                      {bulkRunning ? "..." : "Grant"}
-                    </Button>
-                  </div>
-                </div>
-              )}
 
               {teamLoading ? (
                 <p className="text-sm text-[var(--fg3)]">Loading...</p>
@@ -1192,7 +1107,6 @@ function SettingsPageInner() {
                         <th className="pb-2 font-medium">Email</th>
                         <th className="pb-2 font-medium">Role</th>
                         <th className="pb-2 font-medium">Home Dept</th>
-                        <th className="pb-2 font-medium">Additional Access</th>
                         <th className="pb-2 font-medium">Last Active</th>
                         <th className="pb-2 font-medium">Actions</th>
                       </tr>
@@ -1200,9 +1114,6 @@ function SettingsPageInner() {
                     <tbody>
                       {teamUsers.map((u) => {
                         const isEditing = editingUserId === u.id;
-                        // Home dept scope = scope matching entity's department
-                        const homeDeptScopes = u.scopes.filter((s) => s.domainName === u.domainName);
-                        const extraScopes = u.scopes.filter((s) => s.domainName !== u.domainName);
 
                         return (
                           <tr key={u.id} className="border-b border-border align-top">
@@ -1259,39 +1170,8 @@ function SettingsPageInner() {
                                 <span className="text-[var(--fg2)]">{u.domainName}</span>
                               ) : u.role === "admin" ? (
                                 <span className="text-[var(--fg2)]">All</span>
-                              ) : u.scopes.length === 0 ? (
-                                <span className="text-warn/80 font-medium">No department</span>
                               ) : (
                                 <span className="text-[var(--fg3)]">&mdash;</span>
-                              )}
-                            </td>
-                            <td className="py-2.5">
-                              {u.role === "admin" ? (
-                                <span className="text-xs text-[var(--fg3)]">All (admin)</span>
-                              ) : (
-                                <div className="flex flex-wrap gap-1">
-                                  {extraScopes.map((s) => (
-                                    <span key={s.id} className="inline-flex items-center gap-1 text-[10px] bg-skeleton rounded px-1.5 py-0.5 text-[var(--fg2)]">
-                                      {s.domainName}
-                                      <button
-                                        className="text-danger hover:text-danger"
-                                        title="Remove access"
-                                        onClick={async () => {
-                                          try {
-                                            const res = await fetch(`/api/users/${u.id}/scopes/${s.id}`, { method: "DELETE" });
-                                            if (res.ok) { toast("Access removed", "success"); loadTeamData(); }
-                                            else { const d = await res.json(); toast(d.error || "Failed", "error"); }
-                                          } catch { toast("Failed", "error"); }
-                                        }}
-                                      >
-                                        ×
-                                      </button>
-                                    </span>
-                                  ))}
-                                  {homeDeptScopes.length > 0 && (
-                                    <span className="text-[10px] bg-skeleton rounded px-1.5 py-0.5 text-[var(--fg3)]">{u.domainName} (home)</span>
-                                  )}
-                                </div>
                               )}
                             </td>
                             <td className="py-2.5 text-[var(--fg2)] text-xs">
@@ -1300,30 +1180,6 @@ function SettingsPageInner() {
                                 : "—"}
                             </td>
                             <td className="py-2.5">
-                              {u.role !== "admin" && isEditing && (
-                                <select
-                                  className="bg-hover border border-border rounded px-2 py-1 text-[10px] text-[var(--fg2)]"
-                                  value=""
-                                  onChange={async (e) => {
-                                    const deptId = e.target.value;
-                                    if (!deptId) return;
-                                    try {
-                                      const res = await fetch(`/api/users/${u.id}/scopes`, {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ domainEntityId: deptId }),
-                                      });
-                                      if (res.ok) { toast("Access granted", "success"); loadTeamData(); }
-                                      else { const d = await res.json(); toast(d.error || "Failed", "error"); }
-                                    } catch { toast("Failed", "error"); }
-                                  }}
-                                >
-                                  <option value="">+ Add dept</option>
-                                  {teamDomains
-                                    .filter((d) => !u.scopes.some((s) => s.domainEntityId === d.id))
-                                    .map((d) => <option key={d.id} value={d.id}>{d.displayName}</option>)}
-                                </select>
-                              )}
                               {!isEditing && (
                                 <button
                                   className="text-xs text-accent hover:text-accent"

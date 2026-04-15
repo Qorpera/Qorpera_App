@@ -57,11 +57,29 @@ export async function evaluateInsightPromotion(insightId: string): Promise<Promo
     domainId = aiEntity.ownerDomainId;
   } else if (aiEntity.ownerUserId) {
     // Personal AI: find user's department
-    const scope = await prisma.userScope.findFirst({
-      where: { userId: aiEntity.ownerUserId },
-      select: { domainEntityId: true },
+    // Resolve user's domain from their wiki page cross-references
+    const ownerUser = await prisma.user.findUnique({
+      where: { id: aiEntity.ownerUserId },
+      select: { wikiPageSlug: true },
     });
-    domainId = scope?.domainEntityId ?? aiEntity.primaryDomainId;
+    if (ownerUser?.wikiPageSlug) {
+      const personPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId: insight.operatorId, slug: ownerUser.wikiPageSlug, scope: "operator" },
+        select: { crossReferences: true },
+      });
+      const domainSlug = personPage?.crossReferences.find((ref) => ref.startsWith("domain-"));
+      if (domainSlug) {
+        const domainHub = await prisma.knowledgePage.findFirst({
+          where: { operatorId: insight.operatorId, slug: domainSlug, pageType: "domain_hub" },
+          select: { subjectEntityId: true },
+        });
+        domainId = domainHub?.subjectEntityId ?? aiEntity.primaryDomainId;
+      } else {
+        domainId = aiEntity.primaryDomainId;
+      }
+    } else {
+      domainId = aiEntity.primaryDomainId;
+    }
   }
 
   if (!domainId) return { promoted: false, reason: "no_promotion" };

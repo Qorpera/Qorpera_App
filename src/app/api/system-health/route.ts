@@ -15,6 +15,7 @@ export async function GET() {
   const { operatorId } = su;
 
   // Scope: members see only their departments
+  // TODO(session-3): Migrate to resolveAccessContext — domainEntityId filter needs rewrite
   const visibleDomains = await getVisibleDomainIds(operatorId, su.user.id);
 
   // Read persisted snapshot

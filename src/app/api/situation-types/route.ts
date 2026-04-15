@@ -8,6 +8,7 @@ export async function GET() {
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
 
+  // TODO(session-3): Migrate to resolveAccessContext — scopeEntityId filter needs rewrite
   const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
   const where: Record<string, unknown> = { operatorId, enabled: true };
   if (visibleDomains !== "all") {

@@ -83,17 +83,44 @@ export async function getPeerSignalsForAi(
   const domainId = aiEntity.ownerDomainId ?? aiEntity.primaryDomainId;
   if (!domainId) return [];
 
-  // Find users in this department
-  const deptUsers = await prisma.userScope.findMany({
-    where: { domainEntityId: domainId },
-    select: { userId: true },
+  // Find users in this department via wiki page membership
+  const domainEntity = await prisma.entity.findUnique({
+    where: { id: domainId },
+    select: { operatorId: true },
   });
-  // Also include admins (they see all departments)
-  const admins = await prisma.user.findMany({
-    where: { operatorId: aiEntity.operatorId, role: { in: ["admin", "superadmin"] } },
-    select: { id: true },
+  // Find all users (admins see everything; members are matched by wiki page domain links)
+  const allUsers = await prisma.user.findMany({
+    where: { operatorId: aiEntity.operatorId },
+    select: { id: true, role: true, wikiPageSlug: true },
   });
-  const userIds = [...new Set([...deptUsers.map(u => u.userId), ...admins.map(a => a.id)])];
+  const memberSlugs = allUsers
+    .filter((u) => u.wikiPageSlug && u.role !== "admin" && u.role !== "superadmin")
+    .map((u) => u.wikiPageSlug!);
+  // Find person pages that cross-reference any domain entity — match by primaryDomainId
+  const domainPages = memberSlugs.length > 0
+    ? await prisma.knowledgePage.findMany({
+        where: {
+          operatorId: aiEntity.operatorId,
+          slug: { in: memberSlugs },
+          scope: "operator",
+        },
+        select: { slug: true, crossReferences: true },
+      })
+    : [];
+  // A domain entity maps to a domain hub slug; look up the slug
+  const domainHub = await prisma.knowledgePage.findFirst({
+    where: { operatorId: aiEntity.operatorId, subjectEntityId: domainId, pageType: "domain_hub" },
+    select: { slug: true },
+  });
+  const domainSlug = domainHub?.slug;
+  const memberUserIds = domainSlug
+    ? domainPages
+        .filter((p) => p.crossReferences.includes(domainSlug))
+        .map((p) => allUsers.find((u) => u.wikiPageSlug === p.slug)?.id)
+        .filter(Boolean) as string[]
+    : [];
+  const adminIds = allUsers.filter((u) => u.role === "admin" || u.role === "superadmin").map((u) => u.id);
+  const userIds = [...new Set([...memberUserIds, ...adminIds])];
 
   if (userIds.length === 0) return [];
 

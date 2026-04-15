@@ -23,16 +23,6 @@ export async function GET() {
     },
   });
 
-  const scopes = await prisma.userScope.findMany({
-    where: { userId: user.id },
-    select: {
-      id: true,
-      domainEntityId: true,
-      grantedById: true,
-      createdAt: true,
-    },
-  });
-
   const payload = {
     user: {
       id: user.id,
@@ -43,7 +33,6 @@ export async function GET() {
     },
     conversations,
     preferences: [],
-    scopes,
   };
 
   return new NextResponse(JSON.stringify(payload, null, 2), {

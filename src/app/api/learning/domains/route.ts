@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
+  // TODO(session-3): Migrate to resolveAccessContext — entity-based queries (Entity.id, scopeEntityId) need rewrite
   const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
   const daysSchema = z.object({ days: daysParam });
   const parsed = parseQuery(daysSchema, req.nextUrl.searchParams);

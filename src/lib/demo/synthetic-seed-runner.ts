@@ -587,7 +587,6 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
     await tx.$executeRaw`UPDATE "ProjectTemplate" SET "operatorId" = NULL WHERE "operatorId" = ${operatorId}`;
 
     // 4. Delete operator-linked users (by operatorId FK)
-    await tx.$executeRaw`DELETE FROM "UserScope" WHERE "userId" IN (SELECT id FROM "User" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "Session" WHERE "userId" IN (SELECT id FROM "User" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "NotificationPreference" WHERE "userId" IN (SELECT id FROM "User" WHERE "operatorId" = ${operatorId})`;
     await tx.$executeRaw`DELETE FROM "User" WHERE "operatorId" = ${operatorId}`;
@@ -600,7 +599,6 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
   if (domain) {
     const domainPattern = `%@${domain}`;
     await prisma.$executeRaw`DELETE FROM "Session" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE ${domainPattern})`;
-    await prisma.$executeRaw`DELETE FROM "UserScope" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE ${domainPattern})`;
     await prisma.$executeRaw`DELETE FROM "NotificationPreference" WHERE "userId" IN (SELECT id FROM "User" WHERE email LIKE ${domainPattern})`;
     await prisma.$executeRaw`DELETE FROM "User" WHERE email LIKE ${domainPattern}`;
   }

@@ -162,7 +162,7 @@ model User {
   updatedAt        DateTime  @updatedAt
 
   sessions                      Session[]
-  scopes                        UserScope[]
+
   invitesCreated                Invite[]                 @relation("InviteCreator")
   connectors                    SourceConnector[]
   aiEntity                      Entity?                  @relation("AiEntity")
@@ -647,20 +647,6 @@ model Invite {
 
   @@index([token])
   @@index([operatorId])
-}
-
-model UserScope {
-  id                 String   @id @default(cuid())
-  userId             String
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  domainEntityId     String?  @map("departmentEntityId") // @deprecated FK to Entity
-  domainPageSlug     String?  // wiki domain hub slug
-  grantedById        String? // userId of who granted this — null for system-generated
-  createdAt          DateTime @default(now())
-
-  @@unique([userId, domainPageSlug])
-  @@index([userId])
-  @@index([domainEntityId])
 }
 
 // ─── Content Chunks (universal RAG store) ───────────────
@@ -1346,6 +1332,7 @@ model KnowledgePage {
   operatorId String?
   projectId  String?
   scope      String  @default("operator") // "operator" | "system"
+  visibility String  @default("operator") // "operator" | "domain" | "management" | "personal" | "operational"
 
   // Identity
   pageType        String // OPERATOR: entity_profile, relationship_map, process_description,
@@ -1434,6 +1421,7 @@ model KnowledgePage {
   @@index([operatorId, status])
   @@index([operatorId, pageType])
   @@index([operatorId, projectId])
+  @@index([operatorId, visibility])
   @@index([subjectEntityId])
   @@index([scope, pageType])
 }

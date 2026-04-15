@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { chat, type OrientationInfo } from "@/lib/ai-copilot";
 import { prisma } from "@/lib/db";
 import type { AIMessage } from "@/lib/ai-provider";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { resolveAccessContext } from "@/lib/domain-scope";
 import { loadContextForCopilot, getContextRoleInstruction, loadSystemHealthContext, loadSystemJobsContext } from "@/lib/copilot-context-loaders";
 import { captureApiError } from "@/lib/api-error";
 import { rateLimit, rateLimitResponse } from "@/lib/rate-limiter";
@@ -49,23 +49,20 @@ export async function POST(req: NextRequest) {
   });
 
   // Build scope info for copilot system prompt
-  const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
+  const accessCtx = await resolveAccessContext(operatorId, su.effectiveUserId);
+  const visibleDomains: string[] | "all" = accessCtx.isScoped
+    ? accessCtx.userDomainSlugs
+    : "all";
   let scopeInfo: { userName?: string; domainName?: string; visibleDomains: string[] | "all" } | undefined;
   if (visibleDomains !== "all") {
-    const scopeUser = await prisma.user.findUnique({ where: { id: su.effectiveUserId }, select: { name: true, wikiPageSlug: true } });
+    const scopeUser = await prisma.user.findUnique({ where: { id: su.effectiveUserId }, select: { name: true } });
     let domainName: string | undefined;
-    if (scopeUser?.wikiPageSlug) {
-      const personPage = await prisma.knowledgePage.findFirst({
-        where: { operatorId: su.operatorId, slug: scopeUser.wikiPageSlug, scope: "operator" },
-        select: { crossReferences: true },
+    if (accessCtx.userDomainSlugs[0]) {
+      const domainPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId: su.operatorId, slug: accessCtx.userDomainSlugs[0], scope: "operator", pageType: "domain_hub" },
+        select: { title: true },
       });
-      if (personPage?.crossReferences?.[0]) {
-        const domainPage = await prisma.knowledgePage.findFirst({
-          where: { operatorId: su.operatorId, slug: personPage.crossReferences[0], scope: "operator", pageType: "domain_hub" },
-          select: { title: true },
-        });
-        domainName = domainPage?.title ?? undefined;
-      }
+      domainName = domainPage?.title ?? undefined;
     }
     scopeInfo = { userName: scopeUser?.name, domainName, visibleDomains };
   }

@@ -22,7 +22,7 @@ export async function PUT(
   // Cannot change superadmin role
   const targetUser = await prisma.user.findFirst({
     where: { id: id, operatorId: su.operatorId },
-    include: { entity: { select: { primaryDomainId: true } }, scopes: true },
+    select: { id: true, role: true },
   });
   if (!targetUser) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -34,23 +34,6 @@ export async function PUT(
   // Cannot change own role
   if (id === su.user.id) {
     return NextResponse.json({ error: "Cannot change your own role" }, { status: 400 });
-  }
-
-  // If demoting admin to member: ensure at least one scope exists
-  if (targetUser.role === "admin" && role === "member" && targetUser.scopes.length === 0) {
-    if (targetUser.entity?.primaryDomainId) {
-      await prisma.userScope.create({
-        data: {
-          userId: id,
-          domainEntityId: targetUser.entity.primaryDomainId,
-          grantedById: su.user.id,
-        },
-      });
-    } else {
-      return NextResponse.json({
-        error: "Cannot demote: user has no department assignment. Assign a department scope first.",
-      }, { status: 400 });
-    }
   }
 
   const updated = await prisma.user.update({

@@ -101,7 +101,6 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   await prisma.invite.deleteMany({ where: { operatorId } });
   await prisma.notificationPreference.deleteMany({ where: { user: { operatorId } } });
   await prisma.passwordResetToken.deleteMany({ where: { user: { operatorId } } });
-  await prisma.userScope.deleteMany({ where: { user: { operatorId } } });
   await prisma.session.deleteMany({ where: { user: { operatorId } } });
   await prisma.creditTransaction.deleteMany({ where: { operatorId } });
   await prisma.user.deleteMany({ where: { operatorId } });
@@ -298,11 +297,6 @@ export async function runDemoSeed(operatorId: string) {
 
   // Session for admin (so superadmin can switch to this operator)
   await createSession(adminUser.id);
-
-  // UserScope for member: grant access to Salg department
-  await prisma.userScope.create({
-    data: { userId: memberUser.id, domainEntityId: deptIds["Salg"] },
-  });
 
   // Orientation session (completed — onboarding done)
   await prisma.orientationSession.create({

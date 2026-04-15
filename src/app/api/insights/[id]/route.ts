@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { resolveAccessContext } from "@/lib/domain-scope";
 import { promoteInsight, invalidateInsight } from "@/lib/knowledge-transfer";
 
 export async function GET(
@@ -19,8 +19,8 @@ export async function GET(
   if (!insight) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Scope check for members — operator-scoped insights visible to all
-  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
-  if (visibleDomains !== "all" && insight.shareScope !== "operator") {
+  const accessCtx = await resolveAccessContext(operatorId, user.id);
+  if (accessCtx.isScoped && insight.shareScope !== "operator") {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

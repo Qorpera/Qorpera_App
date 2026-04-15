@@ -110,7 +110,7 @@ export async function retrieveRelevantChunks(
 
   const query = `
     SELECT id, content, "sourceType", "sourceId", "entityId", "projectId",
-           "domainIds", metadata, "chunkIndex", "tokenCount",
+           "departmentIds" AS "domainIds", metadata, "chunkIndex", "tokenCount",
            1 - (embedding <=> $1::vector) as score
     FROM "ContentChunk"
     WHERE "operatorId" = $2
@@ -192,7 +192,7 @@ export async function retrieveRelevantChunks(
         chunkIndex: number;
       }>>(
         `SELECT id, content, "sourceType", "sourceId", "entityId", "projectId",
-                "domainIds", metadata, "chunkIndex"
+                "departmentIds" AS "domainIds", metadata, "chunkIndex"
          FROM "ContentChunk"
          WHERE "operatorId" = $1
            AND "sourceId" = ANY($2::text[])

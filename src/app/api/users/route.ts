@@ -12,19 +12,15 @@ export async function GET() {
   const users = await prisma.user.findMany({
     where: { operatorId: su.operatorId, ...excludeSuperadmin() },
     include: {
-      scopes: { select: { id: true, domainEntityId: true, domainPageSlug: true } },
       sessions: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
     },
     orderBy: { createdAt: "asc" },
   });
 
-  // Resolve wiki page titles for users + scopes
+  // Resolve wiki page titles for users
   const allSlugs = new Set<string>();
   for (const u of users) {
     if (u.wikiPageSlug) allSlugs.add(u.wikiPageSlug);
-    for (const s of u.scopes) {
-      if (s.domainPageSlug) allSlugs.add(s.domainPageSlug);
-    }
   }
   const pageMap = new Map<string, string>();
   if (allSlugs.size > 0) {
@@ -43,11 +39,6 @@ export async function GET() {
       role: u.role,
       wikiPageSlug: u.wikiPageSlug ?? null,
       wikiPageTitle: u.wikiPageSlug ? pageMap.get(u.wikiPageSlug) ?? null : null,
-      scopes: u.scopes.map((s) => ({
-        id: s.id,
-        domainPageSlug: s.domainPageSlug ?? null,
-        domainName: s.domainPageSlug ? pageMap.get(s.domainPageSlug) ?? null : null,
-      })),
       lastActive: u.sessions[0]?.createdAt ?? null,
       createdAt: u.createdAt,
     }))

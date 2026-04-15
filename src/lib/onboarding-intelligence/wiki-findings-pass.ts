@@ -134,6 +134,8 @@ function inferPageType(slug: string): string {
   return "findings_domain";
 }
 
+import { getDefaultVisibility } from "@/lib/wiki-visibility";
+
 function trackPageType(report: FindingsPassReport, pageType: string): void {
   switch (pageType) {
     case "findings_person": report.personPages++; break;
@@ -316,6 +318,7 @@ async function appendFindingsToPage(
         data: {
           operatorId,
           scope: "operator",
+          visibility: getDefaultVisibility(pageType),
           pageType,
           title,
           slug,

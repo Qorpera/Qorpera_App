@@ -12,6 +12,7 @@ export async function GET(
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { user, operatorId } = su;
+  // TODO(session-3): Migrate to resolveAccessContext — scopeEntityId check needs rewrite
   const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
   const { id } = await params;
   const daysSchema = z.object({ days: daysParam });

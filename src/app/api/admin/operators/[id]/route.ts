@@ -56,7 +56,6 @@ export async function DELETE(
   await prisma.relationship.deleteMany({ where: { relationshipType: { operatorId: id } } });
   await prisma.relationshipType.deleteMany({ where: { operatorId: id } });
   await prisma.invite.deleteMany({ where: { operatorId: id } });
-  await prisma.userScope.deleteMany({ where: { user: { operatorId: id } } });
   await prisma.session.deleteMany({ where: { user: { operatorId: id } } });
   await prisma.user.deleteMany({ where: { operatorId: id } });
   await prisma.entity.deleteMany({ where: { operatorId: id } });

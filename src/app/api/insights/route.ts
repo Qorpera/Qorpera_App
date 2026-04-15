@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { resolveAccessContext } from "@/lib/domain-scope";
 
 export async function GET(req: NextRequest) {
   const su = await getSessionUser();
@@ -21,8 +21,8 @@ export async function GET(req: NextRequest) {
   if (scope) where.shareScope = scope;
 
   // Member scoping: operator-scoped insights visible to all
-  const visibleDomains = await getVisibleDomainIds(operatorId, user.id);
-  if (visibleDomains !== "all") {
+  const accessCtx = await resolveAccessContext(operatorId, user.id);
+  if (accessCtx.isScoped) {
     where.shareScope = "operator";
   }
 

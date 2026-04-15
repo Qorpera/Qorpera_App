@@ -11,19 +11,6 @@ export async function GET(req: NextRequest) {
 
   const { user, operatorId, isSuperadmin, actingAsOperator } = su;
 
-  // Get scopes — use effective user identity for impersonation
-  let scopes: string[] | "all" = "all";
-  const scopeRole = su.actingAsUser ? su.effectiveRole : user.role;
-  const scopeUserId = su.actingAsUser ? su.effectiveUserId : user.id;
-
-  if (scopeRole !== "admin" && scopeRole !== "superadmin") {
-    const userScopes = await prisma.userScope.findMany({
-      where: { userId: scopeUserId },
-      select: { domainEntityId: true, domainPageSlug: true },
-    });
-    scopes = userScopes.map((s) => s.domainEntityId ?? s.domainPageSlug ?? "").filter(Boolean);
-  }
-
   // When acting as another operator, fetch that operator's details
   let operator = { id: operatorId, companyName: user.operator.companyName, industry: user.operator.industry };
   if (actingAsOperator && operatorId !== user.operatorId) {
@@ -84,7 +71,6 @@ export async function GET(req: NextRequest) {
     impersonatedUserName: su.impersonatedUserName,
     effectiveUserId: su.effectiveUserId,
     effectiveRole: su.effectiveRole,
-    scopes,
   });
 }
 

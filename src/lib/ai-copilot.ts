@@ -5,7 +5,7 @@ import { buildOrientationSystemPrompt, buildDomainDataContext } from "@/lib/orie
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { getProvider } from "@/lib/connectors/registry";
 import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
-import { canAccessEntity } from "@/lib/domain-scope";
+
 import { buildSystemJobWikiContent } from "@/lib/system-job-wiki";
 
 // ── Types ────────────────────────────────────────────────────────────────────

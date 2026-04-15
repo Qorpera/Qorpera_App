@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getVisibleDomainIds } from "@/lib/domain-scope";
+import { resolveAccessContext } from "@/lib/domain-scope";
 
 interface CalendarEvent {
   id: string;
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   const su = await getSessionUser();
   if (!su) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { operatorId } = su;
-  const visibleDomains = await getVisibleDomainIds(operatorId, su.effectiveUserId);
+  const accessCtx = await resolveAccessContext(operatorId, su.effectiveUserId);
 
   const weekOf = request.nextUrl.searchParams.get("weekOf");
   if (!weekOf) {
@@ -53,11 +53,10 @@ export async function GET(request: NextRequest) {
   ]);
 
   // Scope filter: members only see events in their visible departments
-  const isScoped = visibleDomains !== "all";
-  const visibleSet = isScoped ? new Set(visibleDomains) : null;
+  const visibleSet = accessCtx.isScoped ? new Set(accessCtx.userDomainSlugs) : null;
 
   function passesScope(domainIds: string | null): boolean {
-    if (!isScoped || !visibleSet) return true;
+    if (!accessCtx.isScoped || !visibleSet) return true;
     if (!domainIds) return true; // unrouted events visible to all
     try {
       const ids: string[] = JSON.parse(domainIds);

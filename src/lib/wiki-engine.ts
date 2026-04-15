@@ -11,6 +11,8 @@ import { prisma } from "@/lib/db";
 import { embedChunks } from "@/lib/rag/embedder";
 import { verifyPage } from "@/lib/wiki-verification";
 
+import { getDefaultVisibility } from "@/lib/wiki-visibility";
+
 // ─── Types ──────────────────────────────────────────────
 
 export interface WikiUpdate {
@@ -200,6 +202,7 @@ async function createPage(params: {
     data: {
       operatorId: params.operatorId,
       projectId: params.projectId ?? null,
+      visibility: getDefaultVisibility(params.pageType),
       pageType: params.pageType,
       subjectEntityId: params.subjectEntityId ?? null,
       domainIds,
@@ -320,7 +323,7 @@ async function updatePage(params: {
            "verifiedAt" = NULL, "verifiedByModel" = NULL,
            "verificationLog" = NULL, "quarantineReason" = NULL, "staleReason" = NULL,
            "embedding" = $11::vector,
-           "domainIds" = $12::text[],
+           "departmentIds" = $12::text[],
            "properties" = COALESCE($13::jsonb, "properties")
        WHERE "id" = $14`,
       params.title,
@@ -414,6 +417,7 @@ async function flagContradiction(params: {
       data: {
         operatorId: params.operatorId,
         projectId: params.projectId ?? null,
+        visibility: "management",
         pageType: "contradiction_log",
         title: "Contradiction log",
         slug: logSlug,
@@ -1071,6 +1075,7 @@ async function updateIndexPage(operatorId: string, projectId?: string): Promise<
     create: {
       operatorId,
       projectId: projectId ?? null,
+      visibility: "operator",
       pageType: "index",
       title: "Wiki index",
       slug,
@@ -1118,6 +1123,7 @@ async function appendToLog(
       data: {
         operatorId,
         projectId: projectId ?? null,
+        visibility: "management",
         pageType: "log",
         title: "Wiki log",
         slug,
