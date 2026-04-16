@@ -75,10 +75,12 @@ export async function GET(
 
   // Load situation instances for this type from KnowledgePage
   const sitPages = await prisma.$queryRawUnsafe<Array<{
+    id: string;
+    slug: string;
     properties: Record<string, unknown> | null;
     createdAt: Date;
   }>>(
-    `SELECT properties, "createdAt"
+    `SELECT id, slug, properties, "createdAt"
      FROM "KnowledgePage"
      WHERE "operatorId" = $1
        AND "pageType" = 'situation_instance'
@@ -91,7 +93,7 @@ export async function GET(
   const situations = sitPages.map((p) => {
     const props = p.properties ?? {};
     return {
-      id: (props.situation_id as string) ?? "",
+      id: p.id,
       status: (props.status as string) ?? "detected",
       outcome: (props.outcome as string) ?? null,
       confidence: typeof props.confidence === "number" ? (props.confidence as number) : 0,

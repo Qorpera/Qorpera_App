@@ -20,10 +20,12 @@ export async function GET(req: NextRequest) {
 
   // Load situation instances with feedback from KnowledgePage
   const sitPages = await prisma.$queryRawUnsafe<Array<{
+    id: string;
+    slug: string;
     properties: Record<string, unknown> | null;
     createdAt: Date;
   }>>(
-    `SELECT properties, "createdAt"
+    `SELECT id, slug, properties, "createdAt"
      FROM "KnowledgePage"
      WHERE "operatorId" = $1
        AND "pageType" = 'situation_instance'
@@ -40,7 +42,7 @@ export async function GET(req: NextRequest) {
     .map((p) => {
       const props = p.properties ?? {};
       return {
-        id: (props.situation_id as string) ?? "",
+        id: p.id,
         situationTypeId: (props.situation_type_id as string) ?? "",
         situationTypeName: (props.situation_type as string) ?? "",
         feedbackCategory: (props.feedback_category as string) ?? null,

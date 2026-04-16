@@ -176,7 +176,7 @@ WHERE ${whereClause}`;
     const typeInfo = props.situation_type ? typeMap.get(props.situation_type) : undefined;
 
     return {
-      id: props.situation_id,
+      id: row.id,
       slug: row.slug,
       status: props.status,
       severity: props.severity,

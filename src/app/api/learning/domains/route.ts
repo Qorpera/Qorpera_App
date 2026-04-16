@@ -37,7 +37,6 @@ export async function GET(req: NextRequest) {
     where: {
       operatorId,
       category: "foundational",
-      entityType: { slug: "domain" },
       status: "active",
       ...(visibleDomains !== "all" ? { id: { in: visibleDomains } } : {}),
     },
@@ -66,7 +65,7 @@ export async function GET(req: NextRequest) {
   // Load situation instances from KnowledgePage
   const sitPages = await prisma.knowledgePage.findMany({
     where: { operatorId, pageType: "situation_instance", scope: "operator", createdAt: { gte: since } },
-    select: { properties: true },
+    select: { id: true, slug: true, properties: true },
   });
 
   // Map to a compatible shape and apply domain visibility
@@ -74,7 +73,7 @@ export async function GET(req: NextRequest) {
     .map((p) => {
       const props = p.properties as Record<string, unknown> | null;
       return {
-        id: (props?.situation_id as string) ?? "",
+        id: p.id,
         situationTypeId: (props?.situation_type_id as string) ?? "",
         status: (props?.status as string) ?? "detected",
         outcome: (props?.outcome as string) ?? null,
