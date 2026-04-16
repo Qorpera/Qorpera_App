@@ -17,6 +17,8 @@ export const NOTIFICATION_TYPES = [
   "system_alert",
   "graduation_proposal",
   "policy_applied",
+  "clarification_raised",
+  "clarification_resolved",
   "awareness_informational",
 ] as const;
 
@@ -39,6 +41,8 @@ const DEFAULT_CHANNELS: Record<NotificationType, NotificationChannel> = {
   system_alert: "both",
   graduation_proposal: "both",
   policy_applied: "in_app",
+  clarification_raised: "in_app",
+  clarification_resolved: "in_app",
   awareness_informational: "in_app",
 };
 

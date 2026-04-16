@@ -20,6 +20,8 @@ export interface ParsedSituationPage {
     context?: string;
     investigation?: string;
     actionPlan?: string;
+    decisions?: string;
+    openQuestions?: string;
     deliverables?: string;
     timeline?: string;
     playbookReference?: string;
@@ -34,6 +36,8 @@ const SECTION_MAP: Record<string, keyof ParsedSituationPage["sections"]> = {
   "Context": "context",
   "Investigation": "investigation",
   "Action Plan": "actionPlan",
+  "Decisions": "decisions",
+  "Open Questions": "openQuestions",
   "Deliverables": "deliverables",
   "Timeline": "timeline",
   "Playbook Reference": "playbookReference",
