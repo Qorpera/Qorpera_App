@@ -46,6 +46,18 @@ export async function PATCH(
   const targetPageSlug = (deliverable.targetPageSlug as string | undefined)?.trim();
   const targetPageType = (deliverable.targetPageType as string | undefined)?.trim();
 
+  const proposedContent = deliverable.proposedContent as string | undefined;
+  const proposedProperties = deliverable.proposedProperties as Record<string, unknown> | null | undefined;
+
+  if (proposedContent !== undefined) {
+    if (typeof proposedContent !== "string" || proposedContent.length < 10) {
+      return NextResponse.json({ error: "proposedContent must be a string with length >= 10" }, { status: 400 });
+    }
+    if (proposedContent.length > 100_000) {
+      return NextResponse.json({ error: "proposedContent too large (>100KB)" }, { status: 400 });
+    }
+  }
+
   const page = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
@@ -67,7 +79,11 @@ export async function PATCH(
   }
 
   // An edit cannot change the deliverable type — that would be regeneration, not editing.
-  const existingDeliverable = props.primary_deliverable as { type?: string } | null;
+  const existingDeliverable = props.primary_deliverable as {
+    type?: string;
+    proposedContent?: string;
+    proposedProperties?: Record<string, unknown> | null;
+  } | null;
   if (existingDeliverable?.type && existingDeliverable.type !== type) {
     return NextResponse.json(
       { error: `Cannot change deliverable type (was ${existingDeliverable.type}, got ${type})` },
@@ -82,6 +98,16 @@ export async function PATCH(
     rationale,
     ...(targetPageSlug ? { targetPageSlug } : {}),
     ...(targetPageType ? { targetPageType } : {}),
+    ...(proposedContent !== undefined
+      ? { proposedContent }
+      : existingDeliverable?.proposedContent
+      ? { proposedContent: existingDeliverable.proposedContent }
+      : {}),
+    ...(proposedProperties !== undefined
+      ? { proposedProperties }
+      : existingDeliverable?.proposedProperties
+      ? { proposedProperties: existingDeliverable.proposedProperties }
+      : {}),
   };
 
   // Re-check status + type-equality inside the lock to close the TOCTOU window

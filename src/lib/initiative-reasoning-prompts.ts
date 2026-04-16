@@ -1,4 +1,5 @@
-import type { PageSchema } from "@/lib/wiki/page-schemas";
+import { PAGE_SCHEMAS, WIKI_STYLE_RULES, buildPropertyPrompt, buildSectionPrompt, type PageSchema } from "@/lib/wiki/page-schemas";
+import type { InitiativePrimaryDeliverable } from "@/lib/reasoning-types";
 
 // ── Seed Input ──────────────────────────────────────────────────────────────
 
@@ -274,4 +275,133 @@ ${expertise}`);
 Return InitiativeReasoningOutput JSON. No prose outside the JSON object.`);
 
   return sections.join("\n\n---\n\n");
+}
+
+// ── Phase 2: Content Generation Prompt ──────────────────────────────────────
+
+export interface ContentGenerationInput {
+  initiativeTitle: string;
+  initiativePageContent: string;
+  deliverable: InitiativePrimaryDeliverable;
+  targetPageCurrentContent?: string;
+  targetPageCurrentProperties?: Record<string, unknown>;
+  businessContext: string | null;
+  companyName?: string;
+}
+
+export function buildContentGenerationPrompt(input: ContentGenerationInput): {
+  system: string;
+  user: string;
+} {
+  const { deliverable, targetPageCurrentContent, targetPageCurrentProperties } = input;
+  const type = deliverable.type;
+  const targetPageType = deliverable.targetPageType;
+
+  // ── System prompt ──────────
+  const systemParts: string[] = [];
+  systemParts.push(`You are generating the actual content for an initiative's primary deliverable. The deliverable has already been investigated and specified — your job is to produce the concrete content the user will review and approve.`);
+
+  if (input.companyName) systemParts.push(`Company: ${input.companyName}`);
+  if (input.businessContext) systemParts.push(`\nBUSINESS CONTEXT:\n${input.businessContext}`);
+
+  if (type === "wiki_update") {
+    systemParts.push(`\n## Task: wiki_update
+
+You are producing the COMPLETE new content for an existing wiki page. The user will see this as a diff against the current content.
+
+Principles:
+- Preserve existing content that's still accurate — don't rewrite for the sake of rewriting
+- Apply the specific changes the deliverable describes
+- Follow the page's template (sections below)
+- Match the voice and brevity of the current page`);
+
+    if (targetPageType && PAGE_SCHEMAS[targetPageType]) {
+      systemParts.push(`\n${buildSectionPrompt(targetPageType)}`);
+      systemParts.push(`\n${buildPropertyPrompt(targetPageType)}`);
+    }
+    systemParts.push(`\n${WIKI_STYLE_RULES}`);
+  } else if (type === "wiki_create") {
+    systemParts.push(`\n## Task: wiki_create
+
+You are creating a NEW wiki page from scratch. Follow the template exactly.`);
+
+    if (targetPageType && PAGE_SCHEMAS[targetPageType]) {
+      systemParts.push(`\n${buildSectionPrompt(targetPageType)}`);
+      systemParts.push(`\n${buildPropertyPrompt(targetPageType)}`);
+    }
+    systemParts.push(`\n${WIKI_STYLE_RULES}`);
+  } else if (type === "document") {
+    systemParts.push(`\n## Task: document
+
+You are producing a document body. Return clean markdown. The document will be created as an actual file (Google Doc or similar) when the initiative is implemented.`);
+  } else if (type === "settings_change") {
+    systemParts.push(`\n## Task: settings_change
+
+You are describing a settings change in clear prose. The actual config delta lives in proposedProperties. The user will see your description to understand what will change.`);
+  }
+
+  systemParts.push(`\n## Output format
+
+Return ONLY this JSON object (no prose, no markdown fence):
+
+{
+  "proposedContent": "...",
+  "proposedProperties": { ... } | null
+}
+
+For wiki_update/wiki_create: proposedContent is the COMPLETE page body starting with the first ## heading. Do not include the page title (# Title) — the system prepends that.
+
+For document: proposedContent is the full markdown document body.
+
+For settings_change: proposedContent is a human-readable description of the change.
+
+proposedProperties rules:
+- wiki_update: include ONLY properties that change from current. Null if no property changes.
+- wiki_create: include all required synthesis properties per the template.
+- document / settings_change: use as you see fit, or null.`);
+
+  // ── User content ──────────
+  const userParts: string[] = [];
+
+  userParts.push(`## INITIATIVE BEING IMPLEMENTED
+
+Title: ${input.initiativeTitle}
+
+Investigation & reasoning:
+${input.initiativePageContent}`);
+
+  userParts.push(`\n## PRIMARY DELIVERABLE SPEC
+
+Type: ${deliverable.type}
+Target: ${deliverable.targetPageSlug ?? "(new)"}${deliverable.targetPageType ? ` (${deliverable.targetPageType})` : ""}
+Title: ${deliverable.title}
+
+Description:
+${deliverable.description}
+
+Rationale:
+${deliverable.rationale}`);
+
+  if (type === "wiki_update" && targetPageCurrentContent) {
+    userParts.push(`\n## CURRENT TARGET PAGE CONTENT
+
+This is the existing content of [[${deliverable.targetPageSlug}]]. Produce the COMPLETE new version incorporating the changes:
+
+${targetPageCurrentContent}`);
+
+    if (targetPageCurrentProperties) {
+      userParts.push(`\n## CURRENT TARGET PAGE PROPERTIES
+
+${JSON.stringify(targetPageCurrentProperties, null, 2)}
+
+In proposedProperties, include ONLY the keys that change.`);
+    }
+  }
+
+  userParts.push(`\nGenerate the proposedContent now. Return ONLY the JSON object.`);
+
+  return {
+    system: systemParts.join("\n"),
+    user: userParts.join("\n"),
+  };
 }

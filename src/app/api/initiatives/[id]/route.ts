@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
+import { ExecutionStateSchema, ExecutionSummarySchema } from "@/lib/initiative-execution-types";
 
 // ── GET ── Detail from wiki page (with legacy fallback) ──────────────────────
 
@@ -60,6 +61,66 @@ export async function GET(
       for (const tp of targetPages) resolvedTargets[tp.slug] = tp.title;
     }
 
+    // Load primary target page's current content for diff rendering (wiki_update only)
+    let primaryTargetCurrentContent: string | null = null;
+    let primaryTargetCurrentProperties: Record<string, unknown> | null = null;
+    const primaryDeliverable = props.primary_deliverable as {
+      type?: string;
+      targetPageSlug?: string;
+    } | null;
+    if (primaryDeliverable?.type === "wiki_update" && primaryDeliverable.targetPageSlug) {
+      const targetPage = await prisma.knowledgePage.findFirst({
+        where: { operatorId, slug: primaryDeliverable.targetPageSlug, scope: "operator" },
+        select: { content: true, properties: true },
+      });
+      if (targetPage) {
+        primaryTargetCurrentContent = targetPage.content;
+        primaryTargetCurrentProperties = targetPage.properties as Record<string, unknown> | null;
+      }
+    }
+
+    // Load current content for downstream targets that aren't being created
+    // (used for diff rendering in the downstream tabs)
+    const downstreamCurrentContents: Record<string, { content: string; properties: Record<string, unknown> | null }> = {};
+    const downstreamForCurrent = (props.downstream_effects ?? []) as Array<{ targetPageSlug?: string; changeType?: string }>;
+    const updateSlugs = downstreamForCurrent
+      .filter(de => de?.changeType !== "create")
+      .map(de => de.targetPageSlug)
+      .filter((s): s is string => typeof s === "string");
+    if (updateSlugs.length > 0) {
+      const pages = await prisma.knowledgePage.findMany({
+        where: { operatorId, slug: { in: updateSlugs }, scope: "operator" },
+        select: { slug: true, content: true, properties: true },
+      });
+      for (const tp of pages) {
+        downstreamCurrentContents[tp.slug] = {
+          content: tp.content,
+          properties: tp.properties as Record<string, unknown> | null,
+        };
+      }
+    }
+
+    // Defensive parse of engine state on the way out — a stale row with a drifted
+    // shape becomes null (UI falls back to pre-execution rendering) instead of crashing.
+    let executionState: unknown = null;
+    if (props.execution_state !== undefined && props.execution_state !== null) {
+      const parsed = ExecutionStateSchema.safeParse(props.execution_state);
+      if (parsed.success) {
+        executionState = parsed.data;
+      } else {
+        console.warn(`[initiatives-api] execution_state schema validation failed for ${id}:`, parsed.error.message);
+      }
+    }
+    let executionSummary: unknown = null;
+    if (props.execution_summary !== undefined && props.execution_summary !== null) {
+      const parsed = ExecutionSummarySchema.safeParse(props.execution_summary);
+      if (parsed.success) {
+        executionSummary = parsed.data;
+      } else {
+        console.warn(`[initiatives-api] execution_summary schema validation failed for ${id}:`, parsed.error.message);
+      }
+    }
+
     return NextResponse.json({
       id: page.slug,
       ownerPageSlug: ownerSlug,
@@ -77,6 +138,17 @@ export async function GET(
 
       // Resolved target page titles — used for tab labels and changeset row labels
       resolvedTargetTitles: resolvedTargets,
+
+      // Primary target's current content (for diff view on wiki_update)
+      primaryTargetCurrentContent,
+      primaryTargetCurrentProperties,
+
+      // Downstream targets' current content (keyed by slug, for diff view on update/review)
+      downstreamCurrentContents,
+
+      // Execution engine state — Zod-validated; null on parse failure
+      executionState,
+      executionSummary,
 
       // Dismissal reason (when status === "dismissed")
       dismissalReason: (props.dismissal_reason as string) ?? null,
@@ -197,7 +269,12 @@ export async function PATCH(
     // Execution engine (Session C) will generate the staged changeset.
     // For now: execute_initiative is a stub handler — initiative stays in "accepted" until Session C.
     await updatePageWithLock(operatorId, page.slug, (p) => ({
-      properties: { ...(p.properties ?? {}), status: "accepted", accepted_at: new Date().toISOString() },
+      properties: {
+        ...(p.properties ?? {}),
+        status: "accepted",
+        accepted_at: new Date().toISOString(),
+        accepted_by: user.id,
+      },
     }));
 
     const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");

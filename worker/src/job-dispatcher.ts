@@ -18,10 +18,9 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
   },
 
   async execute_initiative(payload) {
-    const { pageSlug } = payload as { operatorId: string; pageSlug: string };
-    // Stub: Session C builds the real execution engine (staged changeset generation).
-    // For now, accepted initiatives stay in "accepted" status until Session C lands.
-    console.log(`[job-dispatcher] execute_initiative stub for ${pageSlug} — Session C will build the engine`);
+    const { operatorId, pageSlug } = payload as { operatorId: string; pageSlug: string };
+    const { executeInitiative } = await import("@/lib/initiative-execution");
+    await executeInitiative(operatorId, pageSlug);
   },
 
   async evaluate_content(payload) {

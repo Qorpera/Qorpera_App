@@ -165,6 +165,10 @@ const InitiativePrimaryDeliverableSchema = z.object({
   title: z.string().describe("Short title for this deliverable"),
   description: z.string().describe("Concrete description of what the change is — not vague advice. For wiki_update: what sections change. For wiki_create: what the new page contains. For document: what document gets produced."),
   rationale: z.string().describe("Why this specific change addresses the initiative"),
+
+  // Populated by Phase 2 content generation pass (not Phase 1 LLM output).
+  proposedContent: z.string().optional().describe("The actual content the user will review and approve. For wiki_update/wiki_create: the complete new page content following the target template. For document: the document body. For settings_change: a human-readable description of what will change. Populated by the Phase 2 generation pass; absent on dismissed initiatives."),
+  proposedProperties: z.record(z.unknown()).nullable().optional().describe("Property changes on the target page (for wiki_update/wiki_create) or config delta (for settings_change). Null or absent when no property changes are needed."),
 });
 
 const InitiativeDownstreamEffectSchema = z.object({

@@ -23,6 +23,8 @@ const MODEL_ROUTES = {
 
   // ── Strategic intelligence ──
   initiativeReasoning: "claude-opus-4-7",
+  initiativeContentGeneration: "claude-opus-4-7",
+  initiativeDownstream: "claude-sonnet-4-6",
   strategicScan: "claude-opus-4-7",
   systemJobReasoning: "claude-opus-4-7",
 
@@ -98,6 +100,8 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   multiAgentSpecialist: 4_096,
   multiAgentCoordinator: 16_384,
   initiativeReasoning: 16_384,
+  initiativeContentGeneration: 16_384,
+  initiativeDownstream: null,
   strategicScan: 16_384,
   systemJobReasoning: 16_384,
   agenticReasoning: 16_384,

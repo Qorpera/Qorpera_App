@@ -114,7 +114,7 @@ export async function processWikiUpdates(params: ProcessWikiUpdatesParams): Prom
 
 // ─── Page CRUD ──────────────────────────────────────────
 
-async function createPage(params: {
+export async function createPage(params: {
   operatorId: string;
   projectId?: string;
   slug: string;
@@ -122,7 +122,7 @@ async function createPage(params: {
   title: string;
   subjectEntityId?: string;
   content: string;
-  sourceCitations: WikiUpdate["sourceCitations"];
+  sourceCitations?: WikiUpdate["sourceCitations"];
   synthesisPath: string;
   synthesizedByModel: string;
   situationId?: string;
@@ -131,6 +131,7 @@ async function createPage(params: {
   properties?: Record<string, unknown>;
 }): Promise<void> {
   const slug = normalizeSlug(params.slug);
+  const sourceCitations = params.sourceCitations ?? [];
 
   // Check if page already exists — if so, delegate to updatePage
   const existing = await prisma.knowledgePage.findUnique({
@@ -138,13 +139,13 @@ async function createPage(params: {
     select: { id: true },
   });
   if (existing) {
-    return updatePage({ ...params, slug });
+    return updatePage({ ...params, slug, sourceCitations });
   }
 
-  const sources = buildSourcesArray(params.sourceCitations);
+  const sources = buildSourcesArray(sourceCitations);
   const contentTokens = Math.ceil(params.content.length / 4);
   const crossReferences = extractCrossReferences(params.content);
-  const sourceTypes = [...new Set(params.sourceCitations.map((c) => c.sourceType))];
+  const sourceTypes = [...new Set(sourceCitations.map((c) => c.sourceType))];
   // Create page via Prisma — searchVector is a STORED generated column, auto-updates
   const created = await prisma.knowledgePage.create({
     data: {
@@ -162,7 +163,7 @@ async function createPage(params: {
         ? (params.properties as unknown as Prisma.InputJsonValue)
         : Prisma.DbNull,
       sources,
-      sourceCount: params.sourceCitations.length,
+      sourceCount: sourceCitations.length,
       sourceTypes,
       status: "draft",
       confidence: 0.5,
@@ -203,13 +204,14 @@ async function updatePage(params: {
   title: string;
   subjectEntityId?: string;
   content: string;
-  sourceCitations: WikiUpdate["sourceCitations"];
+  sourceCitations?: WikiUpdate["sourceCitations"];
   synthesisPath: string;
   synthesizedByModel: string;
   situationId?: string;
   properties?: Record<string, unknown>;
 }): Promise<void> {
   const slug = normalizeSlug(params.slug);
+  const sourceCitations = params.sourceCitations ?? [];
 
   const existing = await prisma.knowledgePage.findUnique({
     where: { operatorId_slug: { operatorId: params.operatorId, slug } },
@@ -221,19 +223,19 @@ async function updatePage(params: {
   });
 
   if (!existing) {
-    return createPage({ ...params, slug });
+    return createPage({ ...params, slug, sourceCitations });
   }
 
   // Merge sources (existing + new, dedup by sourceId)
   const existingSources = (existing.sources as Array<{ id: string }>) ?? [];
-  const newSources = buildSourcesArray(params.sourceCitations);
+  const newSources = buildSourcesArray(sourceCitations);
   const mergedSources = mergeSources(existingSources, newSources);
 
   const contentTokens = Math.ceil(params.content.length / 4);
   const crossReferences = extractCrossReferences(params.content);
   const sourceTypes = [...new Set([
     ...existing.sourceTypes,
-    ...params.sourceCitations.map((c) => c.sourceType),
+    ...sourceCitations.map((c) => c.sourceType),
   ])];
   // Snapshot current version before update
   try {

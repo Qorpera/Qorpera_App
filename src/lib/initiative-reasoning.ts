@@ -257,10 +257,99 @@ export async function reasonAboutInitiative(
       console.warn(`[initiative-reasoning] ${pageSlug}: dismissed without reason, using fallback`);
     }
 
-    // 9. Write updated page + transition status
     const finalStatus = reasoning.isValuable ? "proposed" : "dismissed";
     const updatedTitle = reasoning.initiativeTitle ?? initiativePage.title;
 
+    // ── Phase 2: Content generation (only for valuable initiatives) ──────────────
+    let contentGenCostCents = 0;
+    let contentGenModelId = "";
+    let contentGenerationFailed = false;
+    let contentGenerationError: string | null = null;
+
+    if (reasoning.isValuable && reasoning.primaryDeliverable) {
+      try {
+        // For wiki_update: load current target page content
+        let targetCurrent: { content: string; properties: Record<string, unknown> | null } | null = null;
+        if (
+          reasoning.primaryDeliverable.type === "wiki_update" &&
+          reasoning.primaryDeliverable.targetPageSlug
+        ) {
+          const targetPage = await prisma.knowledgePage.findFirst({
+            where: {
+              operatorId,
+              slug: reasoning.primaryDeliverable.targetPageSlug,
+              scope: "operator",
+            },
+            select: { content: true, properties: true },
+          });
+          if (targetPage) {
+            targetCurrent = {
+              content: targetPage.content,
+              properties: targetPage.properties as Record<string, unknown> | null,
+            };
+          }
+        }
+
+        const { buildContentGenerationPrompt } = await import("@/lib/initiative-reasoning-prompts");
+        const { callLLM, getModel, getThinkingBudget } = await import("@/lib/ai-provider");
+        const { extractJSON } = await import("@/lib/json-helpers");
+
+        const prompt = buildContentGenerationPrompt({
+          initiativeTitle: updatedTitle,
+          initiativePageContent: reasoning.pageContent,
+          deliverable: reasoning.primaryDeliverable,
+          targetPageCurrentContent: targetCurrent?.content,
+          targetPageCurrentProperties: targetCurrent?.properties ?? undefined,
+          businessContext: businessContextStr,
+          companyName: operator?.companyName ?? undefined,
+        });
+
+        const modelRoute = "initiativeContentGeneration";
+        const model = getModel(modelRoute);
+        const thinkingBudget = getThinkingBudget(modelRoute);
+
+        const response = await callLLM({
+          operatorId,
+          instructions: prompt.system,
+          messages: [{ role: "user", content: prompt.user }],
+          aiFunction: "reasoning",
+          model,
+          thinkingBudget: thinkingBudget ?? undefined,
+          temperature: 0.2,
+        });
+
+        contentGenCostCents = response.apiCostCents ?? 0;
+        contentGenModelId = model;
+
+        const parsed = extractJSON(response.text) as {
+          proposedContent?: string;
+          proposedProperties?: Record<string, unknown> | null;
+        } | null;
+
+        if (!parsed || typeof parsed.proposedContent !== "string" || parsed.proposedContent.length < 10) {
+          throw new Error("Phase 2 produced no valid proposedContent");
+        }
+
+        // Merge into the primaryDeliverable
+        reasoning.primaryDeliverable = {
+          ...reasoning.primaryDeliverable,
+          proposedContent: parsed.proposedContent,
+          proposedProperties: parsed.proposedProperties ?? null,
+        };
+
+        console.log(
+          `[initiative-reasoning] Phase 2 content generation for ${pageSlug}: $${(contentGenCostCents / 100).toFixed(2)}, ${parsed.proposedContent.length} chars`
+        );
+      } catch (err) {
+        contentGenerationFailed = true;
+        contentGenerationError = err instanceof Error ? err.message : String(err);
+        console.error(`[initiative-reasoning] Phase 2 content generation failed for ${pageSlug}:`, err);
+        // Don't throw — fall through to write the page with spec-only primaryDeliverable.
+        // The UI will handle the missing proposedContent gracefully (placeholder banner).
+      }
+    }
+
+    // 9. Write updated page + transition status
     await updatePageWithLock(operatorId, pageSlug, (p) => {
       const pp = (p.properties ?? {}) as Record<string, unknown>;
       const newProps: Record<string, unknown> = {
@@ -269,9 +358,18 @@ export async function reasonAboutInitiative(
         status: finalStatus,
         investigated_at: new Date().toISOString(),
         synthesized_by_model: agenticResult.modelId,
-        synthesis_cost_cents: Math.round(agenticResult.apiCostCents),
+        synthesis_cost_cents: Math.round(agenticResult.apiCostCents + contentGenCostCents),
         synthesis_duration_ms: Math.round(agenticResult.durationMs),
       };
+      if (contentGenModelId) {
+        newProps.content_generation_model = contentGenModelId;
+      }
+      if (contentGenerationFailed) {
+        newProps.content_generation_failed = true;
+        if (contentGenerationError) {
+          newProps.content_generation_error = contentGenerationError;
+        }
+      }
       if (!reasoning.isValuable && reasoning.dismissalReason) {
         newProps.dismissal_reason = reasoning.dismissalReason;
       }

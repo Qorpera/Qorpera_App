@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { diffLines, type Change } from "diff";
+import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { ContextualChat } from "@/components/contextual-chat";
@@ -29,6 +31,8 @@ type PrimaryDeliverable = {
   title: string;
   description: string;
   rationale: string;
+  proposedContent?: string;
+  proposedProperties?: Record<string, unknown> | null;
 };
 
 type DownstreamEffect = {
@@ -36,6 +40,44 @@ type DownstreamEffect = {
   targetPageType: string;
   changeType: "update" | "create" | "review";
   summary: string;
+};
+
+type ExecConcern = {
+  source: "llm" | "programmatic";
+  targetChangeId: string | null;
+  description: string;
+  severity: "warning" | "blocking";
+  recommendation: string;
+};
+
+type DownstreamExecState = {
+  changeId: string;
+  effect: DownstreamEffect;
+  status: "pending" | "generating" | "generated" | "applying" | "applied" | "failed";
+  proposedContent: string | null;
+  proposedProperties: Record<string, unknown> | null;
+  concerns: ExecConcern[];
+  model: string | null;
+  costCents: number;
+  error: string | null;
+  appliedSlug: string | null;
+};
+
+type ExecutionState = {
+  startedAt: string;
+  totalCostCents: number;
+  primary: { status: string; error: string | null; appliedSlug: string | null };
+  downstream: DownstreamExecState[];
+  crossConcerns: ExecConcern[];
+  completedAt: string | null;
+};
+
+type ExecutionSummary = {
+  completedAt: string | null;
+  totalCostCents: number;
+  pagesModified: string[];
+  skippedDownstream: string[];
+  failedDownstream: string[];
 };
 
 interface InitiativeDetail {
@@ -47,7 +89,12 @@ interface InitiativeDetail {
   status: string;
   content: string;
   primaryDeliverable: PrimaryDeliverable | null;
+  primaryTargetCurrentContent: string | null;
+  primaryTargetCurrentProperties: Record<string, unknown> | null;
   downstreamEffects: DownstreamEffect[] | null;
+  downstreamCurrentContents: Record<string, { content: string; properties: Record<string, unknown> | null }>;
+  executionState: ExecutionState | null;
+  executionSummary: ExecutionSummary | null;
   resolvedTargetTitles: Record<string, string>;
   dismissalReason: string | null;
   severity: string | null;
@@ -201,6 +248,25 @@ export default function InitiativesPage() {
     }
   };
 
+  const runExecutionAction = useCallback(async (action: "retry" | "skip_downstream" | "abandon") => {
+    if (!selectedId) return;
+    try {
+      const res = await fetch(`/api/initiatives/${selectedId}/execution-action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? `${action} failed`);
+      }
+      await fetchInitiatives();
+      await fetchDetail(selectedId);
+    } catch (err) {
+      console.error(`Execution action ${action} failed:`, err);
+    }
+  }, [selectedId, fetchInitiatives, fetchDetail]);
+
   const openPanelAt = useCallback((tab: string) => {
     setPanelActiveTab(tab);
     setPanelFullScreen(true);
@@ -320,6 +386,7 @@ export default function InitiativesPage() {
                     detailLoading={detailLoading}
                     patchInitiative={patchInitiative}
                     onOpenPanel={openPanelAt}
+                    runExecutionAction={runExecutionAction}
                   />
                 </div>
                 {!(panelFullScreen && panelOpen) && (
@@ -376,11 +443,13 @@ function DetailPane({
   detailLoading,
   patchInitiative,
   onOpenPanel,
+  runExecutionAction,
 }: {
   detail: InitiativeDetail;
   detailLoading: boolean;
   patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
   onOpenPanel: (tab: string) => void;
+  runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
 }) {
   const t = useTranslations("initiatives");
   const tc = useTranslations("common");
@@ -443,6 +512,24 @@ function DetailPane({
           <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{d.dismissalReason}</p>
         </div>
       )}
+
+      {/* ── Concerns banner (concerns_raised) ── */}
+      {d.status === "concerns_raised" && (
+        <ExecutionConcernsBanner
+          detail={d}
+          onAction={runExecutionAction}
+          onDiscuss={() => {
+            onOpenPanel("overview");
+            setTimeout(() => {
+              const chatInput = document.getElementById("initiative-chat-input") as HTMLTextAreaElement | null;
+              chatInput?.focus();
+            }, 100);
+          }}
+        />
+      )}
+
+      {/* ── Implemented summary block ── */}
+      {d.status === "implemented" && <ExecutionSummaryBlock detail={d} />}
 
       {/* ── Evidence (inline — the at-a-glance case for why) ── */}
       {evidenceItems.length > 0 && (
@@ -754,7 +841,7 @@ function InitiativePanel({
           const idx = Number(activeTab.replace("downstream-", ""));
           const de = downstream[idx];
           if (!de) return null;
-          return <DownstreamEffectTab detail={d} effect={de} />;
+          return <DownstreamEffectTab detail={d} effect={de} index={idx} />;
         })()}
       </div>
     </SidePanel>
@@ -791,7 +878,14 @@ function OverviewTab({ detail: d }: { detail: InitiativeDetail }) {
   if (sections.alternativesConsidered) blocks.push({ label: t("alternativesConsidered"), body: sections.alternativesConsidered });
   if (sections.timeline) blocks.push({ label: t("timeline"), body: sections.timeline });
 
-  if (blocks.length === 0) {
+  const allConcerns: ExecConcern[] = d.executionState
+    ? [
+        ...d.executionState.crossConcerns,
+        ...d.executionState.downstream.flatMap((dd) => dd.concerns),
+      ]
+    : [];
+
+  if (blocks.length === 0 && allConcerns.length === 0) {
     return (
       <div className="flex items-center justify-center py-12" style={{ fontSize: 13, color: "var(--fg4)" }}>
         No overview content available.
@@ -801,11 +895,306 @@ function OverviewTab({ detail: d }: { detail: InitiativeDetail }) {
 
   return (
     <div className="space-y-5">
+      {allConcerns.length > 0 && <ConcernsList concerns={allConcerns} detail={d} />}
       {blocks.map((b, i) => (
         <Section key={i} label={b.label}>
           <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{b.body}</p>
         </Section>
       ))}
+    </div>
+  );
+}
+
+// ── Execution Concerns Banner ────────────────────────────────────────────────
+
+function ExecutionConcernsBanner({
+  detail: d,
+  onAction,
+  onDiscuss,
+}: {
+  detail: InitiativeDetail;
+  onAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
+  onDiscuss: () => void;
+}) {
+  const t = useTranslations("initiatives");
+  const [submitting, setSubmitting] = useState<string | null>(null);
+  const state = d.executionState;
+  if (!state) return null;
+
+  const allConcerns: ExecConcern[] = [
+    ...state.crossConcerns,
+    ...state.downstream.flatMap((dd) => dd.concerns),
+  ];
+  const blocking = allConcerns.filter((c) => c.severity === "blocking").length;
+  const warnings = allConcerns.filter((c) => c.severity === "warning").length;
+  const failed = state.downstream.filter((dd) => dd.status === "failed").length;
+
+  const run = async (action: "retry" | "skip_downstream" | "abandon") => {
+    if (submitting) return;
+    setSubmitting(action);
+    try {
+      await onAction(action);
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  return (
+    <div style={{
+      padding: "14px 16px",
+      background: "color-mix(in srgb, var(--warn) 10%, transparent)",
+      border: "1px solid var(--warn)",
+      borderRadius: 6,
+    }}>
+      <div className="flex items-start gap-3 mb-3">
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--warn)" }}>
+          {t("concernsRaisedTitle")}
+        </div>
+      </div>
+
+      <div style={{ fontSize: 12, color: "var(--fg2)", marginBottom: 12, lineHeight: 1.55 }}>
+        {t("concernsRaisedBody", { blocking, warnings, failed })}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => run("retry")}
+          disabled={!!submitting}
+          className="rounded-full text-[12px] font-medium px-3 py-1.5"
+          style={{ background: "var(--accent)", color: "var(--accent-ink)", opacity: submitting ? 0.5 : 1 }}
+        >
+          {submitting === "retry" ? t("submittingGeneric") : t("actionRetry")}
+        </button>
+        <button
+          onClick={() => run("skip_downstream")}
+          disabled={!!submitting}
+          className="rounded-full text-[12px] font-medium px-3 py-1.5"
+          style={{ background: "var(--elevated)", color: "var(--fg2)", opacity: submitting ? 0.5 : 1 }}
+        >
+          {submitting === "skip_downstream" ? t("submittingGeneric") : t("actionSkipDownstream")}
+        </button>
+        <button
+          onClick={() => run("abandon")}
+          disabled={!!submitting}
+          className="wf-btn-danger rounded-full text-[12px] font-medium px-3 py-1.5"
+        >
+          {submitting === "abandon" ? t("submittingGeneric") : t("actionAbandon")}
+        </button>
+        <button
+          onClick={onDiscuss}
+          className="rounded-full text-[12px] font-medium px-3 py-1.5"
+          style={{ background: "transparent", color: "var(--fg3)", border: "1px solid var(--border)" }}
+        >
+          {t("actionDiscuss")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Execution Summary Block (implemented) ────────────────────────────────────
+
+function ExecutionSummaryBlock({ detail: d }: { detail: InitiativeDetail }) {
+  const t = useTranslations("initiatives");
+  const summary = d.executionSummary;
+  if (!summary) return null;
+
+  return (
+    <div style={{
+      padding: "12px 14px",
+      background: "color-mix(in srgb, var(--ok) 8%, transparent)",
+      border: "1px solid color-mix(in srgb, var(--ok) 40%, var(--border))",
+      borderRadius: 6,
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ok)", marginBottom: 8 }}>
+        {t("implementedTitle")}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--fg2)", lineHeight: 1.55, marginBottom: 8 }}>
+        {t("implementedBody", {
+          modified: summary.pagesModified.length,
+          skipped: summary.skippedDownstream.length,
+          failed: summary.failedDownstream.length,
+          cost: (summary.totalCostCents / 100).toFixed(2),
+        })}
+      </div>
+      {summary.pagesModified.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {summary.pagesModified.map((slug) => (
+            <a
+              key={slug}
+              href={`/wiki/${slug}`}
+              style={{
+                fontSize: 11,
+                padding: "2px 8px",
+                borderRadius: 4,
+                background: "var(--hover)",
+                color: "var(--accent)",
+                textDecoration: "none",
+              }}
+            >
+              {d.resolvedTargetTitles[slug] ?? slug}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Concerns List + Card (used by Overview tab + downstream tabs) ────────────
+
+function ConcernsList({ concerns, detail }: { concerns: ExecConcern[]; detail: InitiativeDetail }) {
+  const t = useTranslations("initiatives");
+  const blocking = concerns.filter((c) => c.severity === "blocking");
+  const warnings = concerns.filter((c) => c.severity === "warning");
+
+  return (
+    <div>
+      <Section label={t("concerns")}>
+        <div>
+          {blocking.map((c, i) => (
+            <ConcernCard key={`b-${i}`} concern={c} detail={detail} severity="blocking" />
+          ))}
+          {warnings.map((c, i) => (
+            <ConcernCard key={`w-${i}`} concern={c} detail={detail} severity="warning" />
+          ))}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function ConcernCard({
+  concern: c,
+  detail: d,
+  severity,
+}: {
+  concern: ExecConcern;
+  detail: InitiativeDetail;
+  severity: "warning" | "blocking";
+}) {
+  const t = useTranslations("initiatives");
+  const bg = severity === "blocking"
+    ? "color-mix(in srgb, var(--danger) 10%, transparent)"
+    : "color-mix(in srgb, var(--warn) 10%, transparent)";
+  const borderColor = severity === "blocking" ? "var(--danger)" : "var(--warn)";
+  const pillColor = severity === "blocking" ? "var(--danger)" : "var(--warn)";
+
+  let targetLabel: string | null = null;
+  if (c.targetChangeId === "primary") targetLabel = t("primaryDeliverable");
+  else if (c.targetChangeId?.startsWith("downstream-")) {
+    const idx = Number(c.targetChangeId.replace("downstream-", ""));
+    const effect = (d.executionState?.downstream ?? [])[idx]?.effect;
+    if (effect) {
+      targetLabel = d.resolvedTargetTitles[effect.targetPageSlug] ?? effect.targetPageSlug;
+    }
+  }
+
+  return (
+    <div className="mb-2" style={{ padding: "10px 12px", background: bg, border: `1px solid ${borderColor}`, borderRadius: 6 }}>
+      <div className="flex items-center gap-2 mb-1">
+        <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: pillColor, color: "var(--accent-ink)", textTransform: "uppercase" }}>
+          {severity}
+        </span>
+        {targetLabel && (
+          <span style={{ fontSize: 11, color: "var(--fg3)" }}>
+            {targetLabel}
+          </span>
+        )}
+        <span style={{ fontSize: 10, color: "var(--fg4)" }}>
+          {c.source === "llm" ? t("concernSourceLlm") : t("concernSourceProgrammatic")}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--fg2)", lineHeight: 1.5, marginBottom: 4 }}>
+        {c.description}
+      </div>
+      {c.recommendation && (
+        <div style={{ fontSize: 11, color: "var(--fg3)", fontStyle: "italic" }}>
+          → {c.recommendation}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Downstream status badge ──────────────────────────────────────────────────
+
+function DownstreamStatusBadge({ status }: { status: string }) {
+  const t = useTranslations("initiatives");
+  const colors: Record<string, { bg: string; fg: string }> = {
+    pending: { bg: "var(--elevated)", fg: "var(--fg3)" },
+    generating: { bg: "var(--hover)", fg: "var(--fg2)" },
+    generated: { bg: "color-mix(in srgb, var(--accent) 15%, transparent)", fg: "var(--accent)" },
+    applying: { bg: "color-mix(in srgb, var(--accent) 15%, transparent)", fg: "var(--accent)" },
+    applied: { bg: "color-mix(in srgb, var(--ok) 15%, transparent)", fg: "var(--ok)" },
+    failed: { bg: "color-mix(in srgb, var(--danger) 15%, transparent)", fg: "var(--danger)" },
+  };
+  const c = colors[status] ?? colors.pending;
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, background: c.bg, color: c.fg, textTransform: "uppercase" }}>
+      {t(`downstreamStatus.${status}` as never)}
+    </span>
+  );
+}
+
+// ── Diff View ────────────────────────────────────────────────────────────────
+
+function WikiUpdateDiffView({
+  current,
+  proposed,
+}: {
+  current: string | null;
+  proposed: string;
+}) {
+  const changes = useMemo(() => diffLines(current ?? "", proposed), [current, proposed]);
+
+  return (
+    <div
+      style={{
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        fontSize: 12,
+        lineHeight: 1.6,
+        background: "var(--bg)",
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        overflow: "hidden",
+      }}
+    >
+      {changes.map((part: Change, i) => {
+        const isAdd = part.added;
+        const isRemove = part.removed;
+        const bg = isAdd
+          ? "color-mix(in srgb, var(--ok) 18%, transparent)"
+          : isRemove
+          ? "color-mix(in srgb, var(--danger) 14%, transparent)"
+          : "transparent";
+        const color = isAdd ? "var(--ok)" : isRemove ? "var(--danger)" : "var(--fg2)";
+        const prefix = isAdd ? "+ " : isRemove ? "- " : "  ";
+        const lines = part.value
+          .split("\n")
+          .filter((l, idx, arr) => !(idx === arr.length - 1 && l === ""));
+        return (
+          <div key={i}>
+            {lines.map((line, j) => (
+              <div
+                key={j}
+                style={{
+                  background: bg,
+                  color,
+                  padding: "0 12px",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  textDecoration: isRemove ? "line-through" : "none",
+                  opacity: isRemove ? 0.75 : 1,
+                }}
+              >
+                {prefix}
+                {line}
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -824,29 +1213,16 @@ function PrimaryDeliverableTab({
   onSaved: () => void;
 }) {
   const t = useTranslations("initiatives");
-  const tc = useTranslations("common");
 
   const primary = d.primaryDeliverable!;
-  const [title, setTitle] = useState(primary.title);
-  const [description, setDescription] = useState(primary.description);
-  const [rationale, setRationale] = useState(primary.rationale);
-  const [targetPageSlug, setTargetPageSlug] = useState(primary.targetPageSlug ?? "");
-  const [targetPageType, setTargetPageType] = useState(primary.targetPageType ?? "");
+  const [editContent, setEditContent] = useState(primary.proposedContent ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset form when switching initiative or exiting edit mode
   useEffect(() => {
-    setTitle(primary.title);
-    setDescription(primary.description);
-    setRationale(primary.rationale);
-    setTargetPageSlug(primary.targetPageSlug ?? "");
-    setTargetPageType(primary.targetPageType ?? "");
+    setEditContent(primary.proposedContent ?? "");
     setError(null);
   }, [primary, isEditing]);
-
-  const showSlug = primary.type === "wiki_update" || primary.type === "wiki_create";
-  const showPageType = primary.type === "wiki_create";
 
   const save = async () => {
     setSaving(true);
@@ -858,11 +1234,12 @@ function PrimaryDeliverableTab({
         body: JSON.stringify({
           deliverable: {
             type: primary.type,
-            title: title.trim(),
-            description: description.trim(),
-            rationale: rationale.trim(),
-            ...(showSlug ? { targetPageSlug: targetPageSlug.trim() } : {}),
-            ...(showPageType ? { targetPageType: targetPageType.trim() } : {}),
+            title: primary.title,
+            description: primary.description,
+            rationale: primary.rationale,
+            ...(primary.targetPageSlug ? { targetPageSlug: primary.targetPageSlug } : {}),
+            ...(primary.targetPageType ? { targetPageType: primary.targetPageType } : {}),
+            proposedContent: editContent,
           },
         }),
       });
@@ -880,112 +1257,69 @@ function PrimaryDeliverableTab({
 
   if (isEditing) {
     return (
-      <div className="space-y-4 max-w-2xl">
+      <div className="space-y-4 max-w-3xl">
         <div className="flex items-center gap-2 flex-wrap">
-          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            {t(`changeType.${primary.type}` as any)}
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              padding: "2px 6px",
+              borderRadius: 3,
+              background: "color-mix(in srgb, var(--accent) 14%, transparent)",
+              color: "var(--accent)",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {t(`changeType.${primary.type}` as never)}
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--foreground)" }}>
+            {primary.title}
           </span>
         </div>
 
-        <FormField label={t("deliverableEditTitle")}>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full outline-none"
+        <div>
+          <div
             style={{
-              padding: "10px 12px",
-              background: "var(--elevated)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              fontSize: 14,
-              color: "var(--foreground)",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              color: "var(--fg3)",
             }}
-          />
-        </FormField>
-
-        <FormField label={t("deliverableEditDescription")}>
+            className="mb-1.5"
+          >
+            {t("deliverableProposedContent")}
+          </div>
           <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={6}
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
             className="w-full outline-none resize-y"
             style={{
+              minHeight: 400,
               padding: "10px 12px",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              fontSize: 12,
+              lineHeight: 1.6,
               background: "var(--elevated)",
+              color: "var(--foreground)",
               border: "1px solid var(--border)",
               borderRadius: 6,
-              fontSize: 13,
-              lineHeight: 1.55,
-              color: "var(--foreground)",
-              fontFamily: "inherit",
-              minHeight: 140,
             }}
           />
-        </FormField>
-
-        <FormField label={t("deliverableEditRationale")}>
-          <textarea
-            value={rationale}
-            onChange={(e) => setRationale(e.target.value)}
-            rows={3}
-            className="w-full outline-none resize-y"
-            style={{
-              padding: "10px 12px",
-              background: "var(--elevated)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              fontSize: 13,
-              lineHeight: 1.55,
-              color: "var(--foreground)",
-              fontFamily: "inherit",
-              minHeight: 80,
-            }}
-          />
-        </FormField>
-
-        {showSlug && (
-          <FormField label={t("deliverableEditTargetSlug")}>
-            <input
-              type="text"
-              value={targetPageSlug}
-              onChange={(e) => setTargetPageSlug(e.target.value)}
-              className="w-full outline-none"
-              style={{
-                padding: "10px 12px",
-                background: "var(--elevated)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                fontSize: 13,
-                color: "var(--foreground)",
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              }}
-            />
-          </FormField>
-        )}
-
-        {showPageType && (
-          <FormField label={t("deliverableEditTargetPageType")}>
-            <input
-              type="text"
-              value={targetPageType}
-              onChange={(e) => setTargetPageType(e.target.value)}
-              className="w-full outline-none"
-              style={{
-                padding: "10px 12px",
-                background: "var(--elevated)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                fontSize: 13,
-                color: "var(--foreground)",
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              }}
-            />
-          </FormField>
-        )}
+        </div>
 
         {error && (
-          <div style={{ padding: "10px 12px", borderRadius: 6, background: "color-mix(in srgb, var(--danger) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)", color: "var(--danger)", fontSize: 13 }}>
+          <div
+            style={{
+              padding: "10px 12px",
+              borderRadius: 6,
+              background: "color-mix(in srgb, var(--danger) 10%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
+              color: "var(--danger)",
+              fontSize: 13,
+            }}
+          >
             {error}
           </div>
         )}
@@ -993,11 +1327,11 @@ function PrimaryDeliverableTab({
         <div className="flex items-center gap-2 pt-2">
           <button
             onClick={save}
-            disabled={saving}
+            disabled={saving || !editContent.trim()}
             className="rounded-md text-[13px] font-medium px-4 py-2 transition hover:opacity-90 disabled:opacity-60"
             style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
           >
-            {saving ? tc("saving") : t("deliverableSave")}
+            {saving ? t("saving") : t("deliverableSave")}
           </button>
           <button
             onClick={onCancel}
@@ -1012,53 +1346,243 @@ function PrimaryDeliverableTab({
     );
   }
 
-  // Display mode
-  return (
-    <div className="max-w-2xl space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          {t(`changeType.${primary.type}` as any)}
-        </span>
-        <span style={{ fontSize: 16, fontWeight: 600, color: "var(--foreground)" }}>
-          {primary.title}
-        </span>
-      </div>
-
-      <p style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>
-        {primary.description}
-      </p>
-
-      <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg3)", fontStyle: "italic", borderLeft: "2px solid var(--border)", paddingLeft: 12 }}>
-        {primary.rationale}
-      </p>
-
-      {primary.targetPageSlug && (
-        <div className="flex items-center gap-2 flex-wrap pt-1">
-          <a
-            href={`/wiki/${primary.targetPageSlug}`}
-            style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)", textDecoration: "none" }}
-            className="hover:opacity-80"
-          >
-            {t("viewTargetPage")}
-          </a>
-          {primary.targetPageType && (
-            <span style={{ fontSize: 12, color: "var(--fg4)" }}>
-              {t("pageTypeLabel", { pageType: primary.targetPageType })}
-            </span>
-          )}
-        </div>
-      )}
+  // Display mode — header always shown
+  const header = (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          padding: "2px 6px",
+          borderRadius: 3,
+          background: "color-mix(in srgb, var(--accent) 14%, transparent)",
+          color: "var(--accent)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
+        {t(`changeType.${primary.type}` as never)}
+      </span>
+      <span style={{ fontSize: 16, fontWeight: 600, color: "var(--foreground)" }}>
+        {primary.title}
+      </span>
     </div>
   );
-}
 
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: "var(--fg3)" }} className="mb-1.5">
-        {label}
+  const rationale = (
+    <p
+      style={{
+        fontSize: 13,
+        lineHeight: 1.6,
+        color: "var(--fg3)",
+        fontStyle: "italic",
+        borderLeft: "2px solid var(--border)",
+        paddingLeft: 12,
+      }}
+    >
+      {primary.rationale}
+    </p>
+  );
+
+  const targetLink = primary.targetPageSlug ? (
+    <div className="flex items-center gap-2 flex-wrap pt-1">
+      <a
+        href={`/wiki/${primary.targetPageSlug}`}
+        style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)", textDecoration: "none" }}
+        className="hover:opacity-80"
+      >
+        {t("viewTargetPage")}
+      </a>
+      {primary.targetPageType && (
+        <span style={{ fontSize: 12, color: "var(--fg4)" }}>
+          {t("pageTypeLabel", { pageType: primary.targetPageType })}
+        </span>
+      )}
+    </div>
+  ) : null;
+
+  // Missing content fallback — Phase 2 failed or is absent
+  if (!primary.proposedContent) {
+    return (
+      <div className="max-w-3xl space-y-4">
+        {header}
+        <p style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>
+          {primary.description}
+        </p>
+        {rationale}
+        <div
+          style={{
+            padding: 16,
+            background: "color-mix(in srgb, var(--warn) 10%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--warn) 30%, transparent)",
+            borderRadius: 6,
+            fontSize: 13,
+            color: "var(--warn)",
+          }}
+        >
+          {t("contentGenerationFailed")}
+        </div>
+        {targetLink}
       </div>
-      {children}
+    );
+  }
+
+  // wiki_update — diff view
+  if (primary.type === "wiki_update") {
+    return (
+      <div className="max-w-3xl space-y-4">
+        {header}
+        {rationale}
+        <WikiUpdateDiffView
+          current={d.primaryTargetCurrentContent}
+          proposed={primary.proposedContent}
+        />
+        {targetLink}
+      </div>
+    );
+  }
+
+  // wiki_create — new content with banner
+  if (primary.type === "wiki_create") {
+    return (
+      <div className="max-w-3xl space-y-4">
+        {header}
+        {rationale}
+        <div
+          style={{
+            padding: "8px 12px",
+            background: "color-mix(in srgb, var(--accent) 10%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)",
+            borderRadius: 4,
+            fontSize: 12,
+            color: "var(--accent)",
+          }}
+        >
+          {t("newPageBanner")}
+          {primary.targetPageSlug ? ` → [[${primary.targetPageSlug}]]` : ""}
+          {primary.targetPageType ? ` (${primary.targetPageType})` : ""}
+        </div>
+        <pre
+          style={{
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontSize: 12,
+            lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            padding: 12,
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            color: "var(--fg2)",
+          }}
+        >
+          {primary.proposedContent}
+        </pre>
+      </div>
+    );
+  }
+
+  // document — markdown preview
+  if (primary.type === "document") {
+    return (
+      <div className="max-w-3xl space-y-4">
+        {header}
+        {rationale}
+        <div
+          style={{
+            padding: 16,
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            fontSize: 14,
+            lineHeight: 1.65,
+            color: "var(--fg2)",
+          }}
+          className="prose prose-invert prose-sm max-w-none"
+        >
+          <ReactMarkdown>{primary.proposedContent}</ReactMarkdown>
+        </div>
+      </div>
+    );
+  }
+
+  // settings_change — description + properties table
+  return (
+    <div className="max-w-3xl space-y-4">
+      {header}
+      {rationale}
+      <p
+        style={{
+          fontSize: 13,
+          lineHeight: 1.6,
+          color: "var(--fg2)",
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {primary.proposedContent}
+      </p>
+      {primary.proposedProperties && Object.keys(primary.proposedProperties).length > 0 && (
+        <table style={{ fontSize: 12, width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th
+                style={{
+                  textAlign: "left",
+                  padding: "6px 8px",
+                  borderBottom: "1px solid var(--border)",
+                  color: "var(--fg3)",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  fontSize: 10,
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Setting
+              </th>
+              <th
+                style={{
+                  textAlign: "left",
+                  padding: "6px 8px",
+                  borderBottom: "1px solid var(--border)",
+                  color: "var(--fg3)",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  fontSize: 10,
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Value
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(primary.proposedProperties).map(([k, v]) => (
+              <tr key={k}>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    borderBottom: "1px solid var(--border)",
+                    color: "var(--fg2)",
+                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  {k}
+                </td>
+                <td
+                  style={{
+                    padding: "6px 8px",
+                    borderBottom: "1px solid var(--border)",
+                    color: "var(--fg2)",
+                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  }}
+                >
+                  {JSON.stringify(v)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
@@ -1068,54 +1592,134 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
 function DownstreamEffectTab({
   detail: d,
   effect,
+  index,
 }: {
   detail: InitiativeDetail;
   effect: DownstreamEffect;
+  index: number;
 }) {
   const t = useTranslations("initiatives");
+  const state = d.executionState?.downstream?.[index];
   const title = d.resolvedTargetTitles[effect.targetPageSlug] ?? effect.targetPageSlug;
+  const currentContent = effect.changeType === "update"
+    ? (d.downstreamCurrentContents?.[effect.targetPageSlug]?.content ?? null)
+    : null;
 
-  return (
-    <div className="max-w-2xl space-y-4">
-      {/* Pending banner */}
-      <div style={{
-        padding: "12px 14px",
-        background: "color-mix(in srgb, var(--info) 8%, transparent)",
-        border: "1px solid color-mix(in srgb, var(--info) 25%, transparent)",
-        borderRadius: 6,
-      }}>
-        <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--fg2)" }}>{t("downstreamPendingBanner")}</p>
+  const header = (
+    <div className="mb-4">
+      <div className="flex items-center gap-2 flex-wrap mb-2">
+        <span style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
+          {title}
+        </span>
+        {state && <DownstreamStatusBadge status={state.status} />}
       </div>
-
-      <div>
-        <div className="flex items-center gap-2 flex-wrap mb-2">
-          <span style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
-            {title}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span style={{
-            fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3,
-            background: "rgba(255,255,255,0.06)", color: "var(--fg3)",
-            textTransform: "uppercase", letterSpacing: "0.04em",
-          }}>
-            {effect.targetPageType}
-          </span>
-          <span style={{
-            fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3,
-            background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)",
-            textTransform: "uppercase", letterSpacing: "0.04em",
-          }}>
-            {t(`changeType.${effect.changeType}` as any)}
-          </span>
-        </div>
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        <span style={{
+          fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3,
+          background: "rgba(255,255,255,0.06)", color: "var(--fg3)",
+          textTransform: "uppercase", letterSpacing: "0.04em",
+        }}>
+          {effect.targetPageType}
+        </span>
+        <span style={{
+          fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3,
+          background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)",
+          textTransform: "uppercase", letterSpacing: "0.04em",
+        }}>
+          {t(`changeType.${effect.changeType}` as never)}
+        </span>
       </div>
-
-      <p style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>
+      <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
         {effect.summary}
       </p>
+    </div>
+  );
 
-      <div>
+  // Pre-execution state — no executionState yet
+  if (!state) {
+    return (
+      <div className="max-w-2xl">
+        {header}
+        <div style={{ padding: 14, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, color: "var(--fg3)" }}>
+          {d.status === "proposed" ? t("downstreamPendingBanner") : t("downstreamAwaitingExecution")}
+        </div>
+      </div>
+    );
+  }
+
+  // Failed state
+  if (state.status === "failed") {
+    return (
+      <div className="max-w-2xl">
+        {header}
+        <div style={{ padding: 14, background: "color-mix(in srgb, var(--danger) 10%, transparent)", border: "1px solid var(--danger)", borderRadius: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--danger)", marginBottom: 6 }}>
+            {t("downstreamFailed")}
+          </div>
+          {state.error && (
+            <div style={{ fontSize: 12, color: "var(--fg2)", fontFamily: "ui-monospace, monospace", whiteSpace: "pre-wrap" }}>
+              {state.error}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // In-flight states
+  if (state.status === "pending" || state.status === "generating" || state.status === "applying") {
+    return (
+      <div className="max-w-2xl">
+        {header}
+        <div style={{ padding: 14, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, color: "var(--fg3)" }}>
+          {t(`downstreamStatus.${state.status}` as never)}
+        </div>
+      </div>
+    );
+  }
+
+  // Generated or applied — show content
+  if (!state.proposedContent) {
+    return (
+      <div className="max-w-2xl">
+        {header}
+        <div style={{ padding: 14, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, color: "var(--fg3)" }}>
+          {t("downstreamNoContent")}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl">
+      {header}
+
+      {state.concerns.length > 0 && (
+        <div className="mb-4">
+          {state.concerns.map((c, i) => (
+            <ConcernCard key={i} concern={c} detail={d} severity={c.severity} />
+          ))}
+        </div>
+      )}
+
+      {effect.changeType === "update" ? (
+        <WikiUpdateDiffView current={currentContent} proposed={state.proposedContent} />
+      ) : effect.changeType === "create" ? (
+        <div>
+          <div style={{ padding: "8px 12px", background: "color-mix(in srgb, var(--accent) 10%, transparent)", borderRadius: 4, marginBottom: 12, fontSize: 12, color: "var(--accent)" }}>
+            {t("newPageBanner")} → [[{effect.targetPageSlug}]] ({effect.targetPageType})
+          </div>
+          <pre style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, whiteSpace: "pre-wrap", padding: 12, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--fg2)" }}>
+            {state.proposedContent}
+          </pre>
+        </div>
+      ) : (
+        <pre style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, whiteSpace: "pre-wrap", padding: 12, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--fg2)" }}>
+          {state.proposedContent}
+        </pre>
+      )}
+
+      <div className="mt-4">
         <a
           href={`/wiki/${effect.targetPageSlug}`}
           style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)", textDecoration: "none" }}
