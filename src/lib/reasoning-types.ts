@@ -144,6 +144,9 @@ export const WikiReasoningOutputSchema = z.object({
   wikiUpdates: z.array(WikiUpdateSchema).optional(),
   depthUpgrade: z.boolean().optional(),
   analysisDocument: AnalysisDocumentSchema.optional().nullable(),
+  actionSteps: z.array(ActionStepSchema).nullable().optional()
+    .describe("Structured execution steps. The system uses this to write the Action Plan section on the wiki page. Each step must have executionMode, and action steps must have actionCapabilityName matching an available action exactly."),
+
 });
 
 export type WikiReasoningOutput = z.infer<typeof WikiReasoningOutputSchema>;

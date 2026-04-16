@@ -13,7 +13,6 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSONArray } from "@/lib/json-helpers";
-import { embedTexts } from "@/lib/wiki-embedder";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -136,8 +135,6 @@ ${section.content}`,
         select: { id: true },
       });
 
-      // Embed (fire-and-forget)
-      embedPage(page.id, item.content);
       created++;
     } catch (err) {
       console.error(`[source-synthesizer] Failed to create page "${slug}":`, err);
@@ -179,19 +176,6 @@ async function resolveUniqueSlug(baseSlug: string): Promise<string> {
 
   // Extremely unlikely fallback
   return `${baseSlug}-${Date.now()}`;
-}
-
-function embedPage(pageId: string, content: string): void {
-  embedTexts([content]).then(([embedding]) => {
-    if (embedding) {
-      const embeddingStr = `[${embedding.join(",")}]`;
-      prisma.$executeRawUnsafe(
-        `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-        embeddingStr,
-        pageId,
-      ).catch(() => {});
-    }
-  }).catch(() => {});
 }
 
 // ── Prompt ──────────────────────────────────────────────

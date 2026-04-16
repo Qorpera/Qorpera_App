@@ -2,13 +2,12 @@
  * Wiki engine — core CRUD for KnowledgePage.
  *
  * Processes wiki updates from reasoning, background synthesis, and onboarding.
- * Provides entity profile lookups, semantic search, and seed context loading
+ * Provides entity profile lookups, full-text search, and seed context loading
  * for the reasoning engine.
  */
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { embedTexts } from "@/lib/wiki-embedder";
 import { verifyPage } from "@/lib/wiki-verification";
 
 import { getDefaultVisibility } from "@/lib/wiki-visibility";
@@ -146,11 +145,7 @@ async function createPage(params: {
   const contentTokens = Math.ceil(params.content.length / 4);
   const crossReferences = extractCrossReferences(params.content);
   const sourceTypes = [...new Set(params.sourceCitations.map((c) => c.sourceType))];
-  // Embed content for search
-  const embeddings = await embedTexts([params.content]).catch(() => [null]);
-  const embedding = embeddings[0];
-
-  // Create page via Prisma (generates cuid), then set embedding via raw SQL
+  // Create page via Prisma — searchVector is a STORED generated column, auto-updates
   const created = await prisma.knowledgePage.create({
     data: {
       operatorId: params.operatorId,
@@ -181,15 +176,6 @@ async function createPage(params: {
     },
     select: { id: true },
   });
-
-  if (embedding) {
-    const embeddingStr = `[${embedding.join(",")}]`;
-    await prisma.$executeRawUnsafe(
-      `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-      embeddingStr,
-      created.id,
-    );
-  }
 
   // Update citedByPages counter on referenced pages
   if (crossReferences.length > 0) {
@@ -256,67 +242,33 @@ async function updatePage(params: {
     console.warn(`[wiki-engine] Version snapshot skipped for ${slug} (${err instanceof Error ? err.message : "unknown"})`);
   }
 
-  // Re-embed updated content
-  const embeddings = await embedTexts([params.content]).catch(() => [null]);
-  const embedding = embeddings[0];
-
-  if (embedding) {
-    const embeddingStr = `[${embedding.join(",")}]`;
-    await prisma.$executeRawUnsafe(
-      `UPDATE "KnowledgePage"
-       SET "title" = $1, "content" = $2, "contentTokens" = $3, "crossReferences" = $4::text[],
-           "sources" = $5::jsonb, "sourceCount" = $6, "sourceTypes" = $7::text[],
-           "status" = 'draft', "version" = "version" + 1,
-           "synthesisPath" = $8, "synthesizedByModel" = $9,
-           "situationId" = COALESCE($10, "situationId"),
-           "lastSynthesizedAt" = NOW(), "updatedAt" = NOW(),
-           "verifiedAt" = NULL, "verifiedByModel" = NULL,
-           "verificationLog" = NULL, "quarantineReason" = NULL, "staleReason" = NULL,
-           "embedding" = $11::vector,
-           "properties" = COALESCE($12::jsonb, "properties")
-       WHERE "id" = $13`,
-      params.title,
-      params.content,
+  // searchVector is a STORED generated column — auto-updates when content changes
+  await prisma.knowledgePage.update({
+    where: { id: existing.id },
+    data: {
+      title: params.title,
+      content: params.content,
       contentTokens,
       crossReferences,
-      JSON.stringify(mergedSources),
-      mergedSources.length,
+      sources: mergedSources as unknown as Prisma.InputJsonValue,
+      sourceCount: mergedSources.length,
       sourceTypes,
-      params.synthesisPath,
-      params.synthesizedByModel,
-      params.situationId ?? null,
-      embeddingStr,
-      params.properties ? JSON.stringify(params.properties) : null,
-      existing.id,
-    );
-  } else {
-    await prisma.knowledgePage.update({
-      where: { id: existing.id },
-      data: {
-        title: params.title,
-        content: params.content,
-        contentTokens,
-        crossReferences,
-        sources: mergedSources as unknown as Prisma.InputJsonValue,
-        sourceCount: mergedSources.length,
-        sourceTypes,
-        status: "draft",
-        version: { increment: 1 },
-        synthesisPath: params.synthesisPath,
-        synthesizedByModel: params.synthesizedByModel,
-        situationId: params.situationId ?? existing.situationId,
-        lastSynthesizedAt: new Date(),
-        verifiedAt: null,
-        verifiedByModel: null,
-        verificationLog: Prisma.JsonNull,
-        quarantineReason: null,
-        staleReason: null,
-        ...(params.properties
-          ? { properties: params.properties as unknown as Prisma.InputJsonValue }
-          : {}),
-      },
-    });
-  }
+      status: "draft",
+      version: { increment: 1 },
+      synthesisPath: params.synthesisPath,
+      synthesizedByModel: params.synthesizedByModel,
+      situationId: params.situationId ?? existing.situationId,
+      lastSynthesizedAt: new Date(),
+      verifiedAt: null,
+      verifiedByModel: null,
+      verificationLog: Prisma.JsonNull,
+      quarantineReason: null,
+      staleReason: null,
+      ...(params.properties
+        ? { properties: params.properties as unknown as Prisma.InputJsonValue }
+        : {}),
+    },
+  });
 
   // Trigger verification
   if (params.synthesisPath === "reasoning") {
@@ -450,72 +402,66 @@ export async function searchPages(
   const limit = options?.limit ?? 5;
   const statusFilter = options?.statusFilter ?? ["verified", "stale"];
 
-  // Try embedding-based search first
-  const embeddings = await embedTexts([query]).catch(() => [null]);
-  const queryEmbedding = embeddings[0];
+  // Full-text search via tsvector — websearch_to_tsquery handles natural language,
+  // quoted phrases, implicit AND, and -exclusion gracefully
+  const conditions: string[] = [
+    `"operatorId" = $1`,
+    `status = ANY($2::text[])`,
+    `scope = 'operator'`,
+    `"searchVector" @@ websearch_to_tsquery('english', $3)`,
+  ];
+  const params: unknown[] = [operatorId, statusFilter, query];
+  let nextIdx = 4;
 
-  if (queryEmbedding) {
-    const embeddingStr = `[${queryEmbedding.join(",")}]`;
+  if (options?.pageType) {
+    conditions.push(`"pageType" = $${nextIdx}`);
+    params.push(options.pageType);
+    nextIdx++;
+  }
 
-    // Build parameterized query with stable parameter indices
-    const conditions: string[] = [
-      `"operatorId" = $2`,
-      `status = ANY($3::text[])`,
-      `embedding IS NOT NULL`,
-      `scope = 'operator'`,
-    ];
-    const params: unknown[] = [embeddingStr, operatorId, statusFilter];
-    let nextIdx = 4;
+  if (options?.projectId) {
+    conditions.push(`"projectId" = $${nextIdx}`);
+    params.push(options.projectId);
+    nextIdx++;
+  } else {
+    conditions.push(`"projectId" IS NULL`);
+  }
 
-    if (options?.pageType) {
-      conditions.push(`"pageType" = $${nextIdx}`);
-      params.push(options.pageType);
-      nextIdx++;
-    }
+  params.push(limit);
+  const limitIdx = nextIdx;
 
-    if (options?.projectId) {
-      conditions.push(`"projectId" = $${nextIdx}`);
-      params.push(options.projectId);
-      nextIdx++;
-    } else {
-      conditions.push(`"projectId" IS NULL`);
-    }
+  const sql = `
+    SELECT slug, title, "pageType", status, confidence, LEFT(content, 500) as content,
+           ts_rank("searchVector", websearch_to_tsquery('english', $3)) as rank
+    FROM "KnowledgePage"
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY rank DESC
+    LIMIT $${limitIdx}
+  `;
 
-    params.push(limit);
-    const limitIdx = nextIdx;
+  const results = await prisma.$queryRawUnsafe<Array<{
+    slug: string;
+    title: string;
+    pageType: string;
+    status: string;
+    confidence: number;
+    content: string;
+    rank: number;
+  }>>(sql, ...params);
 
-    const sql = `
-      SELECT id, slug, title, "pageType", status, confidence, content,
-             1 - (embedding <=> $1::vector) as score
-      FROM "KnowledgePage"
-      WHERE ${conditions.join(" AND ")}
-      ORDER BY embedding <=> $1::vector
-      LIMIT $${limitIdx}
-    `;
-
-    const results = await prisma.$queryRawUnsafe<Array<{
-      id: string;
-      slug: string;
-      title: string;
-      pageType: string;
-      status: string;
-      confidence: number;
-      content: string;
-      score: number;
-    }>>(sql, ...params);
-
+  if (results.length > 0) {
     return results.map((r) => ({
       slug: r.slug,
       title: r.title,
       pageType: r.pageType,
       status: r.status,
       confidence: r.confidence,
-      contentPreview: r.content.slice(0, 500),
+      contentPreview: r.content ?? "",
     }));
   }
 
-  // Fallback: text search on title and content
-  const results = await prisma.knowledgePage.findMany({
+  // Fallback: ILIKE on title + slug when FTS returns nothing (proper nouns, abbreviations)
+  const fallback = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
       scope: "operator",
@@ -524,7 +470,7 @@ export async function searchPages(
       ...(options?.projectId ? { projectId: options.projectId } : { projectId: null }),
       OR: [
         { title: { contains: query, mode: "insensitive" } },
-        { content: { contains: query, mode: "insensitive" } },
+        { slug: { contains: query.replace(/\s+/g, "-"), mode: "insensitive" } },
       ],
     },
     select: { slug: true, title: true, pageType: true, status: true, confidence: true, content: true },
@@ -532,7 +478,7 @@ export async function searchPages(
     orderBy: { confidence: "desc" },
   });
 
-  return results.map((r) => ({
+  return fallback.map((r) => ({
     slug: r.slug,
     title: r.title,
     pageType: r.pageType,
@@ -558,45 +504,43 @@ export async function getSystemWikiPages(params: {
 }>> {
   const limit = params.maxPages ?? 5;
 
-  // Semantic search if query provided and embedding available
+  // Full-text search if query provided
   if (params.query) {
-    const embeddings = await embedTexts([params.query]).catch(() => [null]);
-    if (embeddings[0]) {
-      const embeddingStr = `[${embeddings[0].join(",")}]`;
-      const conditions = [
-        `scope = 'system'`,
-        `status = 'verified'`,
-        `embedding IS NOT NULL`,
-        `("stagingStatus" IS NULL OR "stagingStatus" = 'approved')`,
-      ];
-      const sqlParams: unknown[] = [embeddingStr];
-      let nextIdx = 2;
+    const conditions = [
+      `scope = 'system'`,
+      `status = 'verified'`,
+      `("stagingStatus" IS NULL OR "stagingStatus" = 'approved')`,
+      `"searchVector" @@ websearch_to_tsquery('english', $1)`,
+    ];
+    const sqlParams: unknown[] = [params.query];
+    let nextIdx = 2;
 
-      if (params.pageTypes?.length) {
-        conditions.push(`"pageType" = ANY($${nextIdx}::text[])`);
-        sqlParams.push(params.pageTypes);
-        nextIdx++;
-      }
-
-      sqlParams.push(limit);
-
-      const sql = `
-        SELECT slug, title, "pageType", status, confidence, content
-        FROM "KnowledgePage"
-        WHERE ${conditions.join(" AND ")}
-        ORDER BY embedding <=> $1::vector
-        LIMIT $${nextIdx}
-      `;
-
-      return prisma.$queryRawUnsafe<Array<{
-        slug: string;
-        title: string;
-        pageType: string;
-        status: string;
-        confidence: number;
-        content: string;
-      }>>(sql, ...sqlParams);
+    if (params.pageTypes?.length) {
+      conditions.push(`"pageType" = ANY($${nextIdx}::text[])`);
+      sqlParams.push(params.pageTypes);
+      nextIdx++;
     }
+
+    sqlParams.push(limit);
+
+    const sql = `
+      SELECT slug, title, "pageType", status, confidence, content
+      FROM "KnowledgePage"
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY ts_rank("searchVector", websearch_to_tsquery('english', $1)) DESC
+      LIMIT $${nextIdx}
+    `;
+
+    const ftsResults = await prisma.$queryRawUnsafe<Array<{
+      slug: string;
+      title: string;
+      pageType: string;
+      status: string;
+      confidence: number;
+      content: string;
+    }>>(sql, ...sqlParams);
+
+    if (ftsResults.length > 0) return ftsResults;
   }
 
   // Fallback: sort by citedByPages and confidence
@@ -627,51 +571,50 @@ export async function searchSystemPages(
 }>> {
   const limit = options?.limit ?? 5;
 
-  const embeddings = await embedTexts([query]).catch(() => [null]);
-  if (embeddings[0]) {
-    const embeddingStr = `[${embeddings[0].join(",")}]`;
-    const conditions = [
-      `scope = 'system'`,
-      `status IN ('verified', 'stale')`,
-      `embedding IS NOT NULL`,
-      `("stagingStatus" IS NULL OR "stagingStatus" = 'approved')`,
-    ];
-    const params: unknown[] = [embeddingStr];
-    let nextIdx = 2;
+  // Full-text search via tsvector
+  const conditions = [
+    `scope = 'system'`,
+    `status IN ('verified', 'stale')`,
+    `("stagingStatus" IS NULL OR "stagingStatus" = 'approved')`,
+    `"searchVector" @@ websearch_to_tsquery('english', $1)`,
+  ];
+  const ftsParams: unknown[] = [query];
+  let nextIdx = 2;
 
-    if (options?.pageType) {
-      conditions.push(`"pageType" = $${nextIdx}`);
-      params.push(options.pageType);
-      nextIdx++;
-    }
+  if (options?.pageType) {
+    conditions.push(`"pageType" = $${nextIdx}`);
+    ftsParams.push(options.pageType);
+    nextIdx++;
+  }
 
-    params.push(limit);
+  ftsParams.push(limit);
 
-    const sql = `
-      SELECT slug, title, "pageType", status, confidence, content, scope
-      FROM "KnowledgePage"
-      WHERE ${conditions.join(" AND ")}
-      ORDER BY embedding <=> $1::vector
-      LIMIT $${nextIdx}
-    `;
+  const sql = `
+    SELECT slug, title, "pageType", status, confidence, LEFT(content, 500) as content, scope
+    FROM "KnowledgePage"
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY ts_rank("searchVector", websearch_to_tsquery('english', $1)) DESC
+    LIMIT $${nextIdx}
+  `;
 
-    const results = await prisma.$queryRawUnsafe<Array<{
-      slug: string;
-      title: string;
-      pageType: string;
-      status: string;
-      confidence: number;
-      content: string;
-      scope: string;
-    }>>(sql, ...params);
+  const ftsResults = await prisma.$queryRawUnsafe<Array<{
+    slug: string;
+    title: string;
+    pageType: string;
+    status: string;
+    confidence: number;
+    content: string;
+    scope: string;
+  }>>(sql, ...ftsParams);
 
-    return results.map((r) => ({
+  if (ftsResults.length > 0) {
+    return ftsResults.map((r) => ({
       slug: r.slug,
       title: r.title,
       pageType: r.pageType,
       status: r.status,
       confidence: r.confidence,
-      contentPreview: r.content.slice(0, 500),
+      contentPreview: r.content ?? "",
       scope: r.scope,
     }));
   }
@@ -755,64 +698,59 @@ export async function getRelevantPagesForSeed(
     }
   }
 
-  // 3. Semantic retrieval — embed the situation and find relevant pages via vector similarity
+  // 3. Full-text search — find relevant pages via weighted tsvector matching
   if (situationDescription && tokensUsed < TOKEN_BUDGET - 1000) {
-    const [queryEmbedding] = await embedTexts([situationDescription]);
+    const excludeSlugs = [...usedSlugs];
 
-    if (queryEmbedding) {
-      const embeddingStr = `[${queryEmbedding.join(",")}]`;
-      const excludeSlugs = [...usedSlugs];
+    const ftsPages = await prisma.$queryRaw<Array<{
+      slug: string;
+      title: string;
+      pageType: string;
+      status: string;
+      content: string;
+      trustLevel: string;
+      contentTokens: number;
+      rank: number;
+    }>>`
+      SELECT slug, title, "pageType", status, content, "trustLevel", "contentTokens",
+        ts_rank("searchVector", websearch_to_tsquery('english', ${situationDescription})) as rank
+      FROM "KnowledgePage"
+      WHERE "operatorId" = ${operatorId}
+        AND scope = 'operator'
+        AND status IN ('verified', 'stale')
+        AND "searchVector" @@ websearch_to_tsquery('english', ${situationDescription})
+        AND slug NOT IN (${Prisma.join(excludeSlugs.length > 0 ? excludeSlugs : ["__none__"])})
+        ${projectId ? Prisma.sql`AND ("projectId" = ${projectId} OR "projectId" IS NULL)` : Prisma.sql`AND "projectId" IS NULL`}
+      ORDER BY rank DESC
+      LIMIT 10
+    `;
 
-      const semanticPages = await prisma.$queryRaw<Array<{
-        slug: string;
-        title: string;
-        pageType: string;
-        status: string;
-        content: string;
-        trustLevel: string;
-        contentTokens: number;
-        similarity: number;
-      }>>`
-        SELECT slug, title, "pageType", status, content, "trustLevel", "contentTokens",
-          1 - (embedding <=> ${embeddingStr}::vector) as similarity
-        FROM "KnowledgePage"
-        WHERE "operatorId" = ${operatorId}
-          AND scope = 'operator'
-          AND status IN ('verified', 'stale')
-          AND embedding IS NOT NULL
-          AND slug NOT IN (${Prisma.join(excludeSlugs.length > 0 ? excludeSlugs : ["__none__"])})
-          ${projectId ? Prisma.sql`AND ("projectId" = ${projectId} OR "projectId" IS NULL)` : Prisma.sql`AND "projectId" IS NULL`}
-        ORDER BY embedding <=> ${embeddingStr}::vector ASC
-        LIMIT 10
-      `;
+    const trustPriority: Record<string, number> = {
+      authoritative: 4, established: 3, provisional: 2, challenged: 1, quarantined: 0,
+    };
 
-      const trustPriority: Record<string, number> = {
-        authoritative: 4, established: 3, provisional: 2, challenged: 1, quarantined: 0,
-      };
+    // Score = FTS rank * trust weight (authoritative pages rank higher)
+    const scored = ftsPages
+      .filter(p => (trustPriority[p.trustLevel] ?? 0) > 0)
+      .map(p => ({
+        ...p,
+        score: p.rank * (1 + (trustPriority[p.trustLevel] ?? 0) * 0.1),
+      }))
+      .sort((a, b) => b.score - a.score);
 
-      // Score = similarity * trust weight (authoritative pages rank higher)
-      const scored = semanticPages
-        .filter(p => (trustPriority[p.trustLevel] ?? 0) > 0)
-        .map(p => ({
-          ...p,
-          score: p.similarity * (1 + (trustPriority[p.trustLevel] ?? 0) * 0.1),
-        }))
-        .sort((a, b) => b.score - a.score);
-
-      for (const page of scored) {
-        if (tokensUsed + page.contentTokens > TOKEN_BUDGET) continue;
-        if (usedSlugs.has(page.slug)) continue;
-        pages.push({
-          slug: page.slug,
-          title: page.title,
-          pageType: page.pageType,
-          status: page.status,
-          content: page.content,
-          trustLevel: page.trustLevel ?? "provisional",
-        });
-        tokensUsed += page.contentTokens;
-        usedSlugs.add(page.slug);
-      }
+    for (const page of scored) {
+      if (tokensUsed + page.contentTokens > TOKEN_BUDGET) continue;
+      if (usedSlugs.has(page.slug)) continue;
+      pages.push({
+        slug: page.slug,
+        title: page.title,
+        pageType: page.pageType,
+        status: page.status,
+        content: page.content,
+        trustLevel: page.trustLevel ?? "provisional",
+      });
+      tokensUsed += page.contentTokens;
+      usedSlugs.add(page.slug);
     }
   }
 
@@ -863,7 +801,7 @@ export async function getRelevantPagesForSeed(
     }
   }
 
-  // 4. Fallback: if semantic search didn't run or returned too few pages,
+  // 4. Fallback: if full-text search didn't run or returned too few pages,
   //    use the old heuristic (department overview + high-use pages)
   if (pages.length < 3 && tokensUsed < TOKEN_BUDGET - 500) {
     // Find domain overview from trigger entity's wiki cross-references
@@ -1257,16 +1195,7 @@ export async function rollbackPage(pageId: string, targetVersionNumber: number):
     },
   });
 
-  // Re-embed the restored content
-  const [embedding] = await embedTexts([targetVersion.content]).catch(() => [null]);
-  if (embedding) {
-    const embeddingStr = `[${embedding.join(",")}]`;
-    await prisma.$executeRawUnsafe(
-      `UPDATE "KnowledgePage" SET embedding = $1::vector WHERE id = $2`,
-      embeddingStr,
-      pageId,
-    );
-  }
+  // searchVector is a STORED generated column — auto-updates from restored content
 }
 
 // ─── Activity Pipeline Helpers ────────────────────────────

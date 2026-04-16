@@ -302,7 +302,11 @@ function wikiToExecutionPlan(detail: SituationDetail): ExecutionPlanData | null 
       executionMode: s.executionMode,
       status: s.status,
       assignedUserId: s.assignedSlug,
-      parameters: s.params,
+      parameters: (() => {
+        const p = s.params ? { ...s.params } : {};
+        if (s.previewType) p.previewType = s.previewType;
+        return Object.keys(p).length > 0 ? p : null;
+      })(),
       actionCapability: s.capabilityName
         ? { id: "", slug: s.capabilityName, name: s.capabilityName }
         : null,
@@ -1447,7 +1451,7 @@ function DetailPane({
 
                           <p className="break-words" style={{ fontSize: 12, color: isCurrentStep ? "var(--foreground)" : "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{step.description}</p>
 
-                          {planStep?.parameters && (() => {
+                          {(planStep?.parameters || planStep?.actionCapability) && (() => {
                             const enrichedStep: ExecutionStepForPreview = {
                               ...planStep,
                               plan: { sourceType: "situation" as const, situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } } },

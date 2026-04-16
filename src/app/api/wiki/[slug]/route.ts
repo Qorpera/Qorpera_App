@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { embedTexts } from "@/lib/wiki-embedder";
 import { createVersionSnapshot } from "@/lib/wiki-engine";
 import { getVisibleDomainSlugs } from "@/lib/domain-scope";
 
@@ -183,20 +182,6 @@ export async function PATCH(
     where: { id: page.id },
     data,
   });
-
-  // Re-embed edited content (fire-and-forget)
-  embedTexts([content])
-    .then(([embedding]) => {
-      if (embedding) {
-        const embeddingStr = `[${embedding.join(",")}]`;
-        return prisma.$executeRawUnsafe(
-          `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-          embeddingStr,
-          page.id,
-        );
-      }
-    })
-    .catch(() => {});
 
   return NextResponse.json(updated);
 }

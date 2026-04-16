@@ -11,7 +11,6 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSON, extractJSONArray } from "@/lib/json-helpers";
-import { embedTexts } from "@/lib/wiki-embedder";
 import { logSystemIntelligenceChange } from "@/lib/system-intelligence-signals";
 
 // ── Types ──────────────────────────────────────────────
@@ -593,9 +592,6 @@ SYNTHESIS RULES:
         curatorModel: model,
       }).catch(() => {});
 
-      // Re-embed
-      embedPage(existing.id, content);
-
       return content;
     } else {
       // Create new page
@@ -632,8 +628,6 @@ SYNTHESIS RULES:
         changeSource: "research_synthesis",
         curatorModel: model,
       }).catch(() => {});
-
-      embedPage(page.id, content);
 
       return content;
     }
@@ -931,8 +925,6 @@ Use the [priority] prefix on every requirement line — this is parsed by the sy
       },
     });
 
-    embedPage(existingOntology.id, ontologyContent);
-
     logSystemIntelligenceChange({
       action: "page_updated",
       pageSlug: slug,
@@ -969,8 +961,6 @@ Use the [priority] prefix on every requirement line — this is parsed by the sy
       },
       select: { id: true },
     });
-
-    embedPage(page.id, ontologyContent);
 
     logSystemIntelligenceChange({
       action: "page_created",
@@ -1083,19 +1073,6 @@ function topologicalSort(pages: PagePlan[]): PagePlan[] {
   }
 
   return sorted;
-}
-
-function embedPage(pageId: string, content: string): void {
-  embedTexts([content]).then(([embedding]) => {
-    if (embedding) {
-      const embeddingStr = `[${embedding.join(",")}]`;
-      prisma.$executeRawUnsafe(
-        `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-        embeddingStr,
-        pageId,
-      ).catch(() => {});
-    }
-  }).catch(() => {});
 }
 
 /** Upsert a system-scoped page (null operatorId). Uses findFirst + create/update

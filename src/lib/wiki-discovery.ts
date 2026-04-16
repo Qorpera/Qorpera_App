@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db";
-import { embedTexts } from "@/lib/wiki-embedder";
 
 export interface WikiDiscoveryEntry {
   slug: string;
@@ -31,12 +30,7 @@ export async function discoverSystemExpertise(
   });
   if (!operator?.intelligenceAccess) return [];
 
-  const embeddings = await embedTexts([query]).catch(() => [null]);
-  if (!embeddings[0]) return [];
-
-  const embeddingStr = `[${embeddings[0].join(",")}]`;
-
-  // Query with cross-reference count for hub detection
+  // Full-text search with cross-reference count for hub detection
   const results = await prisma.$queryRawUnsafe<Array<{
     slug: string;
     title: string;
@@ -44,29 +38,30 @@ export async function discoverSystemExpertise(
     confidence: number;
     content: string;
     crossRefCount: number;
-    similarity: number;
+    rank: number;
   }>>(
     `SELECT slug, title, "pageType", confidence, LEFT(content, 200) as content,
             array_length("crossReferences", 1) as "crossRefCount",
-            1 - (embedding <=> $1::vector) as similarity
+            ts_rank("searchVector", websearch_to_tsquery('english', $1)) as rank
      FROM "KnowledgePage"
      WHERE scope = 'system'
        AND status IN ('verified', 'draft')
-       AND embedding IS NOT NULL
+       AND "searchVector" @@ websearch_to_tsquery('english', $1)
        AND ("stagingStatus" IS NULL OR "stagingStatus" = 'approved')
-     ORDER BY embedding <=> $1::vector
+     ORDER BY rank DESC
      LIMIT $2`,
-    embeddingStr,
+    query,
     maxResults * 2, // Fetch more, then re-rank
   );
 
+  if (results.length === 0) return [];
+
   // Re-rank: boost pages with many cross-references (hub pages)
-  // A page with 10+ cross-references is likely a hub/overview page
   const scored = results.map(r => ({
     ...r,
     crossRefCount: r.crossRefCount ?? 0,
     // Hub boost: pages with many outgoing links are better entry points
-    score: r.similarity + Math.min((r.crossRefCount ?? 0) * 0.02, 0.15),
+    score: r.rank + Math.min((r.crossRefCount ?? 0) * 0.002, 0.015),
   }));
 
   scored.sort((a, b) => b.score - a.score);

@@ -42,6 +42,8 @@ import { captureApiError } from "@/lib/api-error";
 import { updatePageWithLock } from "@/lib/wiki-engine";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
 import { evaluateActionPolicies } from "@/lib/policy-evaluator";
+import { parseSituationPage } from "@/lib/situation-page-parser";
+import { extractJSON } from "@/lib/json-helpers";
 import type { SituationProperties } from "@/lib/situation-wiki-helpers";
 
 // ─── Types ──────────────────────────────────────────────
@@ -663,6 +665,26 @@ async function executeApiAction(
       case "send_slack_message": case "send_teams_message":
         resultText = `Message sent (demo) → ${(params as Record<string, unknown>).channel ?? "channel"}`;
         break;
+      case "create_document": case "create_spreadsheet": case "create_presentation":
+        resultText = `${capability.name} created (demo) → "${(params as Record<string, unknown>).title ?? "Untitled"}"`;
+        deliverable = {
+          title: (params as Record<string, unknown>).title as string ?? capability.name,
+          description: resultText,
+          type: capability.name.includes("spreadsheet") ? "spreadsheet"
+            : capability.name.includes("presentation") ? "presentation"
+            : "document",
+          reference: mockId,
+        };
+        break;
+      case "create_calendar_event":
+        resultText = `Calendar event created (demo) → "${(params as Record<string, unknown>).summary ?? "Meeting"}"`;
+        deliverable = {
+          title: (params as Record<string, unknown>).summary as string ?? "Calendar Event",
+          description: resultText,
+          type: "calendar_event",
+          reference: mockId,
+        };
+        break;
       default:
         resultText = `Demo execution of ${capability.name} (${mockId})`;
     }
@@ -715,19 +737,146 @@ async function executeGenerate(
   step: ParsedActionStep,
   stepOrder: number,
 ): Promise<void> {
-  let userContent = `Task: ${step.description}`;
+  // Load full situation page for context
+  const situationPage = await prisma.knowledgePage.findUnique({
+    where: { operatorId_slug: { operatorId, slug: pageSlug } },
+    select: { content: true, title: true, properties: true },
+  });
 
   const priorResults = await getPriorStepResults(operatorId, pageSlug, stepOrder);
+
+  // Build rich context for generation
+  let userContent = `TASK: ${step.title}\n\n${step.description}`;
+
+  if (situationPage) {
+    const parsed = parseSituationPage(
+      situationPage.content,
+      situationPage.properties as Record<string, unknown> | null,
+    );
+    const contextParts: string[] = [];
+    if (parsed.sections.trigger) contextParts.push(`## Trigger\n${parsed.sections.trigger}`);
+    if (parsed.sections.context) contextParts.push(`## Context\n${parsed.sections.context}`);
+    if (parsed.sections.investigation) contextParts.push(`## Investigation\n${parsed.sections.investigation}`);
+    if (parsed.sections.playbookReference) contextParts.push(`## Playbook Reference\n${parsed.sections.playbookReference}`);
+
+    if (contextParts.length > 0) {
+      userContent += `\n\nSITUATION CONTEXT:\n${contextParts.join("\n\n")}`;
+    }
+  }
+
   if (priorResults.length > 0) {
-    userContent += "\n\nPrior step results:";
+    userContent += "\n\nPRIOR STEP RESULTS:";
     for (const prior of priorResults) {
       userContent += `\n- ${prior.title}: ${prior.result ?? "No output"}`;
     }
   }
 
+  // Determine if this generate step targets a document/spreadsheet/presentation
+  const targetType = step.previewType;
+  const isDocumentType = targetType && ["document", "spreadsheet", "presentation"].includes(targetType);
+
+  if (isDocumentType) {
+    // Phase 1: Generate structured content
+    const genInstructions = targetType === "spreadsheet"
+      ? `You are generating content for a spreadsheet. Return a JSON object with: { "title": "...", "sheetName": "...", "columns": ["col1","col2",...], "rows": [["val1","val2",...], ...] }. Use the situation context to produce accurate, complete data. Return ONLY the JSON object.`
+      : targetType === "presentation"
+      ? `You are generating content for a presentation. Return a JSON object with: { "title": "...", "slides": [{ "title": "...", "content": "..." }, ...] }. Use the situation context to produce a clear, professional presentation. Return ONLY the JSON object.`
+      : `You are generating a document. Return a JSON object with: { "title": "...", "content": "The full document content in markdown format" }. Use the situation context to produce a thorough, professional document. Return ONLY the JSON object.`;
+
+    const genResponse = await callLLM({
+      operatorId,
+      instructions: genInstructions,
+      messages: [{ role: "user", content: userContent }],
+      aiFunction: "reasoning",
+      temperature: 0.3,
+      model: getModel("executionGenerate"),
+    });
+
+    // Parse generated content
+    const generatedContent: Record<string, unknown> =
+      extractJSON(genResponse.text) ?? { title: step.title, content: genResponse.text };
+
+    // Phase 2: Try to create via connector
+    const capabilitySlug = targetType === "spreadsheet" ? "create_spreadsheet"
+      : targetType === "presentation" ? "create_presentation"
+      : "create_document";
+
+    const capability = await prisma.actionCapability.findFirst({
+      where: {
+        operatorId,
+        OR: [{ slug: capabilitySlug }, { name: capabilitySlug }],
+        enabled: true,
+        writeBackStatus: "enabled",
+      },
+      include: { connector: { select: { id: true, provider: true, config: true, status: true } } },
+    });
+
+    if (capability?.connector && capability.connector.status === "active") {
+      // Has connected capability — create real artifact
+      const provider = getProvider(capability.connector.provider);
+      if (provider?.executeAction) {
+        const config = decryptConfig(capability.connector.config || "{}") as Record<string, any>;
+
+        if (config.demo === true) {
+          const mockId = `demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          await writeStepResult(operatorId, pageSlug, stepOrder, "completed",
+            `${capabilitySlug} created (demo) → "${generatedContent.title ?? step.title}"`,
+            { ...generatedContent, _demo: true },
+            {
+              title: (generatedContent.title as string) ?? step.title,
+              description: `Generated ${targetType}`,
+              type: targetType,
+              reference: mockId,
+            });
+          return;
+        }
+
+        const result = await provider.executeAction(config, capabilitySlug, generatedContent);
+
+        // Persist refreshed config
+        await prisma.sourceConnector.update({
+          where: { id: capability.connector.id },
+          data: { config: encryptConfig(config) },
+        }).catch(() => {});
+
+        if (result.success) {
+          const r = (result.result ?? {}) as Record<string, unknown>;
+          await writeStepResult(operatorId, pageSlug, stepOrder, "completed",
+            `${capabilitySlug} created → ${r.url ?? r.id ?? "success"}`,
+            r,
+            {
+              title: (generatedContent.title as string) ?? step.title,
+              description: `Generated ${targetType}`,
+              type: targetType,
+              reference: String(r.url ?? r.id ?? ""),
+            });
+          return;
+        }
+        // Connector failed — fall through to text-only
+        console.warn(`[wiki-execution] Connector ${capabilitySlug} failed: ${result.error}. Falling back to text output.`);
+      }
+    }
+
+    // No connector or connector failed — store generated content as text deliverable
+    const contentText = typeof generatedContent.content === "string"
+      ? generatedContent.content
+      : JSON.stringify(generatedContent, null, 2);
+
+    await writeStepResult(operatorId, pageSlug, stepOrder, "completed",
+      contentText.slice(0, 8000),
+      { type: "content", ...generatedContent },
+      {
+        title: (generatedContent.title as string) ?? step.title,
+        description: `Generated ${targetType} (no connector available — content stored as text)`,
+        type: targetType,
+      });
+    return;
+  }
+
+  // Non-document generate step — produce text content with full context
   const response = await callLLM({
     operatorId,
-    instructions: "You are executing a step in a business workflow. Complete the task described below using the provided context. Return your output as plain text.",
+    instructions: "You are executing a step in a business workflow. Complete the task using the full situation context provided. Produce thorough, professional output.",
     messages: [{ role: "user", content: userContent }],
     aiFunction: "reasoning",
     temperature: 0.3,
@@ -735,7 +884,8 @@ async function executeGenerate(
   });
 
   await writeStepResult(operatorId, pageSlug, stepOrder, "completed",
-    response.text.slice(0, 2000));
+    response.text.slice(0, 8000),
+    { type: "content", text: response.text, format: "markdown" });
 }
 
 async function executeHumanTask(

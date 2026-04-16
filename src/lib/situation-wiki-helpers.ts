@@ -8,7 +8,6 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { embedTexts } from "@/lib/wiki-embedder";
 import { extractCrossReferences } from "@/lib/wiki-engine";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -154,10 +153,6 @@ export async function createSituationWikiPage(params: CreateSituationPageParams)
   const contentTokens = Math.ceil(fullContent.length / 4);
   const crossReferences = extractCrossReferences(fullContent);
 
-  // Embed for search_wiki discoverability
-  const embeddings = await embedTexts([fullContent]).catch(() => [null]);
-  const embedding = embeddings[0];
-
   const page = await prisma.knowledgePage.create({
     data: {
       operatorId: params.operatorId,
@@ -181,16 +176,6 @@ export async function createSituationWikiPage(params: CreateSituationPageParams)
     select: { id: true },
   });
 
-  // Set embedding via raw SQL (pgvector)
-  if (embedding) {
-    const embeddingStr = `[${embedding.join(",")}]`;
-    await prisma.$executeRawUnsafe(
-      `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-      embeddingStr,
-      page.id,
-    );
-  }
-
   return page.id;
 }
 
@@ -199,7 +184,7 @@ export async function createSituationWikiPage(params: CreateSituationPageParams)
 /**
  * Update a situation wiki page after reasoning completes.
  * Replaces the full article body with the reasoning engine's output.
- * Re-embeds the page for search discoverability.
+ * searchVector (STORED tsvector) auto-updates from content change.
  */
 export async function updateSituationWikiPage(params: UpdateSituationPageParams): Promise<void> {
   const fullContent = assemblePageContent(params.title, params.properties, params.articleBody);
@@ -216,54 +201,24 @@ export async function updateSituationWikiPage(params: UpdateSituationPageParams)
     return;
   }
 
-  // Re-embed updated content
-  const embeddings = await embedTexts([fullContent]).catch(() => [null]);
-  const embedding = embeddings[0];
-
-  if (embedding) {
-    const embeddingStr = `[${embedding.join(",")}]`;
-    await prisma.$executeRawUnsafe(
-      `UPDATE "KnowledgePage"
-       SET "title" = $1, "content" = $2, "contentTokens" = $3,
-           "crossReferences" = $4::text[], "properties" = $5::jsonb,
-           "confidence" = $6, "version" = "version" + 1,
-           "synthesisPath" = $7, "synthesizedByModel" = $8,
-           "synthesisCostCents" = $9, "synthesisDurationMs" = $10,
-           "lastSynthesizedAt" = NOW(), "updatedAt" = NOW(),
-           "embedding" = $11::vector
-       WHERE "id" = $12`,
-      params.title,
-      fullContent,
+  // searchVector is a STORED generated column — auto-updates when content changes
+  await prisma.knowledgePage.update({
+    where: { id: existing.id },
+    data: {
+      title: params.title,
+      content: fullContent,
       contentTokens,
       crossReferences,
-      JSON.stringify(params.properties),
-      params.properties.confidence,
-      "reasoning",
-      params.synthesizedByModel,
-      params.synthesisCostCents ?? null,
-      params.synthesisDurationMs ?? null,
-      embeddingStr,
-      existing.id,
-    );
-  } else {
-    await prisma.knowledgePage.update({
-      where: { id: existing.id },
-      data: {
-        title: params.title,
-        content: fullContent,
-        contentTokens,
-        crossReferences,
-        properties: params.properties as unknown as Prisma.InputJsonValue,
-        confidence: params.properties.confidence,
-        version: { increment: 1 },
-        synthesisPath: "reasoning",
-        synthesizedByModel: params.synthesizedByModel,
-        synthesisCostCents: params.synthesisCostCents ?? null,
-        synthesisDurationMs: params.synthesisDurationMs ?? null,
-        lastSynthesizedAt: new Date(),
-      },
-    });
-  }
+      properties: params.properties as unknown as Prisma.InputJsonValue,
+      confidence: params.properties.confidence,
+      version: { increment: 1 },
+      synthesisPath: "reasoning",
+      synthesizedByModel: params.synthesizedByModel,
+      synthesisCostCents: params.synthesisCostCents ?? null,
+      synthesisDurationMs: params.synthesisDurationMs ?? null,
+      lastSynthesizedAt: new Date(),
+    },
+  });
 }
 
 // ── Slug generation ──────────────────────────────────────────────────────────

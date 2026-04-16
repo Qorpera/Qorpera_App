@@ -1404,8 +1404,11 @@ model KnowledgePage {
   lastIntegrityCheck  DateTime?
   integrityStatus     String?    // "verified" | "drift_suspected" | "needs_update"
 
-  // Embedding for search_wiki
+  // Embedding for search_wiki (legacy — being replaced by FTS)
   embedding Unsupported("vector(1536)")?
+
+  // Full-text search vector (STORED generated column — auto-updates)
+  searchVector Unsupported("tsvector")?
 
   operator       Operator?              @relation(fields: [operatorId], references: [id], onDelete: Cascade)
   sourceDocument SourceDocument?        @relation(fields: [sourceDocumentId], references: [id])

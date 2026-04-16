@@ -10,7 +10,6 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSON } from "@/lib/json-helpers";
-import { embedTexts } from "@/lib/wiki-embedder";
 import { createVersionSnapshot } from "@/lib/wiki-engine";
 
 // ── Types ──────────────────────────────────────────────
@@ -226,20 +225,6 @@ export async function reflectOnOutcome(params: {
       },
     });
 
-    // Re-embed (fire-and-forget)
-    embedTexts([result.updatedContent])
-      .then(([embedding]) => {
-        if (embedding) {
-          const embeddingStr = `[${embedding.join(",")}]`;
-          return prisma.$executeRawUnsafe(
-            `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-            embeddingStr,
-            existingPage.id,
-          );
-        }
-      })
-      .catch(() => {});
-
     console.log(`[reflection] Updated operational learning page "${learningSlug}" (v${existingPage.version + 1}) for ${outcome}`);
   } else {
     const page = await prisma.knowledgePage.create({
@@ -266,20 +251,6 @@ export async function reflectOnOutcome(params: {
       },
       select: { id: true },
     });
-
-    // Embed (fire-and-forget)
-    embedTexts([result.updatedContent])
-      .then(([embedding]) => {
-        if (embedding) {
-          const embeddingStr = `[${embedding.join(",")}]`;
-          return prisma.$executeRawUnsafe(
-            `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-            embeddingStr,
-            page.id,
-          );
-        }
-      })
-      .catch(() => {});
 
     console.log(`[reflection] Created operational learning page "${learningSlug}" for ${outcome}`);
   }

@@ -12,7 +12,6 @@ import { prisma } from "@/lib/db";
 import { callLLM, getModel, getMaxOutputTokens, getThinkingBudget } from "@/lib/ai-provider";
 import type { AITool, LLMMessage } from "@/lib/ai-provider";
 import { extractJSONAny } from "@/lib/json-helpers";
-import { embedTexts } from "@/lib/wiki-embedder";
 import { searchRawContent } from "@/lib/storage/raw-content-store";
 
 // ── Configuration ──────────────────────────────────────────────────────────────
@@ -190,7 +189,6 @@ async function toolWriteWikiPage(
         lastSynthesizedAt: new Date(),
       },
     });
-    embedPageAsync(existing.id, args.content);
     return `Updated page "${args.title}" (v${existing.version + 1})`;
   }
 
@@ -216,7 +214,6 @@ async function toolWriteWikiPage(
       lastSynthesizedAt: new Date(),
     },
   });
-  embedPageAsync(page.id, args.content);
   return `Created page "${args.title}"`;
 }
 
@@ -227,23 +224,6 @@ async function toolReadWikiPage(operatorId: string, slug: string): Promise<strin
   });
   if (!page) return `No wiki page found with slug "${slug}"`;
   return `# ${page.title} [${page.pageType}]\n\n${page.content}`;
-}
-
-function embedPageAsync(pageId: string, content: string): void {
-  embedTexts([content])
-    .then((embeddings) => {
-      if (embeddings[0]) {
-        const embStr = `[${embeddings[0].join(",")}]`;
-        prisma
-          .$executeRawUnsafe(
-            `UPDATE "KnowledgePage" SET embedding = $1::vector WHERE id = $2`,
-            embStr,
-            pageId,
-          )
-          .catch((err) => console.error(`[wiki-synthesis] Embedding failed for ${pageId}:`, err));
-      }
-    })
-    .catch(() => {});
 }
 
 // ── Tool Definitions ───────────────────────────────────────────────────────────

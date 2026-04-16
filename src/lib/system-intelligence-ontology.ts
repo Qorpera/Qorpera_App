@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db";
-import { embedTexts } from "@/lib/wiki-embedder";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -53,27 +52,21 @@ export async function findOntologyGaps(vertical: string): Promise<OntologyNode[]
 
   for (const req of allRequirements) {
     const searchQuery = `${req.domain} ${req.subDomain} ${req.knowledgeRequirement}`;
-    const embeddings = await embedTexts([searchQuery]).catch(() => [null]);
 
-    if (!embeddings[0]) {
-      gaps.push(req);
-      continue;
-    }
-
-    const embeddingStr = `[${embeddings[0].join(",")}]`;
-    const matches = await prisma.$queryRawUnsafe<Array<{ slug: string; similarity: number }>>(
-      `SELECT slug, 1 - (embedding <=> $1::vector) as similarity
+    const matches = await prisma.$queryRawUnsafe<Array<{ slug: string; rank: number }>>(
+      `SELECT slug, ts_rank_cd("searchVector", websearch_to_tsquery('english', $1), 32) as rank
        FROM "KnowledgePage"
        WHERE scope = 'system'
          AND status IN ('verified', 'draft')
-         AND embedding IS NOT NULL
-       ORDER BY embedding <=> $1::vector
+         AND "searchVector" @@ websearch_to_tsquery('english', $1)
+       ORDER BY rank DESC
        LIMIT 1`,
-      embeddingStr,
+      searchQuery,
     );
 
-    // If best match is below threshold, this requirement is a gap
-    if (matches.length === 0 || matches[0].similarity < 0.75) {
+    // ts_rank_cd with normalization 32 (÷ document length) keeps scores comparable
+    // across short and long pages. Threshold 0.001 filters noise.
+    if (matches.length === 0 || matches[0].rank < 0.001) {
       gaps.push(req);
     }
   }
@@ -213,18 +206,6 @@ export async function seedOntology(vertical: string, content: string): Promise<s
     },
     select: { id: true },
   });
-
-  // Embed
-  embedTexts([content]).then(([embedding]) => {
-    if (embedding) {
-      const embeddingStr = `[${embedding.join(",")}]`;
-      prisma.$executeRawUnsafe(
-        `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-        embeddingStr,
-        page.id,
-      ).catch(() => {});
-    }
-  }).catch(() => {});
 
   return page.id;
 }

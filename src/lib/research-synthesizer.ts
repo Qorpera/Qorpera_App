@@ -9,7 +9,6 @@
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
 import { extractJSONArray } from "@/lib/json-helpers";
-import { embedTexts } from "@/lib/wiki-embedder";
 
 // ── Types ──────────────────────────────────────────────
 
@@ -327,18 +326,6 @@ Write a comprehensive knowledge page. Requirements:
         },
       });
 
-      // Re-embed (fire-and-forget)
-      embedTexts([content]).then(([embedding]) => {
-        if (embedding) {
-          const embeddingStr = `[${embedding.join(",")}]`;
-          return prisma.$executeRawUnsafe(
-            `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-            embeddingStr,
-            existing.id,
-          );
-        }
-      }).catch(() => {});
-
       // Re-verify (fire-and-forget)
       import("@/lib/wiki-verification").then(({ verifyPage }) => {
         verifyPage(existing.id).catch((err) =>
@@ -399,20 +386,6 @@ Write a comprehensive knowledge page. Requirements:
     },
     select: { id: true },
   });
-
-  // Embed for vector search (fire-and-forget)
-  embedTexts([content])
-    .then(([embedding]) => {
-      if (embedding) {
-        const embeddingStr = `[${embedding.join(",")}]`;
-        return prisma.$executeRawUnsafe(
-          `UPDATE "KnowledgePage" SET "embedding" = $1::vector WHERE "id" = $2`,
-          embeddingStr,
-          page.id,
-        );
-      }
-    })
-    .catch(() => {});
 
   // Run verification (fire-and-forget — updates status to verified or keeps draft)
   import("@/lib/wiki-verification").then(({ verifyPage }) => {

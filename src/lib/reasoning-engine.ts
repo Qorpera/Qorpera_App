@@ -17,6 +17,7 @@ import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
 import { getConnectorReadTools, executeConnectorReadTool } from "@/lib/connector-read-tools";
 import { processWikiUpdates, updatePageWithLock, type WikiUpdate } from "@/lib/wiki-engine";
 import { parseSituationPage } from "@/lib/situation-page-parser";
+import { renderActionPlan, replaceSection, type ParsedActionStep } from "@/lib/wiki-execution-engine";
 
 /** Increment this whenever the reasoning system/user prompt changes meaningfully. */
 export const REASONING_PROMPT_VERSION = 7; // v7: wiki-first entry point — wiki page is primary gate, no thin Situation dependency
@@ -458,7 +459,66 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       return reasonAboutSituation(situationId, wikiPageSlug);
     }
 
-    // 10. Output — wiki page only
+    // 10. Resolve actionSteps → system-written Action Plan section
+    let resolvedSteps: ParsedActionStep[] = [];
+
+    if (reasoning.actionSteps && reasoning.actionSteps.length > 0) {
+      for (let i = 0; i < reasoning.actionSteps.length; i++) {
+        const step = reasoning.actionSteps[i];
+
+        // Resolve actionCapabilityName → verify exists
+        if (step.executionMode === "action") {
+          if (!step.actionCapabilityName) {
+            console.warn(`[reasoning-engine] Action step "${step.title}" missing actionCapabilityName for ${wikiPageSlug}. Nullifying plan.`);
+            resolvedSteps = [];
+            break;
+          }
+          const cap = capabilities.find(
+            (c) => c.name === step.actionCapabilityName && c.enabled,
+          );
+          if (!cap) {
+            console.warn(`[reasoning-engine] ActionCapability "${step.actionCapabilityName}" not found for ${wikiPageSlug}. Nullifying plan.`);
+            resolvedSteps = [];
+            break;
+          }
+        }
+
+        // Inject previewType into params (system responsibility, not LLM)
+        const stepParams = step.params ? { ...step.params } : {};
+        if (step.previewType) stepParams.previewType = step.previewType;
+
+        // Map executionMode: LLM says "action" → wiki format says "api_action"
+        if (step.executionMode === "await_situation") {
+          console.warn(`[reasoning-engine] Step "${step.title}" uses unsupported await_situation mode. Falling back to human_task.`);
+        }
+        const actionType: ParsedActionStep["actionType"] =
+          step.executionMode === "action" ? "api_action"
+          : step.executionMode === "generate" ? "generate"
+          : "human_task";  // human_task | await_situation (fallback)
+
+        resolvedSteps.push({
+          order: i + 1,
+          title: step.title,
+          actionType,
+          status: "pending" as const,
+          description: step.description,
+          ...(step.executionMode === "action" && step.actionCapabilityName
+            ? { capabilityName: step.actionCapabilityName } : {}),
+          ...(step.assignedUserId ? { assignedSlug: step.assignedUserId } : {}),
+          ...(Object.keys(stepParams).length > 0 ? { params: stepParams } : {}),
+          ...(step.previewType ? { previewType: step.previewType } : {}),
+        });
+      }
+    }
+
+    // System writes the Action Plan section — overwrite whatever the LLM wrote
+    let finalPageContent = reasoning.pageContent;
+    if (resolvedSteps.length > 0) {
+      const renderedPlan = renderActionPlan(resolvedSteps);
+      finalPageContent = replaceSection(finalPageContent, "Action Plan", renderedPlan);
+    }
+
+    // 11. Output — wiki page only
     const updatedTitle = reasoning.situationTitle ?? situationPage.title;
     const updatedProps = reasoning.properties as SituationProperties;
 
@@ -467,7 +527,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       slug: situationPage.slug,
       title: updatedTitle,
       properties: updatedProps,
-      articleBody: reasoning.pageContent,
+      articleBody: finalPageContent,
       synthesizedByModel: modelString,
       synthesisCostCents: Math.round(reasoningApiCostCents),
       synthesisDurationMs: Math.round(reasoningDurationMs),
@@ -496,11 +556,8 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       });
     }
 
-    // Notifications
-    const { parseActionPlan } = await import("@/lib/wiki-execution-engine");
-    const actionPlan = parseActionPlan(reasoning.pageContent);
-
-    if (actionPlan.steps.length === 0) {
+    // Notifications — use resolvedSteps directly instead of re-parsing
+    if (resolvedSteps.length === 0) {
       sendNotificationToAdmins({
         operatorId,
         type: "situation_proposed",
@@ -514,7 +571,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
         operatorId,
         type: "situation_proposed",
         title: `Plan proposed: ${situationType.name}`,
-        body: `AI proposes a ${actionPlan.steps.length}-step plan: ${actionPlan.steps.map(s => s.title).join(" → ")}`,
+        body: `AI proposes a ${resolvedSteps.length}-step plan: ${resolvedSteps.map(s => s.title).join(" → ")}`,
         sourceType: "situation",
         sourceId: wikiSituationId,
       }).catch(() => {});

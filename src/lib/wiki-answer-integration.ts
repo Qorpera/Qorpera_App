@@ -6,7 +6,6 @@
 
 import { prisma } from "@/lib/db";
 import { callLLM, getModel } from "@/lib/ai-provider";
-import { embedTexts } from "@/lib/wiki-embedder";
 import { searchPages, createVersionSnapshot } from "@/lib/wiki-engine";
 
 const MAX_WIKI_UPDATES = 10;
@@ -167,16 +166,6 @@ Output the updated page content:`,
       },
     });
 
-    // Re-embed the updated content
-    const embeddings = await embedTexts([updatedContent]).catch(() => [null]);
-    const embedding = embeddings[0];
-    if (embedding) {
-      const embeddingStr = `[${embedding.join(",")}]`;
-      await prisma.$executeRaw`
-        UPDATE "KnowledgePage" SET "embedding" = ${embeddingStr}::vector WHERE "id" = ${page.id}
-      `;
-    }
-
     return true;
   } catch (err) {
     console.error(`[wiki-answers] Failed to integrate answer into page ${page.slug}:`, err);
@@ -241,16 +230,6 @@ async function createPageFromAnswer(
       },
       select: { id: true },
     });
-
-    // Embed the new page
-    const embeddings = await embedTexts([content]).catch(() => [null]);
-    const embedding = embeddings[0];
-    if (embedding) {
-      const embeddingStr = `[${embedding.join(",")}]`;
-      await prisma.$executeRaw`
-        UPDATE "KnowledgePage" SET "embedding" = ${embeddingStr}::vector WHERE "id" = ${page.id}
-      `;
-    }
 
     return true;
   } catch (err) {
