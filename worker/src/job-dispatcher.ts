@@ -11,6 +11,19 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     await reasonAboutSituation(situationId, wikiPageSlug);
   },
 
+  async reason_initiative(payload) {
+    const { operatorId, pageSlug } = payload as { operatorId: string; pageSlug: string };
+    const { reasonAboutInitiative } = await import("@/lib/initiative-reasoning");
+    await reasonAboutInitiative(operatorId, pageSlug);
+  },
+
+  async execute_initiative(payload) {
+    const { pageSlug } = payload as { operatorId: string; pageSlug: string };
+    // Stub: Session C builds the real execution engine (staged changeset generation).
+    // For now, accepted initiatives stay in "accepted" status until Session C lands.
+    console.log(`[job-dispatcher] execute_initiative stub for ${pageSlug} — Session C will build the engine`);
+  },
+
   async evaluate_content(payload) {
     const { operatorId, items } = payload as { operatorId: string; items: CommunicationItem[] };
     await evaluateContentForSituations(operatorId, items);

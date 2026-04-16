@@ -204,7 +204,7 @@ export function ContextualChat({
             onFocus={() => setChatFocused(true)}
             onBlur={() => setChatFocused(false)}
             placeholder={placeholder || t("defaultPlaceholder")}
-            id="situation-chat-input"
+            id={`${contextType}-chat-input`}
             rows={1}
             className="w-full outline-none resize-none"
             style={{

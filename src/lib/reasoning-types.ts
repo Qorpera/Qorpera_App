@@ -150,3 +150,61 @@ export const WikiReasoningOutputSchema = z.object({
 });
 
 export type WikiReasoningOutput = z.infer<typeof WikiReasoningOutputSchema>;
+
+// ── Initiative Reasoning Output ──────────────────────────────────────────────
+
+/**
+ * The initiative reasoning engine writes the initiative page directly.
+ * The code handles status transitions, locking, and notifications.
+ * The LLM decides valuable/dismissed and writes the complete enriched article.
+ */
+const InitiativePrimaryDeliverableSchema = z.object({
+  type: z.enum(["wiki_update", "wiki_create", "document", "settings_change"]),
+  targetPageSlug: z.string().optional().describe("For wiki_update: the existing page slug to modify. For wiki_create: the proposed new slug."),
+  targetPageType: z.string().optional().describe("For wiki_create or wiki_update: the pageType (e.g., 'process', 'person_profile', 'domain_hub')."),
+  title: z.string().describe("Short title for this deliverable"),
+  description: z.string().describe("Concrete description of what the change is — not vague advice. For wiki_update: what sections change. For wiki_create: what the new page contains. For document: what document gets produced."),
+  rationale: z.string().describe("Why this specific change addresses the initiative"),
+});
+
+const InitiativeDownstreamEffectSchema = z.object({
+  targetPageSlug: z.string().describe("The existing wiki page slug that may need to change"),
+  targetPageType: z.string().describe("The pageType of the target page"),
+  changeType: z.enum(["update", "create", "review"]).describe("update = existing page content changes; create = new page needs to be created; review = no write needed but someone should re-read"),
+  summary: z.string().describe("One sentence: what changes on this page and why, given the primary deliverable"),
+});
+
+export const InitiativeReasoningOutputSchema = z.object({
+  // Quality gate
+  isValuable: z.boolean().describe("Does deeper investigation confirm this initiative is worth doing? False if redundant, too speculative, out of scope, already handled, or low expected impact."),
+  dismissalReason: z.string().optional().describe("If isValuable is false, a 1-2 sentence explanation shown to the user in the 'all' filter. Required when isValuable=false."),
+
+  // Enriched page content — the LLM writes the whole article
+  pageContent: z.string().min(50).describe("Complete initiative article body following the initiative template. Starts with '## Trigger'. Must include Investigation, Proposal, Primary Deliverable, Downstream Effects, Impact Assessment, Alternatives Considered, and Timeline sections. For dismissed initiatives, Investigation explains why dismissed and other sections may be brief or absent."),
+
+  // Possibly refined title
+  initiativeTitle: z.string().optional().describe("Refined title if the original scanner title was vague or inaccurate. Leave blank to keep original."),
+
+  // Updated properties
+  properties: z.object({
+    status: z.enum(["dismissed", "proposed"]).describe("Terminal status of reasoning: dismissed (not valuable) or proposed (awaiting user decision)"),
+    proposal_type: z.enum(["wiki_update", "process_creation", "strategy_revision", "system_job_creation", "project_creation", "general"]).optional().describe("May refine the detection-time proposal_type if investigation reveals a different category"),
+    severity: z.enum(["low", "medium", "high", "critical"]).optional(),
+    priority: z.enum(["low", "medium", "high", "critical"]).optional(),
+    expected_impact: z.enum(["low", "medium", "high", "transformative"]).optional(),
+    effort_estimate: z.enum(["trivial", "small", "medium", "large", "major"]).optional(),
+  }),
+
+  // Primary deliverable specification — null for dismissed initiatives
+  primaryDeliverable: InitiativePrimaryDeliverableSchema.nullable().describe("The single main change this initiative proposes. Null when isValuable=false."),
+
+  // Downstream effects — bullet-level only (Phase 4 investigates each in depth)
+  downstreamEffects: z.array(InitiativeDownstreamEffectSchema).optional().describe("Other pages that may need to change if the primary deliverable is implemented. Bullet-level identification only — Phase 4 will investigate each. Empty array is valid if no downstream effects."),
+
+  // Cross-page knowledge updates discovered during investigation (same as situation reasoning)
+  wikiUpdates: z.array(WikiUpdateSchema).optional().describe("Factual updates to other wiki pages discovered during investigation (e.g., a person's role has changed). Separate from primary deliverable / downstream effects."),
+});
+
+export type InitiativeReasoningOutput = z.infer<typeof InitiativeReasoningOutputSchema>;
+export type InitiativePrimaryDeliverable = z.infer<typeof InitiativePrimaryDeliverableSchema>;
+export type InitiativeDownstreamEffect = z.infer<typeof InitiativeDownstreamEffectSchema>;

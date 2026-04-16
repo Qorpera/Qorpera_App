@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { createProjectFromInitiative } from "@/lib/initiative-project";
 
 // ── GET ── Detail from wiki page (with legacy fallback) ──────────────────────
 
@@ -43,27 +42,55 @@ export async function GET(
       ownerName = ownerPage?.title ?? null;
     }
 
-    const proposalMatch = page.content?.match(/## Proposal\s*\n([\s\S]*?)(?=\n## |\n$|$)/);
-    const triggerMatch = page.content?.match(/## Trigger\s*\n([\s\S]*?)(?=\n## |\n$|$)/);
+    // Resolve target page titles for primary_deliverable + downstream_effects
+    const slugsToResolve = new Set<string>();
+    const primary = props.primary_deliverable as { targetPageSlug?: string } | null;
+    if (primary?.targetPageSlug) slugsToResolve.add(primary.targetPageSlug);
+    const downstream = (props.downstream_effects ?? []) as Array<{ targetPageSlug?: string }>;
+    for (const d of downstream) {
+      if (d?.targetPageSlug) slugsToResolve.add(d.targetPageSlug);
+    }
+
+    const resolvedTargets: Record<string, string> = {};
+    if (slugsToResolve.size > 0) {
+      const targetPages = await prisma.knowledgePage.findMany({
+        where: { operatorId, slug: { in: [...slugsToResolve] }, scope: "operator" },
+        select: { slug: true, title: true },
+      });
+      for (const tp of targetPages) resolvedTargets[tp.slug] = tp.title;
+    }
 
     return NextResponse.json({
       id: page.slug,
-      aiEntityId: null,
       ownerPageSlug: ownerSlug,
       ownerName,
       proposalType: props.proposal_type ?? "general",
       triggerSummary: page.title || "Untitled initiative",
       status: props.status ?? "proposed",
-      rationale: (props.rationale as string)
-        ?? proposalMatch?.[1]?.trim()
-        ?? triggerMatch?.[1]?.trim()
-        ?? null,
-      impactAssessment: (props.impact_assessment as string) ?? null,
-      evidence: props.evidence ?? null,
-      proposal: props.project_config ?? null,
-      proposedProjectConfig: props.project_config ?? null,
+
+      // Full markdown content — the UI parses sections
+      content: page.content ?? "",
+
+      // Structured deliverables from reasoning engine
+      primaryDeliverable: props.primary_deliverable ?? null,
+      downstreamEffects: props.downstream_effects ?? null,
+
+      // Resolved target page titles — used for tab labels and changeset row labels
+      resolvedTargetTitles: resolvedTargets,
+
+      // Dismissal reason (when status === "dismissed")
+      dismissalReason: (props.dismissal_reason as string) ?? null,
+
+      // Scalar properties
+      severity: (props.severity as string) ?? null,
+      priority: (props.priority as string) ?? null,
+      expectedImpact: (props.expected_impact as string) ?? null,
+      effortEstimate: (props.effort_estimate as string) ?? null,
+
+      // Meta
+      investigatedAt: (props.investigated_at as string) ?? null,
+      synthesizedByModel: (props.synthesized_by_model as string) ?? null,
       projectId: (props.project_id as string) ?? null,
-      content: page.content,
       createdAt: page.createdAt.toISOString(),
       updatedAt: page.updatedAt.toISOString(),
     });
@@ -105,12 +132,13 @@ export async function GET(
     impactAssessment: initiative.impactAssessment,
     proposedProjectConfig: initiative.proposedProjectConfig,
     projectId: initiative.projectId,
+    resolvedTargetTitles: {},
     createdAt: initiative.createdAt.toISOString(),
     updatedAt: initiative.updatedAt.toISOString(),
   });
 }
 
-// ── PATCH ── Approve/reject via wiki page ────────────────────────────────────
+// ── PATCH ── Accept/reject via wiki page ─────────────────────────────────────
 
 export async function PATCH(
   req: NextRequest,
@@ -126,8 +154,9 @@ export async function PATCH(
   }
 
   const body = await req.json();
-  if (body.status !== "approved" && body.status !== "rejected") {
-    return NextResponse.json({ error: "Status must be 'approved' or 'rejected'" }, { status: 400 });
+  const action = body.action as string | undefined;
+  if (action !== "accept" && action !== "reject") {
+    return NextResponse.json({ error: "action must be 'accept' or 'reject'" }, { status: 400 });
   }
 
   // Try wiki page first
@@ -145,10 +174,9 @@ export async function PATCH(
   });
 
   if (page) {
-    const props = (page.properties ?? {}) as Record<string, unknown>;
     const { updatePageWithLock } = await import("@/lib/wiki-engine");
 
-    if (body.status === "rejected") {
+    if (action === "reject") {
       await updatePageWithLock(operatorId, page.slug, (p) => ({
         properties: { ...(p.properties ?? {}), status: "rejected" },
       }));
@@ -165,101 +193,29 @@ export async function PATCH(
       return NextResponse.json({ id: page.slug, status: "rejected" });
     }
 
-    // Approved — dispatch based on proposal type
-    const proposalType = props.proposal_type as string | undefined;
-
-    if (proposalType === "project_creation") {
-      let projectId: string | undefined;
-      try {
-        // createProjectFromInitiative handles wiki page lookup, project creation,
-        // and marks the wiki page as completed with project_id
-        projectId = await createProjectFromInitiative(page.slug, user.id);
-      } catch (err) {
-        console.error("[initiative-api] Failed to create project:", err);
-        await updatePageWithLock(operatorId, page.slug, (p) => ({
-          properties: { ...(p.properties ?? {}), status: "approved" },
-        }));
-        return NextResponse.json({ id: page.slug, status: "approved" });
-      }
-
-      return NextResponse.json({ id: page.slug, status: "completed", projectId });
-    }
-
-    if (proposalType === "system_job_creation") {
-      await updatePageWithLock(operatorId, page.slug, (p) => ({
-        properties: { ...(p.properties ?? {}), status: "approved" },
-      }));
-
-      try {
-        const { CronExpressionParser } = await import("cron-parser");
-        const { buildSystemJobWikiContent } = await import("@/lib/system-job-wiki");
-        const cronExpr = (props.cron_expression as string) ?? "0 0 * * *";
-        const interval = CronExpressionParser.parse(cronExpr);
-        const title = page.title;
-        const description = (props.description as string) ?? page.content.slice(0, 500);
-        const scope = (props.scope as string) ?? "company_wide";
-        const domainPageSlug = (props.domain as string) ?? null;
-
-        const jobSlug = `system-job-${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
-        const now = new Date();
-        await prisma.knowledgePage.create({
-          data: {
-            operatorId,
-            slug: jobSlug,
-            title: `System Job: ${title}`,
-            pageType: "system_job",
-            scope: "operator",
-            status: "verified",
-            content: buildSystemJobWikiContent({ description, cronExpression: cronExpr, scope, domainPageSlug }),
-            crossReferences: domainPageSlug ? [domainPageSlug] : [],
-            synthesisPath: "manual",
-            synthesizedByModel: "manual",
-            confidence: 1.0,
-            contentTokens: 0,
-            lastSynthesizedAt: now,
-          },
-        });
-
-        const job = await prisma.systemJob.create({
-          data: {
-            operatorId,
-            title,
-            description,
-            cronExpression: cronExpr,
-            scope,
-            wikiPageSlug: jobSlug,
-            domainPageSlug,
-            status: "active",
-            source: "initiative",
-            importanceThreshold: 0.3,
-            nextTriggerAt: interval.next().toDate(),
-          },
-        });
-
-        await updatePageWithLock(operatorId, page.slug, (p) => ({
-          properties: { ...(p.properties ?? {}), status: "completed", system_job_id: job.id },
-        }));
-
-        return NextResponse.json({ id: page.slug, status: "completed", systemJobId: job.id });
-      } catch (err) {
-        console.error("[initiative-api] Failed to create system job:", err);
-        return NextResponse.json({ id: page.slug, status: "approved" });
-      }
-    }
-
-    // Default: generic approval
+    // Accept: transition to "accepted" and enqueue execution.
+    // Execution engine (Session C) will generate the staged changeset.
+    // For now: execute_initiative is a stub handler — initiative stays in "accepted" until Session C.
     await updatePageWithLock(operatorId, page.slug, (p) => ({
-      properties: { ...(p.properties ?? {}), status: "approved" },
+      properties: { ...(p.properties ?? {}), status: "accepted", accepted_at: new Date().toISOString() },
     }));
 
-    return NextResponse.json({ id: page.slug, status: "approved" });
+    const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+    await enqueueWorkerJob("execute_initiative", operatorId, {
+      operatorId,
+      pageSlug: page.slug,
+    }).catch(err => {
+      console.error(`[initiative-api] Failed to enqueue execute_initiative for ${page.slug}:`, err);
+    });
+
+    return NextResponse.json({ id: page.slug, status: "accepted" });
   }
 
-  // Fallback: try legacy Initiative table
+  // Fallback: legacy Initiative table — map action → legacy status
   const initiative = await prisma.initiative.findFirst({ where: { id, operatorId } });
   if (!initiative) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Legacy handling — keep minimal for existing records
-  await prisma.initiative.update({ where: { id }, data: { status: body.status } });
-  return NextResponse.json({ id, status: body.status });
+  const legacyStatus = action === "accept" ? "approved" : "rejected";
+  await prisma.initiative.update({ where: { id }, data: { status: legacyStatus } });
+  return NextResponse.json({ id, status: legacyStatus });
 }

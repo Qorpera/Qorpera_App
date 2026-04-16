@@ -1,7 +1,7 @@
 import { callLLM } from "@/lib/ai-provider";
 import { extractJSON } from "@/lib/json-helpers";
 
-const REFINEMENT_MODEL = "claude-opus-4-6";
+const REFINEMENT_MODEL = "claude-opus-4-7";
 
 interface StepUncertainty {
   field: string;

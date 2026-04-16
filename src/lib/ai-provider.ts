@@ -19,12 +19,12 @@ const MODEL_ROUTES = {
 
   // ── Multi-agent pipeline ──
   multiAgentSpecialist: "claude-sonnet-4-6",
-  multiAgentCoordinator: "claude-opus-4-6",
+  multiAgentCoordinator: "claude-opus-4-7",
 
   // ── Strategic intelligence ──
-  initiativeReasoning: "claude-opus-4-6",
-  strategicScan: "claude-opus-4-6",
-  systemJobReasoning: "claude-opus-4-6",
+  initiativeReasoning: "claude-opus-4-7",
+  strategicScan: "claude-opus-4-7",
+  systemJobReasoning: "claude-opus-4-7",
 
   // ── Content detection pipeline ──
   contentDetection: "gpt-5.4-mini",
@@ -33,13 +33,12 @@ const MODEL_ROUTES = {
   situationAudit: "claude-sonnet-4-6",
 
   // ── Execution & extraction ──
-  copilot: "gpt-5.4",
+  copilot: "claude-opus-4-7",
   insightExtraction: "claude-sonnet-4-6",
   executionGenerate: "gpt-5.4",
-  recurringTasks: "gpt-5.4-mini",
 
   // ── Project intelligence ──
-  projectCompilation: "claude-opus-4-6",
+  projectCompilation: "claude-opus-4-7",
   projectChat: "claude-sonnet-4-6",
   deliverableCompleteness: "claude-sonnet-4-6",
   wikiAnswerIntegration: "claude-haiku-4-5-20251001",
@@ -55,31 +54,29 @@ const MODEL_ROUTES = {
   reflection: "claude-haiku-4-5-20251001",
 
   // ── Agentic reasoning ──
-  agenticReasoning: "claude-opus-4-6",
+  agenticReasoning: "claude-opus-4-7",
 
   // ── Onboarding pipeline ──
-  onboardingIntelligence: "gpt-5.4",
-  onboardingMemory: "gpt-5.4-mini",
   onboardingTemporal: "claude-sonnet-4-6",
   onboardingAgent: "claude-sonnet-4-6",
   onboardingAgentFollowup: "claude-sonnet-4-6",
-  onboardingOrganizer: "claude-opus-4-6",
+  onboardingOrganizer: "claude-opus-4-7",
   evidenceIngestion: "claude-haiku-4-5-20251001",
   sourceStructureDetection: "claude-haiku-4-5-20251001",
-  sourceSynthesis: "claude-opus-4-6",
-  researchPlanner: "claude-opus-4-6",
-  investigationDeep: "claude-opus-4-6",       // financial, strategic, contradiction
+  sourceSynthesis: "claude-opus-4-7",
+  researchPlanner: "claude-opus-4-7",
+  investigationDeep: "claude-opus-4-7",       // financial, strategic, contradiction
   investigationStandard: "claude-sonnet-4-6",  // operational, relational, temporal, gap
   livingResearch: "claude-sonnet-4-6",
-  onboardingSynthesis: "claude-opus-4-6",
+  onboardingSynthesis: "claude-opus-4-7",
   onboardingChat: "claude-sonnet-4-6",
   // Wiki knowledge verification (deliberately different model than synthesis)
   verifier: "claude-sonnet-4-6",
   // Adversarial challenge — MUST be Opus (at least as capable as best investigator)
-  adversarialChallenge: "claude-opus-4-6",
+  adversarialChallenge: "claude-opus-4-7",
   // Document intelligence pipeline
   documentClassification: "claude-haiku-4-5-20251001",
-  documentComprehensionDeep: "claude-opus-4-6",      // critical documents (contracts, financials, DD)
+  documentComprehensionDeep: "claude-opus-4-7",      // critical documents (contracts, financials, DD)
   documentComprehensionStandard: "claude-sonnet-4-6", // significant/supporting/administrative
   // Haiku 4.5 requires the date suffix — there is no "claude-haiku-4-5" alias
   onboardingExtraction: "claude-haiku-4-5-20251001",
@@ -126,6 +123,7 @@ export function getThinkingBudget(route: ModelRoute): number | null {
 }
 
 const MAX_OUTPUT_TOKENS: Record<string, number> = {
+  "claude-opus-4-7": 65_536,
   "claude-opus-4-6": 65_536,
   "claude-sonnet-4-6": 65_536,
   "claude-haiku-4-5-20251001": 8_192,
@@ -465,6 +463,14 @@ async function* proxyStreamLLM(workerUrl: string, options: LLMRequestOptions): A
 
 // ── Anthropic (SDK-based, unified for configured-provider + failover) ────────
 
+// Anthropic's native web search server tool. The SDK's Tool union doesn't
+// include server-executed tools like web_search, hence the cast.
+const WEB_SEARCH_TOOL = {
+  type: "web_search_20250305",
+  name: "web_search",
+  max_uses: 5,
+} as unknown as Anthropic.Messages.Tool;
+
 /**
  * Calls Anthropic Messages API via SDK.
  * Used for both the configured-provider path and OpenAI failover.
@@ -544,9 +550,11 @@ async function callAnthropic(
       }))
     : undefined;
 
-  // Web search not supported on Anthropic — log warning if requested
+  // Anthropic native web search via server tool
+  const anthropicTools: Anthropic.Messages.Tool[] = [];
+  if (tools) anthropicTools.push(...tools);
   if (options.webSearch) {
-    console.warn("[ai-provider] Anthropic: webSearch not supported, proceeding without web search");
+    anthropicTools.push(WEB_SEARCH_TOOL);
   }
 
   const effectiveMaxTokens = options.maxTokens ?? getMaxOutputTokens(model);
@@ -563,7 +571,7 @@ async function callAnthropic(
     messages,
     max_tokens: effectiveMaxTokens,
     ...(system && { system }),
-    ...(tools && { tools }),
+    ...(anthropicTools.length > 0 && { tools: anthropicTools }),
     // Anthropic extended thinking
     ...(options.thinking && { thinking: { type: "enabled" as const, budget_tokens: effectiveThinkingBudget } }),
     // Temperature not allowed with thinking
@@ -576,6 +584,7 @@ async function callAnthropic(
   // Translate response
   let text = "";
   const toolCalls: NonNullable<LLMResponse["toolCalls"]> = [];
+  let webSearchCount = 0;
 
   for (const block of response.content) {
     if (block.type === "text") {
@@ -586,7 +595,13 @@ async function callAnthropic(
         name: block.name,
         arguments: block.input as Record<string, unknown>,
       });
+    } else if (block.type === "server_tool_use" && (block as { name?: string }).name === "web_search") {
+      webSearchCount++;
     }
+    // web_search_tool_result blocks are ignored — citations land in subsequent text blocks
+  }
+  if (webSearchCount > 0) {
+    console.log(`[ai-provider] Anthropic web_search used ${webSearchCount}x for ${model}`);
   }
 
   const usage = {
@@ -984,11 +999,34 @@ async function* streamAnthropic(
   const effectiveMaxTokens = options.maxTokens ?? getMaxOutputTokens(model);
   const effectiveThinkingBudget = options.thinkingBudget ?? 10_000;
 
+  if (options.thinking && effectiveMaxTokens <= effectiveThinkingBudget) {
+    throw new Error(
+      `[ai-provider] maxTokens (${effectiveMaxTokens}) must be greater than thinkingBudget (${effectiveThinkingBudget})`,
+    );
+  }
+
+  // Translate user tools
+  const streamTools: Anthropic.Messages.Tool[] | undefined = options.tools?.length
+    ? options.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.parameters as Anthropic.Messages.Tool["input_schema"],
+      }))
+    : undefined;
+
+  // Anthropic native web search via server tool
+  const anthropicTools: Anthropic.Messages.Tool[] = [];
+  if (streamTools) anthropicTools.push(...streamTools);
+  if (options.webSearch) {
+    anthropicTools.push(WEB_SEARCH_TOOL);
+  }
+
   const stream = client.messages.stream({
     model,
     messages,
     max_tokens: effectiveMaxTokens,
     ...(system && { system }),
+    ...(anthropicTools.length > 0 && { tools: anthropicTools }),
     ...(options.thinking && effectiveThinkingBudget && {
       thinking: { type: "enabled" as const, budget_tokens: effectiveThinkingBudget },
     }),

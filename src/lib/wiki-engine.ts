@@ -34,7 +34,7 @@ export interface ProcessWikiUpdatesParams {
   projectId?: string;
   situationId?: string;
   updates: WikiUpdate[];
-  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research" | "adversarial" | "document_intelligence";
+  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research" | "adversarial" | "document_intelligence" | "initiative_reasoning";
   synthesizedByModel: string;
   synthesisCostCents?: number;
   synthesisDurationMs?: number;

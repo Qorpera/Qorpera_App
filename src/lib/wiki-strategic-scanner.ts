@@ -18,7 +18,6 @@ import { prisma } from "@/lib/db";
 import { callLLM, getModel, getThinkingBudget, getMaxOutputTokens } from "@/lib/ai-provider";
 import type { AITool, LLMMessage } from "@/lib/ai-provider";
 import { extractJSONAny } from "@/lib/json-helpers";
-import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -50,14 +49,14 @@ interface InitiativeProposal {
 
 function mapPatternType(type: string): string {
   const map: Record<string, string> = {
-    process_gap: "policy_change",
+    process_gap: "process_creation",
     documentation_debt: "wiki_update",
     relationship_risk: "strategy_revision",
     automation_candidate: "system_job_creation",
     strategic_opportunity: "strategy_revision",
     quick_win: "general",
     knowledge_gap: "wiki_update",
-    team_optimization: "resource_recommendation",
+    team_optimization: "general",
     missing_monitoring: "system_job_creation",
   };
   return map[type] || "general";
@@ -745,7 +744,7 @@ async function createInitiativeFromProposal(
   const slug = `initiative-${Date.now()}-${proposal.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
 
   const initiativeProps = {
-    status: "proposed",
+    status: "detected",
     proposal_type: mapPatternType(proposal.patternType),
     proposed_at: new Date().toISOString(),
     source: "strategic_scanner",
@@ -811,14 +810,16 @@ async function createInitiativeFromProposal(
     },
   });
 
-  sendNotificationToAdmins({
+  // Enqueue reasoning — the initiative reasoning engine will investigate and
+  // either dismiss (not valuable) or promote to "proposed" (user sees it)
+  const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+  await enqueueWorkerJob("reason_initiative", operatorId, {
     operatorId,
-    type: "initiative_proposed",
-    title: `New initiative: ${proposal.title}`,
-    body: proposal.description,
-    sourceType: "wiki_scanner",
-    sourceId: slug,
-  }).catch(() => {});
+    pageSlug: slug,
+  }).catch(err => {
+    console.error(`[wiki-scanner] Failed to enqueue reason_initiative for ${slug}:`, err);
+    // Don't throw — the initiative page exists, reasoning can be retried
+  });
 
   return page.id;
 }

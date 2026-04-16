@@ -695,7 +695,7 @@ async function handleInitiativeCandidate(
   const initiativeSlug = `initiative-${createId().slice(0, 8)}-${rec.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
 
   const initiativeProps = {
-    status: "proposed",
+    status: "detected",
     proposed_at: now.toISOString(),
     source: "content_detected",
     source_id: item.sourceId,
@@ -733,16 +733,16 @@ async function handleInitiativeCandidate(
     },
   });
 
-  // Notify admins about the proposed initiative
-  const { sendNotificationToAdmins } = await import("@/lib/notification-dispatch");
-  await sendNotificationToAdmins({
+  // Enqueue reasoning — the initiative reasoning engine will investigate and
+  // either dismiss (not valuable) or promote to "proposed" (user sees it)
+  const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+  await enqueueWorkerJob("reason_initiative", operatorId, {
     operatorId,
-    type: "initiative_proposed",
-    title: `Foreslået projekt: ${rec.title}`,
-    body: `${rec.proposedDeliverables.length} leverancer identificeret. Gennemgå og godkend for at oprette projektet.`,
-    sourceType: "initiative",
-    sourceId: initiativeSlug,
-  }).catch(() => {});
+    pageSlug: initiativeSlug,
+  }).catch(err => {
+    console.error(`[content-detection] Failed to enqueue reason_initiative for ${initiativeSlug}:`, err);
+    // Don't throw — the initiative page exists, reasoning can be retried
+  });
 
   console.log(
     `[content-detection] Created initiative wiki page "${rec.title}" (${initiativeSlug}) with ${rec.proposedDeliverables.length} proposed deliverables`,

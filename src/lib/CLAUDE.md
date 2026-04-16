@@ -19,7 +19,6 @@ Every file in this directory is shared infrastructure used by multiple API route
 | `auth.ts` | Session management — getSessionUser(), createSession, password hashing (bcrypt), cookie management |
 | `business-context.ts` | Loads business context from completed OrientationSession (business summary, pain points, rules) |
 | `connector-sync.ts` | Sync orchestrator — dispatches SyncYield items by kind, runs identity resolution + content situation detection post-hooks |
-| `content-pipeline.ts` | Universal content ingestion — chunk text, embed via text-embedding-3-small, store as ContentChunk with pgvector |
 | `content-situation-detector.ts` | Communication action detection — LLM evaluates batched email/Slack/Teams content, creates Situations with mode: "content" |
 | `context-assembly.ts` | Builds full SituationContext — entity data, related entities, activity timeline, communication excerpts (pgvector), cross-department signals, RAG references |
 | `db.ts` | Prisma client singleton with globalThis HMR guard |
@@ -60,7 +59,6 @@ Every file in this directory is shared infrastructure used by multiple API route
 
 ```
 Connector sync (connector-sync.ts) → routes yields to:
-  - content-pipeline.ts (ContentChunk creation + embedding)
   - activity-pipeline.ts (ActivitySignal creation)
   - event-materializer.ts (Entity creation from events)
   Post-sync hooks:

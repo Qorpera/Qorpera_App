@@ -12,6 +12,7 @@ const PRICING = {
   "gpt-4.1-mini": { input: 0.40, output: 1.60 },
   "gpt-4.1-nano": { input: 0.10, output: 0.40 },
   "o3-mini": { input: 1.10, output: 4.40 },
+  "claude-opus-4-7": { input: 5.00, output: 25.00 },
   "claude-opus-4-6": { input: 5.00, output: 25.00 },
   "claude-sonnet-4-6": { input: 3.00, output: 15.00 },
   "claude-sonnet-4-20250514": { input: 3.00, output: 15.00 },

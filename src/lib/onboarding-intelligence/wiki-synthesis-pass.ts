@@ -26,7 +26,7 @@ import { renderPageForLLM } from "@/lib/wiki/page-renderer";
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
-const OPUS_MODEL = getModel("agenticReasoning"); // claude-opus-4-6
+const OPUS_MODEL = getModel("agenticReasoning"); // claude-opus-4-7
 const SONNET_MODEL = "claude-sonnet-4-6";
 const SKELETON_MAX_ITERATIONS = 30;
 const DOMAIN_MAX_ITERATIONS = 50;

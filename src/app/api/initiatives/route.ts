@@ -26,13 +26,22 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Filter by status in JS (JSONB filter in Prisma is awkward for optional params)
+  // Dismissed initiatives are never listed — they fire a notification on dismissal,
+  // but don't deserve presence in the initiatives list. Detected initiatives are
+  // also hidden (pre-reasoning, user shouldn't see).
+  const visiblePages = pages.filter(p => {
+    const props = (p.properties ?? {}) as Record<string, unknown>;
+    return props.status !== "detected" && props.status !== "dismissed";
+  });
+
+  // Apply statusFilter to visiblePages. Note: statusFilter=dismissed returns empty
+  // because dismissed never survives the visiblePages filter above.
   const filtered = statusFilter
-    ? pages.filter(p => {
+    ? visiblePages.filter(p => {
         const props = (p.properties ?? {}) as Record<string, unknown>;
         return props.status === statusFilter;
       })
-    : pages;
+    : visiblePages;
 
   // Resolve owner wiki page titles
   const ownerSlugs = [...new Set(

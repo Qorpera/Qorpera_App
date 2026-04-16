@@ -523,7 +523,7 @@ async function dispatchOutput(
           contentTokens: Math.ceil(articleBody.length / 4),
           crossReferences: crossRefs,
           properties: {
-            status: "proposed",
+            status: "detected",
             proposal_type: proposed.proposalType,
             proposed_at: new Date().toISOString(),
             source: "system_job",
@@ -542,14 +542,14 @@ async function dispatchOutput(
         },
       });
 
-      sendNotificationToAdmins({
+      // Enqueue reasoning instead of notifying directly
+      const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+      await enqueueWorkerJob("reason_initiative", job.operatorId, {
         operatorId: job.operatorId,
-        type: "initiative_proposed",
-        title: `New initiative: ${proposed.triggerSummary.slice(0, 80)}`,
-        body: proposed.rationale.slice(0, 200),
-        sourceType: "initiative",
-        sourceId: slug,
-      }).catch(() => {});
+        pageSlug: slug,
+      }).catch(err => {
+        console.error(`[system-job] Failed to enqueue reason_initiative for ${slug}:`, err);
+      });
 
       initiativesCreated++;
     } catch (err) {
