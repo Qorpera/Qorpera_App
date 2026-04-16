@@ -3,6 +3,7 @@ import type { AITool } from "@/lib/ai-provider";
 import { searchRawContent } from "@/lib/storage/raw-content-store";
 import { loadCommunicationContext } from "@/lib/context-assembly";
 import { getPageForEntity, searchPages, searchSystemPages, resolvePageSlug } from "@/lib/wiki-engine";
+import { renderPageForLLM } from "@/lib/wiki/page-renderer";
 import { findContradictions, type EvidenceContradiction } from "@/lib/evidence-registry";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -644,18 +645,24 @@ async function executeReadWikiPage(
     const page = await getPageForEntity(operatorId, subjectEntityId);
     if (!page) return `No wiki page found for entity ${subjectEntityId}. Try search_wiki instead.`;
 
-    const statusNote = page.status !== "verified"
-      ? `\n\nNote: This page is ${page.status} — information may be outdated or unverified.`
-      : "";
-
-    return `Wiki page: ${page.slug} (confidence: ${page.confidence.toFixed(2)})${statusNote}\n\n${page.content}`;
+    const rendered = await renderPageForLLM(operatorId, {
+      title: page.title,
+      pageType: page.pageType,
+      slug: page.slug,
+      content: page.content,
+      properties: (page.properties as Record<string, unknown>) ?? null,
+      activityContent: page.activityContent ?? null,
+      status: page.status,
+      confidence: page.confidence,
+    });
+    return rendered;
   }
 
   // Route 2: by slug (try operator-scoped, then system-scoped)
   if (slug) {
     let page = await prisma.knowledgePage.findUnique({
       where: { operatorId_slug: { operatorId, slug } },
-      select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, scope: true },
+      select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, scope: true, properties: true, activityContent: true },
     });
     // Fallback: try system-scoped page (gated by intelligenceAccess)
     if (!page) {
@@ -666,7 +673,7 @@ async function executeReadWikiPage(
       if (operator?.intelligenceAccess) {
         page = await prisma.knowledgePage.findFirst({
           where: { scope: "system", slug, status: { in: ["verified", "stale"] }, OR: [{ stagingStatus: null }, { stagingStatus: "approved" }] },
-          select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, scope: true },
+          select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, scope: true, properties: true, activityContent: true },
         });
       }
     }
@@ -680,11 +687,17 @@ async function executeReadWikiPage(
       data: { reasoningUseCount: { increment: 1 } },
     }).catch(() => {});
 
-    const statusNote = page.status !== "verified"
-      ? `\n\nNote: This page is ${page.status} — information may be outdated or unverified.`
-      : "";
-
-    return `Wiki page: ${page.title} [${page.pageType}] (confidence: ${page.confidence.toFixed(2)})${statusNote}\n\n${page.content}`;
+    const rendered = await renderPageForLLM(operatorId, {
+      title: page.title,
+      pageType: page.pageType,
+      slug: page.slug,
+      content: page.content,
+      properties: (page.properties as Record<string, unknown>) ?? null,
+      activityContent: page.activityContent ?? null,
+      status: page.status,
+      confidence: page.confidence,
+    });
+    return rendered;
   }
 
   // Route 3: by pageType only (return first match)
@@ -692,11 +705,21 @@ async function executeReadWikiPage(
     const page = await prisma.knowledgePage.findFirst({
       where: { operatorId, scope: "operator", pageType, status: { in: ["verified", "stale"] } },
       orderBy: { confidence: "desc" },
-      select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true },
+      select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, properties: true, activityContent: true },
     });
 
     if (!page) return `No wiki page of type "${pageType}" found.`;
-    return `Wiki page: ${page.title} [${page.pageType}] (confidence: ${page.confidence.toFixed(2)})\n\n${page.content}`;
+    const rendered = await renderPageForLLM(operatorId, {
+      title: page.title,
+      pageType: page.pageType,
+      slug: page.slug,
+      content: page.content,
+      properties: (page.properties as Record<string, unknown>) ?? null,
+      activityContent: page.activityContent ?? null,
+      status: page.status,
+      confidence: page.confidence,
+    });
+    return rendered;
   }
 
   return "Please provide a slug, subjectEntityId, or pageType to read a wiki page.";

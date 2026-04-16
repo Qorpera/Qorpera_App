@@ -9,10 +9,20 @@
  */
 
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { callLLM, getModel, getMaxOutputTokens, getThinkingBudget } from "@/lib/ai-provider";
 import type { AITool, LLMMessage } from "@/lib/ai-provider";
 import { extractJSONAny } from "@/lib/json-helpers";
 import { searchRawContent } from "@/lib/storage/raw-content-store";
+import {
+  WIKI_STYLE_RULES,
+  buildPropertyPrompt,
+  buildSectionPrompt,
+  validateProperties,
+  getDefaultProperties,
+  PAGE_SCHEMAS,
+} from "@/lib/wiki/page-schemas";
+import { renderPageForLLM } from "@/lib/wiki/page-renderer";
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
@@ -160,9 +170,32 @@ async function toolWriteWikiPage(
     content: string;
     isHub: boolean;
     confidence: number;
+    properties?: Record<string, unknown>;
     synthesizedByModel?: string;
   },
 ): Promise<string> {
+  // ── Property validation & merge ──
+  let mergedProperties: Record<string, unknown> | undefined;
+
+  if (args.properties && PAGE_SCHEMAS[args.pageType]) {
+    const validation = validateProperties(args.pageType, args.properties);
+    if (!validation.valid) {
+      return `Property validation failed for ${args.pageType}:\n${validation.errors.join("\n")}\nFix these and call write_wiki_page again.`;
+    }
+
+    // Strip runtime-owned keys the LLM shouldn't provide
+    const strippedSynthesisProps: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(args.properties)) {
+      if (PAGE_SCHEMAS[args.pageType].properties[key]?.owner !== "runtime") {
+        strippedSynthesisProps[key] = value;
+      }
+    }
+
+    mergedProperties = { ...getDefaultProperties(args.pageType), ...strippedSynthesisProps };
+  } else if (PAGE_SCHEMAS[args.pageType]) {
+    mergedProperties = getDefaultProperties(args.pageType);
+  }
+
   const crossRefs = [...args.content.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1]);
   const contentTokens = Math.ceil(args.content.length / 4);
   const model = args.synthesizedByModel ?? OPUS_MODEL;
@@ -183,6 +216,7 @@ async function toolWriteWikiPage(
         contentTokens,
         crossReferences: crossRefs,
         confidence: args.confidence,
+        properties: mergedProperties ? mergedProperties as unknown as Prisma.InputJsonValue : undefined,
         version: existing.version + 1,
         synthesisPath: "onboarding",
         synthesizedByModel: model,
@@ -208,6 +242,7 @@ async function toolWriteWikiPage(
       sourceTypes: ["onboarding"],
       status: "draft",
       confidence: args.confidence,
+      properties: mergedProperties ? mergedProperties as unknown as Prisma.InputJsonValue : undefined,
       version: 1,
       synthesisPath: "onboarding",
       synthesizedByModel: model,
@@ -220,10 +255,20 @@ async function toolWriteWikiPage(
 async function toolReadWikiPage(operatorId: string, slug: string): Promise<string> {
   const page = await prisma.knowledgePage.findFirst({
     where: { operatorId, slug, scope: "operator", synthesisPath: "onboarding" },
-    select: { title: true, content: true, pageType: true },
+    select: { title: true, content: true, pageType: true, properties: true, status: true, confidence: true, slug: true },
   });
   if (!page) return `No wiki page found with slug "${slug}"`;
-  return `# ${page.title} [${page.pageType}]\n\n${page.content}`;
+  const rendered = await renderPageForLLM(operatorId, {
+    title: page.title,
+    pageType: page.pageType,
+    slug: page.slug,
+    content: page.content,
+    properties: (page.properties as Record<string, unknown>) ?? null,
+    activityContent: null,
+    status: page.status ?? "draft",
+    confidence: page.confidence ?? 0.5,
+  });
+  return rendered;
 }
 
 // ── Tool Definitions ───────────────────────────────────────────────────────────
@@ -274,8 +319,7 @@ const BASE_TOOLS: AITool[] = [
   },
   {
     name: "write_wiki_page",
-    description:
-      "Create or update a wiki page. Use [[slug]] cross-references in content. Returns confirmation.",
+    description: "Create or update a wiki page. Use [[slug]] cross-references in content. Emit structured properties as JSON. Returns confirmation.",
     parameters: {
       type: "object",
       properties: {
@@ -283,13 +327,17 @@ const BASE_TOOLS: AITool[] = [
         title: { type: "string", description: "Page title" },
         page_type: {
           type: "string",
-          description: "Page type: company_overview, domain_hub, person_profile, process, project, situation_type, external_relationship, tool_system",
+          description: "Page type: company_overview, domain_hub, person_profile, process, project, situation_type, external_relationship, tool_system, external_contact, initiative, strategic_link, system_job, other",
         },
-        content: { type: "string", description: "Full page content in markdown. Use [[slug]] for cross-references." },
+        properties: {
+          type: "object",
+          description: "Structured properties for this page type. See the property schema in your instructions for required and optional fields.",
+        },
+        content: { type: "string", description: "Full page content in markdown. Use [[slug]] for cross-references. Do NOT include a property table or index section — these are rendered automatically." },
         is_hub: { type: "boolean", description: "true for hub pages (company overview, department overviews)" },
         confidence: { type: "number", description: "Confidence 0-1 in the page content accuracy" },
       },
-      required: ["slug", "title", "page_type", "content", "is_hub", "confidence"],
+      required: ["slug", "title", "page_type", "properties", "content", "is_hub", "confidence"],
     },
   },
   {
@@ -389,48 +437,48 @@ async function runSkeletonStage(
     where: { operatorId, synthesisPath: "onboarding", scope: "operator" },
   });
 
-  const systemPrompt = `You are building the structural skeleton of a company wiki. You have access to ALL findings from the data analysis phase.
+  const systemPrompt = `You are building the structural skeleton of a company wiki.
 
-Your job: write the COMPANY OVERVIEW HUB and one DEPARTMENT HUB per functional area you identify.
+Your job: write the COMPANY OVERVIEW HUB and one DEPARTMENT HUB per functional area.
 
-## What a Hub Page Is
+${WIKI_STYLE_RULES}
 
-A hub page is the entry point for a domain. It should be comprehensive on its own — an AI agent reading ONLY this hub should understand the domain well enough to route decisions correctly. A hub links DOWN to specific knowledge pages that will be written later.
+## Hub Page Purpose
 
-Hub page structure:
-- Overview of the domain (purpose, scope, how it fits into the company)
-- Team summary (who works here, who leads, team size)
-- Key processes (what recurring workflows exist)
-- Current priorities/projects
-- Tools and systems used
-- Key external relationships (vendors, clients relevant to this domain)
-- Situation types (what kinds of issues/decisions arise here)
-- ## Pages in this Domain (planned leaf pages — list slugs that domain agents will write)
-- ## Related Pages (cross-references to other hubs)
+A hub page is the entry point for a domain. It links DOWN to leaf pages that will be written later by domain agents. Hub pages should be dense, factual overviews — NOT comprehensive summaries that duplicate leaf page content. If a fact belongs on a person, process, or project page, the hub should cross-reference it with [[slug]], not restate it.
 
-## Company Overview Hub
+## company_overview
 
-The company-overview page is the TOP-LEVEL entry. It should cover:
-- What the company does, its industry, size, structure
-- List of all departments with brief descriptions and links to their hubs
-- Key company-wide processes
-- Major external relationships
-- Overall organizational culture/communication patterns observed
+${buildPropertyPrompt("company_overview")}
 
-## Your Process
+${buildSectionPrompt("company_overview")}
 
-1. Call list_findings_pages to see all available findings
-2. Read each findings page (especially findings-company-overview, and all findings-domain-* pages)
-3. Decide how many departments/domains exist
-4. Write the company-overview hub first
-5. Write each department hub
-6. When done writing all hubs, end your turn — the domain expansion agents take over next
+## domain_hub
+
+${buildPropertyPrompt("domain_hub")}
+
+${buildSectionPrompt("domain_hub")}
+
+## Key Rules
+
+- Cross-reference people as [[person-firstname-lastname]], processes as [[process-name]], projects as [[project-name]], tools as [[tool-name]], external relationships as [[external-name]]
+- Team section: ONE LINE per person. Format: "[[person-slug]] — Title". No descriptions, no summaries of their work.
+- Processes section: ONE LINE per process. Format: "[[process-slug]] — brief purpose". No step-by-step.
+- Do NOT write "## Pages in this Domain", "## Related Pages", or any index of child pages. These are auto-injected at render time.
+- Do NOT duplicate information that belongs on leaf pages.
 
 ## Budget
 
-Total wiki budget: ${totalBudget} pages. You should write 5-15 hub pages (company overview + departments). The remaining budget goes to domain expansion agents.
+Total wiki budget: ${totalBudget} pages. Write 3-10 hub pages (company overview + departments). The remaining budget goes to domain expansion agents.
 
-Write as KNOWLEDGE, not as observations. "The engineering team has 8 members" not "Findings suggest approximately 8 people in engineering."`;
+## Process
+
+1. Call list_findings_pages to see all available findings
+2. Read each findings page
+3. Decide how many departments/domains exist
+4. Write the company-overview hub first (include properties!)
+5. Write each department hub (include properties!)
+6. When all hubs are written, end your turn`;
 
   const dispatchTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
     switch (name) {
@@ -450,6 +498,7 @@ Write as KNOWLEDGE, not as observations. "The engineering team has 8 members" no
           content: args.content as string,
           isHub: args.is_hub as boolean,
           confidence: (args.confidence as number) ?? 0.7,
+          properties: args.properties as Record<string, unknown> | undefined,
         });
       case "read_wiki_page":
         return toolReadWikiPage(operatorId, args.slug as string);
@@ -559,40 +608,69 @@ async function runSingleDomainAgent(
       ? "\n\nYOU ARE NEAR YOUR BUDGET LIMIT. Complete your most important unwritten pages. Do not start new discovery threads. Focus on polishing and ensuring coverage of the essentials."
       : "";
 
-  const systemPrompt = `You are building the wiki for the "${domainName}" domain of a company. The department hub has already been written — read it to understand the framework.
+  const systemPrompt = `You are building leaf pages for the "${domainName}" domain. The department hub has already been written — read it for context.
 
-Your job: write ALL leaf pages for this domain:
-- Process descriptions for each recurring workflow
-- Project pages for active projects/initiatives
-- External relationship pages for vendors/clients relevant to this domain
-- Situation type pages describing decision types that arise here — what triggers them, who handles them, what the playbook is
-- Tool/system pages if this domain uses specific tools worth documenting
+${WIKI_STYLE_RULES}
 
-Do NOT write person_profile pages. Those will be handled by a separate pass. Focus on process, project, tool_system, external_relationship, and other domain-specific pages.
+## Your Job
 
-## Page Guidelines
+Write ALL leaf pages for this domain:
+- Process descriptions (pageType: process)
+- Project pages (pageType: project)
+- External relationship pages (pageType: external_relationship)
+- Situation type pages (pageType: situation_type)
+- Tool/system pages (pageType: tool_system)
+- External contact pages (pageType: external_contact)
 
-Each leaf page should be 1-4 pages of dense content. No filler.
-- Process descriptions should cover: what triggers the process, who's involved, what steps, what tools, what cadence, what outputs, what can go wrong.
-- Situation type pages should cover: what the situation looks like when it arises, detection signals (data patterns), who handles it, the playbook, escalation path, historical examples if visible.
+Do NOT write person_profile pages — those are handled by a separate pass.
+
+## Page Type Schemas
+
+Each page type has required properties and a mandatory section structure. When you call write_wiki_page, you MUST provide the correct properties JSON and follow the section menu exactly.
+
+### process
+${buildPropertyPrompt("process")}
+${buildSectionPrompt("process")}
+
+### project
+${buildPropertyPrompt("project")}
+${buildSectionPrompt("project")}
+
+### external_relationship
+${buildPropertyPrompt("external_relationship")}
+${buildSectionPrompt("external_relationship")}
+
+### situation_type
+${buildPropertyPrompt("situation_type")}
+${buildSectionPrompt("situation_type")}
+
+### tool_system
+${buildPropertyPrompt("tool_system")}
+${buildSectionPrompt("tool_system")}
+
+### external_contact
+${buildPropertyPrompt("external_contact")}
+${buildSectionPrompt("external_contact")}
 
 ## Cross-References
 
-Use [[slug]] when mentioning anything that has or will have its own page. Link to:
-- The department hub: [[${hubSlug}]]
-- People mentioned: [[person-{name}]]
-- Processes mentioned: [[process-{name}]]
-- Other department hubs if relevant: [[domain-{name}]]
+Use [[slug]] for anything that has or will have its own page:
+- Department hub: [[${hubSlug}]]
+- People: [[person-firstname-lastname]]
+- Processes: [[process-name]]
+- Other department hubs: [[domain-name]]
 
 ## Budget
 
-You have ${budget} pages to write for this domain.${budgetWarning(budget)}
+You have ${budget} pages to write.${budgetWarning(budget)}
 
-## Tools
+## Process
 
-You can plan your pages with add_pages_to_plan, and mark them done with mark_page_complete. This helps you track progress.
-
-Start by reading the hub page for your domain, then read relevant findings pages, then write pages.`;
+1. Read the hub page at [[${hubSlug}]]
+2. Read relevant findings pages
+3. Plan your pages with add_pages_to_plan
+4. Write each page — always include properties JSON and follow the section menu
+5. Mark each page complete when done`;
 
   // Domain-specific extra tools
   const domainTools: AITool[] = [
@@ -654,6 +732,7 @@ Start by reading the hub page for your domain, then read relevant findings pages
           content: args.content as string,
           isHub: args.is_hub as boolean,
           confidence: (args.confidence as number) ?? 0.7,
+          properties: args.properties as Record<string, unknown> | undefined,
         });
         pagesWritten++;
         return `${result}\n\n[Budget: ${pagesWritten}/${budget} pages used${budgetWarning(budget - pagesWritten)}]`;
@@ -802,27 +881,36 @@ async function runPersonProfilePass(
       const response = await callLLM({
         instructions: `You are writing a person_profile wiki page for a company knowledge base.
 
+${WIKI_STYLE_RULES}
+
 ## Available Domain Hubs
 ${hubSlugs}
 
 ## Company Context
 ${contextSummary}
 
+${buildPropertyPrompt("person_profile")}
+
+${buildSectionPrompt("person_profile")}
+
 ## Instructions
-Write a person_profile wiki page for ${personName}. Include:
-- Role and title
-- Responsibilities and day-to-day work
-- Reporting lines (who they report to, who reports to them)
-- Key relationships with colleagues (use [[person-name]] wikilinks)
-- Skills and expertise areas
-- Current assignments and projects (use [[project-name]] or [[process-name]] wikilinks)
-- Which domain/department they belong to — ALWAYS cross-reference with [[domain-xxx]] wikilink
 
-You MUST include at least one [[domain-xxx]] wikilink to place this person in the correct department.
-Use [[slug]] wikilinks for any people, processes, projects, or tools mentioned.
+Write a person_profile wiki page for ${personName}.
 
-Write as KNOWLEDGE, not observations. Dense, factual, no filler.
-Output ONLY the page content in markdown — no JSON wrapper, no code fences.`,
+You MUST respond with a JSON object containing exactly two fields:
+{
+  "properties": { ... },   // structured properties per the schema above
+  "content": "..."         // markdown content following the section menu
+}
+
+Content rules:
+- Use [[person-slug]] wikilinks for colleagues
+- Use [[domain-slug]] to place this person in their department
+- Use [[process-slug]], [[project-slug]], [[tool-slug]] for any referenced items
+- Dense, factual, no filler. No interpretive commentary ("shows professional maturity", "functional seniority above title").
+- Every section from the section menu must be present as a ## heading.
+
+Output ONLY the JSON object. No markdown code fences, no preamble.`,
         messages: [
           {
             role: "user",
@@ -836,13 +924,36 @@ Output ONLY the page content in markdown — no JSON wrapper, no code fences.`,
       totalCost += response.apiCostCents;
 
       if (response.text) {
+        // Parse the JSON response
+        let properties: Record<string, unknown> | undefined;
+        let content = response.text;
+
+        try {
+          // Strip any accidental code fences
+          const cleaned = response.text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
+          const parsed = JSON.parse(cleaned);
+          if (parsed.properties && typeof parsed.properties === "object") {
+            properties = parsed.properties;
+          }
+          if (parsed.content && typeof parsed.content === "string") {
+            content = parsed.content;
+          }
+        } catch {
+          // If JSON parse fails, treat entire response as content (backward compat).
+          // Leave properties undefined so toolWriteWikiPage applies getDefaultProperties().
+          console.warn(`[wiki-synthesis] Person profile JSON parse failed for ${personName}, using raw text as content`);
+          content = response.text;
+          properties = undefined;
+        }
+
         await toolWriteWikiPage(operatorId, {
           slug: profileSlug,
           title: personName,
           pageType: "person_profile",
-          content: response.text,
+          content,
           isHub: false,
           confidence: 0.75,
+          properties,
           synthesizedByModel: SONNET_MODEL,
         });
         totalPagesWritten++;

@@ -455,6 +455,7 @@ export default function SituationsPage() {
   // ── Fetch situations ────────────────────────────────────────────────────
 
   const fetchSituations = useCallback(async () => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     try {
       const statusParam = showAllStatuses
         ? "detected,proposed,reasoning,auto_executing,executing,monitoring,resolved"
@@ -462,7 +463,12 @@ export default function SituationsPage() {
       const res = await fetch(`/api/situations?status=${statusParam}${showAllSituations ? "" : "&showAll=false"}`);
       if (res.ok) {
         const data = await res.json();
-        setSituations(data.items);
+        setSituations((prev) => {
+          if (prev.length !== data.items.length) return data.items;
+          const prevSig = prev.map((s: SituationItem) => `${s.id}:${s.status}:${s.viewedAt ?? ""}`).join("|");
+          const newSig = data.items.map((s: SituationItem) => `${s.id}:${s.status}:${s.viewedAt ?? ""}`).join("|");
+          return prevSig === newSig ? prev : data.items;
+        });
       }
     } catch {}
     setLoading(false);
@@ -480,8 +486,16 @@ export default function SituationsPage() {
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(fetchSituations, 15000);
+    const interval = setInterval(fetchSituations, 30000);
     return () => clearInterval(interval);
+  }, [fetchSituations]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchSituations();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [fetchSituations]);
 
   // ── Fetch detail when selection changes ─────────────────────────────────

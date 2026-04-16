@@ -23,22 +23,42 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
-
   const fetchNotifications = useCallback(async () => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     try {
       const res = await fetch("/api/notifications?unreadOnly=false&limit=20");
       if (res.ok) {
         const data = await res.json();
-        setItems(data.items);
-        setUnreadCount(data.unreadCount);
+        setItems((prev) => {
+          const prevMap = new Map(prev.map(n => [n.id, n]));
+          let locallyReadCount = 0;
+          const merged = data.items.map((server: NotificationItem) => {
+            const local = prevMap.get(server.id);
+            if (local?.read && !server.read) {
+              locallyReadCount++;
+              return { ...server, read: true };
+            }
+            return server;
+          });
+          setUnreadCount(Math.max(0, data.unreadCount - locallyReadCount));
+          return merged;
+        });
       }
     } catch {}
   }, []);
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
+    const interval = setInterval(fetchNotifications, 60000);
     return () => clearInterval(interval);
+  }, [fetchNotifications]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchNotifications();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [fetchNotifications]);
 
   // Close on outside click

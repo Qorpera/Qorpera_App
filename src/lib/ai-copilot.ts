@@ -9,6 +9,7 @@ import { decryptConfig, encryptConfig } from "@/lib/config-encryption";
 import { buildSystemJobWikiContent } from "@/lib/system-job-wiki";
 import { searchRawContent } from "@/lib/storage/raw-content-store";
 import { type PageAccessContext, resolveAccessContext } from "@/lib/domain-scope";
+import { renderPageForLLM } from "@/lib/wiki/page-renderer";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -2021,7 +2022,7 @@ export async function executeTool(
       // Try operator-scoped first
       let page = await prisma.knowledgePage.findUnique({
         where: { operatorId_slug: { operatorId, slug } },
-        select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true },
+        select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, properties: true, activityContent: true },
       });
 
       // Fallback to system-scoped (gated)
@@ -2033,7 +2034,7 @@ export async function executeTool(
         if (op?.intelligenceAccess) {
           page = await prisma.knowledgePage.findFirst({
             where: { scope: "system", slug, status: { in: ["verified", "stale"] }, OR: [{ stagingStatus: null }, { stagingStatus: "approved" }] },
-            select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true },
+            select: { content: true, status: true, confidence: true, slug: true, title: true, pageType: true, id: true, properties: true, activityContent: true },
           });
         }
       }
@@ -2047,11 +2048,17 @@ export async function executeTool(
         data: { reasoningUseCount: { increment: 1 } },
       }).catch(() => {});
 
-      const statusNote = page.status !== "verified"
-        ? `\n\nNote: This page is ${page.status} — may be outdated.`
-        : "";
-
-      return `Wiki page: ${page.title} [${page.pageType}] (confidence: ${page.confidence.toFixed(2)})${statusNote}\n\n${page.content}`;
+      const rendered = await renderPageForLLM(operatorId, {
+        title: page.title,
+        pageType: page.pageType,
+        slug: page.slug,
+        content: page.content,
+        properties: (page.properties as Record<string, unknown>) ?? null,
+        activityContent: page.activityContent ?? null,
+        status: page.status,
+        confidence: page.confidence,
+      });
+      return rendered;
     }
 
     case "web_search": {
