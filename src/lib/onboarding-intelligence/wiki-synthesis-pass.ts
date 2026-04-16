@@ -23,6 +23,7 @@ const SKELETON_MAX_ITERATIONS = 30;
 const DOMAIN_MAX_ITERATIONS = 50;
 const XREF_CONCURRENCY = 5;
 const DOMAIN_CONCURRENCY = 8; // max concurrent domain agents
+const PERSON_PROFILE_CONCURRENCY = 5;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ export interface SynthesisPassReport {
   stages: {
     skeleton: { pages: number; costCents: number; durationMs: number };
     expansion: { pages: number; costCents: number; durationMs: number; agentsRun: number };
+    personProfiles: { pages: number; costCents: number; durationMs: number };
     crossRef: { pagesUpdated: number; linksAdded: number; costCents: number; durationMs: number };
     derivation: { costCents: number; durationMs: number };
   };
@@ -159,11 +161,12 @@ async function toolWriteWikiPage(
     content: string;
     isHub: boolean;
     confidence: number;
+    synthesizedByModel?: string;
   },
 ): Promise<string> {
   const crossRefs = [...args.content.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1]);
   const contentTokens = Math.ceil(args.content.length / 4);
-  const model = OPUS_MODEL;
+  const model = args.synthesizedByModel ?? OPUS_MODEL;
 
   const existing = await prisma.knowledgePage.findFirst({
     where: { operatorId, slug: args.slug, scope: "operator" },
@@ -579,17 +582,17 @@ async function runSingleDomainAgent(
   const systemPrompt = `You are building the wiki for the "${domainName}" domain of a company. The department hub has already been written — read it to understand the framework.
 
 Your job: write ALL leaf pages for this domain:
-- Person profiles for each team member in this domain
 - Process descriptions for each recurring workflow
 - Project pages for active projects/initiatives
 - External relationship pages for vendors/clients relevant to this domain
 - Situation type pages describing decision types that arise here — what triggers them, who handles them, what the playbook is
 - Tool/system pages if this domain uses specific tools worth documenting
 
+Do NOT write person_profile pages. Those will be handled by a separate pass. Focus on process, project, tool_system, external_relationship, and other domain-specific pages.
+
 ## Page Guidelines
 
 Each leaf page should be 1-4 pages of dense content. No filler.
-- Person profiles should cover: role, responsibilities, expertise areas, key relationships, communication patterns, involvement in processes.
 - Process descriptions should cover: what triggers the process, who's involved, what steps, what tools, what cadence, what outputs, what can go wrong.
 - Situation type pages should cover: what the situation looks like when it arises, detection signals (data patterns), who handles it, the playbook, escalation path, historical examples if visible.
 
@@ -755,6 +758,126 @@ async function runDomainExpansionStage(
   );
 
   return { pagesWritten: totalPagesWritten, costCents: totalCost, durationMs, agentsRun };
+}
+
+// ═══ Stage 2b: Person Profile Pass (Sonnet) ═════════════════════════════════
+
+async function runPersonProfilePass(
+  operatorId: string,
+  onProgress?: (msg: string) => Promise<void>,
+): Promise<{ pagesWritten: number; costCents: number; durationMs: number }> {
+  const startTime = Date.now();
+  await onProgress?.("Stage 2b: Writing person profiles (Sonnet)...");
+
+  // a) Load all person findings pages
+  const personFindings = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      synthesisPath: "findings",
+      OR: [
+        { pageType: "findings_person" },
+        { slug: { startsWith: "findings-person" } },
+      ],
+    },
+    select: { slug: true, title: true, content: true },
+  });
+
+  if (personFindings.length === 0) {
+    await onProgress?.("Stage 2b: No person findings found — skipping.");
+    return { pagesWritten: 0, costCents: 0, durationMs: Date.now() - startTime };
+  }
+
+  // b) Load company overview and domain hub pages for context
+  const contextPages = await prisma.knowledgePage.findMany({
+    where: {
+      operatorId,
+      synthesisPath: "onboarding",
+      scope: "operator",
+      pageType: { in: ["company_overview", "domain_hub"] },
+    },
+    select: { slug: true, title: true, content: true, pageType: true },
+  });
+
+  const contextSummary = contextPages
+    .map((p) => `=== ${p.slug} (${p.pageType}) ===\n${p.content.slice(0, 2000)}`)
+    .join("\n\n");
+
+  const hubSlugs = contextPages
+    .filter((p) => p.pageType === "domain_hub")
+    .map((p) => `- [[${p.slug}]]: ${p.title}`)
+    .join("\n");
+
+  let totalPagesWritten = 0;
+  let totalCost = 0;
+
+  // c) For each person findings page, generate a profile via Sonnet
+  await runWithConcurrency(personFindings, PERSON_PROFILE_CONCURRENCY, async (finding) => {
+    try {
+      const personName = finding.title
+        .replace(/^Person Findings:\s*/i, "")
+        .trim();
+      const personSlug = finding.slug.replace(/^findings-/, "");
+      const profileSlug = personSlug.startsWith("person-") ? personSlug : `person-${personSlug}`;
+
+      const response = await callLLM({
+        instructions: `You are writing a person_profile wiki page for a company knowledge base.
+
+## Available Domain Hubs
+${hubSlugs}
+
+## Company Context
+${contextSummary}
+
+## Instructions
+Write a person_profile wiki page for ${personName}. Include:
+- Role and title
+- Responsibilities and day-to-day work
+- Reporting lines (who they report to, who reports to them)
+- Key relationships with colleagues (use [[person-name]] wikilinks)
+- Skills and expertise areas
+- Current assignments and projects (use [[project-name]] or [[process-name]] wikilinks)
+- Which domain/department they belong to — ALWAYS cross-reference with [[domain-xxx]] wikilink
+
+You MUST include at least one [[domain-xxx]] wikilink to place this person in the correct department.
+Use [[slug]] wikilinks for any people, processes, projects, or tools mentioned.
+
+Write as KNOWLEDGE, not observations. Dense, factual, no filler.
+Output ONLY the page content in markdown — no JSON wrapper, no code fences.`,
+        messages: [
+          {
+            role: "user",
+            content: `Here are the findings for this person:\n\n${finding.content}`,
+          },
+        ],
+        model: SONNET_MODEL,
+        maxTokens: 4096,
+      });
+
+      totalCost += response.apiCostCents;
+
+      if (response.text) {
+        await toolWriteWikiPage(operatorId, {
+          slug: profileSlug,
+          title: personName,
+          pageType: "person_profile",
+          content: response.text,
+          isHub: false,
+          confidence: 0.75,
+          synthesizedByModel: SONNET_MODEL,
+        });
+        totalPagesWritten++;
+      }
+    } catch (err) {
+      console.error(`[wiki-synthesis] Person profile failed for ${finding.slug}:`, err);
+    }
+  });
+
+  const durationMs = Date.now() - startTime;
+  await onProgress?.(
+    `Stage 2b complete: ${totalPagesWritten} person profiles written ($${(totalCost / 100).toFixed(2)}, ${Math.round(durationMs / 1000)}s)`,
+  );
+
+  return { pagesWritten: totalPagesWritten, costCents: totalCost, durationMs };
 }
 
 // ── Stage 3: Cross-Reference Swarm ─────────────────────────────────────────────
@@ -1176,6 +1299,18 @@ export async function runWikiSynthesisPass(
   }
   totalCost += expansion.costCents;
 
+  // Stage 2b: Person Profile Pass (Sonnet)
+  let personProfiles: { pagesWritten: number; costCents: number; durationMs: number };
+  try {
+    personProfiles = await runPersonProfilePass(operatorId, options?.onProgress);
+  } catch (err) {
+    const msg = `Stage 2b failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[wiki-synthesis] ${msg}`);
+    errors.push(msg);
+    personProfiles = { pagesWritten: 0, costCents: 0, durationMs: 0 };
+  }
+  totalCost += personProfiles.costCents;
+
   // Stage 3: Cross-Reference Swarm
   let crossRef: { pagesUpdated: number; linksAdded: number; costCents: number; durationMs: number };
   try {
@@ -1221,7 +1356,7 @@ export async function runWikiSynthesisPass(
     console.log(`[wiki-synthesis] Archived ${archivedCount.count} findings pages`);
   }
 
-  const totalPagesWritten = hubPagesWritten + expansion.pagesWritten;
+  const totalPagesWritten = hubPagesWritten + expansion.pagesWritten + personProfiles.pagesWritten;
   const durationMs = Date.now() - startTime;
 
   await progress(
@@ -1230,7 +1365,7 @@ export async function runWikiSynthesisPass(
 
   return {
     hubPagesWritten,
-    leafPagesWritten: expansion.pagesWritten,
+    leafPagesWritten: expansion.pagesWritten + personProfiles.pagesWritten,
     totalPagesWritten,
     crossReferencesAdded: crossRef.linksAdded,
     departments: derivation.departments,
@@ -1249,6 +1384,11 @@ export async function runWikiSynthesisPass(
         costCents: expansion.costCents,
         durationMs: expansion.durationMs,
         agentsRun: expansion.agentsRun,
+      },
+      personProfiles: {
+        pages: personProfiles.pagesWritten,
+        costCents: personProfiles.costCents,
+        durationMs: personProfiles.durationMs,
       },
       crossRef: {
         pagesUpdated: crossRef.pagesUpdated,

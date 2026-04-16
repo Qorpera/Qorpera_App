@@ -250,7 +250,11 @@ async function updatePage(params: {
     ...params.sourceCitations.map((c) => c.sourceType),
   ])];
   // Snapshot current version before update
-  await createVersionSnapshot(existing.id, "synthesis", params.synthesizedByModel ?? "unknown");
+  try {
+    await createVersionSnapshot(existing.id, "synthesis", params.synthesizedByModel ?? "unknown");
+  } catch (err) {
+    console.warn(`[wiki-engine] Version snapshot skipped for ${slug} (${err instanceof Error ? err.message : "unknown"})`);
+  }
 
   // Re-embed updated content
   const embeddings = await embedTexts([params.content]).catch(() => [null]);
