@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 // ── Icons ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +75,7 @@ interface SidePanelProps {
   onToggleEdit?: () => void;
   onWidthChange?: (percent: number) => void;
   onApprove?: () => void;
+  onApprovalComplete?: () => void;
   onDiscuss?: () => void;
   approveLabel?: string;
   isFullScreen?: boolean;
@@ -82,6 +83,143 @@ interface SidePanelProps {
   chatElement?: ReactNode;
   isChatVisible?: boolean;
   onToggleChatVisible?: () => void;
+}
+
+// ── Approve button with in-button micro-animation ──────────────────────────
+// Total choreography: 0ms click → spinner fades in (150ms) & spins (550ms rotation) →
+// 700ms morph to checkmark (draws in 150ms) → 850ms fade out (250ms) → 1100ms complete.
+// At 1100ms the button invokes onAnimationComplete, which the page uses to
+// commit the optimistic status flip and close the panel.
+function ApproveButtonWithAnimation({
+  label,
+  onClick,
+  onAnimationComplete,
+}: {
+  label: string;
+  onClick: () => void;
+  onAnimationComplete: () => void;
+}) {
+  const [phase, setPhase] = useState<"idle" | "spinning" | "check" | "fading">("idle");
+  const completeRef = useRef(onAnimationComplete);
+  completeRef.current = onAnimationComplete;
+
+  useEffect(() => {
+    if (phase === "idle") return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    if (phase === "spinning") {
+      timers.push(setTimeout(() => setPhase("check"), 700));
+    }
+    if (phase === "check") {
+      timers.push(setTimeout(() => setPhase("fading"), 150));
+    }
+    if (phase === "fading") {
+      timers.push(setTimeout(() => completeRef.current(), 250));
+    }
+    return () => { timers.forEach(clearTimeout); };
+  }, [phase]);
+
+  const handleClick = () => {
+    if (phase !== "idle") return;
+    onClick();
+    setPhase("spinning");
+  };
+
+  const disabled = phase !== "idle";
+
+  return (
+    <>
+      <style jsx global>{`
+        @keyframes approve-btn-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes approve-btn-fade-in {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes approve-btn-check {
+          to { stroke-dashoffset: 0; }
+        }
+      `}</style>
+      <button
+        onClick={handleClick}
+        disabled={disabled}
+        style={{
+          position: "relative",
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "4px 12px",
+          borderRadius: 4,
+          background: "var(--btn-primary-bg)",
+          color: "var(--btn-primary-text)",
+          border: "none",
+          cursor: disabled ? "default" : "pointer",
+          flexShrink: 0,
+          minWidth: 64,
+          minHeight: 24,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+          opacity: phase === "fading" ? 0 : 1,
+          transition: "opacity 250ms ease",
+        }}
+        className={disabled ? "" : "hover:opacity-80 transition-opacity"}
+      >
+        <span
+          style={{
+            opacity: phase === "idle" ? 1 : 0,
+            transition: "opacity 150ms ease",
+            position: phase === "idle" ? "relative" : "absolute",
+          }}
+        >
+          {label}
+        </span>
+        {phase === "spinning" && (
+          <span
+            style={{
+              position: "absolute",
+              display: "inline-block",
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              border: "2px solid color-mix(in srgb, var(--btn-primary-text) 35%, transparent)",
+              borderTopColor: "var(--btn-primary-text)",
+              animationName: "approve-btn-spin, approve-btn-fade-in",
+              animationDuration: "550ms, 150ms",
+              animationIterationCount: "infinite, 1",
+              animationTimingFunction: "linear, ease",
+              animationFillMode: "none, forwards",
+            }}
+          />
+        )}
+        {(phase === "check" || phase === "fading") && (
+          <svg
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            style={{ position: "absolute" }}
+          >
+            {/* `forwards` keeps the checkmark fully drawn after the 150ms draw-in,
+             *  so it stays visible through the subsequent 250ms fade-out phase. */}
+            <path
+              d="M 5 13 L 10 18 L 19 7"
+              stroke="var(--btn-primary-text)"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                strokeDasharray: 26,
+                strokeDashoffset: 26,
+                animation: "approve-btn-check 150ms ease forwards",
+              }}
+            />
+          </svg>
+        )}
+      </button>
+    </>
+  );
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -99,6 +237,7 @@ export function SidePanel({
   onToggleEdit,
   onWidthChange,
   onApprove,
+  onApprovalComplete,
   onDiscuss,
   approveLabel,
   isFullScreen,
@@ -239,17 +378,11 @@ export function SidePanel({
 
         {/* Action buttons */}
         {onApprove && (
-          <button
-            onClick={onApprove}
-            style={{
-              fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 4,
-              background: "var(--btn-primary-bg)", color: "var(--btn-primary-text)",
-              border: "none", cursor: "pointer", flexShrink: 0,
-            }}
-            className="hover:opacity-80 transition-opacity"
-          >
-            {approveLabel ?? "Accept"}
-          </button>
+          <ApproveButtonWithAnimation
+            label={approveLabel ?? "Accept"}
+            onClick={() => { onApprove(); }}
+            onAnimationComplete={() => { onApprovalComplete?.(); }}
+          />
         )}
         {onDiscuss && !isFullScreen && (
           <button

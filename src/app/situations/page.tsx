@@ -18,16 +18,6 @@ import { OpenQuestionsCard } from "@/components/execution/open-questions-card";
 import { DecisionsSection } from "@/components/execution/decisions-section";
 import { parseOpenQuestionsSection, parseDecisionsSection } from "@/lib/clarification-helpers";
 import { useToast } from "@/components/ui/toast";
-import { ExecutionAnimationOverlay, type ExecutionAnimationType } from "@/components/execution-animation-overlay";
-
-function stepToAnimationType(step: { parameters?: Record<string, unknown> | null }): ExecutionAnimationType {
-  const raw = step.parameters?.previewType;
-  const preview = typeof raw === "string" ? raw.toLowerCase() : undefined;
-  if (preview === "email") return "email";
-  if (preview === "document") return "document";
-  if (preview === "calendar_event") return "calendar_event";
-  return "generic";
-}
 
 function getApproveLabelKey(step: ExecutionStepForPreview): "send" | "accept" {
   const slug = step.actionCapability?.slug ?? "";
@@ -438,6 +428,7 @@ export default function SituationsPage() {
   const locale = useLocale();
   const isMobile = useIsMobile();
   const { isSuperadmin, isAdmin } = useUser();
+  const { toast } = useToast();
   const [situations, setSituations] = useState<SituationItem[]>([]);
   const [showAllStatuses, setShowAllStatuses] = useState(false);
   const [showAllSituations, setShowAllSituations] = useState(true);
@@ -461,7 +452,6 @@ export default function SituationsPage() {
   const [panelWidth, setPanelWidth] = useState(55);
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false);
   const [isChatVisible, setIsChatVisible] = useState(true);
-  const [animationType, setAnimationType] = useState<ExecutionAnimationType | null>(null);
   const sidebarWasCollapsed = useRef(false);
 
   // Auto-collapse main nav sidebar when panel opens, restore on close
@@ -622,17 +612,6 @@ export default function SituationsPage() {
 
   return (
     <>
-    {animationType && (
-      <ExecutionAnimationOverlay
-        type={animationType}
-        onComplete={() => {
-          // Intentionally empty: the setTimeout in onApprove is the single source of truth
-          // for timing, clearing animationType after the /complete POST. The overlay's
-          // 2100ms animation and the setTimeout's 2100ms delay are deliberately aligned
-          // so the cleanups coincide without a second race.
-        }}
-      />
-    )}
     <AppShell pendingApprovals={activeCount}>
       {billingStatus !== "active" && !bannerDismissed && (
         <div className="px-4 py-2 flex items-center justify-between" style={{ background: "var(--card-bg)", borderBottom: "1px solid var(--border)" }}>
@@ -876,26 +855,50 @@ export default function SituationsPage() {
                 onApprove={sidePanelData.isEditable ? () => {
                   const situationId = sidePanelData.situationId || selectedSituation!.id;
                   const stepOrder = sidePanelData.stepOrder;
-                  const stepIndex = sidePanelData.index;
-                  // Close the panel immediately so the user can see the execution animation on the step.
+                  // Fire the POST immediately (fire-and-forget). UI timing is driven by the
+                  // button's 1100ms animation, not by the network round-trip. On failure,
+                  // toast the user and let the next fetchDetail reconcile the optimistic flip.
+                  fetch(`/api/situations/${situationId}/steps/${stepOrder}/complete`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({}),
+                  })
+                    .then(async res => {
+                      if (!res.ok) {
+                        const body = await res.json().catch(() => null);
+                        toast(body?.error ?? "Failed to complete step", "error");
+                        fetchDetail(situationId);
+                      }
+                    })
+                    .catch(() => {
+                      toast("Failed to complete step", "error");
+                      fetchDetail(situationId);
+                    });
+                } : undefined}
+                onApprovalComplete={sidePanelData.isEditable ? () => {
+                  const situationId = sidePanelData.situationId || selectedSituation!.id;
+                  const stepOrder = sidePanelData.stepOrder;
+                  // Optimistic update — flip the step to completed locally so the UI
+                  // reflects success at animation end without waiting for a poll.
+                  setDetail(prev => {
+                    if (!prev || !prev.actionPlan) return prev;
+                    return {
+                      ...prev,
+                      actionPlan: {
+                        ...prev.actionPlan,
+                        steps: prev.actionPlan.steps.map(s =>
+                          s.sequenceOrder === stepOrder ? { ...s, status: "completed" } : s
+                        ),
+                      },
+                    };
+                  });
                   setSidePanelData(null);
                   setPanelBreadcrumbs([]);
                   setPanelEditing(false);
                   setIsPreviewFullScreen(false);
                   setIsChatVisible(true);
-                  setAnimationType(stepToAnimationType(sidePanelData.step));
-                  // Visual delay aligned with the overlay animation (2100ms), then complete the step.
-                  setTimeout(async () => {
-                    try {
-                      await fetch(`/api/situations/${situationId}/steps/${stepOrder}/complete`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({}),
-                      });
-                    } catch {}
-                    setAnimationType(null);
-                    fetchDetail(situationId);
-                  }, 2100);
+                  // Background reconcile with server state.
+                  fetchDetail(situationId);
                 } : undefined}
                 approveLabel={tp(getApproveLabelKey(sidePanelData.step))}
                 onDiscuss={() => {
