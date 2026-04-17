@@ -48,6 +48,7 @@ model Operator {
   industry        String?
   isTestOperator  Boolean  @default(false)
   aiResponseStore Boolean  @default(false)
+  deliberationPassEnabled Boolean @default(false)
   createdAt       DateTime @default(now())
 
   // Stripe

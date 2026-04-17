@@ -134,7 +134,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       getBusinessContext(operatorId),
       prisma.operator.findUnique({
         where: { id: operatorId },
-        select: { companyName: true },
+        select: { companyName: true, deliberationPassEnabled: true },
       }),
       prisma.knowledgePage.findMany({
         where: {
@@ -583,7 +583,7 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
     }
 
     // Enqueue deliberation pass if there are eligible drafted steps
-    if (resolvedSteps.length > 0) {
+    if (resolvedSteps.length > 0 && operator?.deliberationPassEnabled) {
       const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
       enqueueWorkerJob("run_deliberation_pass", operatorId, {
         operatorId,

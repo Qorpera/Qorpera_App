@@ -12,6 +12,9 @@ import { formatRelativeTime } from "@/lib/format-helpers";
 import { getPreviewComponent, type ExecutionStepForPreview } from "@/components/execution/previews/get-preview-component";
 import { SidePanel } from "@/components/execution/side-panel";
 import { InlineStepCard, getStepCardMeta } from "@/components/execution/inline-step-card";
+import { OpenQuestionsCard } from "@/components/execution/open-questions-card";
+import { DecisionsSection } from "@/components/execution/decisions-section";
+import { parseOpenQuestionsSection, parseDecisionsSection } from "@/lib/clarification-helpers";
 import { useToast } from "@/components/ui/toast";
 
 function getApproveLabelKey(step: ExecutionStepForPreview): "send" | "accept" {
@@ -144,6 +147,8 @@ interface SituationDetail {
     context?: string;
     investigation?: string;
     actionPlan?: string;
+    decisions?: string;
+    openQuestions?: string;
     deliverables?: string;
     timeline?: string;
     playbookReference?: string;
@@ -1362,6 +1367,37 @@ function DetailPane({
           {/* Divider */}
           <div style={{ borderTop: "1px solid var(--card-border)", margin: "8px 0" }} />
 
+          {/* ── CLARIFICATION + DECISIONS ── */}
+          {(() => {
+            const openQuestions = detail?.wikiContent?.openQuestions
+              ? parseOpenQuestionsSection(detail.wikiContent.openQuestions)
+              : [];
+            const decisions = detail?.wikiContent?.decisions
+              ? parseDecisionsSection(detail.wikiContent.decisions)
+              : [];
+
+            if (openQuestions.length === 0 && decisions.length === 0) return null;
+
+            return (
+              <>
+                {openQuestions.length > 0 && detail?.id && (
+                  <OpenQuestionsCard
+                    situationId={detail.id}
+                    questions={openQuestions}
+                    onAnswered={onRefreshDetail}
+                  />
+                )}
+                {decisions.length > 0 && detail?.id && (
+                  <DecisionsSection
+                    situationId={detail.id}
+                    decisions={decisions}
+                    onOverridden={onRefreshDetail}
+                  />
+                )}
+              </>
+            );
+          })()}
+
           {/* ── CURRENT ACTION PLAN ── */}
           {reasoning && actionPlan && actionPlan.length > 0 ? (
             <div className="overflow-hidden min-w-0 w-[70%] mx-auto">
@@ -1420,6 +1456,25 @@ function DetailPane({
                         }}>
                           {step.title}
                         </span>
+                        {planStep?.status === "awaiting_clarification" && (
+                          <span
+                            className="flex-shrink-0"
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 500,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.08em",
+                              padding: "2px 6px",
+                              borderRadius: 3,
+                              background: "color-mix(in srgb, var(--warn) 14%, transparent)",
+                              color: "var(--warn)",
+                              fontFamily: "ui-monospace, monospace",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            Awaiting
+                          </span>
+                        )}
                         {isCompleted ? (
                           <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "var(--badge-bg)", color: "var(--fg3)", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 72 }}>complete</span>
                         ) : isCurrentStep ? (
@@ -1516,11 +1571,28 @@ function DetailPane({
                             </div>
                           )}
 
+                          {/* Awaiting clarification badge */}
+                          {planStep?.status === "awaiting_clarification" && (
+                            <div
+                              style={{
+                                marginTop: 8,
+                                padding: "8px 12px",
+                                background: "color-mix(in srgb, var(--warn) 8%, transparent)",
+                                border: "1px dashed color-mix(in srgb, var(--warn) 28%, transparent)",
+                                borderRadius: 4,
+                                fontSize: 11,
+                                color: "var(--warn)",
+                              }}
+                            >
+                              Waiting on clarification — answer the open question above to unblock this step.
+                            </div>
+                          )}
+
                           {planStep?.errorMessage && (
                             <p style={{ fontSize: 11, color: "var(--danger)", marginTop: 2 }}>{planStep.errorMessage}</p>
                           )}
 
-                          {isCurrentStep && !isCompleted && !isReEvaluating ? (
+                          {isCurrentStep && !isCompleted && !isReEvaluating && planStep?.status !== "awaiting_clarification" ? (
                             (step.executionMode === "action" || step.executionMode === "generate") ? (
                               <div style={{ marginTop: 16, maxWidth: "60%" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
