@@ -356,9 +356,9 @@ export function CalendarWeekView({
                       lineHeight: "1.3",
                       ...(pe.isProposed
                         ? {
-                            background: "color-mix(in srgb, var(--accent) 15%, transparent)",
-                            borderLeft: "3px solid var(--accent)",
-                            boxShadow: "0 1px 4px color-mix(in srgb, var(--accent) 20%, transparent)",
+                            background: "color-mix(in srgb, #3b82f6 22%, transparent)",
+                            borderLeft: "3px solid #3b82f6",
+                            boxShadow: "0 1px 4px color-mix(in srgb, #3b82f6 30%, transparent)",
                           }
                         : {
                             background: "color-mix(in srgb, var(--fg3) 15%, transparent)",
@@ -373,7 +373,7 @@ export function CalendarWeekView({
                         right: 3,
                         fontSize: 8,
                         fontWeight: 700,
-                        color: "var(--accent)",
+                        color: "#3b82f6",
                         textTransform: "uppercase",
                         letterSpacing: "0.5px",
                       }}>
@@ -381,7 +381,7 @@ export function CalendarWeekView({
                       </span>
                     )}
                     <div style={{
-                      color: pe.isProposed ? "var(--accent)" : "var(--foreground)",
+                      color: pe.isProposed ? "#3b82f6" : "var(--foreground)",
                       fontWeight: 500,
                       whiteSpace: "nowrap",
                       overflow: "hidden",

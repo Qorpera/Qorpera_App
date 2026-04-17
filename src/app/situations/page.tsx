@@ -11,7 +11,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { getPreviewComponent, type ExecutionStepForPreview } from "@/components/execution/previews/get-preview-component";
 import { SidePanel } from "@/components/execution/side-panel";
-import { InlineStepCard, getStepCardMeta } from "@/components/execution/inline-step-card";
+import { InlineStepCard, getStepCardMeta, stripLeadingActionVerb } from "@/components/execution/inline-step-card";
 import { OpenQuestionsCard } from "@/components/execution/open-questions-card";
 import { DecisionsSection } from "@/components/execution/decisions-section";
 import { parseOpenQuestionsSection, parseDecisionsSection } from "@/lib/clarification-helpers";
@@ -25,6 +25,10 @@ function getApproveLabelKey(step: ExecutionStepForPreview): "send" | "accept" {
   if (slug.includes("slack") || slug === "send_channel_message" || slug.includes("teams")) {
     return "send";
   }
+  // Also check previewType — needed for steps whose actionCapability isn't registered
+  // (e.g. promo-seeded steps that carry `[preview: email]` / `[preview: slack_message]`).
+  const previewType = (step.parameters as Record<string, unknown> | null)?.previewType;
+  if (previewType === "email" || previewType === "slack_message") return "send";
   return "accept";
 }
 
@@ -452,6 +456,7 @@ export default function SituationsPage() {
   const [panelWidth, setPanelWidth] = useState(55);
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false);
   const [isChatVisible, setIsChatVisible] = useState(true);
+  const [executingStepIndex, setExecutingStepIndex] = useState<number | null>(null);
   const sidebarWasCollapsed = useRef(false);
 
   // Auto-collapse main nav sidebar when panel opens, restore on close
@@ -799,6 +804,7 @@ export default function SituationsPage() {
                     sidePanelStepIndex={sidePanelData?.index ?? null}
                     onOpenStepPanel={setSidePanelData}
                     onRefreshDetail={refreshDetail}
+                    executingStepIndex={executingStepIndex}
                   />
                 </div>
                 {!isPreviewFullScreen && (
@@ -834,14 +840,37 @@ export default function SituationsPage() {
               <SidePanel
                 isOpen={!!sidePanelData}
                 onClose={() => { setSidePanelData(null); setPanelBreadcrumbs([]); setPanelEditing(false); setIsPreviewFullScreen(false); setIsChatVisible(true); }}
-                title={sidePanelData.step.title}
+                title={stripLeadingActionVerb(sidePanelData.step.title)}
                 typeBadge={badge}
                 typeIcon={icon}
                 breadcrumbs={breadcrumbEntries}
                 isEditing={panelEditing}
                 onToggleEdit={() => setPanelEditing(prev => !prev)}
                 onWidthChange={setPanelWidth}
-                onApprove={sidePanelData.isEditable ? () => patchSituation(selectedSituation!.id, { status: "approved" }) : undefined}
+                onApprove={sidePanelData.isEditable ? () => {
+                  const situationId = sidePanelData.situationId || selectedSituation!.id;
+                  const stepOrder = sidePanelData.stepOrder;
+                  const stepIndex = sidePanelData.index;
+                  // Close the panel immediately so the user can see the execution animation on the step.
+                  setSidePanelData(null);
+                  setPanelBreadcrumbs([]);
+                  setPanelEditing(false);
+                  setIsPreviewFullScreen(false);
+                  setIsChatVisible(true);
+                  setExecutingStepIndex(stepIndex);
+                  // Short visual delay so the animation reads as "executing", then complete the step.
+                  setTimeout(async () => {
+                    try {
+                      await fetch(`/api/situations/${situationId}/steps/${stepOrder}/complete`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({}),
+                      });
+                    } catch {}
+                    setExecutingStepIndex(null);
+                    fetchDetail(situationId);
+                  }, 1300);
+                } : undefined}
                 approveLabel={tp(getApproveLabelKey(sidePanelData.step))}
                 onDiscuss={() => {
                   if (isPreviewFullScreen) {
@@ -1062,6 +1091,7 @@ function DetailPane({
   sidePanelStepIndex,
   onOpenStepPanel,
   onRefreshDetail,
+  executingStepIndex,
 }: {
   situation: SituationItem;
   detail: SituationDetail | null;
@@ -1082,6 +1112,7 @@ function DetailPane({
   sidePanelStepIndex: number | null;
   onOpenStepPanel: (data: SidePanelData) => void;
   onRefreshDetail: () => void;
+  executingStepIndex: number | null;
 }) {
   const t = useTranslations("situations");
   const tc = useTranslations("common");
@@ -1469,7 +1500,7 @@ function DetailPane({
                           color: isCompleted ? "var(--fg2)" : "var(--fg1, var(--foreground))",
                           textDecoration: isCompleted ? "line-through" : "none",
                         }}>
-                          {step.title}
+                          {stripLeadingActionVerb(step.title)}
                         </span>
                         {planStep?.status === "awaiting_clarification" && (
                           <span
@@ -1490,7 +1521,12 @@ function DetailPane({
                             Awaiting
                           </span>
                         )}
-                        {isCompleted ? (
+                        {executingStepIndex === i ? (
+                          <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "center", minWidth: 88 }}>
+                            <span className="animate-spin" style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid color-mix(in srgb, var(--accent) 35%, transparent)", borderTopColor: "var(--accent)", display: "inline-block" }} />
+                            executing
+                          </span>
+                        ) : isCompleted ? (
                           <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "var(--badge-bg)", color: "var(--fg3)", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 72 }}>complete</span>
                         ) : isCurrentStep ? (
                           <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "var(--badge-bg-strong)", color: "var(--btn-primary-text)", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 72 }}>current</span>

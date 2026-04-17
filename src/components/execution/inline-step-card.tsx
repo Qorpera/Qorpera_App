@@ -152,8 +152,37 @@ function truncate(s: string, len: number): string {
   return s.length > len ? s.slice(0, len) + "…" : s;
 }
 
+// ── Title cleanup ───────────────────────────────────────────────────────────
+
+const LEADING_ACTION_VERBS = new Set([
+  "generate", "schedule", "compile", "send", "draft", "create", "update",
+  "review", "monitor", "flag", "request", "notify", "prepare", "respond",
+  "reply", "escalate", "investigate", "approve", "verify", "check", "contact",
+  "follow", "email", "post", "document", "publish", "propose", "submit",
+  "assign", "remind",
+]);
+
+/**
+ * Strip a leading imperative verb (Generate/Schedule/Compile/…) from an action
+ * step title so the action-card heading reads as the noun phrase being acted
+ * on. Returns the original title if the first word isn't a known verb or if
+ * stripping would leave nothing behind.
+ */
+export function stripLeadingActionVerb(title: string): string {
+  if (!title) return title;
+  const trimmed = title.trim();
+  const parts = trimmed.split(/\s+/);
+  if (parts.length <= 1) return trimmed;
+  const firstWord = parts[0].toLowerCase().replace(/[^a-z]/g, "");
+  if (!LEADING_ACTION_VERBS.has(firstWord)) return trimmed;
+  const rest = parts.slice(1).join(" ");
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
 function extractCardData(step: ExecutionStepForPreview, cardType: CardType): CardData {
   const p = step.parameters ?? {};
+  // Action-verb-free fallback title for every card type.
+  const stepTitle = stripLeadingActionVerb(step.title);
 
   switch (cardType) {
     case "email": {
@@ -161,13 +190,13 @@ function extractCardData(step: ExecutionStepForPreview, cardType: CardType): Car
       const subject = (p.subject ?? "") as string;
       return {
         icon: <MailIcon />,
-        title: to ? `Til: ${to}` : step.title,
+        title: to ? `Til: ${to}` : stepTitle,
         subtitle: truncate(subject, 60),
         badge: "E-mail",
       };
     }
     case "document": {
-      const title = (p.title ?? step.title) as string;
+      const title = (p.title ?? stepTitle) as string;
       const sections = Array.isArray(p.sections) ? p.sections.length : null;
       return {
         icon: <DocIcon />,
@@ -177,7 +206,7 @@ function extractCardData(step: ExecutionStepForPreview, cardType: CardType): Car
       };
     }
     case "spreadsheet": {
-      const title = (p.title ?? step.title) as string;
+      const title = (p.title ?? stepTitle) as string;
       const rows = Array.isArray(p.rows) ? p.rows.length : Array.isArray(p.newRows) ? p.newRows.length : null;
       return {
         icon: <GridIcon />,
@@ -187,7 +216,7 @@ function extractCardData(step: ExecutionStepForPreview, cardType: CardType): Car
       };
     }
     case "calendar": {
-      const title = (p.summary ?? p.title ?? step.title) as string;
+      const title = (p.summary ?? p.title ?? stepTitle) as string;
       const date = (p.startDateTime ?? p.startTime ?? p.date ?? "") as string;
       const attendees = Array.isArray(p.attendees) ? p.attendees.length : 0;
       const parts: string[] = [];
@@ -205,7 +234,7 @@ function extractCardData(step: ExecutionStepForPreview, cardType: CardType): Car
       const message = (p.message ?? p.text ?? "") as string;
       return {
         icon: <HashIcon />,
-        title: channel ? `#${channel}` : step.title,
+        title: channel ? `#${channel}` : stepTitle,
         subtitle: truncate(message, 50),
         badge: "Besked",
       };
@@ -222,7 +251,7 @@ function extractCardData(step: ExecutionStepForPreview, cardType: CardType): Car
       };
     }
     case "ticket": {
-      const subject = (p.subject ?? p.title ?? step.title) as string;
+      const subject = (p.subject ?? p.title ?? stepTitle) as string;
       return {
         icon: <MailIcon />,
         title: subject,
@@ -231,7 +260,7 @@ function extractCardData(step: ExecutionStepForPreview, cardType: CardType): Car
       };
     }
     case "presentation": {
-      const title = (p.title ?? step.title) as string;
+      const title = (p.title ?? stepTitle) as string;
       const slides = Array.isArray(p.slides) ? p.slides.length : null;
       return {
         icon: <DocIcon />,
@@ -244,7 +273,7 @@ function extractCardData(step: ExecutionStepForPreview, cardType: CardType): Car
       const isHuman = step.executionMode === "human_task";
       return {
         icon: isHuman ? <PersonIcon /> : <GearIcon />,
-        title: step.title,
+        title: stepTitle,
         subtitle: truncate(step.description, 60),
         badge: isHuman ? "Human Task" : step.executionMode,
       };
