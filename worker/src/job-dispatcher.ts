@@ -11,6 +11,22 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     await reasonAboutSituation(situationId, wikiPageSlug);
   },
 
+  async run_deliberation_pass(payload) {
+    const { operatorId, situationSlug } = payload as { operatorId: string; situationSlug: string };
+    const { runDeliberationPass } = await import("@/lib/deliberation-pass");
+    await runDeliberationPass(operatorId, situationSlug);
+  },
+
+  async run_partial_deliberation_pass(payload) {
+    const { operatorId, situationSlug, unblockedStepOrders } = payload as {
+      operatorId: string;
+      situationSlug: string;
+      unblockedStepOrders: number[];
+    };
+    const { runPartialDeliberationPass } = await import("@/lib/deliberation-pass");
+    await runPartialDeliberationPass(operatorId, situationSlug, unblockedStepOrders);
+  },
+
   async reason_initiative(payload) {
     const { operatorId, pageSlug } = payload as { operatorId: string; pageSlug: string };
     const { reasonAboutInitiative } = await import("@/lib/initiative-reasoning");

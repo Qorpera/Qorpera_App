@@ -1073,6 +1073,7 @@ export interface PageLockContext {
   version: number;
   activityContent: string | null;
   title: string;
+  pageType: string;
 }
 
 export type PageUpdateFn = (page: PageLockContext) => {
@@ -1108,6 +1109,7 @@ export async function updatePageWithLock(
         version: true,
         activityContent: true,
         title: true,
+        pageType: true,
       },
     });
 
@@ -1123,6 +1125,7 @@ export async function updatePageWithLock(
       version: page.version,
       activityContent: page.activityContent,
       title: page.title,
+      pageType: page.pageType,
     };
 
     const changes = updateFn(ctx);

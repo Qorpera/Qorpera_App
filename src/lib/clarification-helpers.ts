@@ -3,6 +3,10 @@ import type {
   OpenQuestion,
   Decision,
 } from "@/lib/deliberation-types";
+import {
+  DecisionSchema,
+  OpenQuestionSchema,
+} from "@/lib/deliberation-types";
 
 // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -45,7 +49,7 @@ export function renderOpenQuestionsSection(questions: OpenQuestion[]): string {
     lines.push(`**Question:** ${q.question}`);
     lines.push(`**Options:**`);
     for (const opt of q.options) {
-      lines.push(`- ${opt.label}: ${opt.hint}`);
+      lines.push(`- ${opt.label} — ${opt.hint}`);
     }
     lines.push(`**Affects steps:** ${q.affectedStepOrders.join(", ")}`);
     lines.push(`**Raised at:** ${q.raisedAt}`);
@@ -151,7 +155,7 @@ export function parseDecisionsSection(sectionBody: string): Decision[] {
         raisedAt,
         answeredAt,
         answeredByUserId: answeredBy,
-        answeredBySlug: answeredBy,
+        answeredBySlug: null,
         choice,
         isCustomAnswer: customAnswerRaw === "true",
         affectedStepOrders,
@@ -182,7 +186,17 @@ export function parseDecisionsSection(sectionBody: string): Decision[] {
     }
   }
 
-  return decisions;
+  // Defensive validation — drop blocks that don't match the schema (hand-edited wiki pages).
+  const validated: Decision[] = [];
+  for (const d of decisions) {
+    const result = DecisionSchema.safeParse(d);
+    if (result.success) {
+      validated.push(result.data);
+    } else {
+      console.warn(`[clarification-helpers] Dropped malformed decision block: ${result.error.issues.map(i => i.message).join("; ")}`);
+    }
+  }
+  return validated;
 }
 
 export function parseOpenQuestionsSection(sectionBody: string): OpenQuestion[] {
@@ -207,7 +221,7 @@ export function parseOpenQuestionsSection(sectionBody: string): OpenQuestion[] {
     const options: Array<{ label: string; hint: string }> = [];
     if (optionsStart !== -1) {
       const afterOptions = block.body.slice(optionsStart);
-      const optionLineRegex = /^-\s+([^:]+):\s+(.+)$/gm;
+      const optionLineRegex = /^-\s+(.+?)\s+—\s+(.+)$/gm;
       let match;
       while ((match = optionLineRegex.exec(afterOptions)) !== null) {
         options.push({ label: match[1].trim(), hint: match[2].trim() });
@@ -228,7 +242,17 @@ export function parseOpenQuestionsSection(sectionBody: string): OpenQuestion[] {
     });
   }
 
-  return questions;
+  // Defensive validation — drop blocks that don't match the schema (hand-edited wiki pages).
+  const validated: OpenQuestion[] = [];
+  for (const q of questions) {
+    const result = OpenQuestionSchema.safeParse(q);
+    if (result.success) {
+      validated.push(result.data);
+    } else {
+      console.warn(`[clarification-helpers] Dropped malformed open question block: ${result.error.issues.map(i => i.message).join("; ")}`);
+    }
+  }
+  return validated;
 }
 
 // ── Fork → OpenQuestion conversion ───────────────────────────────────────────

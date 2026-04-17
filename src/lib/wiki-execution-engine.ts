@@ -52,7 +52,7 @@ export interface ParsedActionStep {
   order: number;
   title: string;
   actionType: "api_action" | "generate" | "human_task" | "browser_task" | "monitor";
-  status: "pending" | "approved" | "executing" | "completed" | "skipped" | "failed";
+  status: "pending" | "awaiting_clarification" | "approved" | "executing" | "completed" | "skipped" | "failed";
   description: string;
   capabilityName?: string;
   assignedSlug?: string;
@@ -87,7 +87,7 @@ const VALID_ACTION_TYPES = new Set([
 ]);
 
 const VALID_STATUSES = new Set([
-  "pending", "approved", "executing", "completed", "skipped", "failed",
+  "pending", "awaiting_clarification", "approved", "executing", "completed", "skipped", "failed",
 ]);
 
 // ─── Action Plan Parser ─────────────────────────────────
@@ -367,6 +367,7 @@ export function deriveActionPlanStatus(
   steps: ParsedActionStep[],
 ): "executing" | "approved" | "completed" | "failed" | "pending" {
   if (steps.length === 0) return "pending";
+  if (steps.some((s) => s.status === "awaiting_clarification")) return "pending";
   if (steps.some((s) => s.status === "executing")) return "executing";
   if (steps.every((s) => s.status === "completed" || s.status === "skipped")) return "completed";
   if (steps.some((s) => s.status === "failed")) return "failed";
@@ -409,6 +410,9 @@ export async function approveSituationStep(
     const plan = parseActionPlan(page.content);
     const step = plan.steps.find((s) => s.order === stepOrder);
     if (!step) throw new Error(`Step ${stepOrder} not found`);
+    if (step.status === "awaiting_clarification") {
+      throw new Error(`Step ${stepOrder} is awaiting clarification — answer the open question before approving`);
+    }
     if (step.status !== "pending" && step.status !== "approved") {
       throw new Error(`Step ${stepOrder} is ${step.status}, expected pending`);
     }

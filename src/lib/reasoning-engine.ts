@@ -582,6 +582,15 @@ export async function reasonAboutSituation(situationId: string, wikiPageSlug?: s
       console.log(`[reasoning-engine] Escalation recommended for ${wikiSituationId}: ${reasoning.escalation.rationale}`);
     }
 
+    // Enqueue deliberation pass if there are eligible drafted steps
+    if (resolvedSteps.length > 0) {
+      const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+      enqueueWorkerJob("run_deliberation_pass", operatorId, {
+        operatorId,
+        situationSlug: situationPage.slug,
+      }).catch(err => console.warn(`[reasoning-engine] Failed to enqueue deliberation pass:`, err));
+    }
+
     console.log(`[reasoning-engine] Reasoning complete for ${wikiPageSlug}`);
 
   } catch (err) {
