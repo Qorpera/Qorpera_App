@@ -884,11 +884,13 @@ const FIXTURES: Fixture[] = [
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const operator = await prisma.operator.findFirst();
+  const operator = await prisma.operator.findFirst({
+    where: { displayName: "Demo Company" },
+  });
   if (!operator) {
-    console.error(
-      "No operator found. Run `npm run setup` or `npx tsx src/lib/seed.ts` first.",
-    );
+    console.error('Seed target operator "Demo Company" not found.');
+    console.error("This script seeds demo fixtures for the Demo Company operator specifically.");
+    console.error("Create a 'Demo Company' operator first, or edit this script's displayName filter.");
     process.exit(1);
   }
   const operatorId = operator.id;
@@ -899,6 +901,19 @@ async function main() {
   });
   if (deleted.count > 0) {
     console.log(`Deleted ${deleted.count} legacy demo row(s): ${LEGACY_SLUGS.join(", ")}`);
+  }
+
+  // 2. Self-heal: delete any fixture rows that landed under a different operator
+  // on a prior run (e.g., before the displayName filter was added). Keeps the
+  // script idempotent across operator-targeting changes.
+  const cleanedOrphans = await prisma.knowledgePage.deleteMany({
+    where: {
+      slug: { in: FIXTURES.map(f => f.slug) },
+      operatorId: { not: operator.id },
+    },
+  });
+  if (cleanedOrphans.count > 0) {
+    console.log(`Cleaned up ${cleanedOrphans.count} orphaned demo rows under other operators.`);
   }
 
   const now = new Date();
