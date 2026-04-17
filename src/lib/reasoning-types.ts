@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { InitiativeDashboardSchema } from "@/lib/initiative-dashboard-types";
 
 // ── Shared sub-schemas ──────────────────────────────────────────────────────
 
@@ -201,6 +202,8 @@ export const InitiativeReasoningOutputSchema = z.object({
 
   // Primary deliverable specification — null for dismissed initiatives
   primaryDeliverable: InitiativePrimaryDeliverableSchema.nullable().describe("The single main change this initiative proposes. Null when isValuable=false."),
+
+  dashboard: InitiativeDashboardSchema.nullable().describe("Structured dashboard payload rendered on the initiative Overview tab. Null when isValuable=false. When isValuable=true, produce either { cards: [...] } with 2–4 cards, or { cards: [], fallback: 'prose_only' } when no quantifiable content is available. Aim for 2–4 cards that directly visualize the claim being made."),
 
   // Downstream effects — bullet-level only (Phase 4 investigates each in depth)
   downstreamEffects: z.array(InitiativeDownstreamEffectSchema).optional().describe("Other pages that may need to change if the primary deliverable is implemented. Bullet-level identification only — Phase 4 will investigate each. Empty array is valid if no downstream effects."),

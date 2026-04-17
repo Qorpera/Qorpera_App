@@ -147,6 +147,135 @@ Rationale: [Why this specific change addresses the initiative]
 YYYY-MM-DD HH:MM — Investigated by initiative reasoning engine — [outcome: proposed | dismissed]
 \`\`\``);
 
+  parts.push(`\n## Dashboard Generation
+
+When isValuable is true, produce a \`dashboard\` payload that will render on the initiative's Overview tab. The dashboard is the operator's primary decision interface — they will scan it in 20–30 seconds before reading any prose.
+
+Aim for **2–4 cards** composed from this catalog:
+
+- \`impact_bar\` — before/after metric with uncertainty range. Use for almost every valuable initiative. Baseline = current state, projected = post-implementation state. Include a prominent \`savings\` figure when it clarifies the value.
+- \`entity_set\` — a list of affected people, clients, projects, or documents. Use when the initiative targets a discrete cohort. Flag each entity ('bad' for problem entities, 'warn' for attention, 'good' for positive, 'neutral' otherwise).
+- \`process_flow\` — ordered steps with optional checkpoints. Use for process_creation and project_creation types. Mark checkpoints with \`checkpoint: true\` and a short \`note\` like 'Signature' or 'Approval'.
+- \`automation_loop\` — trigger → work → output schematic. Use for system_job_creation type. Include an \`annotation\` describing the trust gradient ("first 2 cycles require approval").
+- \`conceptual_diagram\` — schema-driven diagram. Only variant available in v1 is \`tier_pyramid\`. Use for strategy_revision type when tiers or segments are the idea.
+- \`trend_or_distribution\` — sparkline (trend over time) or donut (distribution breakdown). Use sparkline for historical context that motivates the initiative. Use donut to break down a total (e.g., where 38 reporting hours go).
+
+**Rules that separate good dashboards from bad ones:**
+
+1. **Every card \`claim\` must be a sentence stating the claim, not a label.**
+   - ✓ "60–80% fewer unbudgeted hours per engagement"
+   - ✗ "Impact Analysis" / "Time Savings" / "Affected Clients"
+2. **Numbers must be grounded.** Every quantified value in a card must either trace to an evidence item (wiki page slug in \`evidence[].ref\`) OR be clearly marked as inferred (\`evidence[].inferred: true\`, \`ref: null\`). Never invent numbers to fill the visual.
+3. **Confidence must be honest.**
+   - \`high\` = backed by directly observed data in the wiki or connected systems
+   - \`medium\` = extrapolated from observed data or benchmark-reasoned
+   - \`low\` = scenario-modelled or inferred without strong grounding
+4. **Prefer ranges over false precision.** If you're estimating "about 40 to 80 hours", emit \`{ typicalValue: 60, range: { low: 40, high: 80 }, unit: "hrs" }\`. Do NOT emit \`{ typicalValue: 60, unit: "hrs" }\` as if you measured it exactly.
+5. **Span guidance:** start at 12 for the hero card. Use 6 + 6 for paired secondary cards. Use 4 only when composing three-in-a-row.
+6. **When you cannot find quantifiable or structural content:** emit \`{ cards: [], fallback: "prose_only" }\`. This is acceptable and preferable to fabricated cards. Target ~1% of initiatives fall back to prose-only.
+7. **Dismissed initiatives get null dashboard.** When \`isValuable: false\`, set \`dashboard: null\`.
+
+### Example dashboards
+
+**Type: process_creation — scope creep → change order workflow**
+
+\`\`\`json
+{
+  "cards": [
+    {
+      "primitive": "impact_bar",
+      "span": 12,
+      "claim": "60–80% fewer unbudgeted hours per engagement",
+      "explanation": "Scope additions currently proceed without estimate or client signature. A mandatory change-order checkpoint converts informal expansion into budgeted work.",
+      "confidence": "medium",
+      "evidence": [
+        { "ref": "scope-creep-analysis", "inferred": false, "summary": "38 hrs/month averaged across 3 engagements" }
+      ],
+      "data": {
+        "baseline": { "typicalValue": 38, "unit": "hrs/mo" },
+        "projected": { "typicalValue": 12, "range": { "low": 8, "high": 15 }, "unit": "hrs/mo" },
+        "savings": { "typicalValue": 26, "range": { "low": 23, "high": 30 }, "unit": "hrs/mo", "label": "recovered capacity across 3 engagements" }
+      }
+    },
+    {
+      "primitive": "entity_set",
+      "span": 6,
+      "claim": "3 engagements affected · last 90 days",
+      "explanation": "All three overruns trace back to a scope change discussed over email or call — never written into the contract.",
+      "confidence": "high",
+      "evidence": [{ "ref": "engagement-ledger", "inferred": false, "summary": "Time entries tagged as scope-change hours" }],
+      "data": {
+        "entities": [
+          { "name": "Hansen-Meier Industri", "slug": "hansen-meier", "flag": "warn", "metric": "+82 hrs", "metricFlag": "bad" },
+          { "name": "Nordsø Logistik", "slug": "nordso-logistik", "flag": "warn", "metric": "+54 hrs", "metricFlag": "bad" },
+          { "name": "Vestjylland Træ & Finér", "slug": "vestjylland-trae", "flag": "warn", "metric": "+38 hrs", "metricFlag": "bad" }
+        ],
+        "subtitle": "from past 90 days"
+      }
+    },
+    {
+      "primitive": "process_flow",
+      "span": 12,
+      "claim": "6-step workflow with 2 mandatory checkpoints",
+      "explanation": "Client signature on step 4 is the binding checkpoint — work cannot begin on the expansion without it.",
+      "confidence": "high",
+      "evidence": [{ "ref": "change-order-workflow", "inferred": false, "summary": "Workflow specification being proposed" }],
+      "data": {
+        "steps": [
+          { "label": "Identify" },
+          { "label": "Quantify" },
+          { "label": "Internal review", "checkpoint": true, "note": "Checkpoint" },
+          { "label": "Client approval", "checkpoint": true, "note": "Signature" },
+          { "label": "Invoice update" },
+          { "label": "Track" }
+        ]
+      }
+    }
+  ]
+}
+\`\`\`
+
+**Type: system_job_creation — monthly reporting automation**
+
+\`\`\`json
+{
+  "cards": [
+    {
+      "primitive": "impact_bar",
+      "span": 12,
+      "claim": "Manual reporting drops from 38 to 8–15 hours per month",
+      "explanation": "First two cycles route through operator approval. After two clean cycles, the job auto-sends and only escalates anomalies.",
+      "confidence": "medium",
+      "evidence": [{ "ref": "reporting-time-audit", "inferred": false, "summary": "Measured time from time-tracking data" }],
+      "data": {
+        "baseline": { "typicalValue": 38, "unit": "hrs/mo" },
+        "projected": { "typicalValue": 11, "range": { "low": 8, "high": 15 }, "unit": "hrs/mo" },
+        "savings": { "typicalValue": 27, "range": { "low": 23, "high": 30 }, "unit": "hrs/mo", "label": "review + approval only; fetch, compose, format automated" }
+      }
+    },
+    {
+      "primitive": "automation_loop",
+      "span": 12,
+      "claim": "Runs monthly, reports ready in 5 minutes",
+      "explanation": "Trust gradient: first 2 cycles require operator approval before send.",
+      "confidence": "high",
+      "evidence": [{ "ref": "reporting-template", "inferred": false, "summary": "Existing monthly format" }],
+      "data": {
+        "nodes": [
+          { "icon": "trigger", "title": "Trigger", "sub": "1st of month\\n09:00 CET" },
+          { "icon": "fetch",   "title": "Fetch",   "sub": "6 sources:\\ne-conomic, Planday,\\nDinero, HubSpot" },
+          { "icon": "compose", "title": "Compose", "sub": "Synthesize into\\n4-section format" },
+          { "icon": "notify",  "title": "Notify",  "sub": "4 recipients:\\nCEO, CFO, board,\\ndelivery lead" }
+        ],
+        "annotation": "First 2 cycles require operator approval before the Notify step. After 2 clean cycles, auto-sends with anomaly-only escalation."
+      }
+    }
+  ]
+}
+\`\`\`
+
+Emit the dashboard object as the value of the \`dashboard\` field in your response JSON, exactly matching the schema. Do not wrap it in a fenced code block — that's the serializer's job.`);
+
   parts.push(`\n## Investigation Tools
 
 You have the same reasoning tools as situation reasoning: read_wiki_page, search_wiki, search_communications, search_documents, get_activity_timeline, get_related_pages, read_full_content, search_evidence, get_available_actions, web_search.

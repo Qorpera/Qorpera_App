@@ -3,6 +3,7 @@ import { runAgenticLoop } from "@/lib/agentic-loop";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 import { InitiativeReasoningOutputSchema, type InitiativeReasoningOutput } from "@/lib/reasoning-types";
+import type { InitiativeDashboard } from "@/lib/initiative-dashboard-types";
 import { captureApiError } from "@/lib/api-error";
 import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
 import { getConnectorReadTools, executeConnectorReadTool } from "@/lib/connector-read-tools";
@@ -16,6 +17,22 @@ import {
 
 /** Increment when the initiative reasoning prompt changes meaningfully. */
 export const INITIATIVE_REASONING_PROMPT_VERSION = 1;
+
+export function injectDashboardSection(
+  pageContent: string,
+  dashboard: InitiativeDashboard,
+): string {
+  const serialized = `## Dashboard\n\n\`\`\`json\n${JSON.stringify(dashboard, null, 2)}\n\`\`\`\n`;
+
+  const investigationIdx = pageContent.search(/(^|\n)## Investigation\s*\n/);
+  if (investigationIdx >= 0) {
+    const before = pageContent.slice(0, investigationIdx).replace(/\s*$/, "");
+    const after = pageContent.slice(investigationIdx).replace(/^\s*/, "");
+    return `${before}\n\n${serialized}\n${after}`;
+  }
+
+  return pageContent.trimEnd() + `\n\n${serialized}`;
+}
 
 // Maps scanner proposal_type → the pageType that the primary deliverable would target
 // Used to load the right template for the LLM's context.
@@ -379,9 +396,12 @@ export async function reasonAboutInitiative(
       if (reasoning.downstreamEffects && reasoning.downstreamEffects.length > 0) {
         newProps.downstream_effects = reasoning.downstreamEffects;
       }
+      const finalContent = reasoning.dashboard
+        ? injectDashboardSection(reasoning.pageContent, reasoning.dashboard)
+        : reasoning.pageContent;
       return {
         title: updatedTitle,
-        content: reasoning.pageContent,
+        content: finalContent,
         properties: newProps,
       };
     });
