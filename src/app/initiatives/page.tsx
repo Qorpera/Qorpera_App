@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { diffLines, type Change } from "diff";
 import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app-shell";
@@ -165,6 +166,7 @@ export default function InitiativesPage() {
   const tc = useTranslations("common");
   const locale = useLocale();
   const isMobile = useIsMobile();
+  const searchParams = useSearchParams();
   const [initiatives, setInitiatives] = useState<InitiativeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -269,6 +271,14 @@ export default function InitiativesPage() {
     setPanelEditing(false);
     setPanelOpen(true);
   }, []);
+
+  useEffect(() => {
+    const urlId = searchParams?.get("id");
+    if (urlId && urlId !== selectedId) {
+      openInitiative(urlId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: mount-only URL→state sync, not bidirectional
+  }, [searchParams]);
 
   const closePanel = useCallback(() => {
     setPanelOpen(false);
@@ -539,6 +549,11 @@ function InitiativePanel({
 }) {
   const t = useTranslations("initiatives");
 
+  // Chat/content split percentage. Stateless per open — InitiativePanel
+  // unmounts when the panel closes (see page.tsx conditional render), so each
+  // open starts fresh at 35. Drag mutations persist within a single session.
+  const [chatWidth, setChatWidth] = useState(35);
+
   const downstream = d.downstreamEffects ?? [];
   const canEditPrimary = d.status === "proposed" && activeTab === "primary";
 
@@ -582,6 +597,8 @@ function InitiativePanel({
       isFullScreen={true}
       isChatVisible={isChatVisible}
       onToggleChatVisible={() => setIsChatVisible(!isChatVisible)}
+      chatWidth={chatWidth}
+      onChatWidthChange={setChatWidth}
       chatElement={
         <ContextualChat
           contextType="initiative"

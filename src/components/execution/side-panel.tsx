@@ -83,6 +83,11 @@ interface SidePanelProps {
   chatElement?: ReactNode;
   isChatVisible?: boolean;
   onToggleChatVisible?: () => void;
+  // When set, the full-screen content/chat split becomes a percentage grid
+  // (100-chatWidth : chatWidth) with a draggable boundary. When omitted, the
+  // panel uses "1fr minmax(280px, 20%)" — no drag handle.
+  chatWidth?: number;
+  onChatWidthChange?: (width: number) => void;
 }
 
 // ── Approve button with in-button micro-animation ──────────────────────────
@@ -222,6 +227,95 @@ function ApproveButtonWithAnimation({
   );
 }
 
+// ── Drag handle ────────────────────────────────────────────────────────────
+// Sits on the boundary between the content column and the chat column in the
+// percentage-split variant. Mouse-drag only — keyboard a11y is out of scope.
+
+function PanelDragHandle({
+  onDrag,
+  currentChatWidth,
+}: {
+  onDrag: (newChatWidth: number) => void;
+  currentChatWidth: number;
+}) {
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLElement | null>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    containerRef.current = (e.currentTarget as HTMLElement).closest(
+      "[data-panel-frame]",
+    ) as HTMLElement | null;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMove = (e: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const relativeX = e.clientX - rect.left;
+      const totalWidth = rect.width;
+      const chatWidthRaw = ((totalWidth - relativeX) / totalWidth) * 100;
+      const chatWidthClamped = Math.max(20, Math.min(75, chatWidthRaw));
+      onDrag(Math.round(chatWidthClamped));
+    };
+    const onUp = () => {
+      setIsDragging(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isDragging, onDrag]);
+
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      style={{
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        right: `${currentChatWidth}%`,
+        width: 4,
+        cursor: "col-resize",
+        zIndex: 10,
+        transform: "translateX(2px)",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: 1,
+          width: 1,
+          background: isDragging ? "var(--accent)" : "var(--border-strong)",
+        }}
+      />
+      <div
+        onMouseEnter={(e) => {
+          if (!isDragging)
+            (e.currentTarget.previousSibling as HTMLElement).style.background =
+              "color-mix(in srgb, var(--accent) 40%, transparent)";
+        }}
+        onMouseLeave={(e) => {
+          if (!isDragging)
+            (e.currentTarget.previousSibling as HTMLElement).style.background =
+              "var(--border-strong)";
+        }}
+        style={{ position: "absolute", inset: 0 }}
+      />
+    </div>
+  );
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function SidePanel({
@@ -245,6 +339,8 @@ export function SidePanel({
   chatElement,
   isChatVisible,
   onToggleChatVisible,
+  chatWidth,
+  onChatWidthChange,
 }: SidePanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
@@ -457,82 +553,102 @@ export function SidePanel({
       </div>
 
       {/* Content area — normal or full-screen with chat sidebar */}
-      {isFullScreen && chatElement ? (
-        <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
-          {/* Preview content */}
-          <div style={{
-            flex: isChatVisible ? "0 0 80%" : "1 1 100%",
-            overflow: "auto",
-            transition: "flex 0.2s ease",
-            minHeight: 0,
-          }}>
-            {children}
-          </div>
+      {isFullScreen && chatElement ? (() => {
+        const baseGridTemplate = chatWidth !== undefined
+          ? `${100 - chatWidth}% ${chatWidth}%`
+          : "1fr minmax(280px, 20%)";
+        const gridTemplate = isChatVisible ? baseGridTemplate : "1fr 0";
+        const showDragHandle =
+          chatWidth !== undefined && !!isChatVisible && !!onChatWidthChange;
+        return (
+          <div
+            data-panel-frame
+            style={{
+              flex: 1,
+              display: "grid",
+              gridTemplateColumns: gridTemplate,
+              minHeight: 0,
+              position: "relative",
+              transition:
+                chatWidth === undefined ? "grid-template-columns 0.2s ease" : undefined,
+            }}
+          >
+            {/* Preview content */}
+            <div style={{ overflow: "auto", minHeight: 0, minWidth: 0 }}>
+              {children}
+            </div>
 
-          {/* Chat sidebar */}
-          <div style={{
-            flex: isChatVisible ? "0 0 20%" : "0 0 0%",
-            minWidth: isChatVisible ? 280 : 0,
-            overflow: "hidden",
-            borderLeft: isChatVisible ? "1px solid var(--border)" : "none",
-            display: "flex",
-            flexDirection: "column",
-            transition: "flex 0.2s ease, min-width 0.2s ease",
-          }}>
-            {isChatVisible && (
-              <>
-                <div style={{
-                  padding: "8px 12px",
-                  borderBottom: "1px solid var(--border)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  flexShrink: 0,
-                }}>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fg2)" }}>Discussion</span>
-                  {onToggleChatVisible && (
-                    <button
-                      onClick={onToggleChatVisible}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        width: 24, height: 24, borderRadius: 4,
-                        border: "none", background: "transparent",
-                        cursor: "pointer", color: "var(--fg3)",
-                      }}
-                      className="hover:bg-[var(--step-hover)] transition-colors"
-                      title="Hide chat"
-                    >
-                      <PanelRightCloseIcon size={14} />
-                    </button>
-                  )}
-                </div>
-                <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
-                  {chatElement}
-                </div>
-              </>
+            {/* Drag handle — only in percentage-split mode with chat visible */}
+            {showDragHandle && chatWidth !== undefined && onChatWidthChange && (
+              <PanelDragHandle
+                currentChatWidth={chatWidth}
+                onDrag={onChatWidthChange}
+              />
+            )}
+
+            {/* Chat sidebar */}
+            <div style={{
+              minWidth: 0,
+              overflow: "hidden",
+              borderLeft: isChatVisible ? "1px solid var(--border)" : "none",
+              display: "flex",
+              flexDirection: "column",
+            }}>
+              {isChatVisible && (
+                <>
+                  <div style={{
+                    padding: "8px 12px",
+                    borderBottom: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexShrink: 0,
+                  }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fg2)" }}>Discussion</span>
+                    {onToggleChatVisible && (
+                      <button
+                        onClick={onToggleChatVisible}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          width: 24, height: 24, borderRadius: 4,
+                          border: "none", background: "transparent",
+                          cursor: "pointer", color: "var(--fg3)",
+                        }}
+                        className="hover:bg-[var(--step-hover)] transition-colors"
+                        title="Hide chat"
+                      >
+                        <PanelRightCloseIcon size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+                    {chatElement}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Show chat button when hidden */}
+            {!isChatVisible && onToggleChatVisible && (
+              <button
+                onClick={onToggleChatVisible}
+                style={{
+                  position: "absolute", right: 12, bottom: 12,
+                  padding: "8px 16px", borderRadius: 8,
+                  background: "var(--surface)", border: "1px solid var(--border)",
+                  color: "var(--fg2)", fontSize: 12, cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                }}
+                className="hover:bg-[var(--hover)] transition-colors"
+              >
+                <ChatIcon size={14} />
+                Show chat
+              </button>
             )}
           </div>
-
-          {/* Show chat button when hidden */}
-          {!isChatVisible && onToggleChatVisible && (
-            <button
-              onClick={onToggleChatVisible}
-              style={{
-                position: "absolute", right: 12, bottom: 12,
-                padding: "8px 16px", borderRadius: 8,
-                background: "var(--surface)", border: "1px solid var(--border)",
-                color: "var(--fg2)", fontSize: 12, cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 6,
-                boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-              }}
-              className="hover:bg-[var(--hover)] transition-colors"
-            >
-              <ChatIcon size={14} />
-              Show chat
-            </button>
-          )}
-        </div>
-      ) : (
+        );
+      })() : (
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           {children}
         </div>
