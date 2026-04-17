@@ -15,8 +15,7 @@
  *   ## Timeline
  */
 
-import type { DashboardCard } from "@/lib/initiative-dashboard-types";
-import { DashboardCardSchema, InitiativeDashboardSchema } from "@/lib/initiative-dashboard-types";
+import { DashboardCardSchema, InitiativeDashboardSchema, type DashboardCard } from "@/lib/initiative-dashboard-types";
 
 export interface ParsedInitiativePage {
   sections: {

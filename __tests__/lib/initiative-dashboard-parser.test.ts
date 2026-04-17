@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseInitiativePage } from "@/lib/initiative-page-parser";
 import { injectDashboardSection } from "@/lib/initiative-reasoning";
+import { InitiativeReasoningOutputSchema } from "@/lib/reasoning-types";
 import type {
   InitiativeDashboard,
   DashboardCard,
@@ -328,6 +329,10 @@ describe("injectDashboardSection: section ordering", () => {
     expect(investigationIdx).toBeGreaterThanOrEqual(0);
     expect(evidenceIdx).toBeLessThan(dashboardIdx);
     expect(dashboardIdx).toBeLessThan(investigationIdx);
+
+    // Spacing regex: Dashboard heading must be preceded by exactly one blank line
+    // and followed by exactly one blank line before the fenced JSON starts.
+    expect(result).toMatch(/\n\n## Dashboard\n\n```json\n/);
   });
 
   it("appends ## Dashboard at the end when ## Investigation is absent", () => {
@@ -351,5 +356,107 @@ t
     const tailStart = result.lastIndexOf("```");
     expect(tailStart).toBeGreaterThan(dashboardIdx);
     expect(result.slice(tailStart + 3).trim()).toBe("");
+  });
+});
+
+// ── Test suite 7: E2E roundtrip ─────────────────────────────────────────────
+
+describe("E2E roundtrip: InitiativeReasoningOutput → inject → parse", () => {
+  it("preserves a 2-card dashboard (impact_bar + entity_set) through validate → inject → parse", () => {
+    const impactBar: DashboardCard = {
+      primitive: "impact_bar",
+      span: 12,
+      claim: "60-80% fewer unbudgeted hours per engagement",
+      explanation:
+        "Scope additions currently proceed without estimate or signature. A change-order checkpoint converts informal expansion into budgeted work.",
+      confidence: "medium",
+      evidence: [
+        {
+          ref: "scope-creep-analysis",
+          inferred: false,
+          summary: "38 hrs/mo averaged across 3 engagements",
+        },
+        {
+          ref: null,
+          inferred: true,
+          summary:
+            "Assumed 60-80% reduction based on similar playbook deployments",
+        },
+      ],
+      data: {
+        baseline: { typicalValue: 38, unit: "hrs/mo" },
+        projected: {
+          typicalValue: 12,
+          range: { low: 8, high: 15 },
+          unit: "hrs/mo",
+        },
+      },
+    };
+
+    const entitySet: DashboardCard = {
+      primitive: "entity_set",
+      span: 6,
+      claim: "3 engagements affected in the last 90 days",
+      explanation:
+        "All three overruns trace back to scope changes that were never written into the contract.",
+      confidence: "high",
+      evidence: [
+        {
+          ref: "engagement-ledger",
+          inferred: false,
+          summary:
+            "Time entries tagged as scope-change hours across the portfolio",
+        },
+      ],
+      data: {
+        entities: [
+          {
+            name: "Hansen-Meier Industri",
+            slug: "hansen-meier",
+            flag: "bad",
+            metric: "+82 hrs",
+            metricFlag: "bad",
+          },
+          {
+            name: "Nordso Logistik",
+            slug: "nordso-logistik",
+            flag: "warn",
+            metric: "+54 hrs",
+            metricFlag: "warn",
+          },
+        ],
+      },
+    };
+
+    const output = {
+      isValuable: true,
+      pageContent:
+        "## Trigger\n\nScope creep detected across engagements.\n\n## Investigation\n\nContracts lack a change-order process.\n\n## Proposal\n\nIntroduce a mandatory checkpoint.",
+      properties: { status: "proposed" as const },
+      primaryDeliverable: null,
+      dashboard: { cards: [impactBar, entitySet] },
+    };
+
+    const validated = InitiativeReasoningOutputSchema.safeParse(output);
+    expect(validated.success).toBe(true);
+    if (!validated.success) return;
+
+    const baseContent = `## Evidence
+
+- [[scope-creep]]: 38 hrs/mo lost to unbilled work
+
+## Investigation
+
+Contracts lack a change-order process.`;
+
+    const injected = injectDashboardSection(
+      baseContent,
+      validated.data.dashboard!,
+    );
+    const parsed = parseInitiativePage(injected);
+
+    expect(parsed.dashboard.cards).toEqual(output.dashboard.cards);
+    expect(parsed.dashboard.parseError).toBeNull();
+    expect(parsed.dashboard.failedCards).toHaveLength(0);
   });
 });

@@ -12,6 +12,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { parseInitiativePage } from "@/lib/initiative-page-parser";
 import { WikiText } from "@/components/wiki-text";
+import { DashboardCards, FailedCardPlaceholder } from "@/app/initiatives/components/DashboardCards";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -563,7 +564,7 @@ function DetailPane({
 
       {/* ── Proposed Changes container ── */}
       {d.primaryDeliverable && (
-        <ChangesetContainer detail={d} onOpenPanel={onOpenPanel} />
+        <ChangesetContainer detail={d} onSelectChange={onOpenPanel} />
       )}
 
       {/* ── Metadata footer ── */}
@@ -614,10 +615,10 @@ function DetailPane({
 
 function ChangesetContainer({
   detail: d,
-  onOpenPanel,
+  onSelectChange,
 }: {
   detail: InitiativeDetail;
-  onOpenPanel: (tab: string) => void;
+  onSelectChange: (tab: string) => void;
 }) {
   const t = useTranslations("initiatives");
   if (!d.primaryDeliverable) return null;
@@ -662,7 +663,7 @@ function ChangesetContainer({
 
   return (
     <div
-      onClick={() => onOpenPanel("overview")}
+      onClick={() => onSelectChange("overview")}
       className="cursor-pointer rounded-lg transition hover:opacity-95"
       style={{
         padding: "12px 14px",
@@ -681,7 +682,7 @@ function ChangesetContainer({
         {rows.map(row => (
           <button
             key={row.key}
-            onClick={(e) => { e.stopPropagation(); onOpenPanel(row.tab); }}
+            onClick={(e) => { e.stopPropagation(); onSelectChange(row.tab); }}
             className="w-full text-left flex items-start gap-3 py-1.5 px-2 rounded hover:bg-[var(--hover)] transition"
           >
             <span style={{
@@ -755,8 +756,13 @@ function InitiativePanel({
   const downstream = d.downstreamEffects ?? [];
   const canEditPrimary = d.status === "proposed" && activeTab === "primary";
 
+  const { dashboard } = useMemo(() => parseInitiativePage(d.content), [d.content]);
+  const hasDashboardForDetails =
+    dashboard.cards.length > 0 && dashboard.fallback !== "prose_only";
+
   const tabTitle = useMemo(() => {
     if (activeTab === "overview") return t("tabOverview");
+    if (activeTab === "details") return t("tabDetails");
     if (activeTab === "primary") {
       const slug = d.primaryDeliverable?.targetPageSlug ?? "";
       return slug ? (d.resolvedTargetTitles[slug] ?? slug) : (d.primaryDeliverable?.title ?? "");
@@ -768,6 +774,7 @@ function InitiativePanel({
 
   const tabBadge = useMemo(() => {
     if (activeTab === "overview") return t("tabOverviewBadge");
+    if (activeTab === "details") return t("tabOverviewBadge");
     if (activeTab === "primary") return "Primary";
     return "Downstream";
   }, [activeTab, t]);
@@ -813,6 +820,11 @@ function InitiativePanel({
         <TabButton active={activeTab === "overview"} onClick={() => { setActiveTab("overview"); setIsEditing(false); }}>
           ○ {t("tabOverview")}
         </TabButton>
+        {hasDashboardForDetails && (
+          <TabButton active={activeTab === "details"} onClick={() => { setActiveTab("details"); setIsEditing(false); }}>
+            ☰ {t("tabDetails")}
+          </TabButton>
+        )}
         {d.primaryDeliverable && (
           <TabButton active={activeTab === "primary"} onClick={() => setActiveTab("primary")}>
             ✦ {d.primaryDeliverable.targetPageSlug
@@ -833,7 +845,8 @@ function InitiativePanel({
 
       {/* ── Tab content ── */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
-        {activeTab === "overview" && <OverviewTab detail={d} />}
+        {activeTab === "overview" && <OverviewTab detail={d} onSelectChange={setActiveTab} />}
+        {activeTab === "details" && <DetailsTab detail={d} />}
         {activeTab === "primary" && d.primaryDeliverable && (
           <PrimaryDeliverableTab
             detail={d}
@@ -872,10 +885,63 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 // ── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ detail: d }: { detail: InitiativeDetail }) {
+function OverviewTab({
+  detail: d,
+  onSelectChange,
+}: {
+  detail: InitiativeDetail;
+  onSelectChange: (tab: string) => void;
+}) {
   const t = useTranslations("initiatives");
-  const { sections } = useMemo(() => parseInitiativePage(d.content), [d.content]);
+  const { sections, dashboard } = useMemo(() => parseInitiativePage(d.content), [d.content]);
+  const hasDashboard =
+    dashboard.cards.length > 0 && dashboard.fallback !== "prose_only";
 
+  if (hasDashboard) {
+    return (
+      <div className="space-y-5">
+        <DashboardCards cards={dashboard.cards} />
+
+        {dashboard.failedCards.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 12 }}>
+            {dashboard.failedCards.map((fc, i) => (
+              <div key={i} style={{ gridColumn: "span 6" }}>
+                <FailedCardPlaceholder failed={fc} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {d.primaryDeliverable && (
+          <ChangesetContainer detail={d} onSelectChange={onSelectChange} />
+        )}
+
+        {sections.investigation && (
+          <Section label={t("investigation")}>
+            <WikiText
+              text={sections.investigation}
+              crossReferences={d.crossReferences}
+              asParagraphs
+              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
+            />
+          </Section>
+        )}
+
+        {sections.alternativesConsidered && (
+          <Section label={t("alternativesConsidered")}>
+            <WikiText
+              text={sections.alternativesConsidered}
+              crossReferences={d.crossReferences}
+              asParagraphs
+              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
+            />
+          </Section>
+        )}
+      </div>
+    );
+  }
+
+  // Prose-only branch: legacy behavior, also the fallback when no dashboard.
   const blocks: Array<{ label: string; body: string }> = [];
   if (sections.investigation) blocks.push({ label: t("investigation"), body: sections.investigation });
   if (sections.proposal) blocks.push({ label: t("proposal"), body: sections.proposal });
@@ -901,6 +967,43 @@ function OverviewTab({ detail: d }: { detail: InitiativeDetail }) {
   return (
     <div className="space-y-5">
       {allConcerns.length > 0 && <ConcernsList concerns={allConcerns} detail={d} />}
+      {blocks.map((b, i) => (
+        <Section key={i} label={b.label}>
+          <WikiText
+            text={b.body}
+            crossReferences={d.crossReferences}
+            asParagraphs
+            style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
+          />
+        </Section>
+      ))}
+    </div>
+  );
+}
+
+// ── Details Tab ──────────────────────────────────────────────────────────────
+
+function DetailsTab({ detail: d }: { detail: InitiativeDetail }) {
+  const t = useTranslations("initiatives");
+  const { sections } = useMemo(() => parseInitiativePage(d.content), [d.content]);
+
+  const blocks: Array<{ label: string; body: string }> = [];
+  if (sections.investigation) blocks.push({ label: t("investigation"), body: sections.investigation });
+  if (sections.proposal) blocks.push({ label: t("proposal"), body: sections.proposal });
+  if (sections.impactAssessment) blocks.push({ label: t("impactAssessment"), body: sections.impactAssessment });
+  if (sections.alternativesConsidered) blocks.push({ label: t("alternativesConsidered"), body: sections.alternativesConsidered });
+  if (sections.timeline) blocks.push({ label: t("timeline"), body: sections.timeline });
+
+  if (blocks.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12" style={{ fontSize: 13, color: "var(--fg4)" }}>
+        No detail content available.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
       {blocks.map((b, i) => (
         <Section key={i} label={b.label}>
           <WikiText

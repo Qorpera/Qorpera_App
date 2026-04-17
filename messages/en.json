@@ -389,6 +389,7 @@
     "clickToReview": "Click to review",
     "tabOverview": "Overview",
     "tabOverviewBadge": "Analysis",
+    "tabDetails": "Details",
     "changeType": {
       "update": "Update",
       "create": "Create",
