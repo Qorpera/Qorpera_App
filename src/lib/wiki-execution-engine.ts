@@ -147,7 +147,8 @@ export function parseActionPlan(pageContent: string): ParsedActionPlan {
     let inResult = false;
 
     for (const rawLine of lines) {
-      const line = rawLine.trimStart();
+      // Trim both ends so trailing whitespace / CR doesn't defeat the metadata regexes.
+      const line = rawLine.trim();
 
       // Metadata lines
       const capMatch = line.match(/^\[capability:\s*(.+?)\]$/);
@@ -165,6 +166,14 @@ export function parseActionPlan(pageContent: string): ParsedActionPlan {
 
       const previewMatch = line.match(/^\[preview:\s*(.+?)\]$/);
       if (previewMatch) { previewType = previewMatch[1]; inResult = false; continue; }
+
+      // Belt-and-suspenders: drop any other known metadata-shaped line so it
+      // can't leak into description text even if its specific regex above
+      // fails (e.g. a malformed params line that JSON.parse can't handle).
+      if (/^\[(capability|assigned|params|preview):/i.test(line)) {
+        inResult = false;
+        continue;
+      }
 
       // Result line
       const resultMatch = line.match(/^\*\*Result:\*\*\s*(.*)$/);

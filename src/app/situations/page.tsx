@@ -288,6 +288,28 @@ function wikiToReasoning(detail: SituationDetail): ReasoningData | null {
 }
 
 /**
+ * Replace [[slug]] / [page:slug] wiki references with the page title from
+ * crossReferences, falling back to a humanized slug. Used for display in
+ * situation detail text (trigger, investigation, step descriptions).
+ */
+function resolveWikiLinks(
+  text: string,
+  crossReferences?: Record<string, { title: string }>,
+): string {
+  if (!text) return text;
+  return text.replace(/\[\[([a-z0-9-]+)\]\]|\[page:([a-z0-9-]+)\]/g, (_, s1: string | undefined, s2: string | undefined) => {
+    const slug = (s1 ?? s2 ?? "").trim();
+    if (!slug) return "";
+    const ref = crossReferences?.[slug];
+    if (ref?.title) return ref.title;
+    return slug
+      .split("-")
+      .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ""))
+      .join(" ");
+  });
+}
+
+/**
  * Build an ExecutionPlanData-compatible object from the inline action plan.
  * This lets the step rendering code work unchanged.
  */
@@ -1159,13 +1181,6 @@ function DetailPane({
     setEditedDraftBody("");
   };
 
-  const handleApprove = () => {
-    patchSituation(s.id, {
-      status: "approved",
-      ...(savedEditedDraft ? { editedDraftPayload: savedEditedDraft } : {}),
-    });
-  };
-
   const submitStepNotes = async (stepOrder: number, notes: string) => {
     if (!detail?.id) return;
     setSubmittingNotes(true);
@@ -1518,7 +1533,7 @@ function DetailPane({
                             })()}
                           </div>
 
-                          <p className="break-words" style={{ fontSize: 12, color: isCurrentStep ? "var(--foreground)" : "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{step.description}</p>
+                          <p className="break-words" style={{ fontSize: 12, color: isCurrentStep ? "var(--foreground)" : "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{resolveWikiLinks(step.description, detail?.crossReferences)}</p>
 
                           {(planStep?.parameters || planStep?.actionCapability) && (() => {
                             const enrichedStep: ExecutionStepForPreview = {
@@ -1526,7 +1541,7 @@ function DetailPane({
                               plan: { sourceType: "situation" as const, situation: { situationType: { autonomyLevel: detail?.situationType?.autonomyLevel } } },
                             };
                             return (
-                              <div className="mt-2 mb-2" style={{ maxWidth: "33%" }} onClick={e => e.stopPropagation()}>
+                              <div className="mt-2 mb-2" onClick={e => e.stopPropagation()}>
                                 <InlineStepCard
                                   step={enrichedStep}
                                   isActive={sidePanelStepIndex === i}
@@ -1594,9 +1609,8 @@ function DetailPane({
 
                           {isCurrentStep && !isCompleted && !isReEvaluating && planStep?.status !== "awaiting_clarification" ? (
                             (step.executionMode === "action" || step.executionMode === "generate") ? (
-                              <div style={{ marginTop: 16, maxWidth: "60%" }}>
+                              <div style={{ marginTop: 16 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <button className="hover:opacity-80 transition-opacity" onClick={(e) => { e.stopPropagation(); handleApprove(); }} style={{ ...STEP_BTN_PRIMARY }}>Approve Execution</button>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -1609,7 +1623,6 @@ function DetailPane({
                                     Discuss action
                                   </button>
                                 </div>
-                                <p style={{ fontSize: 11, color: "var(--fg3)", marginTop: 6 }}>AI will execute this step when approved</p>
                               </div>
                             ) : step.executionMode === "human_task" && planStep ? (
                               <div style={{ marginTop: 6 }}>
@@ -1704,7 +1717,7 @@ function DetailPane({
                 No action recommended
               </div>
               <p style={{ fontSize: 13, color: "var(--fg3)", lineHeight: 1.6, marginBottom: 8 }}>
-                {reasoning.analysis}
+                {resolveWikiLinks(reasoning.analysis, detail?.crossReferences)}
               </p>
               {reasoning.evidenceSummary && (
                 <p style={{ fontSize: 12, color: "var(--fg4)", lineHeight: 1.5, marginBottom: 16 }}>
@@ -2057,7 +2070,7 @@ function DetailPane({
                     <div style={{ fontSize: 12, color: "var(--fg2)", lineHeight: 1.6 }}>
                       <span style={{ fontWeight: 600, color: "var(--foreground)" }}>Concluded</span>
                       <span style={{ color: "var(--fg4)", marginLeft: 6, fontSize: 11 }}>{(reasoning.confidence * 100).toFixed(0)}% confidence</span>
-                      <p style={{ marginTop: 4 }}>{reasoning.analysis}</p>
+                      <p style={{ marginTop: 4 }}>{resolveWikiLinks(reasoning.analysis, detail?.crossReferences)}</p>
                     </div>
                   </div>
                 </div>
