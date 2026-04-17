@@ -565,6 +565,173 @@ export const PROCESS_PAGES: PromoPage[] = [
 ];
 
 // ══════════════════════════════════════════════════════════
+// INITIATIVES (3 pages)
+// ══════════════════════════════════════════════════════════
+
+export const INITIATIVE_PAGES: PromoPage[] = [
+  {
+    slug: "init-client-profitability",
+    pageType: "initiative",
+    title: "Client profitability below margin threshold on 3 engagements",
+    properties: {
+      status: "proposed",
+      proposal_type: "strategy_revision",
+      severity: "high",
+      owner: "anna-korsgaard",
+      domain: "finance",
+      priority: "high",
+      proposed_date: "2026-04-12T00:00:00Z",
+      expected_impact: "high",
+      effort_estimate: "small",
+    },
+    content: `# Client profitability below margin threshold on 3 engagements
+
+## Trigger
+Cross-referencing billing data with project time tracking revealed 3 active engagements operating below the company's 25% margin threshold. Combined margin gap represents approximately 180K DKK in annual margin erosion if patterns continue.
+
+## Evidence
+- Greenfield operational review: billed 420K, actual cost 390K — margin 7.1% vs 25% target
+- Meridian redesign: 40 hours unbudgeted scope creep, effective margin dropped to 11%
+- Northwave optimization: on track at 22% margin but below 25% threshold due to senior consultant rate
+
+## Investigation
+Analyzed project profitability across all active engagements by cross-referencing e-conomic billing data with time tracking and resource allocation. Three engagements are below the 25% target margin. The root causes differ: Greenfield is underpriced relative to the senior resources deployed, Meridian suffered scope creep without a change order, and Northwave uses a senior consultant where a mid-level could handle established methodology steps.
+
+## Proposal
+1. Renegotiate Meridian scope with formal change order to recover 40 unbudgeted hours (estimated recovery: 60K DKK)
+2. Adjust Greenfield Phase 2 pricing to reflect actual delivery costs before renewal conversation
+3. Review Northwave staffing mix with [[sofie-nielsen]] — replace senior hours with mid-level where methodology is established
+
+## Primary Deliverable
+Margin recovery plan with specific pricing and staffing adjustments per engagement.
+
+## Downstream Effects
+Improved project selection criteria for future engagements. Establishes precedent for mandatory change orders on scope additions.
+
+## Impact Assessment
+Estimated margin recovery: 120-180K DKK annually. Meridian change order alone would recover 60K. No client relationship risk if handled as standard commercial process.
+
+## Alternatives Considered
+- Accept current margins and absorb the gap — rejected, sets a precedent for underpricing
+- Reduce delivery quality to hit margins — rejected, damages client relationships and reputation
+
+## Timeline
+- 2026-04-12 — Pattern detected from billing analysis
+- 2026-04-14 — Initiative proposed`,
+  },
+  {
+    slug: "init-reporting-automation",
+    pageType: "initiative",
+    title: "Monthly reporting costs 38 hours/month — 60% automatable",
+    properties: {
+      status: "proposed",
+      proposal_type: "process_creation",
+      severity: "medium",
+      owner: "lars-eriksen",
+      domain: "finance",
+      priority: "medium",
+      proposed_date: "2026-04-13T00:00:00Z",
+      expected_impact: "high",
+      effort_estimate: "medium",
+    },
+    content: `# Monthly reporting costs 38 hours/month — 60% automatable
+
+## Trigger
+Activity analysis detected that 3 people spend a combined 38 hours every month compiling the same recurring management report from the same connected data sources. The data gathering portion (60% of effort) is fully automatable.
+
+## Evidence
+- [[lars-eriksen]] spends ~6 hours/month on financial data gathering from e-conomic — data is available via connected API
+- [[sofie-nielsen]] spends ~3 hours/month compiling project status — data exists in project tracking and wiki
+- [[martin-bach]] spends ~3 hours/month on pipeline summary — data is current in HubSpot connector
+- [[monthly-reporting]] process page documents 12 hours direct effort, 2 of last 4 reports delivered late
+- Coordination overhead adds ~26 hours/month (waiting for inputs, follow-up emails, revision cycles)
+
+## Investigation
+Mapped the end-to-end monthly reporting process. The 38 total hours break down as: 12 hours of direct compilation work (7 hours data gathering + 3 hours formatting + 2 hours analysis), plus 26 hours of coordination overhead (email follow-ups between departments, waiting for inputs, revision cycles). The data gathering portion pulls from 4 systems that are all connected to Qorpera: e-conomic (financials), HubSpot (pipeline), project tracking (delivery status), and wiki (headcount/team data).
+
+## Proposal
+Create an automated report compilation system job that runs on the 8th of each month:
+1. Auto-pull financial summary from e-conomic connector
+2. Auto-compile project status from wiki and delivery data
+3. Auto-compile pipeline summary from HubSpot connector
+4. Generate draft report in the standard format
+5. Route to [[lars-eriksen]] for review and analysis commentary
+6. Distribute final version to [[anna-korsgaard]] and board
+
+## Primary Deliverable
+System job configuration and report template that produces a draft monthly report automatically.
+
+## Downstream Effects
+Eliminates the primary cause of late reports. Frees 23 hours/month of productive capacity across 3 senior staff. Creates a consistent report format every month.
+
+## Impact Assessment
+Time savings: ~23 hours/month (60% of 38 hours). Reliability: reports delivered on time every month. Cost savings: approximately 28K DKK/month in recovered productive hours.
+
+## Alternatives Considered
+- Hire a junior analyst to compile reports — rejected, adds headcount cost and doesn't solve the data gathering problem
+- Simplify the report format — rejected, board and management rely on the current level of detail
+
+## Timeline
+- 2026-04-13 — Pattern detected from activity analysis
+- 2026-04-14 — Initiative proposed`,
+  },
+  {
+    slug: "init-scope-creep-process",
+    pageType: "initiative",
+    title: "Recurring delivery delays on same project type — scope creep pattern detected",
+    properties: {
+      status: "proposed",
+      proposal_type: "process_creation",
+      severity: "medium",
+      owner: "sofie-nielsen",
+      domain: "delivery",
+      priority: "high",
+      proposed_date: "2026-04-13T00:00:00Z",
+      expected_impact: "medium",
+      effort_estimate: "small",
+    },
+    content: `# Recurring delivery delays on same project type — scope creep pattern detected
+
+## Trigger
+Situation history analysis revealed that website and digital projects consistently experience scope creep during the UX phase, causing delivery delays. The Meridian redesign is the third instance of this pattern in 12 months.
+
+## Evidence
+- Meridian redesign delayed 8 days due to UX scope additions approved without change order
+- 2 of 3 website/digital projects in the last 12 months experienced similar scope creep in the UX phase
+- No formal change order process exists — scope additions are approved verbally by project managers
+- See [[project-delay-meridian-redesign]] for the current instance
+
+## Investigation
+Analyzed delivery timelines across all projects in the last 12 months. Website and digital projects show a consistent pattern: client requests additional UX research or design iterations during the UX phase, project managers approve to maintain client satisfaction, but no formal change order is created. This results in unbudgeted hours, timeline delays, and margin erosion. The pattern is structural — it recurs because there is no process to prevent it.
+
+## Proposal
+Implement a mandatory change order workflow for all scope additions:
+1. Create a change order template (hours estimate, timeline impact, cost, client approval field)
+2. Add a scope change checkpoint to the project delivery process wiki page
+3. Brief project managers ([[thomas-wind]], [[sofie-nielsen]]) on the new workflow
+4. Retroactively apply to the Meridian engagement — draft change order for the 40 unbudgeted hours
+5. Track change order compliance as a delivery KPI
+
+## Primary Deliverable
+Change order template and updated project delivery process page.
+
+## Downstream Effects
+Protects project margins. Creates a paper trail for scope changes. Gives project managers a framework to push back on unbounded client requests without damaging the relationship.
+
+## Impact Assessment
+Expected reduction in delivery delays: 60-80% for affected project types. Margin protection: prevents 40-80 unbudgeted hours per project. No client friction — change orders are standard commercial practice.
+
+## Alternatives Considered
+- Add buffer time to all project estimates — rejected, masks the root cause and inflates pricing
+- Refuse all scope changes — rejected, damages client relationships
+
+## Timeline
+- 2026-04-13 — Pattern detected from situation history analysis
+- 2026-04-14 — Initiative proposed`,
+  },
+];
+
+// ══════════════════════════════════════════════════════════
 // ALL PAGES combined
 // ══════════════════════════════════════════════════════════
 
@@ -575,4 +742,5 @@ export const ALL_PROMO_PAGES: PromoPage[] = [
   ...PERSON_PAGES,
   ...CLIENT_PAGES,
   ...PROCESS_PAGES,
+  ...INITIATIVE_PAGES,
 ];
