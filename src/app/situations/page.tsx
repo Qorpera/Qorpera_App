@@ -12,6 +12,8 @@ import { formatRelativeTime } from "@/lib/format-helpers";
 import { getPreviewComponent, type ExecutionStepForPreview } from "@/components/execution/previews/get-preview-component";
 import { SidePanel } from "@/components/execution/side-panel";
 import { InlineStepCard, getStepCardMeta, stripLeadingActionVerb } from "@/components/execution/inline-step-card";
+import { resolveWikiLinks } from "@/lib/wiki-links";
+import { WikiText } from "@/components/wiki-text";
 import { OpenQuestionsCard } from "@/components/execution/open-questions-card";
 import { DecisionsSection } from "@/components/execution/decisions-section";
 import { parseOpenQuestionsSection, parseDecisionsSection } from "@/lib/clarification-helpers";
@@ -292,25 +294,18 @@ function wikiToReasoning(detail: SituationDetail): ReasoningData | null {
 }
 
 /**
- * Replace [[slug]] / [page:slug] wiki references with the page title from
- * crossReferences, falling back to a humanized slug. Used for display in
- * situation detail text (trigger, investigation, step descriptions).
+ * Belt-and-suspenders for step descriptions: drop any
+ * [capability: …] / [assigned: …] / [params: …] / [preview: …] lines that
+ * slip through the action plan parser (e.g. older seeded content that the
+ * parser hasn't been re-run against). Whitespace / trailing CR-tolerant.
  */
-function resolveWikiLinks(
-  text: string,
-  crossReferences?: Record<string, { title: string }>,
-): string {
+function stripMetadataLines(text: string): string {
   if (!text) return text;
-  return text.replace(/\[\[([a-z0-9-]+)\]\]|\[page:([a-z0-9-]+)\]/g, (_, s1: string | undefined, s2: string | undefined) => {
-    const slug = (s1 ?? s2 ?? "").trim();
-    if (!slug) return "";
-    const ref = crossReferences?.[slug];
-    if (ref?.title) return ref.title;
-    return slug
-      .split("-")
-      .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ""))
-      .join(" ");
-  });
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*\[(capability|assigned|params|preview):/i.test(line))
+    .join("\n")
+    .trim();
 }
 
 /**
@@ -1279,17 +1274,22 @@ function DetailPane({
 
           {/* ── Situation resume ── */}
           {(() => {
-            const resumeText = detail.wikiContent?.investigation
+            const rawResume = detail.wikiContent?.investigation
               ?? reasoning?.analysis
               ?? "";
-            const triggerText = detail.wikiContent?.trigger
+            const rawTrigger = detail.wikiContent?.trigger
               ?? detail.triggerSummary
               ?? "";
+            const resumeText = rawResume;
+            const triggerText = rawTrigger;
             return resumeText || triggerText ? (
               <div style={{ marginBottom: 16 }}>
                 {resumeText && (
                   <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.6, marginBottom: triggerText ? 10 : 0 }}>
-                    {resumeText.slice(0, 500)}{resumeText.length > 500 ? "..." : ""}
+                    <WikiText
+                      text={resumeText.slice(0, 500) + (resumeText.length > 500 ? "..." : "")}
+                      crossReferences={detail.crossReferences}
+                    />
                   </p>
                 )}
                 {triggerText && (
@@ -1297,7 +1297,10 @@ function DetailPane({
                     <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                     </svg>
-                    {triggerText.slice(0, 200)}{triggerText.length > 200 ? "..." : ""}
+                    <WikiText
+                      text={triggerText.slice(0, 200) + (triggerText.length > 200 ? "..." : "")}
+                      crossReferences={detail.crossReferences}
+                    />
                   </p>
                 )}
               </div>
@@ -1569,7 +1572,7 @@ function DetailPane({
                             })()}
                           </div>
 
-                          <p className="break-words" style={{ fontSize: 12, color: isCurrentStep ? "var(--foreground)" : "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{resolveWikiLinks(step.description, detail?.crossReferences)}</p>
+                          <p className="break-words" style={{ fontSize: 12, color: isCurrentStep ? "var(--foreground)" : "var(--fg3)", lineHeight: 1.55, margin: "0 0 8px", maxWidth: "100%", overflowWrap: "break-word" }}>{resolveWikiLinks(stripMetadataLines(step.description), detail?.crossReferences)}</p>
 
                           {(planStep?.parameters || planStep?.actionCapability) && (() => {
                             const enrichedStep: ExecutionStepForPreview = {
@@ -1956,11 +1959,12 @@ function DetailPane({
 
                   {/* Wiki context (markdown prose — replaces structured trail for wiki situations) */}
                   {detail.wikiContent?.context && (
-                    <div style={{ padding: "12px 16px", fontSize: 13, color: "var(--fg2)", lineHeight: 1.6 }}>
-                      {detail.wikiContent.context.split("\n").filter(line => line.trim()).map((line, i) => (
-                        <p key={i} style={{ marginBottom: 6 }}>{line}</p>
-                      ))}
-                    </div>
+                    <WikiText
+                      text={detail.wikiContent.context}
+                      crossReferences={detail.crossReferences}
+                      asParagraphs
+                      style={{ padding: "12px 16px", fontSize: 13, color: "var(--fg2)", lineHeight: 1.6 }}
+                    />
                   )}
 
                   {/* Step 1: Gathered evidence */}

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import ReactMarkdown from "react-markdown";
+import { replaceWikiLinksWithMarkdown, type WikiLinkLookup } from "@/lib/wiki-links";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -1031,6 +1032,13 @@ function ContentPane({
       }
     }
     text = text.replace(/\[src:([a-zA-Z0-9_-]+)\]/g, "{{CITE:$1}}");
+    // Turn [[slug]] / [page:slug] markers into Markdown wiki links so they
+    // render as clickable cross-page navigation via the `a` component below.
+    const lookup: WikiLinkLookup = {};
+    for (const p of pageIndex) {
+      lookup[p.slug] = { title: p.title };
+    }
+    text = replaceWikiLinksWithMarkdown(text, lookup);
     text = insertCrossLinks(text, pageIndex, page.slug);
     return text;
   }, [page.content, page.title, pageIndex, page.slug]);

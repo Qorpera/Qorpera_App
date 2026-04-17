@@ -26,7 +26,7 @@ export async function GET(
         { properties: { path: ["initiative_id"], equals: id } },
       ],
     },
-    select: { slug: true, title: true, content: true, properties: true, createdAt: true, updatedAt: true },
+    select: { slug: true, title: true, content: true, properties: true, crossReferences: true, createdAt: true, updatedAt: true },
   });
 
   if (page) {
@@ -43,7 +43,9 @@ export async function GET(
       ownerName = ownerPage?.title ?? null;
     }
 
-    // Resolve target page titles for primary_deliverable + downstream_effects
+    // Resolve target page titles for primary_deliverable + downstream_effects,
+    // plus all wiki cross-references from page content so WikiText can render
+    // [[slug]] and [page:slug] tokens as titled anchor tags.
     const slugsToResolve = new Set<string>();
     const primary = props.primary_deliverable as { targetPageSlug?: string } | null;
     if (primary?.targetPageSlug) slugsToResolve.add(primary.targetPageSlug);
@@ -51,14 +53,21 @@ export async function GET(
     for (const d of downstream) {
       if (d?.targetPageSlug) slugsToResolve.add(d.targetPageSlug);
     }
+    for (const ref of (page.crossReferences ?? []).filter(Boolean)) {
+      slugsToResolve.add(ref);
+    }
 
     const resolvedTargets: Record<string, string> = {};
+    const crossReferences: Record<string, { title: string; slug: string; pageType: string }> = {};
     if (slugsToResolve.size > 0) {
       const targetPages = await prisma.knowledgePage.findMany({
         where: { operatorId, slug: { in: [...slugsToResolve] }, scope: "operator" },
-        select: { slug: true, title: true },
+        select: { slug: true, title: true, pageType: true },
       });
-      for (const tp of targetPages) resolvedTargets[tp.slug] = tp.title;
+      for (const tp of targetPages) {
+        resolvedTargets[tp.slug] = tp.title;
+        crossReferences[tp.slug] = { title: tp.title, slug: tp.slug, pageType: tp.pageType };
+      }
     }
 
     // Load primary target page's current content for diff rendering (wiki_update only)
@@ -139,6 +148,9 @@ export async function GET(
       // Resolved target page titles — used for tab labels and changeset row labels
       resolvedTargetTitles: resolvedTargets,
 
+      // Wiki cross-references — used by WikiText to render [[slug]] as anchor tags
+      crossReferences,
+
       // Primary target's current content (for diff view on wiki_update)
       primaryTargetCurrentContent,
       primaryTargetCurrentProperties,
@@ -205,6 +217,7 @@ export async function GET(
     proposedProjectConfig: initiative.proposedProjectConfig,
     projectId: initiative.projectId,
     resolvedTargetTitles: {},
+    crossReferences: {},
     createdAt: initiative.createdAt.toISOString(),
     updatedAt: initiative.updatedAt.toISOString(),
   });

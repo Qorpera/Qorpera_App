@@ -583,6 +583,13 @@ export const INITIATIVE_PAGES: PromoPage[] = [
       proposed_date: "2026-04-12T00:00:00Z",
       expected_impact: "high",
       effort_estimate: "small",
+      primary_deliverable: {
+        type: "document",
+        title: "Margin Recovery Plan",
+        description: "A written plan with specific pricing and staffing adjustments for each of the three under-margin engagements (Greenfield, Meridian, Northwave), plus a rollout sequence.",
+        rationale: "A single document consolidates the per-engagement interventions so Anna can review the full commercial picture in one place before approving client conversations.",
+        proposedContent: "# Margin Recovery Plan — Q2 2026\n\n## Summary\nThree active engagements are operating below the 25% margin threshold, with a combined annualized margin gap of approximately 180K DKK. This plan proposes specific interventions per engagement to restore margin without damaging client relationships.\n\n## Engagement 1 — Greenfield Operational Review\n\n**Current state:** Billed 420K, actual cost 390K, margin 7.1% vs 25% target.\n\n**Root cause:** Underpriced relative to the senior resources deployed. Emma Dalsgaard (senior) carrying 95% utilization on this engagement.\n\n**Intervention:** Reprice Phase 2 renewal at a rate that reflects actual senior-consultant cost. Estimated margin recovery at renewal: 15–18 percentage points.\n\n**Owner:** Martin Bach (commercial conversation), Anna Korsgaard (final pricing approval).\n\n**Timing:** Before renewal conversation scheduled for May 2026.\n\n## Engagement 2 — Meridian Redesign\n\n**Current state:** 40 hours of unbudgeted scope creep, effective margin dropped to 11%.\n\n**Root cause:** UX scope additions approved verbally without change order.\n\n**Intervention:** Issue formal change order for the 40 unbudgeted hours at standard rate. Estimated recovery: 60K DKK. Client relationship expected to absorb this as standard commercial practice.\n\n**Owner:** Sofie Nielsen (client conversation), Lars Eriksen (invoice).\n\n**Timing:** Within 2 weeks.\n\n## Engagement 3 — Northwave Optimization\n\n**Current state:** On track at 22% margin, below the 25% threshold due to senior-consultant rate.\n\n**Root cause:** Senior consultant carrying established-methodology hours that a mid-level could handle.\n\n**Intervention:** Review staffing mix with Sofie Nielsen — replace senior hours with mid-level where methodology is documented. Estimated margin recovery: 3–5 percentage points.\n\n**Owner:** Sofie Nielsen (staffing plan).\n\n**Timing:** Before next sprint, approximately 3 weeks.\n\n## Expected combined impact\n\nAnnualized margin recovery: 120–180K DKK. No client relationship risk if handled as standard commercial process.\n\n## Follow-up\n\nAfter implementation, review project selection criteria to prevent similar underpricing patterns in future engagements.",
+      },
     },
     content: `# Client profitability below margin threshold on 3 engagements
 
@@ -633,6 +640,15 @@ Estimated margin recovery: 120-180K DKK annually. Meridian change order alone wo
       proposed_date: "2026-04-13T00:00:00Z",
       expected_impact: "high",
       effort_estimate: "medium",
+      primary_deliverable: {
+        type: "wiki_create",
+        targetPageSlug: "automated-monthly-report-compilation",
+        targetPageType: "system_job",
+        title: "Automated Monthly Report Compilation",
+        description: "A new system_job page that defines a scheduled job running on the 8th of each month, pulling financial, project, and pipeline data from connected sources and generating a draft management report for review.",
+        rationale: "Codifying the compilation as a system job turns a 38-hour recurring manual process into a scheduled automation with a single human review step, eliminating coordination overhead and late-report risk.",
+        proposedContent: "# Automated Monthly Report Compilation\n\n## Purpose\n\nProduce a draft monthly management report on the 8th of each month by automatically compiling data from connected business systems, routing the draft to the finance manager for analysis commentary, and distributing the final version to management and the board.\n\n## Trigger\n\nScheduled — runs on the 8th calendar day of each month at 06:00 CET.\n\n## Inputs\n\n- **e-conomic connector** — previous month's financial summary (revenue, costs, EBITDA, AR aging, cash position)\n- **Project tracking (wiki + internal DB)** — project status, utilization, delivery health\n- **HubSpot connector** — pipeline summary (deals by stage, weighted value, new contacts added)\n- **Wiki (headcount pages)** — team changes, departures, new hires\n\n## Steps\n\n1. **Gather** — pull financial summary from e-conomic\n2. **Gather** — compile project status from project tracking and wiki\n3. **Gather** — compile pipeline summary from HubSpot\n4. **Gather** — compile team update from wiki person pages\n5. **Generate** — produce draft report in the standard management-report format\n6. **Route** — send draft to Lars Eriksen (finance manager) for review and commentary, awaiting approval\n7. **Distribute** — send approved final report to Anna Korsgaard and the board distribution list\n\n## Outputs\n\n- PDF report stored in Qorpera\n- Email distribution to recipients listed above\n- Wiki page updated at `/wiki/monthly-management-report` with a link to the month's PDF\n\n## Owners\n\n- **System owner:** Lars Eriksen (finance manager)\n- **Escalation contact:** Anna Korsgaard (CEO)\n\n## Expected savings\n\nApproximately 23 hours/month of productive capacity across 3 senior staff. Estimated cost savings: 28K DKK/month.\n\n## Failure mode\n\nIf any input connector is unavailable at trigger time, the job retries every hour for 8 hours and then notifies the system owner. Draft is never sent incomplete.",
+      },
     },
     content: `# Monthly reporting costs 38 hours/month — 60% automatable
 
@@ -689,6 +705,15 @@ Time savings: ~23 hours/month (60% of 38 hours). Reliability: reports delivered 
       proposed_date: "2026-04-13T00:00:00Z",
       expected_impact: "medium",
       effort_estimate: "small",
+      primary_deliverable: {
+        type: "wiki_create",
+        targetPageSlug: "change-order-workflow",
+        targetPageType: "process",
+        title: "Change Order Workflow",
+        description: "A new process page defining the mandatory workflow for any scope addition on client engagements: template, approval gates, client sign-off, and KPI tracking.",
+        rationale: "The recurring pattern of scope creep in UX phases is structural — it recurs because there is no process to stop it. A documented workflow with a mandatory checkpoint converts a cultural norm into an operational standard.",
+        proposedContent: "# Change Order Workflow\n\n## Purpose\n\nEnsure every scope addition on a client engagement is captured, quantified, priced, and approved by the client before work begins. This prevents unbudgeted hours, timeline slippage, and margin erosion caused by informal scope expansion.\n\n## When this process applies\n\nTriggered when any of the following occurs on an active engagement:\n\n- Client requests work outside the original statement of work\n- Project manager identifies a scope gap that requires additional hours to close\n- An internal decision adds hours to the delivery estimate (e.g., adding a research phase)\n\n## Steps\n\n1. **Identify** — project manager flags the scope addition in the project wiki page with a one-line description\n2. **Quantify** — project manager estimates additional hours, timeline impact, and cost using the change-order template\n3. **Internal review** — engagement lead (Sofie Nielsen or Thomas Wind) approves or adjusts the estimate before it reaches the client\n4. **Client approval** — change order sent to the client sponsor with the scope, hours, cost, and timeline impact. Must be signed before work begins.\n5. **Invoice update** — finance manager updates the engagement's billing plan once the change order is countersigned\n6. **Track** — change order logged against the engagement's KPI dashboard\n\n## Change order template\n\nThe change-order document must include:\n\n- Engagement name and contract reference\n- Description of the scope addition\n- Estimated additional hours (by role)\n- Timeline impact (days added to original delivery date)\n- Additional cost (DKK)\n- Client sponsor signature block\n- Qorpera counter-signature block\n\n## Owners\n\n- **Process owner:** Sofie Nielsen (delivery lead)\n- **Escalation:** Anna Korsgaard (CEO) for disputed change orders\n\n## KPI\n\nChange order compliance rate: percentage of scope additions that followed this workflow vs informal scope creep. Target: 100%.\n\n## Rollout\n\n- Brief all project managers on the workflow within 2 weeks of process approval\n- Apply retroactively to the Meridian engagement (40 unbudgeted hours)\n- Review compliance rate monthly for the first quarter, then quarterly",
+      },
     },
     content: `# Recurring delivery delays on same project type — scope creep pattern detected
 

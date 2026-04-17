@@ -11,6 +11,7 @@ import { useIsMobile } from "@/hooks/use-media-query";
 import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { parseInitiativePage } from "@/lib/initiative-page-parser";
+import { WikiText } from "@/components/wiki-text";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ interface InitiativeDetail {
   executionState: ExecutionState | null;
   executionSummary: ExecutionSummary | null;
   resolvedTargetTitles: Record<string, string>;
+  crossReferences?: Record<string, { title: string; slug?: string; pageType?: string }>;
   dismissalReason: string | null;
   severity: string | null;
   priority: string | null;
@@ -550,7 +552,9 @@ function DetailPane({
                     —
                   </span>
                 )}
-                <span style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>{e.claim}</span>
+                <span style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
+                  <WikiText text={e.claim} crossReferences={d.crossReferences} />
+                </span>
               </div>
             ))}
           </div>
@@ -587,14 +591,15 @@ function DetailPane({
       {canAct && (
         <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
           <button
-            className="rounded-full text-[13px] font-medium px-4 py-1.5 transition hover:opacity-90"
-            style={{ background: "var(--ok)", color: "var(--accent-ink)" }}
+            className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
+            style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
             onClick={() => patchInitiative(d.id, { action: "accept" })}
           >
             {t("accept")}
           </button>
           <button
-            className="wf-btn-danger rounded-full text-[13px] font-medium px-4 py-1.5"
+            className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
+            style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
             onClick={() => patchInitiative(d.id, { action: "reject" })}
           >
             {tc("reject")}
@@ -898,7 +903,12 @@ function OverviewTab({ detail: d }: { detail: InitiativeDetail }) {
       {allConcerns.length > 0 && <ConcernsList concerns={allConcerns} detail={d} />}
       {blocks.map((b, i) => (
         <Section key={i} label={b.label}>
-          <p style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{b.body}</p>
+          <WikiText
+            text={b.body}
+            crossReferences={d.crossReferences}
+            asParagraphs
+            style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
+          />
         </Section>
       ))}
     </div>
@@ -1459,7 +1469,17 @@ function PrimaryDeliverableTab({
           }}
         >
           {t("newPageBanner")}
-          {primary.targetPageSlug ? ` → [[${primary.targetPageSlug}]]` : ""}
+          {primary.targetPageSlug ? (
+            <>
+              {" → "}
+              <a
+                href={`/wiki/${primary.targetPageSlug}`}
+                style={{ color: "var(--link)", textDecoration: "underline" }}
+              >
+                {primary.targetPageSlug}
+              </a>
+            </>
+          ) : ""}
           {primary.targetPageType ? ` (${primary.targetPageType})` : ""}
         </div>
         <pre
@@ -1707,7 +1727,14 @@ function DownstreamEffectTab({
       ) : effect.changeType === "create" ? (
         <div>
           <div style={{ padding: "8px 12px", background: "color-mix(in srgb, var(--accent) 10%, transparent)", borderRadius: 4, marginBottom: 12, fontSize: 12, color: "var(--accent)" }}>
-            {t("newPageBanner")} → [[{effect.targetPageSlug}]] ({effect.targetPageType})
+            {t("newPageBanner")}{" → "}
+            <a
+              href={`/wiki/${effect.targetPageSlug}`}
+              style={{ color: "var(--link)", textDecoration: "underline" }}
+            >
+              {effect.targetPageSlug}
+            </a>
+            {" "}({effect.targetPageType})
           </div>
           <pre style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, whiteSpace: "pre-wrap", padding: 12, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--fg2)" }}>
             {state.proposedContent}
