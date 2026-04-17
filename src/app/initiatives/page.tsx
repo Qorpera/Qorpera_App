@@ -1332,6 +1332,65 @@ function WikiUpdateDiffView({
   );
 }
 
+// ── Wiki-style page container shared by deliverable + downstream tabs ──────
+// Mirrors the chrome /wiki/[slug] uses: outer 1080px frame, elevated surface
+// with a light border, and an inner 760px reading column.
+
+function DeliverablePageContainer({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ maxWidth: 1080, width: "100%", margin: "0 auto" }}>
+      <div
+        style={{
+          background: "var(--elevated)",
+          border: "1.5px solid var(--border)",
+          padding: "24px 48px 48px",
+        }}
+      >
+        <div style={{ maxWidth: 760, margin: "0 auto" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// Markdown renderer matching the wiki page's component overrides so a
+// deliverable preview reads the same as a published wiki page would.
+
+function DeliverableMarkdown({ text }: { text: string }) {
+  return (
+    <div style={{ fontSize: 14, lineHeight: 1.7, color: "var(--foreground)" }}>
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <p style={{ marginBottom: 12 }}>{children}</p>,
+          h1: ({ children }) => (
+            <h1 style={{ fontSize: 20, fontWeight: 600, marginTop: 24, marginBottom: 12, color: "var(--foreground)" }}>{children}</h1>
+          ),
+          h2: ({ children }) => (
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 20, marginBottom: 10, color: "var(--foreground)" }}>{children}</h2>
+          ),
+          h3: ({ children }) => (
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 16, marginBottom: 8, color: "var(--foreground)" }}>{children}</h3>
+          ),
+          ul: ({ children }) => <ul style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ul>,
+          ol: ({ children }) => <ol style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ol>,
+          li: ({ children }) => <li style={{ marginBottom: 4, color: "var(--fg2)" }}>{children}</li>,
+          strong: ({ children }) => (
+            <strong style={{ fontWeight: 600, color: "var(--foreground)" }}>{children}</strong>
+          ),
+          em: ({ children }) => <em style={{ color: "var(--fg2)" }}>{children}</em>,
+          hr: () => <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "16px 0" }} />,
+          code: ({ children }) => (
+            <code style={{ padding: "2px 5px", borderRadius: 3, background: "rgba(255,255,255,0.06)", fontSize: 12, fontFamily: "monospace" }}>
+              {children}
+            </code>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 // ── Primary Deliverable Tab ──────────────────────────────────────────────────
 
 function PrimaryDeliverableTab({
@@ -1479,70 +1538,76 @@ function PrimaryDeliverableTab({
     );
   }
 
-  // Display mode — header always shown
-  const header = (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span
-        style={{
-          fontSize: 10,
-          fontWeight: 600,
-          padding: "2px 6px",
-          borderRadius: 3,
-          background: "color-mix(in srgb, var(--accent) 14%, transparent)",
-          color: "var(--accent)",
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-        }}
-      >
-        {t(`changeType.${primary.type}` as never)}
-      </span>
-      <span style={{ fontSize: 16, fontWeight: 600, color: "var(--foreground)" }}>
-        {primary.title}
-      </span>
-    </div>
-  );
+  // Display mode — wiki-style centered page container with header (badge +
+  // title + slug link + description + rationale), divider, then a body that
+  // dispatches by deliverable type.
 
-  const rationale = (
-    <p
-      style={{
-        fontSize: 13,
-        lineHeight: 1.6,
-        color: "var(--fg3)",
-        fontStyle: "italic",
-        borderLeft: "2px solid var(--border)",
-        paddingLeft: 12,
-      }}
-    >
-      {primary.rationale}
-    </p>
-  );
-
-  const targetLink = primary.targetPageSlug ? (
-    <div className="flex items-center gap-2 flex-wrap pt-1">
-      <a
-        href={`/wiki/${primary.targetPageSlug}`}
-        style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)", textDecoration: "none" }}
-        className="hover:opacity-80"
-      >
-        {t("viewTargetPage")}
-      </a>
-      {primary.targetPageType && (
-        <span style={{ fontSize: 12, color: "var(--fg4)" }}>
-          {t("pageTypeLabel", { pageType: primary.targetPageType })}
+  const headerEl = (
+    <header>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", margin: 0, lineHeight: "24px" }}>
+          {primary.title}
+        </h1>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            padding: "2px 6px",
+            borderRadius: 3,
+            background: "color-mix(in srgb, var(--accent) 14%, transparent)",
+            color: "var(--accent)",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {t(`changeType.${primary.type}` as never)}
         </span>
-      )}
-    </div>
-  ) : null;
-
-  // Missing content fallback — Phase 2 failed or is absent
-  if (!primary.proposedContent) {
-    return (
-      <div className="max-w-3xl space-y-4">
-        {header}
-        <p style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>
+        {primary.targetPageSlug && (
+          <span style={{ fontSize: 11, color: "var(--fg3)" }}>
+            {"→ "}
+            <a
+              href={`/wiki/${primary.targetPageSlug}`}
+              style={{ color: "var(--link)", textDecoration: "underline" }}
+              className="hover:opacity-80"
+            >
+              {primary.targetPageSlug}
+            </a>
+            {primary.targetPageType ? ` (${primary.targetPageType})` : ""}
+          </span>
+        )}
+      </div>
+      {primary.description && (
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", marginTop: 12 }}>
           {primary.description}
         </p>
-        {rationale}
+      )}
+      {primary.rationale && (
+        <p
+          style={{
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: "var(--fg3)",
+            fontStyle: "italic",
+            borderLeft: "2px solid var(--border)",
+            paddingLeft: 12,
+            marginTop: 12,
+          }}
+        >
+          {primary.rationale}
+        </p>
+      )}
+    </header>
+  );
+
+  const divider = (
+    <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "20px 0" }} />
+  );
+
+  const bodyEl = (() => {
+    if (!primary.proposedContent) {
+      return (
         <div
           style={{
             padding: 16,
@@ -1555,178 +1620,95 @@ function PrimaryDeliverableTab({
         >
           {t("contentGenerationFailed")}
         </div>
-        {targetLink}
-      </div>
-    );
-  }
-
-  // wiki_update — diff view
-  if (primary.type === "wiki_update") {
-    return (
-      <div className="max-w-3xl space-y-4">
-        {header}
-        {rationale}
+      );
+    }
+    if (primary.type === "wiki_update") {
+      return (
         <WikiUpdateDiffView
           current={d.primaryTargetCurrentContent}
           proposed={primary.proposedContent}
         />
-        {targetLink}
-      </div>
-    );
-  }
-
-  // wiki_create — new content with banner
-  if (primary.type === "wiki_create") {
+      );
+    }
+    if (primary.type === "wiki_create" || primary.type === "document") {
+      return <DeliverableMarkdown text={primary.proposedContent} />;
+    }
+    // settings_change — markdown description + properties table
     return (
-      <div className="max-w-3xl space-y-4">
-        {header}
-        {rationale}
-        <div
-          style={{
-            padding: "8px 12px",
-            background: "color-mix(in srgb, var(--accent) 10%, transparent)",
-            border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)",
-            borderRadius: 4,
-            fontSize: 12,
-            color: "var(--accent)",
-          }}
-        >
-          {t("newPageBanner")}
-          {primary.targetPageSlug ? (
-            <>
-              {" → "}
-              <a
-                href={`/wiki/${primary.targetPageSlug}`}
-                style={{ color: "var(--link)", textDecoration: "underline" }}
-              >
-                {primary.targetPageSlug}
-              </a>
-            </>
-          ) : ""}
-          {primary.targetPageType ? ` (${primary.targetPageType})` : ""}
-        </div>
-        <pre
-          style={{
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-            fontSize: 12,
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            padding: 12,
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            color: "var(--fg2)",
-          }}
-        >
-          {primary.proposedContent}
-        </pre>
-      </div>
-    );
-  }
-
-  // document — markdown preview
-  if (primary.type === "document") {
-    return (
-      <div className="max-w-3xl space-y-4">
-        {header}
-        {rationale}
-        <div
-          style={{
-            padding: 16,
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            fontSize: 14,
-            lineHeight: 1.65,
-            color: "var(--fg2)",
-          }}
-          className="prose prose-invert prose-sm max-w-none"
-        >
-          <ReactMarkdown>{primary.proposedContent}</ReactMarkdown>
-        </div>
-      </div>
-    );
-  }
-
-  // settings_change — description + properties table
-  return (
-    <div className="max-w-3xl space-y-4">
-      {header}
-      {rationale}
-      <p
-        style={{
-          fontSize: 13,
-          lineHeight: 1.6,
-          color: "var(--fg2)",
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        {primary.proposedContent}
-      </p>
-      {primary.proposedProperties && Object.keys(primary.proposedProperties).length > 0 && (
-        <table style={{ fontSize: 12, width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th
-                style={{
-                  textAlign: "left",
-                  padding: "6px 8px",
-                  borderBottom: "1px solid var(--border)",
-                  color: "var(--fg3)",
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  fontSize: 10,
-                  letterSpacing: "0.04em",
-                }}
-              >
-                Setting
-              </th>
-              <th
-                style={{
-                  textAlign: "left",
-                  padding: "6px 8px",
-                  borderBottom: "1px solid var(--border)",
-                  color: "var(--fg3)",
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  fontSize: 10,
-                  letterSpacing: "0.04em",
-                }}
-              >
-                Value
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(primary.proposedProperties).map(([k, v]) => (
-              <tr key={k}>
-                <td
+      <div>
+        <DeliverableMarkdown text={primary.proposedContent} />
+        {primary.proposedProperties && Object.keys(primary.proposedProperties).length > 0 && (
+          <table style={{ fontSize: 12, width: "100%", borderCollapse: "collapse", marginTop: 16 }}>
+            <thead>
+              <tr>
+                <th
                   style={{
+                    textAlign: "left",
                     padding: "6px 8px",
                     borderBottom: "1px solid var(--border)",
-                    color: "var(--fg2)",
-                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    color: "var(--fg3)",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    fontSize: 10,
+                    letterSpacing: "0.04em",
                   }}
                 >
-                  {k}
-                </td>
-                <td
+                  Setting
+                </th>
+                <th
                   style={{
+                    textAlign: "left",
                     padding: "6px 8px",
                     borderBottom: "1px solid var(--border)",
-                    color: "var(--fg2)",
-                    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    color: "var(--fg3)",
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    fontSize: 10,
+                    letterSpacing: "0.04em",
                   }}
                 >
-                  {JSON.stringify(v)}
-                </td>
+                  Value
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+            </thead>
+            <tbody>
+              {Object.entries(primary.proposedProperties).map(([k, v]) => (
+                <tr key={k}>
+                  <td
+                    style={{
+                      padding: "6px 8px",
+                      borderBottom: "1px solid var(--border)",
+                      color: "var(--fg2)",
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    }}
+                  >
+                    {k}
+                  </td>
+                  <td
+                    style={{
+                      padding: "6px 8px",
+                      borderBottom: "1px solid var(--border)",
+                      color: "var(--fg2)",
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                    }}
+                  >
+                    {JSON.stringify(v)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    );
+  })();
+
+  return (
+    <DeliverablePageContainer>
+      {headerEl}
+      {divider}
+      {bodyEl}
+    </DeliverablePageContainer>
   );
 }
 
@@ -1748,15 +1730,15 @@ function DownstreamEffectTab({
     ? (d.downstreamCurrentContents?.[effect.targetPageSlug]?.content ?? null)
     : null;
 
-  const header = (
-    <div className="mb-4">
-      <div className="flex items-center gap-2 flex-wrap mb-2">
-        <span style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)" }}>
+  const headerEl = (
+    <header>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", margin: 0, lineHeight: "24px" }}>
           {title}
-        </span>
+        </h1>
         {state && <DownstreamStatusBadge status={state.status} />}
       </div>
-      <div className="flex items-center gap-2 flex-wrap mb-3">
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         <span style={{
           fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3,
           background: "rgba(255,255,255,0.06)", color: "var(--fg3)",
@@ -1772,30 +1754,45 @@ function DownstreamEffectTab({
           {t(`changeType.${effect.changeType}` as never)}
         </span>
       </div>
-      <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
+      <p style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5, marginTop: 12 }}>
         {effect.summary}
       </p>
+    </header>
+  );
+
+  const divider = (
+    <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "20px 0" }} />
+  );
+
+  const infoBanner = (msg: string) => (
+    <div style={{
+      padding: 14,
+      background: "var(--surface)",
+      border: "1px solid var(--border)",
+      borderRadius: 6,
+      fontSize: 13,
+      color: "var(--fg3)",
+    }}>
+      {msg}
     </div>
   );
 
-  // Pre-execution state — no executionState yet
-  if (!state) {
-    return (
-      <div className="max-w-2xl">
-        {header}
-        <div style={{ padding: 14, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, color: "var(--fg3)" }}>
-          {d.status === "proposed" ? t("downstreamPendingBanner") : t("downstreamAwaitingExecution")}
-        </div>
-      </div>
-    );
-  }
-
-  // Failed state
-  if (state.status === "failed") {
-    return (
-      <div className="max-w-2xl">
-        {header}
-        <div style={{ padding: 14, background: "color-mix(in srgb, var(--danger) 10%, transparent)", border: "1px solid var(--danger)", borderRadius: 6 }}>
+  const bodyEl = (() => {
+    if (!state) {
+      return infoBanner(
+        d.status === "proposed"
+          ? t("downstreamPendingBanner")
+          : t("downstreamAwaitingExecution"),
+      );
+    }
+    if (state.status === "failed") {
+      return (
+        <div style={{
+          padding: 14,
+          background: "color-mix(in srgb, var(--danger) 10%, transparent)",
+          border: "1px solid var(--danger)",
+          borderRadius: 6,
+        }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--danger)", marginBottom: 6 }}>
             {t("downstreamFailed")}
           </div>
@@ -1805,80 +1802,47 @@ function DownstreamEffectTab({
             </div>
           )}
         </div>
-      </div>
-    );
-  }
-
-  // In-flight states
-  if (state.status === "pending" || state.status === "generating" || state.status === "applying") {
+      );
+    }
+    if (state.status === "pending" || state.status === "generating" || state.status === "applying") {
+      return infoBanner(t(`downstreamStatus.${state.status}` as never));
+    }
+    if (!state.proposedContent) {
+      return infoBanner(t("downstreamNoContent"));
+    }
     return (
-      <div className="max-w-2xl">
-        {header}
-        <div style={{ padding: 14, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, color: "var(--fg3)" }}>
-          {t(`downstreamStatus.${state.status}` as never)}
+      <>
+        {state.concerns.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            {state.concerns.map((c, i) => (
+              <ConcernCard key={i} concern={c} detail={d} severity={c.severity} />
+            ))}
+          </div>
+        )}
+        {effect.changeType === "update" ? (
+          <WikiUpdateDiffView current={currentContent} proposed={state.proposedContent} />
+        ) : (
+          <DeliverableMarkdown text={state.proposedContent} />
+        )}
+        <div style={{ marginTop: 16 }}>
+          <a
+            href={`/wiki/${effect.targetPageSlug}`}
+            style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)", textDecoration: "none" }}
+            className="hover:opacity-80"
+          >
+            {t("viewTargetPage")}
+          </a>
         </div>
-      </div>
+      </>
     );
-  }
-
-  // Generated or applied — show content
-  if (!state.proposedContent) {
-    return (
-      <div className="max-w-2xl">
-        {header}
-        <div style={{ padding: 14, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, color: "var(--fg3)" }}>
-          {t("downstreamNoContent")}
-        </div>
-      </div>
-    );
-  }
+  })();
 
   return (
-    <div className="max-w-2xl">
-      {header}
-
-      {state.concerns.length > 0 && (
-        <div className="mb-4">
-          {state.concerns.map((c, i) => (
-            <ConcernCard key={i} concern={c} detail={d} severity={c.severity} />
-          ))}
-        </div>
-      )}
-
-      {effect.changeType === "update" ? (
-        <WikiUpdateDiffView current={currentContent} proposed={state.proposedContent} />
-      ) : effect.changeType === "create" ? (
-        <div>
-          <div style={{ padding: "8px 12px", background: "color-mix(in srgb, var(--accent) 10%, transparent)", borderRadius: 4, marginBottom: 12, fontSize: 12, color: "var(--accent)" }}>
-            {t("newPageBanner")}{" → "}
-            <a
-              href={`/wiki/${effect.targetPageSlug}`}
-              style={{ color: "var(--link)", textDecoration: "underline" }}
-            >
-              {effect.targetPageSlug}
-            </a>
-            {" "}({effect.targetPageType})
-          </div>
-          <pre style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, whiteSpace: "pre-wrap", padding: 12, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--fg2)" }}>
-            {state.proposedContent}
-          </pre>
-        </div>
-      ) : (
-        <pre style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, whiteSpace: "pre-wrap", padding: 12, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--fg2)" }}>
-          {state.proposedContent}
-        </pre>
-      )}
-
-      <div className="mt-4">
-        <a
-          href={`/wiki/${effect.targetPageSlug}`}
-          style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)", textDecoration: "none" }}
-          className="hover:opacity-80"
-        >
-          {t("viewTargetPage")}
-        </a>
-      </div>
-    </div>
+    <DeliverablePageContainer>
+      {headerEl}
+      {divider}
+      {bodyEl}
+    </DeliverablePageContainer>
   );
 }
 
