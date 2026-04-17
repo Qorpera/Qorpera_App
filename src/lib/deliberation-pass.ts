@@ -324,6 +324,90 @@ export async function answerClarification(
   });
 }
 
+// ── Override an auto-applied decision ────────────────────────────────────────
+
+export async function overrideAutoAppliedDecision(
+  operatorId: string,
+  situationSlug: string,
+  decisionId: string,
+  newChoice: string,
+  overriddenByUserId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const overriddenAt = new Date().toISOString();
+
+  const user = await prisma.user.findUnique({
+    where: { id: overriddenByUserId },
+    select: { email: true, name: true },
+  });
+  const overriddenBySlug = user
+    ? await resolvePageSlug(operatorId, user.email ?? undefined, user.name ?? undefined)
+    : null;
+
+  let overriddenDecision: AutoAppliedDecision | null = null;
+
+  await updatePageWithLock(operatorId, situationSlug, (page) => {
+    if (page.pageType !== "situation_instance") return {};
+
+    const parsed = parseSituationPage(page.content, page.properties as Record<string, unknown> | null);
+    const decisionsSectionBody = parsed.sections.decisions;
+    if (!decisionsSectionBody) return {};
+
+    const existingDecisions = parseDecisionsSection(decisionsSectionBody);
+    const target = existingDecisions.find(
+      (d): d is Decision & { kind: "auto_applied" } =>
+        d.kind === "auto_applied" && d.id === decisionId,
+    );
+    if (!target) return {};
+
+    overriddenDecision = target;
+
+    const answered: AnsweredDecision = {
+      id: target.id,
+      dimension: target.dimension,
+      question: `Override of auto-applied decision "${target.dimension}"`,
+      raisedAt: target.appliedAt,
+      answeredAt: overriddenAt,
+      answeredByUserId: overriddenByUserId,
+      answeredBySlug: overriddenBySlug,
+      choice: newChoice,
+      isCustomAnswer: false,
+      affectedStepOrders: target.affectedStepOrders,
+      preferenceScope: target.preferenceScope,
+    };
+
+    const mergedDecisions: Decision[] = existingDecisions.map((d) =>
+      d.id === target.id ? ({ ...answered, kind: "answered" } as Decision) : d,
+    );
+
+    let content = page.content;
+    content = upsertSection(content, "Decisions", renderDecisionsSection(mergedDecisions));
+
+    return { content };
+  });
+
+  if (!overriddenDecision) {
+    return { success: false, error: "decision_not_found_or_not_auto_applied" };
+  }
+  const d: AutoAppliedDecision = overriddenDecision;
+
+  await recordDecision(operatorId, {
+    dimension: d.dimension,
+    choice: newChoice,
+    timestamp: overriddenAt,
+    isCustomAnswer: false,
+    scope: d.preferenceScope,
+  }).catch((err) => console.warn(`[deliberation-pass] recordDecision on override failed:`, err));
+
+  const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
+  await enqueueWorkerJob("run_partial_deliberation_pass", operatorId, {
+    operatorId,
+    situationSlug,
+    unblockedStepOrders: d.affectedStepOrders,
+  });
+
+  return { success: true };
+}
+
 // ── Partial re-run for unblocked steps ───────────────────────────────────────
 
 export async function runPartialDeliberationPass(
