@@ -90,6 +90,25 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
   const attendeesKey = params.attendeeEmails !== undefined ? "attendeeEmails" : "attendees";
   const attendees = (params.attendeeEmails ?? params.attendees ?? []) as string[];
   const location = (params.location ?? "") as string;
+  const duration = typeof params.duration === "number" ? (params.duration as number) : null;
+  const batchEvents = Array.isArray(params.events)
+    ? (params.events as Array<Record<string, unknown>>)
+    : null;
+
+  // ── Batch events: render a list of events to schedule ────────────────────
+  if (batchEvents && batchEvents.length > 0) {
+    return (
+      <BatchEventsCard events={batchEvents} inPanel={inPanel} />
+    );
+  }
+
+  // ── Fallback: nothing to preview — show step title + description ─────────
+  const hasAnyData = title || attendees.length > 0 || duration || startTime || location;
+  if (!hasAnyData) {
+    return (
+      <SimpleCalendarFallback step={step} inPanel={inPanel} />
+    );
+  }
 
   // ── Panel mode: week view ────────────────────────────────────────────────
   const startDate = startTime ? new Date(startTime) : null;
@@ -136,6 +155,7 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
       attendees={attendees}
       attendeesKey={attendeesKey}
       location={location}
+      durationMinutes={duration}
       params={params}
       isEditable={isEditable}
       onParametersUpdate={onParametersUpdate}
@@ -143,6 +163,88 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
       t={t}
     />
   );
+}
+
+// ── Batch events card ──────────────────────────────────────────────────────
+
+function BatchEventsCard({
+  events,
+  inPanel,
+}: {
+  events: Array<Record<string, unknown>>;
+  inPanel?: boolean;
+}) {
+  const wrapperStyle = inPanel ? { padding: 16 } : undefined;
+  return (
+    <div style={wrapperStyle}>
+      <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"} style={inPanel ? { border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "var(--surface)" } : undefined}>
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <CalendarIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>
+            {events.length} event{events.length === 1 ? "" : "s"} to schedule
+          </span>
+        </div>
+        <div className="divide-y divide-border">
+          {events.map((ev, i) => {
+            const evTitle = (ev.title ?? ev.summary ?? "") as string;
+            const evDuration = typeof ev.duration === "number" ? (ev.duration as number) : null;
+            const evAttendees = (Array.isArray(ev.attendees) ? ev.attendees : []) as string[];
+            const evWeek = (ev.week ?? "") as string;
+            return (
+              <div key={i} className="px-4 py-3 space-y-1.5">
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }}>{evTitle || `Event ${i + 1}`}</div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1" style={{ fontSize: 12, color: "var(--fg2)" }}>
+                  {evWeek && <span>Week {evWeek}</span>}
+                  {evDuration !== null && <span>{formatDurationMinutes(evDuration)}</span>}
+                  {evAttendees.length > 0 && <span>{evAttendees.length} attendee{evAttendees.length === 1 ? "" : "s"}</span>}
+                </div>
+                {evAttendees.length > 0 && (
+                  <div style={{ fontSize: 12, color: "var(--fg3)" }}>{evAttendees.join(", ")}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SimpleCalendarFallback({
+  step,
+  inPanel,
+}: {
+  step: PreviewProps["step"];
+  inPanel?: boolean;
+}) {
+  const wrapperStyle = inPanel ? { padding: 16 } : undefined;
+  return (
+    <div style={wrapperStyle}>
+      <div style={inPanel ? { border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "var(--surface)" } : { border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden", background: "var(--surface)" }}>
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+          <CalendarIcon size={14} className="text-accent flex-shrink-0" />
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>Calendar event — to be scheduled</span>
+        </div>
+        <div style={{ padding: inPanel ? "16px 20px" : "12px 16px" }}>
+          <div style={{ fontSize: inPanel ? 16 : 14, fontWeight: 600, color: "var(--foreground)", marginBottom: step.description ? 8 : 0 }}>
+            {step.title}
+          </div>
+          {step.description && (
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)" }}>{step.description}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatDurationMinutes(mins: number): string {
+  if (mins >= 60) {
+    const hours = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
+  }
+  return `${mins}m`;
 }
 
 // ── Panel wrapper: fetches events then renders CalendarWeekView ─────────────
@@ -241,7 +343,7 @@ function SkeletonGrid() {
 
 function CompactCalendarCard({
   title, titleKey, startTime, startKey, endTime, endKey,
-  attendees, attendeesKey, location, params,
+  attendees, attendeesKey, location, durationMinutes: durationMins, params,
   isEditable, onParametersUpdate, locale, t,
 }: {
   title: string; titleKey: string;
@@ -249,6 +351,7 @@ function CompactCalendarCard({
   endTime: string; endKey: string;
   attendees: string[]; attendeesKey: string;
   location: string;
+  durationMinutes: number | null;
   params: Record<string, unknown>;
   isEditable: boolean;
   onParametersUpdate?: (params: Record<string, unknown>) => void;
@@ -443,6 +546,20 @@ function CompactCalendarCard({
                   ? `${t("hours", { count: Math.floor(mins / 60) })} ${t("minutes", { count: mins % 60 })}`
                   : t("hours", { count: Math.floor(mins / 60) }))
                 : t("minutes", { count: mins })}
+            </span>
+          </div>
+        )}
+
+        {/* Explicit duration (no start/end times) */}
+        {!hasTimes && durationMins !== null && durationMins > 0 && (
+          <div className="flex items-baseline gap-2">
+            <span style={{ fontSize: 11, color: "var(--fg2)", fontWeight: 500, minWidth: 80 }}>{t("duration") ?? "Duration"}</span>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>
+              {durationMins >= 60
+                ? (durationMins % 60 > 0
+                  ? `${t("hours", { count: Math.floor(durationMins / 60) })} ${t("minutes", { count: durationMins % 60 })}`
+                  : t("hours", { count: Math.floor(durationMins / 60) }))
+                : t("minutes", { count: durationMins })}
             </span>
           </div>
         )}

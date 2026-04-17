@@ -22,7 +22,25 @@ export function GenericStepPreview({ step, inPanel }: PreviewProps) {
   const params = step.parameters ?? {};
   const entries = Object.entries(params).filter(([key]) => key !== "previewType");
 
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    return (
+      <div className={inPanel ? "" : "rounded-md overflow-hidden"} style={inPanel ? { padding: 16 } : { border: "1px solid #2a2a2a", background: "#141414" }}>
+        <div
+          className={inPanel ? "" : "px-4 py-3"}
+          style={inPanel ? { border: "0.5px solid var(--border)", borderRadius: 8, background: "var(--surface)", padding: "16px 20px" } : undefined}
+        >
+          <div style={{ fontSize: inPanel ? 17 : 14, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.3, marginBottom: step.description ? 8 : 0 }}>
+            {step.title}
+          </div>
+          {step.description && (
+            <div style={{ fontSize: inPanel ? 14 : 13, lineHeight: 1.65, color: "var(--fg2)" }}>
+              {step.description}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={inPanel ? "" : "rounded-md overflow-hidden"} style={inPanel ? {} : { border: "1px solid #2a2a2a", background: "#141414" }}>

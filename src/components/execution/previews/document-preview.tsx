@@ -139,6 +139,38 @@ export function DocumentPreview({ step, isEditable, onParametersUpdate, locale: 
   }
 
   const showAiDisclosure = isActMode(step);
+  const isPending = step.status === "pending";
+  const hasContent = !!(title || content);
+
+  if (inPanel && !hasContent) {
+    // Fallback: document has not been generated yet — preview what will be created
+    return (
+      <div style={{ padding: 16 }}>
+        <div style={{ border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "var(--surface)" }}>
+          <div style={{ padding: "16px 20px", borderBottom: "0.5px solid var(--border)", display: "flex", alignItems: "center", gap: 10 }}>
+            <DocIcon size={16} className="text-accent flex-shrink-0" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 17, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.3 }}>
+                {step.title}
+              </div>
+              {isPending && (
+                <div style={{ fontSize: 11, color: "var(--fg3)", marginTop: 4 }}>
+                  {t("document")} — to be generated
+                </div>
+              )}
+            </div>
+          </div>
+          {step.description && (
+            <div style={{ padding: "16px 20px" }}>
+              <div style={{ fontSize: 14, lineHeight: 1.65, color: "var(--fg2)" }}>
+                {step.description}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (inPanel) {
     return (
