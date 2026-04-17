@@ -47,6 +47,7 @@ export default function AdminPage() {
     variants: Array<{ operatorId: string; displayName: string; phase: string; analysisStatus: string }>;
   }>>({});
   const [seedingCompany, setSeedingCompany] = useState<string | null>(null);
+  const [seedingPromo, setSeedingPromo] = useState(false);
   const [seedResult, setSeedResult] = useState<{ company: string; credentials: Array<{ name: string; email: string; role: string }> } | null>(null);
   const [seedError, setSeedError] = useState<string | null>(null);
 
@@ -121,6 +122,35 @@ export default function AdminPage() {
       setSeedError(`Network error seeding ${slug}`);
     } finally {
       setSeedingCompany(null);
+    }
+  };
+
+  const seedPromo = async () => {
+    setSeedError(null);
+    setSeedingPromo(true);
+    try {
+      const res = await fetch("/api/admin/seed-promo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSeedResult({
+          company: "Promo Demo",
+          credentials: [{
+            name: data.credentials.admin.name,
+            email: data.credentials.admin.email,
+            role: data.credentials.admin.role,
+          }],
+        });
+        await refreshOperators();
+      } else {
+        setSeedError(data.error || "Failed to seed promo");
+      }
+    } catch {
+      setSeedError("Network error seeding promo");
+    } finally {
+      setSeedingPromo(false);
     }
   };
 
@@ -205,17 +235,48 @@ export default function AdminPage() {
 
       {/* Content */}
       <div className="max-w-5xl mx-auto px-8 py-8">
-        {/* Synthetic Companies */}
-        {Object.keys(syntheticCompanies).length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">Simulated Companies</h2>
-            {seedError && (
-              <div className="mb-4 p-3 rounded-lg bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] text-danger text-sm">
-                {seedError}
-              </div>
-            )}
-            <div className="space-y-4">
-              {Object.entries(syntheticCompanies).map(([slug, data]) => (
+        {/* Simulated Companies */}
+        <div className="mb-8">
+          <h2 className="text-lg font-medium text-[var(--fg2)] mb-4">Simulated Companies</h2>
+          {seedError && (
+            <div className="mb-4 p-3 rounded-lg bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] border border-[color-mix(in_srgb,var(--danger)_20%,transparent)] text-danger text-sm">
+              {seedError}
+            </div>
+          )}
+          <div className="space-y-4">
+            {/* Promo Demo — standalone entry (creates its own operator) */}
+            {(() => {
+              const promoOp = operators.find((o) => o.isTestOperator && o.companyName === "Demo Company");
+              return (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium text-foreground">Promo Demo</h3>
+                  {!promoOp ? (
+                    <div className="wf-soft p-4 flex items-center justify-between">
+                      <span className="text-xs text-[var(--fg3)]">Not seeded</span>
+                      <Button variant="primary" size="sm" disabled={seedingPromo} onClick={seedPromo}>
+                        {seedingPromo ? "Seeding..." : "Seed (Promo)"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="wf-soft p-4 flex items-center justify-between">
+                      <div>
+                        <span className="text-sm text-foreground">{promoOp.companyName}</span>
+                        <span className="ml-3 text-xs text-ok">Active</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" disabled={seedingPromo} onClick={seedPromo}>
+                          {seedingPromo ? "Re-seeding..." : "Re-seed"}
+                        </Button>
+                        <Button variant="primary" size="sm" disabled={entering === promoOp.id} onClick={() => enterOperator(promoOp.id)}>
+                          {entering === promoOp.id ? "Entering..." : "Enter"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            {Object.entries(syntheticCompanies).map(([slug, data]) => (
                 <div key={slug} className="space-y-2">
                   <h3 className="text-sm font-medium text-foreground capitalize">{slug}</h3>
                   {!data.seeded && (
@@ -266,9 +327,8 @@ export default function AdminPage() {
                   })}
                 </div>
               ))}
-            </div>
           </div>
-        )}
+        </div>
 
         {/* Real Operators */}
         {(() => {
