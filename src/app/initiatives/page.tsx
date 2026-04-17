@@ -176,9 +176,7 @@ export default function InitiativesPage() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelActiveTab, setPanelActiveTab] = useState<string>("overview");
   const [panelEditing, setPanelEditing] = useState(false);
-  const [panelFullScreen, setPanelFullScreen] = useState(true);
   const [panelChatVisible, setPanelChatVisible] = useState(true);
-  const [panelWidth, setPanelWidth] = useState(55);
 
   const fetchInitiatives = useCallback(async () => {
     try {
@@ -215,13 +213,6 @@ export default function InitiativesPage() {
     return () => { cancelled = true; };
   }, [selectedId]);
 
-  // Reset panel when switching initiatives
-  useEffect(() => {
-    setPanelOpen(false);
-    setPanelActiveTab("overview");
-    setPanelEditing(false);
-  }, [selectedId]);
-
   const filteredInitiatives = useMemo(() =>
     filter === "active"
       ? initiatives.filter(i => ACTIVE_STATUSES.includes(i.status))
@@ -232,6 +223,8 @@ export default function InitiativesPage() {
   useEffect(() => {
     if (selectedId && !filteredInitiatives.some(i => i.id === selectedId)) {
       setSelectedId(null);
+      setPanelOpen(false);
+      setPanelEditing(false);
     }
   }, [filteredInitiatives, selectedId]);
 
@@ -270,9 +263,9 @@ export default function InitiativesPage() {
     }
   }, [selectedId, fetchInitiatives, fetchDetail]);
 
-  const openPanelAt = useCallback((tab: string) => {
-    setPanelActiveTab(tab);
-    setPanelFullScreen(true);
+  const openInitiative = useCallback((id: string) => {
+    setSelectedId(id);
+    setPanelActiveTab("overview");
     setPanelEditing(false);
     setPanelOpen(true);
   }, []);
@@ -325,7 +318,7 @@ export default function InitiativesPage() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setSelectedId(item.id)}
+                  onClick={() => openInitiative(item.id)}
                   className="w-full text-left px-4 py-2.5 transition"
                   style={{
                     borderBottom: "1px solid var(--border)",
@@ -360,56 +353,27 @@ export default function InitiativesPage() {
         </div>
         )}
 
-        {/* ── Right: detail pane + optional panel ── */}
+        {/* ── Right: empty-state column + panel ── */}
         {(!isMobile || selectedId) && (
         <div className="flex-1 min-h-0 overflow-hidden" style={{
           display: "grid",
-          gridTemplateColumns: panelFullScreen && panelOpen
-            ? "0fr 1fr"
-            : (selectedId && detail && panelOpen) ? `1fr ${panelWidth}%` : "1fr",
+          gridTemplateColumns: panelOpen ? "0fr 1fr" : "1fr",
           transition: "grid-template-columns 0.25s ease-in-out",
         }}>
-          {/* Detail column */}
+          {/* Empty state column (visible when panel is closed) */}
           <div className="flex flex-col min-h-0 overflow-hidden" style={{
-            opacity: panelFullScreen && panelOpen ? 0 : 1,
+            opacity: panelOpen ? 0 : 1,
             transition: "opacity 0.2s ease",
           }}>
-            {isMobile && (
+            {isMobile && selectedId && (
               <button onClick={() => setSelectedId(null)} className="flex items-center gap-1.5 px-4 py-3 text-sm text-[var(--fg2)] hover:text-[var(--fg2)] min-h-[44px]">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
                 Back
               </button>
             )}
-            {selectedId && detail ? (
-              <>
-                <div className="flex-1 overflow-y-auto">
-                  <DetailPane
-                    key={selectedId}
-                    detail={detail}
-                    detailLoading={detailLoading}
-                    patchInitiative={patchInitiative}
-                    onOpenPanel={openPanelAt}
-                    runExecutionAction={runExecutionAction}
-                  />
-                </div>
-                {!(panelFullScreen && panelOpen) && (
-                  <ContextualChat
-                    contextType="initiative"
-                    contextId={detail.id}
-                    placeholder={t("discuss")}
-                    hints={[t("hintRoi"), t("hintDependencies")]}
-                  />
-                )}
-              </>
-            ) : selectedId && detailLoading ? (
-              <div className="flex justify-center py-16">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
-                {t("selectInitiative")}
-              </div>
-            )}
+            <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
+              {t("selectInitiative")}
+            </div>
           </div>
 
           {/* Panel */}
@@ -422,13 +386,11 @@ export default function InitiativesPage() {
               setActiveTab={setPanelActiveTab}
               isEditing={panelEditing}
               setIsEditing={setPanelEditing}
-              isFullScreen={panelFullScreen}
-              setIsFullScreen={setPanelFullScreen}
               isChatVisible={panelChatVisible}
               setIsChatVisible={setPanelChatVisible}
-              panelWidth={panelWidth}
-              setPanelWidth={setPanelWidth}
               onPrimaryDeliverableSaved={() => fetchDetail(detail.id)}
+              runExecutionAction={runExecutionAction}
+              patchInitiative={patchInitiative}
             />
           )}
         </div>
@@ -436,178 +398,6 @@ export default function InitiativesPage() {
 
       </div>
     </AppShell>
-  );
-}
-
-// ── Detail Pane ──────────────────────────────────────────────────────────────
-
-function DetailPane({
-  detail: d,
-  detailLoading,
-  patchInitiative,
-  onOpenPanel,
-  runExecutionAction,
-}: {
-  detail: InitiativeDetail;
-  detailLoading: boolean;
-  patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
-  onOpenPanel: (tab: string) => void;
-  runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
-}) {
-  const t = useTranslations("initiatives");
-  const tc = useTranslations("common");
-  const locale = useLocale();
-
-  const { evidenceItems } = useMemo(
-    () => parseInitiativePage(d.content),
-    [d.content],
-  );
-
-  const typeConfig = PROPOSAL_TYPE_CONFIG[d.proposalType] ?? PROPOSAL_TYPE_CONFIG.general;
-  const isDismissed = d.status === "dismissed";
-  const canAct = d.status === "proposed";
-
-  const statusLabel = (() => {
-    try { return t(`status.${d.status}` as any); } catch { return d.status; }
-  })();
-
-  const metaPills: Array<{ label: string; value: string }> = [];
-  if (d.severity) metaPills.push({ label: "Severity", value: d.severity });
-  if (d.priority) metaPills.push({ label: "Priority", value: d.priority });
-  if (d.expectedImpact) metaPills.push({ label: "Impact", value: d.expectedImpact });
-  if (d.effortEstimate) metaPills.push({ label: "Effort", value: d.effortEstimate });
-
-  return (
-    <div className="px-6 py-5 space-y-5" style={{ opacity: isDismissed ? 0.7 : 1 }}>
-      {/* ── Header ── */}
-      <div>
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <Badge variant={statusBadgeVariant(d.status)}>{statusLabel}</Badge>
-          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3, background: `color-mix(in srgb, ${typeConfig.color} 12%, transparent)`, color: typeConfig.color, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            {typeConfig.label}
-          </span>
-          <span style={{ fontSize: 12, color: "var(--fg3)" }}>{d.ownerName ?? "AI"}</span>
-          <span style={{ fontSize: 12, color: "var(--fg4)" }}>{formatRelativeTime(d.createdAt, locale)}</span>
-        </div>
-
-        <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.3 }}>
-          {d.triggerSummary || "Untitled initiative"}
-        </h1>
-      </div>
-
-      {detailLoading && (
-        <div className="flex justify-center py-8">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-muted" />
-        </div>
-      )}
-
-      {/* ── Dismissal reason (when user navigates to a dismissed initiative by URL) ── */}
-      {isDismissed && d.dismissalReason && (
-        <div style={{
-          padding: "14px 16px",
-          background: "color-mix(in srgb, var(--warn) 6%, transparent)",
-          border: "1px solid color-mix(in srgb, var(--warn) 25%, transparent)",
-          borderRadius: 6,
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--warn)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-            {t("dismissalReasonLabel")}
-          </div>
-          <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{d.dismissalReason}</p>
-        </div>
-      )}
-
-      {/* ── Concerns banner (concerns_raised) ── */}
-      {d.status === "concerns_raised" && (
-        <ExecutionConcernsBanner
-          detail={d}
-          onAction={runExecutionAction}
-          onDiscuss={() => {
-            onOpenPanel("overview");
-            setTimeout(() => {
-              const chatInput = document.getElementById("initiative-chat-input") as HTMLTextAreaElement | null;
-              chatInput?.focus();
-            }, 100);
-          }}
-        />
-      )}
-
-      {/* ── Implemented summary block ── */}
-      {d.status === "implemented" && <ExecutionSummaryBlock detail={d} />}
-
-      {/* ── Evidence (inline — the at-a-glance case for why) ── */}
-      {evidenceItems.length > 0 && (
-        <Section label={t("evidence")}>
-          <div className="space-y-2">
-            {evidenceItems.map((e, i) => (
-              <div key={i} className="flex items-start gap-2">
-                {e.slug ? (
-                  <a
-                    href={`/wiki/${e.slug}`}
-                    style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "var(--fg3)", flexShrink: 0, marginTop: 2, textDecoration: "none" }}
-                    className="hover:opacity-80"
-                  >
-                    {e.slug}
-                  </a>
-                ) : (
-                  <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "var(--fg4)", flexShrink: 0, marginTop: 2 }}>
-                    —
-                  </span>
-                )}
-                <span style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
-                  <WikiText text={e.claim} crossReferences={d.crossReferences} />
-                </span>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* ── Proposed Changes container ── */}
-      {d.primaryDeliverable && (
-        <ChangesetContainer detail={d} onSelectChange={onOpenPanel} />
-      )}
-
-      {/* ── Metadata footer ── */}
-      {(metaPills.length > 0 || d.synthesizedByModel) && (
-        <div className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
-          {metaPills.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {metaPills.map((p, i) => (
-                <span key={i} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "var(--hover)", color: "var(--fg2)" }}>
-                  {p.label}: <span style={{ fontWeight: 600 }}>{p.value}</span>
-                </span>
-              ))}
-            </div>
-          )}
-          {d.synthesizedByModel && (
-            <div style={{ fontSize: 11, color: "var(--fg4)" }}>
-              {t("synthesizedBy", { model: d.synthesizedByModel })}
-              {d.investigatedAt ? ` · ${formatRelativeTime(d.investigatedAt, locale)}` : ""}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Action buttons ── */}
-      {canAct && (
-        <div className="flex items-center gap-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-          <button
-            className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
-            style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
-            onClick={() => patchInitiative(d.id, { action: "accept" })}
-          >
-            {t("accept")}
-          </button>
-          <button
-            className="rounded-full text-[13px] font-medium px-4 py-1.5 transition-colors bg-[var(--elevated)] hover:bg-[var(--step-hover)]"
-            style={{ border: "1px solid var(--border)", color: "var(--fg2)" }}
-            onClick={() => patchInitiative(d.id, { action: "reject" })}
-          >
-            {tc("reject")}
-          </button>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -728,13 +518,11 @@ function InitiativePanel({
   setActiveTab,
   isEditing,
   setIsEditing,
-  isFullScreen,
-  setIsFullScreen,
   isChatVisible,
   setIsChatVisible,
-  panelWidth: _panelWidth,
-  setPanelWidth,
   onPrimaryDeliverableSaved,
+  runExecutionAction,
+  patchInitiative,
 }: {
   detail: InitiativeDetail;
   isOpen: boolean;
@@ -743,13 +531,11 @@ function InitiativePanel({
   setActiveTab: (tab: string) => void;
   isEditing: boolean;
   setIsEditing: (editing: boolean) => void;
-  isFullScreen: boolean;
-  setIsFullScreen: (fs: boolean) => void;
   isChatVisible: boolean;
   setIsChatVisible: (v: boolean) => void;
-  panelWidth: number;
-  setPanelWidth: (n: number) => void;
   onPrimaryDeliverableSaved: () => void;
+  runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
+  patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
   const t = useTranslations("initiatives");
 
@@ -792,27 +578,18 @@ function InitiativePanel({
       typeIcon={typeIcon}
       isEditing={canEditPrimary ? isEditing : false}
       onToggleEdit={canEditPrimary ? () => setIsEditing(!isEditing) : undefined}
-      onDiscuss={() => {
-        if (isFullScreen) {
-          setIsChatVisible(true);
-        } else {
-          const chatInput = document.getElementById("initiative-chat-input") as HTMLTextAreaElement | null;
-          if (chatInput) { chatInput.focus(); chatInput.scrollIntoView({ behavior: "smooth", block: "end" }); }
-        }
-      }}
-      onWidthChange={setPanelWidth}
-      isFullScreen={isFullScreen}
-      onToggleFullScreen={() => setIsFullScreen(!isFullScreen)}
+      onDiscuss={() => setIsChatVisible(true)}
+      isFullScreen={true}
       isChatVisible={isChatVisible}
       onToggleChatVisible={() => setIsChatVisible(!isChatVisible)}
-      chatElement={isFullScreen ? (
+      chatElement={
         <ContextualChat
           contextType="initiative"
           contextId={d.id}
           placeholder={t("discuss")}
           hints={[t("hintRoi"), t("hintDependencies")]}
         />
-      ) : undefined}
+      }
     >
       {/* ── Tab bar ── */}
       <div className="flex items-center gap-1 px-4 py-2 border-b overflow-x-auto"
@@ -845,7 +622,7 @@ function InitiativePanel({
 
       {/* ── Tab content ── */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
-        {activeTab === "overview" && <OverviewTab detail={d} onSelectChange={setActiveTab} />}
+        {activeTab === "overview" && <OverviewTab detail={d} onSelectChange={setActiveTab} runExecutionAction={runExecutionAction} patchInitiative={patchInitiative} />}
         {activeTab === "details" && <DetailsTab detail={d} />}
         {activeTab === "primary" && d.primaryDeliverable && (
           <PrimaryDeliverableTab
@@ -883,68 +660,202 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
+// ── Overview Header ──────────────────────────────────────────────────────────
+
+function OverviewHeader({ detail: d }: { detail: InitiativeDetail }) {
+  const t = useTranslations("initiatives");
+  const locale = useLocale();
+  const typeConfig = PROPOSAL_TYPE_CONFIG[d.proposalType] ?? PROPOSAL_TYPE_CONFIG.general;
+
+  const statusLabel = (() => {
+    try { return t(`status.${d.status}` as any); } catch { return d.status; }
+  })();
+
+  const titleText = d.primaryDeliverable?.title || d.triggerSummary || "Untitled initiative";
+  const showTriggerSubtitle = !!d.primaryDeliverable?.title && !!d.triggerSummary
+    && d.primaryDeliverable.title !== d.triggerSummary;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <Badge variant={statusBadgeVariant(d.status)}>{statusLabel}</Badge>
+        <span style={{
+          fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 3,
+          background: `color-mix(in srgb, ${typeConfig.color} 12%, transparent)`,
+          color: typeConfig.color, textTransform: "uppercase", letterSpacing: "0.04em",
+        }}>
+          {typeConfig.label}
+        </span>
+        <span style={{ fontSize: 12, color: "var(--fg3)" }}>{d.ownerName ?? "AI"}</span>
+        <span style={{ fontSize: 12, color: "var(--fg4)" }}>{formatRelativeTime(d.createdAt, locale)}</span>
+      </div>
+
+      <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--foreground)", lineHeight: 1.3 }}>
+        {titleText}
+      </h1>
+
+      {showTriggerSubtitle && (
+        <div style={{ fontSize: 11, color: "var(--fg3)", marginTop: 4 }}>
+          {t("trigger")}: {d.triggerSummary}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Overview Metadata Footer ─────────────────────────────────────────────────
+
+function OverviewMetaFooter({ detail: d }: { detail: InitiativeDetail }) {
+  const t = useTranslations("initiatives");
+  const locale = useLocale();
+
+  const metaPills: Array<{ label: string; value: string }> = [];
+  if (d.severity) metaPills.push({ label: "Severity", value: d.severity });
+  if (d.priority) metaPills.push({ label: "Priority", value: d.priority });
+  if (d.expectedImpact) metaPills.push({ label: "Impact", value: d.expectedImpact });
+  if (d.effortEstimate) metaPills.push({ label: "Effort", value: d.effortEstimate });
+
+  if (metaPills.length === 0 && !d.synthesizedByModel) return null;
+
+  return (
+    <div className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--border)", marginTop: 20 }}>
+      {metaPills.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {metaPills.map((p, i) => (
+            <span key={i} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "var(--hover)", color: "var(--fg2)" }}>
+              {p.label}: <span style={{ fontWeight: 600 }}>{p.value}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {d.synthesizedByModel && (
+        <div style={{ fontSize: 11, color: "var(--fg4)" }}>
+          {t("synthesizedBy", { model: d.synthesizedByModel })}
+          {d.investigatedAt ? ` · ${formatRelativeTime(d.investigatedAt, locale)}` : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Overview Action Bar (sticky, proposed only) ──────────────────────────────
+
+function OverviewActionBar({
+  detail: d,
+  patchInitiative,
+}: {
+  detail: InitiativeDetail;
+  patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
+}) {
+  const t = useTranslations("initiatives");
+  const tc = useTranslations("common");
+
+  if (d.status !== "proposed") return null;
+
+  return (
+    <div style={{
+      position: "sticky",
+      bottom: 0,
+      marginTop: 16,
+      marginLeft: -20,
+      marginRight: -20,
+      padding: "12px 20px",
+      background: "color-mix(in srgb, var(--surface) 92%, transparent)",
+      backdropFilter: "blur(6px)",
+      borderTop: "1px solid var(--border)",
+    }}>
+      <div className="flex items-center gap-2">
+        <button
+          className="rounded-full text-[13px] font-semibold px-4 py-2 transition-colors"
+          style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
+          onClick={() => patchInitiative(d.id, { action: "accept" })}
+        >
+          {t("accept")}
+        </button>
+        <button
+          className="rounded-full text-[13px] font-medium px-4 py-2 transition-colors"
+          style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
+          onClick={() => patchInitiative(d.id, { action: "reject" })}
+        >
+          {tc("reject")}
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--fg3)", marginTop: 8, lineHeight: 1.5 }}>
+        {t("acceptHelpCopy")}
+      </div>
+    </div>
+  );
+}
+
+// ── Banner Row (dismissed / concerns_raised / implemented) ───────────────────
+
+function BannerRow({
+  detail: d,
+  runExecutionAction,
+}: {
+  detail: InitiativeDetail;
+  runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
+}) {
+  const t = useTranslations("initiatives");
+
+  if (d.status === "dismissed" && d.dismissalReason) {
+    return (
+      <div style={{
+        padding: "14px 16px",
+        background: "color-mix(in srgb, var(--warn) 6%, transparent)",
+        border: "1px solid color-mix(in srgb, var(--warn) 25%, transparent)",
+        borderRadius: 6,
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--warn)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+          {t("dismissalReasonLabel")}
+        </div>
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>{d.dismissalReason}</p>
+      </div>
+    );
+  }
+
+  if (d.status === "concerns_raised") {
+    return (
+      <ExecutionConcernsBanner
+        detail={d}
+        onAction={runExecutionAction}
+        onDiscuss={() => {
+          const chatInput = document.getElementById("initiative-chat-input") as HTMLTextAreaElement | null;
+          chatInput?.focus();
+        }}
+      />
+    );
+  }
+
+  if (d.status === "implemented") {
+    return <ExecutionSummaryBlock detail={d} />;
+  }
+
+  return null;
+}
+
 // ── Overview Tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({
   detail: d,
   onSelectChange,
+  runExecutionAction,
+  patchInitiative,
 }: {
   detail: InitiativeDetail;
   onSelectChange: (tab: string) => void;
+  runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
+  patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
   const t = useTranslations("initiatives");
-  const { sections, dashboard } = useMemo(() => parseInitiativePage(d.content), [d.content]);
+  const { sections, dashboard, evidenceItems } = useMemo(() => parseInitiativePage(d.content), [d.content]);
   const hasDashboard =
     dashboard.cards.length > 0 && dashboard.fallback !== "prose_only";
 
-  if (hasDashboard) {
-    return (
-      <div className="space-y-5">
-        <DashboardCards cards={dashboard.cards} />
-
-        {dashboard.failedCards.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 12 }}>
-            {dashboard.failedCards.map((fc, i) => (
-              <div key={i} style={{ gridColumn: "span 6" }}>
-                <FailedCardPlaceholder failed={fc} />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {d.primaryDeliverable && (
-          <ChangesetContainer detail={d} onSelectChange={onSelectChange} />
-        )}
-
-        {sections.investigation && (
-          <Section label={t("investigation")}>
-            <WikiText
-              text={sections.investigation}
-              crossReferences={d.crossReferences}
-              asParagraphs
-              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
-            />
-          </Section>
-        )}
-
-        {sections.alternativesConsidered && (
-          <Section label={t("alternativesConsidered")}>
-            <WikiText
-              text={sections.alternativesConsidered}
-              crossReferences={d.crossReferences}
-              asParagraphs
-              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
-            />
-          </Section>
-        )}
-      </div>
-    );
-  }
-
-  // Prose-only branch: legacy behavior, also the fallback when no dashboard.
+  // Prose-only branch: Proposal leads, then Investigation → Impact Assessment → Alternatives → Timeline.
   const blocks: Array<{ label: string; body: string }> = [];
-  if (sections.investigation) blocks.push({ label: t("investigation"), body: sections.investigation });
   if (sections.proposal) blocks.push({ label: t("proposal"), body: sections.proposal });
+  if (sections.investigation) blocks.push({ label: t("investigation"), body: sections.investigation });
   if (sections.impactAssessment) blocks.push({ label: t("impactAssessment"), body: sections.impactAssessment });
   if (sections.alternativesConsidered) blocks.push({ label: t("alternativesConsidered"), body: sections.alternativesConsidered });
   if (sections.timeline) blocks.push({ label: t("timeline"), body: sections.timeline });
@@ -956,27 +867,119 @@ function OverviewTab({
       ]
     : [];
 
-  if (blocks.length === 0 && allConcerns.length === 0) {
+  const body = (() => {
+    if (hasDashboard) {
+      return (
+        <div className="space-y-5">
+          <DashboardCards cards={dashboard.cards} />
+
+          {dashboard.failedCards.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 12 }}>
+              {dashboard.failedCards.map((fc, i) => (
+                <div key={i} style={{ gridColumn: "span 6" }}>
+                  <FailedCardPlaceholder failed={fc} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {d.primaryDeliverable && (
+            <ChangesetContainer detail={d} onSelectChange={onSelectChange} />
+          )}
+
+          {sections.investigation && (
+            <Section label={t("investigation")}>
+              <WikiText
+                text={sections.investigation}
+                crossReferences={d.crossReferences}
+                asParagraphs
+                style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
+              />
+            </Section>
+          )}
+
+          {sections.alternativesConsidered && (
+            <Section label={t("alternativesConsidered")}>
+              <WikiText
+                text={sections.alternativesConsidered}
+                crossReferences={d.crossReferences}
+                asParagraphs
+                style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
+              />
+            </Section>
+          )}
+        </div>
+      );
+    }
+
+    if (blocks.length === 0 && allConcerns.length === 0 && evidenceItems.length === 0 && !d.primaryDeliverable) {
+      return (
+        <div className="flex items-center justify-center py-12" style={{ fontSize: 13, color: "var(--fg4)" }}>
+          No overview content available.
+        </div>
+      );
+    }
+
     return (
-      <div className="flex items-center justify-center py-12" style={{ fontSize: 13, color: "var(--fg4)" }}>
-        No overview content available.
+      <div className="space-y-5">
+        {evidenceItems.length > 0 && (
+          <Section label={t("evidence")}>
+            <div className="space-y-2">
+              {evidenceItems.map((e, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  {e.slug ? (
+                    <a
+                      href={`/wiki/${e.slug}`}
+                      style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "var(--fg3)", flexShrink: 0, marginTop: 2, textDecoration: "none" }}
+                      className="hover:opacity-80"
+                    >
+                      {e.slug}
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3, background: "rgba(255,255,255,0.06)", color: "var(--fg4)", flexShrink: 0, marginTop: 2 }}>
+                      —
+                    </span>
+                  )}
+                  <span style={{ fontSize: 13, color: "var(--fg2)", lineHeight: 1.5 }}>
+                    <WikiText text={e.claim} crossReferences={d.crossReferences} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {blocks.map((b, i) => (
+          <Section key={i} label={b.label}>
+            <WikiText
+              text={b.body}
+              crossReferences={d.crossReferences}
+              asParagraphs
+              style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
+            />
+          </Section>
+        ))}
+
+        {allConcerns.length > 0 && <ConcernsList concerns={allConcerns} detail={d} />}
+
+        {d.primaryDeliverable && (
+          <ChangesetContainer detail={d} onSelectChange={onSelectChange} />
+        )}
       </div>
     );
-  }
+  })();
 
   return (
-    <div className="space-y-5">
-      {allConcerns.length > 0 && <ConcernsList concerns={allConcerns} detail={d} />}
-      {blocks.map((b, i) => (
-        <Section key={i} label={b.label}>
-          <WikiText
-            text={b.body}
-            crossReferences={d.crossReferences}
-            asParagraphs
-            style={{ fontSize: 13, lineHeight: 1.65, color: "var(--fg2)" }}
-          />
-        </Section>
-      ))}
+    <div className="flex flex-col min-h-full">
+      <OverviewHeader detail={d} />
+      <BannerRow detail={d} runExecutionAction={runExecutionAction} />
+
+      <div className="flex-1">
+        {body}
+      </div>
+
+      <OverviewMetaFooter detail={d} />
+      <OverviewActionBar detail={d} patchInitiative={patchInitiative} />
     </div>
   );
 }

@@ -381,6 +381,7 @@
     "timeline": "Tidslinje",
     "dismissed": "Afvist",
     "dismissalReasonLabel": "Dette initiativ blev afvist",
+    "acceptHelpCopy": "Ved at acceptere anvendes de foreslåede ændringer på din wiki. Eksekveringsmotoren gennemgår hver ændring, før den skrives.",
     "noDownstreamEffects": "Ingen afledte effekter identificeret p\u00e5 nuv\u00e6rende tidspunkt.",
     "synthesizedBy": "Analyseret af {model}",
     "viewTargetPage": "\u00c5bn side \u2192",

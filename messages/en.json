@@ -381,6 +381,7 @@
     "timeline": "Timeline",
     "dismissed": "Dismissed",
     "dismissalReasonLabel": "This initiative was dismissed",
+    "acceptHelpCopy": "Accepting applies the proposed changes to your wiki. The execution engine will review each change before it's written.",
     "noDownstreamEffects": "No downstream effects identified at this stage.",
     "synthesizedBy": "Analyzed by {model}",
     "viewTargetPage": "Open page \u2192",
