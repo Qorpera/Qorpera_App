@@ -95,11 +95,25 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
     ? (params.events as Array<Record<string, unknown>>)
     : null;
 
-  // ── Batch events: render a list of events to schedule ────────────────────
-  if (batchEvents && batchEvents.length > 0) {
+  // ── Multi-event (panel mode): tabs + week view per event ─────────────────
+  if (inPanel && batchEvents && batchEvents.length > 0) {
     return (
-      <BatchEventsCard events={batchEvents} inPanel={inPanel} />
+      <MultiEventCalendarPanel
+        events={batchEvents}
+        isEditable={isEditable}
+        locale={locale}
+        onEventUpdate={(eventIndex, update) => {
+          if (!onParametersUpdate) return;
+          const nextEvents = batchEvents.map((e, i) => (i === eventIndex ? { ...e, ...update } : e));
+          onParametersUpdate({ ...params, events: nextEvents });
+        }}
+      />
     );
+  }
+
+  // ── Multi-event (inline): show compact list ──────────────────────────────
+  if (batchEvents && batchEvents.length > 0) {
+    return <BatchEventsInlineList events={batchEvents} />;
   }
 
   // ── Fallback: nothing to preview — show step title + description ─────────
@@ -165,49 +179,200 @@ export function CalendarEventPreview({ step, isEditable, onParametersUpdate, loc
   );
 }
 
-// ── Batch events card ──────────────────────────────────────────────────────
+// ── Multi-event panel: tabs + week view per event ─────────────────────────
 
-function BatchEventsCard({
+function MultiEventCalendarPanel({
   events,
-  inPanel,
+  isEditable,
+  locale,
+  onEventUpdate,
 }: {
   events: Array<Record<string, unknown>>;
-  inPanel?: boolean;
+  isEditable: boolean;
+  locale: string;
+  onEventUpdate: (eventIndex: number, update: Record<string, unknown>) => void;
 }) {
-  const wrapperStyle = inPanel ? { padding: 16 } : undefined;
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const tabScrollRef = useRef<HTMLDivElement>(null);
+
+  const parsed = events.map(normalizeEventParams);
+  const active = parsed[selectedIndex];
+
+  if (!active || !active.startValid) {
+    // Can't render a week view without a valid startTime — show tabs + a simple card
+    return (
+      <div style={{ padding: 16 }}>
+        <EventTabs events={parsed} selectedIndex={selectedIndex} onSelect={setSelectedIndex} tabScrollRef={tabScrollRef} />
+        <div style={{ marginTop: 12, border: "0.5px solid var(--border)", borderRadius: 8, padding: "12px 16px", background: "var(--surface)" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }}>
+            {active?.title || `Event ${selectedIndex + 1}`}
+          </div>
+          {active?.attendees.length ? (
+            <div style={{ fontSize: 12, color: "var(--fg3)", marginTop: 6 }}>{active.attendees.join(", ")}</div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // Other events in the same week become "existing" entries in the week view,
+  // so the user can see other proposed sessions alongside the selected one.
+  const sameWeekOthers: CalendarEvent[] = parsed
+    .map((ev, i) => ({ ev, i }))
+    .filter(({ ev, i }) => i !== selectedIndex && ev.startValid && isSameWeek(ev.startTime, active.startTime))
+    .map(({ ev, i }) => ({
+      id: `__pending-${i}__`,
+      title: ev.title || `Event ${i + 1}`,
+      startTime: ev.startTime,
+      endTime: ev.endTime || new Date(new Date(ev.startTime).getTime() + 3600000).toISOString(),
+      durationMinutes: null,
+      attendees: ev.attendees,
+      location: ev.location,
+      isAllDay: false,
+    }));
+
   return (
-    <div style={wrapperStyle}>
-      <div className={inPanel ? "" : "rounded-md overflow-hidden border border-border bg-surface"} style={inPanel ? { border: "0.5px solid var(--border)", borderRadius: 8, overflow: "hidden", background: "var(--surface)" } : undefined}>
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
-          <CalendarIcon size={14} className="text-accent flex-shrink-0" />
-          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>
-            {events.length} event{events.length === 1 ? "" : "s"} to schedule
-          </span>
-        </div>
-        <div className="divide-y divide-border">
-          {events.map((ev, i) => {
-            const evTitle = (ev.title ?? ev.summary ?? "") as string;
-            const evDuration = typeof ev.duration === "number" ? (ev.duration as number) : null;
-            const evAttendees = (Array.isArray(ev.attendees) ? ev.attendees : []) as string[];
-            const evWeek = (ev.week ?? "") as string;
-            return (
-              <div key={i} className="px-4 py-3 space-y-1.5">
-                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)" }}>{evTitle || `Event ${i + 1}`}</div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1" style={{ fontSize: 12, color: "var(--fg2)" }}>
-                  {evWeek && <span>Week {evWeek}</span>}
-                  {evDuration !== null && <span>{formatDurationMinutes(evDuration)}</span>}
-                  {evAttendees.length > 0 && <span>{evAttendees.length} attendee{evAttendees.length === 1 ? "" : "s"}</span>}
-                </div>
-                {evAttendees.length > 0 && (
-                  <div style={{ fontSize: 12, color: "var(--fg3)" }}>{evAttendees.join(", ")}</div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+    <div style={{ padding: 16 }}>
+      <EventTabs events={parsed} selectedIndex={selectedIndex} onSelect={setSelectedIndex} tabScrollRef={tabScrollRef} />
+      <div style={{ marginTop: 12 }}>
+        <CalendarWeekPanel
+          key={selectedIndex}
+          weekOf={getMonday(active.startTime)}
+          proposedEvent={{
+            title: active.title,
+            startTime: active.startTime,
+            endTime: active.endTime || new Date(new Date(active.startTime).getTime() + 3600000).toISOString(),
+            attendees: active.attendees,
+            location: active.location,
+          }}
+          extraExistingEvents={sameWeekOthers}
+          isEditable={isEditable}
+          locale={locale}
+          onProposedEventUpdate={(update) => {
+            const next: Record<string, unknown> = {};
+            if (update.title !== undefined) next.title = update.title;
+            if (update.startTime !== undefined) next.startTime = update.startTime;
+            if (update.endTime !== undefined) next.endTime = update.endTime;
+            if (update.attendees !== undefined) next.attendees = update.attendees;
+            if (update.location !== undefined) next.location = update.location;
+            onEventUpdate(selectedIndex, next);
+          }}
+        />
       </div>
     </div>
   );
+}
+
+// ── Event tab row ─────────────────────────────────────────────────────────
+
+function EventTabs({
+  events,
+  selectedIndex,
+  onSelect,
+  tabScrollRef,
+}: {
+  events: Array<{ title: string }>;
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  tabScrollRef: React.RefObject<HTMLDivElement>;
+}) {
+  return (
+    <div
+      ref={tabScrollRef}
+      style={{
+        display: "flex",
+        gap: 2,
+        borderBottom: "1px solid var(--border)",
+        overflowX: "auto",
+        paddingBottom: 0,
+      }}
+    >
+      {events.map((ev, i) => {
+        const active = i === selectedIndex;
+        return (
+          <button
+            key={i}
+            onClick={() => onSelect(i)}
+            style={{
+              flexShrink: 0,
+              padding: "8px 12px",
+              fontSize: 12,
+              fontWeight: active ? 600 : 500,
+              color: active ? "var(--accent)" : "var(--fg2)",
+              background: "transparent",
+              border: "none",
+              borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
+              marginBottom: -1,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              maxWidth: 260,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={ev.title}
+          >
+            {ev.title || `Event ${i + 1}`}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Multi-event inline card (non-panel) ───────────────────────────────────
+
+function BatchEventsInlineList({ events }: { events: Array<Record<string, unknown>> }) {
+  return (
+    <div className="rounded-md overflow-hidden border border-border bg-surface">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border bg-elevated">
+        <CalendarIcon size={14} className="text-accent flex-shrink-0" />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--muted)" }}>
+          {events.length} event{events.length === 1 ? "" : "s"} to schedule
+        </span>
+      </div>
+      <div className="divide-y divide-border">
+        {events.map((ev, i) => {
+          const n = normalizeEventParams(ev);
+          return (
+            <div key={i} className="px-4 py-3 space-y-1">
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--foreground)" }}>{n.title || `Event ${i + 1}`}</div>
+              {n.attendees.length > 0 && (
+                <div style={{ fontSize: 12, color: "var(--fg3)" }}>{n.attendees.length} attendee{n.attendees.length === 1 ? "" : "s"}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Event param normalization ─────────────────────────────────────────────
+
+interface NormalizedEvent {
+  title: string;
+  startTime: string;
+  endTime: string;
+  attendees: string[];
+  location: string;
+  startValid: boolean;
+}
+
+function normalizeEventParams(ev: Record<string, unknown>): NormalizedEvent {
+  const title = ((ev.summary ?? ev.title ?? "") as string) || "";
+  const startTime = ((ev.startDateTime ?? ev.startTime ?? "") as string) || "";
+  const endTime = ((ev.endDateTime ?? ev.endTime ?? "") as string) || "";
+  const attendees = (Array.isArray(ev.attendeeEmails) ? ev.attendeeEmails : Array.isArray(ev.attendees) ? ev.attendees : []) as string[];
+  const location = ((ev.location ?? "") as string) || "";
+  const startDate = startTime ? new Date(startTime) : null;
+  const startValid = !!(startDate && !isNaN(startDate.getTime()));
+  return { title, startTime, endTime, attendees, location, startValid };
+}
+
+function isSameWeek(a: string, b: string): boolean {
+  const mondayA = getMonday(a);
+  const mondayB = getMonday(b);
+  return mondayA === mondayB;
 }
 
 function SimpleCalendarFallback({
@@ -238,26 +403,19 @@ function SimpleCalendarFallback({
   );
 }
 
-function formatDurationMinutes(mins: number): string {
-  if (mins >= 60) {
-    const hours = Math.floor(mins / 60);
-    const rem = mins % 60;
-    return rem > 0 ? `${hours}h ${rem}m` : `${hours}h`;
-  }
-  return `${mins}m`;
-}
-
 // ── Panel wrapper: fetches events then renders CalendarWeekView ─────────────
 
 function CalendarWeekPanel({
   weekOf,
   proposedEvent,
+  extraExistingEvents,
   isEditable,
   locale,
   onProposedEventUpdate,
 }: {
   weekOf: string;
   proposedEvent: { title: string; startTime: string; endTime: string; attendees: string[]; location?: string };
+  extraExistingEvents?: CalendarEvent[];
   isEditable: boolean;
   locale: string;
   onProposedEventUpdate?: (update: {
@@ -294,10 +452,22 @@ function CalendarWeekPanel({
     return () => { cancelled = true; };
   }, [weekOf]);
 
+  const mergedEvents = extraExistingEvents && extraExistingEvents.length
+    ? [...events, ...extraExistingEvents]
+    : events;
+
   if (error) {
+    // Fall through and still render the week view with only the extra events we have.
     return (
-      <div style={{ padding: 16, fontSize: 12, color: "var(--fg3)" }}>
-        Calendar data unavailable — showing event details only.
+      <div>
+        <CalendarWeekView
+          weekOf={weekOf}
+          existingEvents={extraExistingEvents ?? []}
+          proposedEvent={proposedEvent}
+          isEditable={isEditable}
+          onProposedEventUpdate={onProposedEventUpdate}
+          locale={locale}
+        />
       </div>
     );
   }
@@ -310,7 +480,7 @@ function CalendarWeekPanel({
       <div style={{ opacity: loading ? 0.4 : 1, transition: "opacity 0.2s" }}>
         <CalendarWeekView
           weekOf={weekOf}
-          existingEvents={events}
+          existingEvents={mergedEvents}
           proposedEvent={proposedEvent}
           isEditable={isEditable}
           onProposedEventUpdate={onProposedEventUpdate}

@@ -735,9 +735,15 @@ export default function SituationsPage() {
 
         {/* ── Right: detail pane ── */}
         {(!isMobile || selectedId) && (
-        <div className="flex-1 min-h-0 overflow-hidden relative">
-          {/* Detail column — stays full width; side panel overlays on top */}
-          <div className="h-full flex flex-col min-h-0 overflow-hidden" style={{
+        <div className="flex-1 min-h-0 overflow-hidden" style={{
+          display: "grid",
+          gridTemplateColumns: isPreviewFullScreen
+            ? "0fr 1fr"
+            : sidePanelData ? `1fr ${panelWidth}%` : "1fr",
+          transition: "grid-template-columns 0.25s ease-in-out",
+        }}>
+          {/* Detail column — resizes with the side panel; content inside is max-width + centered */}
+          <div className="flex flex-col min-h-0 overflow-hidden" style={{
             transition: "opacity 0.2s ease",
             opacity: isPreviewFullScreen ? 0 : 1,
           }}>
@@ -790,7 +796,7 @@ export default function SituationsPage() {
             )}
           </div>
 
-          {/* Side panel — absolute overlay on right edge so the detail column width stays stable */}
+          {/* Side panel */}
           {sidePanelData && (() => {
             const { icon, badge } = getStepCardMeta(sidePanelData.step);
             const PanelPreview = getPreviewComponent(sidePanelData.step);
@@ -803,15 +809,6 @@ export default function SituationsPage() {
               },
             }));
             return (
-              <div
-                className="absolute inset-y-0 right-0"
-                style={{
-                  width: isPreviewFullScreen ? "100%" : `${panelWidth}%`,
-                  transition: "width 0.25s ease-in-out",
-                  zIndex: 10,
-                  boxShadow: "0 0 24px rgba(0,0,0,0.25)",
-                }}
-              >
               <SidePanel
                 isOpen={!!sidePanelData}
                 onClose={() => { setSidePanelData(null); setPanelBreadcrumbs([]); setPanelEditing(false); setIsPreviewFullScreen(false); setIsChatVisible(true); }}
@@ -900,7 +897,6 @@ export default function SituationsPage() {
                   locale={locale}
                 />
               </SidePanel>
-              </div>
             );
           })()}
         </div>
@@ -1198,7 +1194,7 @@ function DetailPane({
   };
 
   return (
-    <div className="px-6 py-5 space-y-5">
+    <div className="mx-auto max-w-3xl px-6 py-5 space-y-5">
       {/* ── Header ── */}
       <div>
         <div className="flex items-start justify-between">
