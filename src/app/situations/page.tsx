@@ -18,6 +18,16 @@ import { OpenQuestionsCard } from "@/components/execution/open-questions-card";
 import { DecisionsSection } from "@/components/execution/decisions-section";
 import { parseOpenQuestionsSection, parseDecisionsSection } from "@/lib/clarification-helpers";
 import { useToast } from "@/components/ui/toast";
+import { ExecutionAnimationOverlay, type ExecutionAnimationType } from "@/components/execution-animation-overlay";
+
+function stepToAnimationType(step: { parameters?: Record<string, unknown> | null }): ExecutionAnimationType {
+  const raw = step.parameters?.previewType;
+  const preview = typeof raw === "string" ? raw.toLowerCase() : undefined;
+  if (preview === "email") return "email";
+  if (preview === "document") return "document";
+  if (preview === "calendar_event") return "calendar_event";
+  return "generic";
+}
 
 function getApproveLabelKey(step: ExecutionStepForPreview): "send" | "accept" {
   const slug = step.actionCapability?.slug ?? "";
@@ -451,7 +461,7 @@ export default function SituationsPage() {
   const [panelWidth, setPanelWidth] = useState(55);
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false);
   const [isChatVisible, setIsChatVisible] = useState(true);
-  const [executingStepIndex, setExecutingStepIndex] = useState<number | null>(null);
+  const [animationType, setAnimationType] = useState<ExecutionAnimationType | null>(null);
   const sidebarWasCollapsed = useRef(false);
 
   // Auto-collapse main nav sidebar when panel opens, restore on close
@@ -546,6 +556,16 @@ export default function SituationsPage() {
     fetchDetail(selectedId);
   }, [selectedId, fetchDetail]);
 
+  // Poll detail refresh while any step in the current plan is executing. Stops
+  // automatically once no step reports "executing", so the effect re-evaluates
+  // on each detail change and tears down the interval cleanly.
+  const anyStepExecuting = !!detail?.actionPlan?.steps?.some(s => s.status === "executing");
+  useEffect(() => {
+    if (!selectedId || !anyStepExecuting) return;
+    const interval = setInterval(() => fetchDetail(selectedId), 2000);
+    return () => clearInterval(interval);
+  }, [selectedId, anyStepExecuting, fetchDetail]);
+
   // ── Reset interaction when selection changes ────────────────────────────
 
   useEffect(() => {
@@ -601,6 +621,18 @@ export default function SituationsPage() {
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
+    <>
+    {animationType && (
+      <ExecutionAnimationOverlay
+        type={animationType}
+        onComplete={() => {
+          // Intentionally empty: the setTimeout in onApprove is the single source of truth
+          // for timing, clearing animationType after the /complete POST. The overlay's
+          // 2100ms animation and the setTimeout's 2100ms delay are deliberately aligned
+          // so the cleanups coincide without a second race.
+        }}
+      />
+    )}
     <AppShell pendingApprovals={activeCount}>
       {billingStatus !== "active" && !bannerDismissed && (
         <div className="px-4 py-2 flex items-center justify-between" style={{ background: "var(--card-bg)", borderBottom: "1px solid var(--border)" }}>
@@ -799,7 +831,6 @@ export default function SituationsPage() {
                     sidePanelStepIndex={sidePanelData?.index ?? null}
                     onOpenStepPanel={setSidePanelData}
                     onRefreshDetail={refreshDetail}
-                    executingStepIndex={executingStepIndex}
                   />
                 </div>
                 {!isPreviewFullScreen && (
@@ -852,8 +883,8 @@ export default function SituationsPage() {
                   setPanelEditing(false);
                   setIsPreviewFullScreen(false);
                   setIsChatVisible(true);
-                  setExecutingStepIndex(stepIndex);
-                  // Short visual delay so the animation reads as "executing", then complete the step.
+                  setAnimationType(stepToAnimationType(sidePanelData.step));
+                  // Visual delay aligned with the overlay animation (2100ms), then complete the step.
                   setTimeout(async () => {
                     try {
                       await fetch(`/api/situations/${situationId}/steps/${stepOrder}/complete`, {
@@ -862,9 +893,9 @@ export default function SituationsPage() {
                         body: JSON.stringify({}),
                       });
                     } catch {}
-                    setExecutingStepIndex(null);
+                    setAnimationType(null);
                     fetchDetail(situationId);
-                  }, 1300);
+                  }, 2100);
                 } : undefined}
                 approveLabel={tp(getApproveLabelKey(sidePanelData.step))}
                 onDiscuss={() => {
@@ -950,6 +981,7 @@ export default function SituationsPage() {
 
       </div>
     </AppShell>
+    </>
   );
 }
 
@@ -1086,7 +1118,6 @@ function DetailPane({
   sidePanelStepIndex,
   onOpenStepPanel,
   onRefreshDetail,
-  executingStepIndex,
 }: {
   situation: SituationItem;
   detail: SituationDetail | null;
@@ -1107,7 +1138,6 @@ function DetailPane({
   sidePanelStepIndex: number | null;
   onOpenStepPanel: (data: SidePanelData) => void;
   onRefreshDetail: () => void;
-  executingStepIndex: number | null;
 }) {
   const t = useTranslations("situations");
   const tc = useTranslations("common");
@@ -1524,12 +1554,7 @@ function DetailPane({
                             Awaiting
                           </span>
                         )}
-                        {executingStepIndex === i ? (
-                          <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "color-mix(in srgb, var(--accent) 18%, transparent)", color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 6, justifyContent: "center", minWidth: 88 }}>
-                            <span className="animate-spin" style={{ width: 10, height: 10, borderRadius: "50%", border: "2px solid color-mix(in srgb, var(--accent) 35%, transparent)", borderTopColor: "var(--accent)", display: "inline-block" }} />
-                            executing
-                          </span>
-                        ) : isCompleted ? (
+                        {isCompleted ? (
                           <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "var(--badge-bg)", color: "var(--fg3)", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 72 }}>complete</span>
                         ) : isCurrentStep ? (
                           <span className="flex-shrink-0" style={{ fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 4, background: "var(--badge-bg-strong)", color: "var(--btn-primary-text)", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 72 }}>current</span>
