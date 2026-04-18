@@ -7,23 +7,18 @@ import { fetchApi } from "@/lib/fetch-api";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface ProjectMember {
+interface DeliverableSummary {
   id: string;
-  userId: string;
-  role: string;
-  user: { id: string; name: string; email: string };
-}
-
-interface Deliverable {
-  id: string;
+  slug: string;
   title: string;
   stage: string;
+  status: string;
   confidenceLevel: string | null;
   riskCount: number;
-  assignedToId: string | null;
-  acceptedById: string | null;
-  assignedTo: { id: string; name: string; email: string } | null;
-  acceptedBy: { id: string; name: string; email: string } | null;
+  assignedToSlug: string | null;
+  assignedToName: string | null;
+  acceptedBySlug: string | null;
+  acceptedByName: string | null;
   acceptedAt: string | null;
   createdAt: string;
 }
@@ -52,42 +47,57 @@ interface ProjectConnector {
   syncedItemCount: number;
 }
 
-interface ChildProject {
+interface ChildProjectSummary {
   id: string;
+  slug: string;
   name: string;
-  status: string;
   description: string | null;
+  status: string;
+  priority: string | null;
+  ownerSlug: string | null;
+  ownerName: string | null;
+  deliverableCount: number;
+}
+
+interface DeliverableBuckets {
+  intelligence: DeliverableSummary[];
+  workboard: DeliverableSummary[];
+  deliverable: DeliverableSummary[];
 }
 
 interface ProjectDetail {
   id: string;
+  slug: string;
   name: string;
   description: string | null;
+  content: string;
+  pageType: string;
+  isPortfolio: boolean;
   status: string;
-  dueDate: string | null;
+  priority: string | null;
+  ownerSlug: string | null;
+  ownerName: string | null;
+  domainSlug: string | null;
+  domainName: string | null;
+  parentProjectSlug: string | null;
+  parentProjectName: string | null;
+  spawnedFromSlug: string | null;
+  spawnedFromName: string | null;
+  startDate: string | null;
+  targetDate: string | null;
+  completedDate: string | null;
   createdAt: string;
-  template: { id: string; name: string; category: string } | null;
-  createdBy: { id: string; name: string; email: string };
-  members: ProjectMember[];
+  updatedAt: string;
+  childProjects: ChildProjectSummary[];
+  deliverables: DeliverableBuckets;
+  members: [];
   connectors: ProjectConnector[];
-  notifications: ProjectNotification[];
   messages: ProjectMessage[];
+  notifications: ProjectNotification[];
   stageCounts: { intelligence: number; workboard: number; deliverable: number };
-  daysLeft: number | null;
-  parentProject: { id: string; name: string } | null;
-  childProjects: ChildProject[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-}
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -100,19 +110,10 @@ function timeAgo(dateStr: string): string {
   return `${days}d`;
 }
 
-function isRecent(dateStr: string, hours = 4): boolean {
-  return Date.now() - new Date(dateStr).getTime() < hours * 3600000;
-}
-
-const AVATAR_COLORS = [
-  "#6366f1", "#8b5cf6", "#a855f7", "#ec4899", "#f43f5e",
-  "#f97316", "#eab308", "#22c55e", "#14b8a6", "#06b6d4",
-];
-
-function avatarColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+function daysRemaining(targetDate: string | null): number | null {
+  if (!targetDate) return null;
+  const ms = new Date(targetDate).getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / 86400000));
 }
 
 // ── Confidence dot ───────────────────────────────────────────────────────────
@@ -207,10 +208,9 @@ function Dropdown({
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const projectId = params.id as string;
+  const projectSlug = params.id as string;
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
-  const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [messages, setMessages] = useState<ProjectMessage[]>([]);
   const [notifications, setNotifications] = useState<ProjectNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -220,29 +220,20 @@ export default function ProjectDetailPage() {
   const dataBtnRef = useRef<HTMLButtonElement>(null);
   const notifBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Message input
-  const [msgInput, setMsgInput] = useState("");
-  const [msgSending, setMsgSending] = useState(false);
-
   const closeDropdown = useCallback(() => setOpenDropdown(null), []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [projRes, delRes, msgRes, notifRes] = await Promise.all([
-          fetchApi(`/api/projects/${projectId}`),
-          fetchApi(`/api/projects/${projectId}/deliverables`),
-          fetchApi(`/api/projects/${projectId}/messages`),
-          fetchApi(`/api/projects/${projectId}/notifications`),
+        const [projRes, msgRes, notifRes] = await Promise.all([
+          fetchApi(`/api/projects/${encodeURIComponent(projectSlug)}`),
+          fetchApi(`/api/projects/${encodeURIComponent(projectSlug)}/messages`),
+          fetchApi(`/api/projects/${encodeURIComponent(projectSlug)}/notifications`),
         ]);
 
         if (!cancelled) {
           if (projRes.ok) setProject(await projRes.json());
-          if (delRes.ok) {
-            const d = await delRes.json();
-            setDeliverables(d.deliverables ?? []);
-          }
           if (msgRes.ok) {
             const m = await msgRes.json();
             setMessages(m.messages ?? []);
@@ -258,83 +249,14 @@ export default function ProjectDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectSlug]);
 
-  // ── Send message ──
-  const handleSendMessage = useCallback(async () => {
-    const text = msgInput.trim();
-    if (!text || msgSending) return;
-    setMsgInput("");
-    setMsgSending(true);
-    try {
-      const res = await fetchApi(`/api/projects/${projectId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: text }),
-      });
-      if (res.ok) {
-        const msg = await res.json();
-        setMessages((prev) => [msg, ...prev]);
-      }
-    } catch {}
-    setMsgSending(false);
-  }, [msgInput, msgSending, projectId]);
-
-  // ── Mark notifications read ──
   const handleOpenNotifications = useCallback(() => {
-    if (openDropdown === "notif") {
-      setOpenDropdown(null);
-      return;
-    }
-    const unreadIds = notifications
-      .filter((n) => n.readBy.length === 0)
-      .map((n) => n.id);
-    if (unreadIds.length > 0) {
-      fetchApi(`/api/projects/${projectId}/notifications/read`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationIds: unreadIds }),
-      }).catch(() => {});
-      setNotifications((prev) =>
-        prev.map((n) =>
-          unreadIds.includes(n.id) ? { ...n, readBy: ["read"] } : n,
-        ),
-      );
-    }
-    setOpenDropdown("notif");
-  }, [openDropdown, notifications, projectId]);
+    setOpenDropdown((prev) => (prev === "notif" ? null : "notif"));
+  }, []);
 
-  // ── New deliverable ──
-  const handleNewDeliverable = useCallback(async () => {
-    const title = window.prompt("Deliverable title:");
-    if (!title?.trim()) return;
-    try {
-      const res = await fetchApi(`/api/projects/${projectId}/deliverables`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), stage: "workboard" }),
-      });
-      if (res.ok) {
-        const created = await res.json();
-        setDeliverables((prev) => [...prev, created]);
-      }
-    } catch {}
-  }, [projectId]);
-
-  // Derived
-  const intelligenceItems = deliverables.filter((d) => d.stage === "intelligence");
-  const workboardItems = deliverables.filter((d) => d.stage === "workboard");
-  const deliverableItems = deliverables.filter((d) => d.stage === "deliverable");
-  const readyCount = intelligenceItems.filter((d) => d.confidenceLevel).length;
-  const acceptedCount = deliverableItems.filter((d) => d.acceptedById).length;
-  const totalDeliverables = deliverables.length;
-  const progress = totalDeliverables > 0 ? Math.round((acceptedCount / totalDeliverables) * 100) : 0;
   const hasUnread = notifications.some((n) => n.readBy.length === 0);
-
-  const memberMap = new Map<string, ProjectMember>();
-  if (project) {
-    for (const m of project.members) memberMap.set(m.userId, m);
-  }
+  const daysLeft = daysRemaining(project?.targetDate ?? null);
 
   if (loading) {
     return (
@@ -346,7 +268,7 @@ export default function ProjectDetailPage() {
           <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", position: "relative" }}>
             <div style={{ position: "absolute", left: "50%", top: 28, bottom: 28, width: 0.5, background: "rgba(255,255,255,0.06)" }} />
             <div style={{ position: "absolute", top: "50%", left: 36, right: 36, height: 0.5, background: "rgba(255,255,255,0.06)" }} />
-            {[0,1,2,3].map((q) => (
+            {[0, 1, 2, 3].map((q) => (
               <div key={q} style={{ padding: 36, display: "flex", flexDirection: "column", gap: 12 }}>
                 <div className="animate-pulse" style={{ width: 100, height: 10, borderRadius: 4, background: "rgba(255,255,255,0.05)", margin: "0 auto" }} />
                 <div className="animate-pulse" style={{ width: "80%", height: 40, borderRadius: 8, background: "rgba(255,255,255,0.03)", marginTop: 8 }} />
@@ -368,6 +290,15 @@ export default function ProjectDetailPage() {
       </AppShell>
     );
   }
+
+  const intelligenceItems = project.deliverables.intelligence;
+  const workboardItems = project.deliverables.workboard;
+  const deliverableItems = project.deliverables.deliverable;
+  const readyCount = intelligenceItems.filter((d) => d.confidenceLevel).length;
+  const acceptedCount = deliverableItems.filter((d) => d.acceptedBySlug).length;
+  const totalDeliverables =
+    intelligenceItems.length + workboardItems.length + deliverableItems.length;
+  const progress = totalDeliverables > 0 ? Math.round((acceptedCount / totalDeliverables) * 100) : 0;
 
   return (
     <AppShell>
@@ -392,15 +323,15 @@ export default function ProjectDetailPage() {
             Projects
           </button>
 
-          {project.parentProject && (
+          {project.parentProjectSlug && (
             <>
               <span style={{ fontSize: 12, color: "var(--fg4)" }}>/</span>
               <button
-                onClick={() => router.push(`/projects/${project.parentProject!.id}`)}
+                onClick={() => router.push(`/projects?portfolio=${encodeURIComponent(project.parentProjectSlug!)}`)}
                 className="hover:text-[var(--foreground)] transition-colors"
                 style={{ fontSize: 12, color: "var(--fg3)", flexShrink: 0, background: "none", border: "none", cursor: "pointer" }}
               >
-                {project.parentProject.name}
+                {project.parentProjectName ?? project.parentProjectSlug}
               </button>
             </>
           )}
@@ -428,25 +359,25 @@ export default function ProjectDetailPage() {
               {project.name}
             </div>
             <div style={{ fontSize: 10, color: "var(--fg4)", marginTop: 1 }}>
-              {project.template?.category?.toUpperCase() ?? "PROJECT"}
+              {project.isPortfolio ? "PORTFOLIO" : "PROJECT"}
             </div>
           </div>
 
           <div style={{ flex: 1 }} />
 
-          {/* Right: progress, avatars, data settings, notifications */}
+          {/* Right: progress, data settings, notifications */}
           <div className="flex items-center gap-3" style={{ flexShrink: 0 }}>
-            {/* Days remaining + progress */}
-            {project.daysLeft != null && (
+            {/* Days remaining + progress (only for non-portfolio) */}
+            {!project.isPortfolio && daysLeft != null && (
               <div className="flex items-center gap-2">
                 <span
                   style={{
                     fontSize: 11,
-                    color: project.daysLeft <= 5 ? "var(--warn)" : "var(--fg3)",
+                    color: daysLeft <= 5 ? "var(--warn)" : "var(--fg3)",
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {project.daysLeft}d remaining
+                  {daysLeft}d remaining
                 </span>
                 <div
                   style={{
@@ -471,42 +402,6 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
             )}
-
-            {/* Team avatars */}
-            <div className="flex items-center" style={{ marginLeft: 4 }}>
-              {project.members.slice(0, 5).map((m, i) => (
-                <div
-                  key={m.id}
-                  title={m.user.name}
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: "50%",
-                    background: avatarColor(m.user.name),
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 9,
-                    fontWeight: 600,
-                    color: "#fff",
-                    marginLeft: i > 0 ? -6 : 0,
-                    border:
-                      m.role === "owner" || m.role === "reviewer"
-                        ? "2px solid rgba(255,255,255,0.5)"
-                        : "2px solid rgba(255,255,255,0.15)",
-                    zIndex: project.members.length - i,
-                    position: "relative",
-                  }}
-                >
-                  {initials(m.user.name)}
-                </div>
-              ))}
-              {project.members.length > 5 && (
-                <span style={{ fontSize: 10, color: "var(--fg4)", marginLeft: 4 }}>
-                  +{project.members.length - 5}
-                </span>
-              )}
-            </div>
 
             {/* Data settings */}
             <div style={{ position: "relative" }}>
@@ -585,300 +480,334 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        {/* ── Workstreams (child projects) ── */}
-        {project.childProjects && project.childProjects.length > 0 && (
-          <div
-            style={{
-              padding: "12px 24px",
-              borderBottom: "0.5px solid rgba(255,255,255,0.06)",
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--fg4)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 8 }}>
-              Workstreams
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {project.childProjects.map((child) => {
-                const s =
-                  child.status === "completed" ? { bg: "rgba(52,211,153,0.1)", color: "rgb(52,211,153)" }
-                  : child.status === "active" ? { bg: "rgba(99,102,241,0.1)", color: "rgb(129,140,248)" }
-                  : { bg: "rgba(255,255,255,0.05)", color: "var(--fg3)" };
-                return (
-                  <button
-                    key={child.id}
-                    onClick={() => router.push(`/projects/${child.id}`)}
-                    className="hover:brightness-125 transition"
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: 6,
-                      background: s.bg,
-                      border: "0.5px solid rgba(255,255,255,0.06)",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <span style={{ fontSize: 12, color: s.color, fontWeight: 500 }}>{child.name}</span>
-                    <span style={{ fontSize: 10, color: "var(--fg4)" }}>{child.status}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        {/* ── Body: portfolio view vs. quadrant view ── */}
+        {project.isPortfolio ? (
+          <PortfolioChildrenGrid
+            childProjects={project.childProjects}
+            onOpen={(slug) => router.push(`/projects/${encodeURIComponent(slug)}`)}
+          />
+        ) : (
+          <QuadrantView
+            projectSlug={projectSlug}
+            messages={messages}
+            intelligenceItems={intelligenceItems}
+            workboardItems={workboardItems}
+            deliverableItems={deliverableItems}
+            readyCount={readyCount}
+            acceptedCount={acceptedCount}
+            router={router}
+          />
         )}
-
-        {/* ── Quadrant grid ── */}
-        <div
-          style={{
-            flex: 1,
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gridTemplateRows: "1fr 1fr",
-            position: "relative",
-            minHeight: 0,
-          }}
-        >
-          {/* Vertical divider */}
-          <div
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: 28,
-              bottom: 28,
-              width: 0.5,
-              background: "rgba(255,255,255,0.06)",
-              pointerEvents: "none",
-              zIndex: 1,
-            }}
-          />
-          {/* Horizontal divider */}
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: 36,
-              right: 36,
-              height: 0.5,
-              background: "rgba(255,255,255,0.06)",
-              pointerEvents: "none",
-              zIndex: 1,
-            }}
-          />
-
-          {/* Top-left: Communication */}
-          <div
-            style={{
-              padding: "16px 28px 28px 36px",
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-              overflow: "hidden",
-            }}
-          >
-            <QuadrantTitle label="COMMUNICATION" />
-            <div style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
-              {messages.length === 0 ? (
-                <p style={{ fontSize: 12, color: "var(--fg4)", textAlign: "center", paddingTop: 24, lineHeight: 1.5 }}>
-                  No messages yet.<br />Start a discussion with your team.
-                </p>
-              ) : (
-                messages.map((msg) => (
-                  <MessageRow key={msg.id} msg={msg} />
-                ))
-              )}
-            </div>
-            {/* Message input */}
-            <div className="flex items-center gap-2" style={{ marginTop: 8, flexShrink: 0 }}>
-              <input
-                value={msgInput}
-                onChange={(e) => setMsgInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                placeholder="Write a message..."
-                style={{
-                  flex: 1,
-                  background: "rgba(255,255,255,0.04)",
-                  border: "0.5px solid rgba(255,255,255,0.08)",
-                  borderRadius: 6,
-                  padding: "6px 10px",
-                  fontSize: 12,
-                  color: "var(--foreground)",
-                  outline: "none",
-                }}
-              />
-              <button
-                onClick={handleSendMessage}
-                disabled={!msgInput.trim() || msgSending}
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: 5,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: msgInput.trim() ? "var(--btn-primary-bg)" : "rgba(255,255,255,0.05)",
-                  color: msgInput.trim() ? "var(--btn-primary-text)" : "var(--fg4)",
-                  border: "none",
-                  cursor: msgInput.trim() ? "pointer" : "default",
-                  flexShrink: 0,
-                  transition: "background 0.15s, color 0.15s",
-                }}
-              >
-                <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                  <path d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Top-right: Intelligence */}
-          <div
-            style={{
-              padding: "16px 36px 28px 28px",
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-              overflow: "hidden",
-            }}
-          >
-            <QuadrantTitle
-              label="INTELLIGENCE"
-              badge={readyCount > 0 ? `${readyCount} ready` : undefined}
-            />
-            <div style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))",
-                  gap: 8,
-                }}
-              >
-                {intelligenceItems.map((d) => (
-                  <IntelligenceCard
-                    key={d.id}
-                    deliverable={d}
-                    onClick={() =>
-                      router.push(`/projects/${projectId}/deliverable/${d.id}`)
-                    }
-                  />
-                ))}
-              </div>
-              {intelligenceItems.length === 0 && (
-                <p style={{ fontSize: 12, color: "var(--fg4)", textAlign: "center", paddingTop: 24 }}>
-                  All analyses are in review or complete
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Bottom-left: Workboard */}
-          <div
-            style={{
-              padding: "28px 28px 16px 36px",
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-              overflow: "hidden",
-            }}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <QuadrantTitle
-                label="WORKBOARD"
-                badge={
-                  workboardItems.length > 0
-                    ? `${workboardItems.length} in review`
-                    : undefined
-                }
-              />
-              <button
-                onClick={handleNewDeliverable}
-                style={{
-                  fontSize: 10,
-                  fontWeight: 500,
-                  padding: "2px 7px",
-                  borderRadius: 4,
-                  background: "rgba(255,255,255,0.05)",
-                  border: "0.5px solid rgba(255,255,255,0.08)",
-                  color: "var(--fg4)",
-                  cursor: "pointer",
-                }}
-                className="hover:brightness-125 transition"
-              >
-                + New
-              </button>
-            </div>
-            <div style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))",
-                  gap: 8,
-                }}
-              >
-                {workboardItems.map((d) => (
-                  <WorkboardCard
-                    key={d.id}
-                    deliverable={d}
-                    members={memberMap}
-                    onClick={() =>
-                      router.push(`/projects/${projectId}/deliverable/${d.id}`)
-                    }
-                  />
-                ))}
-              </div>
-              {workboardItems.length === 0 && (
-                <p style={{ fontSize: 12, color: "var(--fg4)", textAlign: "center", paddingTop: 24 }}>
-                  Pull items from Intelligence to begin review
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Bottom-right: Deliverables */}
-          <div
-            style={{
-              padding: "28px 36px 16px 28px",
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-              overflow: "hidden",
-            }}
-          >
-            <QuadrantTitle
-              label="DELIVERABLES"
-              badge={
-                acceptedCount > 0
-                  ? `${acceptedCount} accepted`
-                  : undefined
-              }
-            />
-            <div style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))",
-                  gap: 8,
-                }}
-              >
-                {deliverableItems.map((d) => (
-                  <DeliverableCard
-                    key={d.id}
-                    deliverable={d}
-                    onClick={() =>
-                      router.push(`/projects/${projectId}/deliverable/${d.id}`)
-                    }
-                  />
-                ))}
-              </div>
-              {deliverableItems.length === 0 && (
-                <p style={{ fontSize: 12, color: "var(--fg4)", textAlign: "center", paddingTop: 24 }}>
-                  Accepted deliverables will appear here
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
     </AppShell>
+  );
+}
+
+// ── Portfolio view: child-projects grid ──────────────────────────────────────
+
+function PortfolioChildrenGrid({
+  childProjects,
+  onOpen,
+}: {
+  childProjects: ChildProjectSummary[];
+  onOpen: (slug: string) => void;
+}) {
+  return (
+    <div style={{ padding: "32px 40px", flex: 1, overflowY: "auto" }}>
+      <h2
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          letterSpacing: "0.06em",
+          color: "var(--fg4)",
+          textTransform: "uppercase",
+          marginBottom: 14,
+        }}
+      >
+        Child Projects
+      </h2>
+      {childProjects.length === 0 ? (
+        <p style={{ fontSize: 13, color: "var(--fg4)" }}>
+          This portfolio has no child projects yet.
+        </p>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gap: 14,
+          }}
+        >
+          {childProjects.map((cp) => (
+            <PortfolioChildCard key={cp.slug} child={cp} onClick={() => onOpen(cp.slug)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PortfolioChildCard({
+  child: cp,
+  onClick,
+}: {
+  child: ChildProjectSummary;
+  onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: hovered ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.035)",
+        border: hovered ? "0.5px solid rgba(255,255,255,0.14)" : "0.5px solid rgba(255,255,255,0.07)",
+        borderRadius: 10,
+        padding: "16px 18px",
+        textAlign: "left",
+        cursor: "pointer",
+        transition: "background 0.15s, border-color 0.15s",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        minHeight: 130,
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)" }}>
+        {cp.name}
+      </div>
+      {cp.description && (
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--fg4)",
+            lineHeight: 1.55,
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {cp.description}
+        </div>
+      )}
+      <div className="flex items-center gap-2 mt-auto">
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            padding: "2px 7px",
+            borderRadius: 4,
+            background: "rgba(255,255,255,0.06)",
+            color: "var(--fg3)",
+            letterSpacing: "0.02em",
+          }}
+        >
+          {cp.status}
+        </span>
+        {cp.deliverableCount > 0 && (
+          <span style={{ fontSize: 10, color: "var(--fg4)" }}>
+            {cp.deliverableCount} deliverable{cp.deliverableCount !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// ── Quadrant view ────────────────────────────────────────────────────────────
+
+function QuadrantView({
+  projectSlug,
+  messages,
+  intelligenceItems,
+  workboardItems,
+  deliverableItems,
+  readyCount,
+  acceptedCount,
+  router,
+}: {
+  projectSlug: string;
+  messages: ProjectMessage[];
+  intelligenceItems: DeliverableSummary[];
+  workboardItems: DeliverableSummary[];
+  deliverableItems: DeliverableSummary[];
+  readyCount: number;
+  acceptedCount: number;
+  router: ReturnType<typeof useRouter>;
+}) {
+  const openDeliverable = useCallback(
+    (d: DeliverableSummary) => {
+      router.push(
+        `/projects/${encodeURIComponent(projectSlug)}/deliverable/${encodeURIComponent(d.slug)}`,
+      );
+    },
+    [projectSlug, router],
+  );
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridTemplateRows: "1fr 1fr",
+        position: "relative",
+        minHeight: 0,
+      }}
+    >
+      {/* Vertical divider */}
+      <div
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: 28,
+          bottom: 28,
+          width: 0.5,
+          background: "rgba(255,255,255,0.06)",
+          pointerEvents: "none",
+          zIndex: 1,
+        }}
+      />
+      {/* Horizontal divider */}
+      <div
+        style={{
+          position: "absolute",
+          top: "50%",
+          left: 36,
+          right: 36,
+          height: 0.5,
+          background: "rgba(255,255,255,0.06)",
+          pointerEvents: "none",
+          zIndex: 1,
+        }}
+      />
+
+      {/* Top-left: Communication (read-only, wiki-first) */}
+      <div
+        style={{
+          padding: "16px 28px 28px 36px",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <QuadrantTitle label="COMMUNICATION" />
+        <div style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
+          {messages.length === 0 ? (
+            <p style={{ fontSize: 12, color: "var(--fg4)", textAlign: "center", paddingTop: 24, lineHeight: 1.5 }}>
+              No messages yet.
+            </p>
+          ) : (
+            messages.map((msg) => <MessageRow key={msg.id} msg={msg} />)
+          )}
+        </div>
+      </div>
+
+      {/* Top-right: Intelligence */}
+      <div
+        style={{
+          padding: "16px 36px 28px 28px",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <QuadrantTitle
+          label="INTELLIGENCE"
+          badge={readyCount > 0 ? `${readyCount} ready` : undefined}
+        />
+        <div style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))",
+              gap: 8,
+            }}
+          >
+            {intelligenceItems.map((d) => (
+              <IntelligenceCard key={d.slug} deliverable={d} onClick={() => openDeliverable(d)} />
+            ))}
+          </div>
+          {intelligenceItems.length === 0 && (
+            <p style={{ fontSize: 12, color: "var(--fg4)", textAlign: "center", paddingTop: 24 }}>
+              No intelligence deliverables yet.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom-left: Workboard */}
+      <div
+        style={{
+          padding: "28px 28px 16px 36px",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <QuadrantTitle
+          label="WORKBOARD"
+          badge={workboardItems.length > 0 ? `${workboardItems.length} in review` : undefined}
+        />
+        <div style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))",
+              gap: 8,
+            }}
+          >
+            {workboardItems.map((d) => (
+              <WorkboardCard key={d.slug} deliverable={d} onClick={() => openDeliverable(d)} />
+            ))}
+          </div>
+          {workboardItems.length === 0 && (
+            <p style={{ fontSize: 12, color: "var(--fg4)", textAlign: "center", paddingTop: 24 }}>
+              No items in review.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom-right: Deliverables */}
+      <div
+        style={{
+          padding: "28px 36px 16px 28px",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <QuadrantTitle
+          label="DELIVERABLES"
+          badge={acceptedCount > 0 ? `${acceptedCount} accepted` : undefined}
+        />
+        <div style={{ flex: 1, overflowY: "auto", marginTop: 10 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))",
+              gap: 8,
+            }}
+          >
+            {deliverableItems.map((d) => (
+              <DeliverableCard key={d.slug} deliverable={d} onClick={() => openDeliverable(d)} />
+            ))}
+          </div>
+          {deliverableItems.length === 0 && (
+            <p style={{ fontSize: 12, color: "var(--fg4)", textAlign: "center", paddingTop: 24 }}>
+              Accepted deliverables will appear here.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -919,7 +848,6 @@ function QuadrantTitle({ label, badge }: { label: string; badge?: string }) {
 
 function MessageRow({ msg }: { msg: ProjectMessage }) {
   const [hovered, setHovered] = useState(false);
-  const recent = isRecent(msg.createdAt);
   const subject = msg.content.split(/[.!?\n]/)[0] || msg.content;
   const preview =
     msg.content.length > subject.length
@@ -946,8 +874,8 @@ function MessageRow({ msg }: { msg: ProjectMessage }) {
         <span
           style={{
             fontSize: 12,
-            fontWeight: recent ? 600 : 400,
-            color: recent ? "var(--foreground)" : "var(--fg2)",
+            fontWeight: 400,
+            color: "var(--fg2)",
             flex: 1,
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -986,7 +914,7 @@ function IntelligenceCard({
   deliverable: d,
   onClick,
 }: {
-  deliverable: Deliverable;
+  deliverable: DeliverableSummary;
   onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -998,8 +926,6 @@ function IntelligenceCard({
     statusText =
       d.riskCount > 0 ? `${d.riskCount} risks found` : "Analysis complete";
   }
-
-  // If no confidence and no risks, show "Analyzing..."
   if (!d.confidenceLevel && d.riskCount === 0) {
     statusText = "Analyzing...";
   }
@@ -1048,15 +974,12 @@ function IntelligenceCard({
 
 function WorkboardCard({
   deliverable: d,
-  members,
   onClick,
 }: {
-  deliverable: Deliverable;
-  members: Map<string, ProjectMember>;
+  deliverable: DeliverableSummary;
   onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const assignee = d.assignedToId ? members.get(d.assignedToId) : null;
 
   let statusText: string;
   if (d.riskCount > 0) statusText = "needs attention";
@@ -1083,36 +1006,16 @@ function WorkboardCard({
       }}
     >
       <div className="flex items-center gap-2 mb-1.5">
-        {assignee ? (
-          <div
-            title={assignee.user.name}
-            style={{
-              width: 18,
-              height: 18,
-              borderRadius: "50%",
-              background: avatarColor(assignee.user.name),
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 7,
-              fontWeight: 700,
-              color: "#fff",
-              flexShrink: 0,
-            }}
-          >
-            {initials(assignee.user.name)}
-          </div>
-        ) : (
-          <div
-            style={{
-              width: 18,
-              height: 18,
-              borderRadius: "50%",
-              border: "1.5px solid rgba(255,255,255,0.15)",
-              flexShrink: 0,
-            }}
-          />
-        )}
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            background: d.assignedToSlug ? "rgba(255,255,255,0.3)" : "transparent",
+            border: d.assignedToSlug ? "none" : "1.5px solid rgba(255,255,255,0.15)",
+            flexShrink: 0,
+          }}
+        />
         <span
           style={{
             fontSize: 12,
@@ -1127,7 +1030,9 @@ function WorkboardCard({
           {d.title}
         </span>
       </div>
-      <div style={{ fontSize: 11, color: "var(--fg4)" }}>{statusText}</div>
+      <div style={{ fontSize: 11, color: "var(--fg4)" }}>
+        {d.assignedToName ? `${d.assignedToName} · ${statusText}` : statusText}
+      </div>
     </button>
   );
 }
@@ -1138,12 +1043,12 @@ function DeliverableCard({
   deliverable: d,
   onClick,
 }: {
-  deliverable: Deliverable;
+  deliverable: DeliverableSummary;
   onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
 
-  const acceptedName = d.acceptedBy?.name ?? "Unknown";
+  const acceptedName = d.acceptedByName ?? "Unknown";
   const acceptedDate = d.acceptedAt ? timeAgo(d.acceptedAt) : "";
 
   return (
@@ -1192,8 +1097,9 @@ function DeliverableCard({
         </span>
       </div>
       <div style={{ fontSize: 11, color: "var(--fg4)" }}>
-        Accepted by {acceptedName}
-        {acceptedDate && ` · ${acceptedDate}`}
+        {d.acceptedBySlug
+          ? `Accepted by ${acceptedName}${acceptedDate ? ` · ${acceptedDate}` : ""}`
+          : "Accepted"}
       </div>
     </button>
   );
@@ -1239,28 +1145,6 @@ function DataSettingsContent({ connectors }: { connectors: ProjectConnector[] })
           >
             {c.label}
           </span>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              padding: "1px 6px",
-              borderRadius: 3,
-              background:
-                c.status === "synced"
-                  ? "rgba(52,211,153,0.12)"
-                  : c.status === "syncing"
-                    ? "rgba(250,204,21,0.12)"
-                    : "rgba(255,255,255,0.06)",
-              color:
-                c.status === "synced"
-                  ? "rgb(52,211,153)"
-                  : c.status === "syncing"
-                    ? "rgb(250,204,21)"
-                    : "var(--fg4)",
-            }}
-          >
-            {c.status}
-          </span>
           <span style={{ fontSize: 10, color: "var(--fg4)" }}>
             {c.syncedItemCount > 0 ? `${c.syncedItemCount} items` : ""}
           </span>
@@ -1271,39 +1155,18 @@ function DataSettingsContent({ connectors }: { connectors: ProjectConnector[] })
           No connectors configured
         </div>
       )}
-      <div
-        style={{
-          padding: "8px 16px",
-          borderTop: "0.5px solid rgba(255,255,255,0.05)",
-          fontSize: 11,
-          color: "var(--fg4)",
-        }}
-      >
-        {totalItems > 0 ? `${totalItems} synced items total` : ""}
-      </div>
-      <div
-        style={{
-          padding: "10px 16px",
-          borderTop: "0.5px solid rgba(255,255,255,0.05)",
-        }}
-      >
-        <button
+      {totalItems > 0 && (
+        <div
           style={{
+            padding: "8px 16px",
+            borderTop: "0.5px solid rgba(255,255,255,0.05)",
             fontSize: 11,
-            fontWeight: 500,
-            color: "var(--fg2)",
-            background: "rgba(255,255,255,0.05)",
-            border: "0.5px solid rgba(255,255,255,0.08)",
-            borderRadius: 5,
-            padding: "5px 10px",
-            cursor: "pointer",
-            width: "100%",
+            color: "var(--fg4)",
           }}
-          className="hover:brightness-125 transition"
         >
-          + Add connector or upload files
-        </button>
-      </div>
+          {totalItems} synced items total
+        </div>
+      )}
     </div>
   );
 }

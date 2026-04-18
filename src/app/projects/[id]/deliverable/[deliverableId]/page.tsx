@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
+import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app-shell";
 import { fetchApi } from "@/lib/fetch-api";
 
@@ -9,47 +10,24 @@ import { fetchApi } from "@/lib/fetch-api";
 
 interface DeliverableDetail {
   id: string;
-  projectId: string;
+  slug: string;
   title: string;
-  description: string | null;
+  content: string;
   stage: string;
-  generationMode: string;
-  content: ContentDoc | null;
-  completenessReport: unknown;
+  status: string;
+  parentProjectSlug: string;
+  parentProjectName: string | null;
   confidenceLevel: string | null;
   riskCount: number;
-  templateSectionId: string | null;
-  assignedToId: string | null;
-  acceptedById: string | null;
+  assignedToSlug: string | null;
+  assignedToName: string | null;
+  acceptedBySlug: string | null;
+  acceptedByName: string | null;
   acceptedAt: string | null;
-  assignedTo: { id: string; name: string; email: string } | null;
-  acceptedBy: { id: string; name: string; email: string } | null;
-}
-
-interface ContentSection {
-  type: string;
-  level?: number;
-  text?: string;
-  severity?: string;
-}
-
-interface ContentDoc {
-  sections: ContentSection[];
-}
-
-interface CompletenessReport {
-  overallCompleteness: number;
-  sections: Array<{
-    templateSection: string;
-    status: "complete" | "partial" | "not_provided";
-    coverage: number;
-    gaps: string[];
-    dataAvailable: boolean;
-  }>;
-  criticalGaps: string[];
-  suggestedActions: string[];
-  assessedAt: string;
-  assessmentMethod: "extraction" | "reassessment";
+  generationMode: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completenessReport: null;
 }
 
 interface ChatMessage {
@@ -65,28 +43,28 @@ interface ChatMessage {
 export default function DeliverableDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const projectId = params.id as string;
-  const deliverableId = params.deliverableId as string;
+  const projectSlug = params.id as string;
+  const deliverableSlug = params.deliverableId as string;
 
   const [deliverable, setDeliverable] = useState<DeliverableDetail | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
-  const [transitioning, setTransitioning] = useState(false);
-  const [generating, setGenerating] = useState(false);
 
-  // Chat state
-  const [chatInput, setChatInput] = useState("");
-  const [sending, setSending] = useState(false);
+  // Chat is disabled for wiki-only deliverables, but we still read any history
+  // the legacy endpoint happens to return.
   const chatScrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const [delRes, chatRes] = await Promise.all([
-          fetchApi(`/api/projects/${projectId}/deliverables/${deliverableId}`),
-          fetchApi(`/api/projects/${projectId}/deliverables/${deliverableId}/chat`),
+          fetchApi(
+            `/api/projects/${encodeURIComponent(projectSlug)}/deliverables/${encodeURIComponent(deliverableSlug)}`,
+          ),
+          fetchApi(
+            `/api/projects/${encodeURIComponent(projectSlug)}/deliverables/${encodeURIComponent(deliverableSlug)}/chat`,
+          ),
         ]);
         if (!cancelled) {
           if (delRes.ok) setDeliverable(await delRes.json());
@@ -98,8 +76,10 @@ export default function DeliverableDetailPage() {
       } catch {}
       if (!cancelled) setLoading(false);
     })();
-    return () => { cancelled = true; };
-  }, [projectId, deliverableId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [projectSlug, deliverableSlug]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -107,71 +87,6 @@ export default function DeliverableDetailPage() {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [chatMessages]);
-
-  const handleTransition = async (targetStage: string) => {
-    setTransitioning(true);
-    try {
-      const res = await fetchApi(
-        `/api/projects/${projectId}/deliverables/${deliverableId}/transition`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ targetStage }),
-        },
-      );
-      if (res.ok) {
-        router.push(`/projects/${projectId}`);
-      }
-    } catch {}
-    setTransitioning(false);
-  };
-
-  const handleGenerate = async () => {
-    if (generating) return;
-    setGenerating(true);
-    try {
-      const res = await fetchApi(
-        `/api/projects/${projectId}/deliverables/${deliverableId}/generate`,
-        { method: "POST" },
-      );
-      if (res.ok) {
-        // Update local state to show "generating" state
-        setDeliverable((prev) => prev ? { ...prev, confidenceLevel: null } : prev);
-      }
-    } catch {}
-    setGenerating(false);
-  };
-
-  const handleSendChat = async () => {
-    const text = chatInput.trim();
-    if (!text || sending) return;
-    setChatInput("");
-    setSending(true);
-
-    // Optimistic user message
-    const tempId = `temp-${Date.now()}`;
-    setChatMessages((prev) => [...prev, { id: tempId, role: "user", content: text, createdAt: new Date().toISOString() }]);
-
-    try {
-      const res = await fetchApi(
-        `/api/projects/${projectId}/deliverables/${deliverableId}/chat`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: text }),
-        },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        // Replace optimistic message with real one, add assistant response
-        setChatMessages((prev) => {
-          const withoutTemp = prev.filter((m) => m.id !== tempId);
-          return [...withoutTemp, data.userMessage, data.assistantMessage];
-        });
-      }
-    } catch {}
-    setSending(false);
-  };
 
   if (loading) {
     return (
@@ -185,15 +100,10 @@ export default function DeliverableDetailPage() {
               <div className="animate-pulse" style={{ width: "50%", height: 18, borderRadius: 4, background: "rgba(255,255,255,0.06)", marginBottom: 20 }} />
               <div className="animate-pulse" style={{ width: "100%", height: 12, borderRadius: 4, background: "rgba(255,255,255,0.04)", marginBottom: 10 }} />
               <div className="animate-pulse" style={{ width: "90%", height: 12, borderRadius: 4, background: "rgba(255,255,255,0.04)", marginBottom: 10 }} />
-              <div className="animate-pulse" style={{ width: "70%", height: 12, borderRadius: 4, background: "rgba(255,255,255,0.04)", marginBottom: 24 }} />
-              <div className="animate-pulse" style={{ width: "40%", height: 14, borderRadius: 4, background: "rgba(255,255,255,0.05)", marginBottom: 16 }} />
-              <div className="animate-pulse" style={{ width: "100%", height: 12, borderRadius: 4, background: "rgba(255,255,255,0.04)", marginBottom: 10 }} />
-              <div className="animate-pulse" style={{ width: "80%", height: 12, borderRadius: 4, background: "rgba(255,255,255,0.04)" }} />
+              <div className="animate-pulse" style={{ width: "70%", height: 12, borderRadius: 4, background: "rgba(255,255,255,0.04)" }} />
             </div>
             <div style={{ borderLeft: "0.5px solid rgba(255,255,255,0.05)", padding: "14px 20px" }}>
               <div className="animate-pulse" style={{ width: 90, height: 10, borderRadius: 4, background: "rgba(255,255,255,0.05)", marginBottom: 24 }} />
-              <div className="animate-pulse" style={{ width: "70%", height: 32, borderRadius: 8, background: "rgba(255,255,255,0.03)", marginBottom: 12 }} />
-              <div className="animate-pulse" style={{ width: "50%", height: 32, borderRadius: 8, background: "rgba(255,255,255,0.03)", marginLeft: "auto" }} />
             </div>
           </div>
         </div>
@@ -222,9 +132,8 @@ export default function DeliverableDetailPage() {
             borderBottom: "0.5px solid rgba(255,255,255,0.06)",
           }}
         >
-          {/* Left */}
           <button
-            onClick={() => router.push(`/projects/${projectId}`)}
+            onClick={() => router.push(`/projects/${encodeURIComponent(projectSlug)}`)}
             className="flex items-center gap-1 transition-colors"
             style={{ fontSize: 12, color: "var(--fg3)", flexShrink: 0 }}
           >
@@ -243,91 +152,6 @@ export default function DeliverableDetailPage() {
           <StageBadge stage={deliverable.stage} confidenceLevel={deliverable.confidenceLevel} />
 
           <div style={{ flex: 1 }} />
-
-          {/* Right: stage actions */}
-          {deliverable.stage === "intelligence" && !deliverable.content && (
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                padding: "5px 14px",
-                borderRadius: 6,
-                background: generating ? "rgba(139,92,246,0.08)" : "rgba(139,92,246,0.12)",
-                border: "0.5px solid rgba(139,92,246,0.25)",
-                color: generating ? "rgba(139,92,246,0.5)" : "rgb(139,92,246)",
-                cursor: generating ? "wait" : "pointer",
-              }}
-              className="hover:brightness-125 transition"
-            >
-              {generating ? "Queued..." : "Generate analysis"}
-            </button>
-          )}
-          {deliverable.stage === "intelligence" && (
-            <button
-              onClick={() => handleTransition("workboard")}
-              disabled={transitioning}
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                padding: "5px 14px",
-                borderRadius: 6,
-                background: "rgba(255,255,255,0.08)",
-                border: "0.5px solid rgba(255,255,255,0.12)",
-                color: "var(--foreground)",
-                cursor: transitioning ? "wait" : "pointer",
-                opacity: transitioning ? 0.5 : 1,
-              }}
-              className="hover:brightness-125 transition"
-            >
-              Pull to workboard
-            </button>
-          )}
-          {deliverable.stage === "workboard" && (
-            <button
-              onClick={() => handleTransition("deliverable")}
-              disabled={transitioning}
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                padding: "5px 14px",
-                borderRadius: 6,
-                background: "rgba(52,211,153,0.12)",
-                border: "0.5px solid rgba(52,211,153,0.25)",
-                color: "rgb(52,211,153)",
-                cursor: transitioning ? "wait" : "pointer",
-                opacity: transitioning ? 0.5 : 1,
-              }}
-              className="hover:brightness-125 transition"
-            >
-              Accept deliverable
-            </button>
-          )}
-          {(deliverable.completenessReport as CompletenessReport | null) && (
-            <button
-              onClick={async () => {
-                try {
-                  const res = await fetchApi(`/api/projects/${projectId}/deliverables/${deliverableId}/reassess`, { method: "POST" });
-                  if (res.ok) {
-                    const data = await res.json();
-                    setDeliverable(prev => prev ? { ...prev, completenessReport: data.completenessReport, confidenceLevel: data.confidenceLevel } : prev);
-                  }
-                } catch {}
-              }}
-              style={{
-                fontSize: 11,
-                padding: "4px 10px",
-                borderRadius: 4,
-                border: "1px solid rgba(255,255,255,0.1)",
-                background: "transparent",
-                color: "rgba(255,255,255,0.5)",
-                cursor: "pointer",
-              }}
-            >
-              Re-assess
-            </button>
-          )}
         </div>
 
         {/* ── Split layout ── */}
@@ -339,111 +163,14 @@ export default function DeliverableDetailPage() {
             minHeight: 0,
           }}
         >
-          {/* Left pane — Report content */}
+          {/* Left pane — wiki content */}
           <div style={{ overflowY: "auto", borderRight: "0.5px solid rgba(255,255,255,0.05)" }}>
-            <div style={{ padding: "28px 44px", maxWidth: 600 }}>
-              {/* Completeness Summary */}
-              {(() => {
-                const completeness = deliverable.completenessReport as CompletenessReport | null;
-                if (!completeness || !completeness.sections?.length) return null;
-                return (
-                  <div style={{ marginBottom: 24 }}>
-                    {/* Overall bar */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                        <div
-                          style={{
-                            height: "100%",
-                            width: `${Math.round(completeness.overallCompleteness * 100)}%`,
-                            borderRadius: 3,
-                            background: completeness.overallCompleteness >= 0.7
-                              ? "rgb(52,211,153)"
-                              : completeness.overallCompleteness >= 0.4
-                                ? "#facc15"
-                                : "rgb(248,113,113)",
-                            transition: "width 0.5s ease",
-                          }}
-                        />
-                      </div>
-                      <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", whiteSpace: "nowrap" }}>
-                        {Math.round(completeness.overallCompleteness * 100)}% complete
-                      </span>
-                    </div>
-
-                    {/* Per-section status */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-                      {completeness.sections.map((s, i) => (
-                        <span
-                          key={i}
-                          style={{
-                            fontSize: 11,
-                            padding: "3px 10px",
-                            borderRadius: 4,
-                            background: s.status === "complete"
-                              ? "rgba(52,211,153,0.12)"
-                              : s.status === "partial"
-                                ? "rgba(250,204,21,0.12)"
-                                : "rgba(255,255,255,0.05)",
-                            color: s.status === "complete"
-                              ? "rgb(52,211,153)"
-                              : s.status === "partial"
-                                ? "#facc15"
-                                : "rgba(255,255,255,0.3)",
-                            border: `1px solid ${
-                              s.status === "complete"
-                                ? "rgba(52,211,153,0.2)"
-                                : s.status === "partial"
-                                  ? "rgba(250,204,21,0.2)"
-                                  : "rgba(255,255,255,0.08)"
-                            }`,
-                          }}
-                        >
-                          {s.status === "complete" ? "\u2713 " : s.status === "partial" ? "\u25D0 " : "\u25CB "}
-                          {s.templateSection}
-                        </span>
-                      ))}
-                    </div>
-
-                    {/* Critical gaps */}
-                    {completeness.criticalGaps.length > 0 && (
-                      <div style={{ padding: "10px 14px", borderRadius: 6, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.15)", marginBottom: 8 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: "rgb(248,113,113)", marginBottom: 6 }}>
-                          Critical Gaps
-                        </div>
-                        {completeness.criticalGaps.map((gap, i) => (
-                          <div key={i} style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginBottom: 2, paddingLeft: 8 }}>
-                            &bull; {gap}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Suggested actions */}
-                    {completeness.suggestedActions.length > 0 && (
-                      <div style={{ padding: "10px 14px", borderRadius: 6, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.5)", marginBottom: 6 }}>
-                          Suggested Actions
-                        </div>
-                        {completeness.suggestedActions.map((action, i) => (
-                          <div key={i} style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginBottom: 2, paddingLeft: 8 }}>
-                            &rarr; {action}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {deliverable.content ? (
-                <ReportContent sections={deliverable.content.sections} />
-              ) : (
-                <EmptyContent stage={deliverable.stage} />
-              )}
+            <div style={{ padding: "28px 44px", maxWidth: 760, margin: "0 auto" }}>
+              <WikiMarkdownContent title={deliverable.title} content={deliverable.content} />
             </div>
           </div>
 
-          {/* Right pane — AI assistant */}
+          {/* Right pane — AI assistant (disabled for wiki-only deliverables) */}
           <div
             style={{
               display: "flex",
@@ -452,7 +179,6 @@ export default function DeliverableDetailPage() {
               background: "rgba(255,255,255,0.01)",
             }}
           >
-            {/* Header */}
             <div style={{ padding: "14px 20px 8px", flexShrink: 0 }}>
               <span
                 style={{
@@ -466,96 +192,60 @@ export default function DeliverableDetailPage() {
               </span>
             </div>
 
-            {/* Chat thread */}
             <div ref={chatScrollRef} style={{ flex: 1, overflowY: "auto", padding: "8px 20px" }}>
-              {chatMessages.length === 0 && (
+              {chatMessages.length === 0 ? (
                 <div style={{ textAlign: "center", paddingTop: 40 }}>
                   <p style={{ fontSize: 12, color: "var(--fg4)", lineHeight: 1.5 }}>
-                    Ask questions about this deliverable,<br />request changes, or explore the analysis.
+                    Chat for wiki deliverables is not yet wired up.
                   </p>
                 </div>
-              )}
-              {chatMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-                    marginBottom: 10,
-                  }}
-                >
+              ) : (
+                chatMessages.map((msg) => (
                   <div
+                    key={msg.id}
                     style={{
-                      maxWidth: "85%",
-                      padding: "8px 12px",
-                      borderRadius: 10,
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                      color: "var(--foreground)",
-                      ...(msg.role === "user"
-                        ? {
-                            background: "rgba(255,255,255,0.08)",
-                          }
-                        : {
-                            background: "rgba(255,255,255,0.02)",
-                            border: "0.5px solid rgba(255,255,255,0.05)",
-                          }),
+                      display: "flex",
+                      justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+                      marginBottom: 10,
                     }}
                   >
-                    {msg.content}
+                    <div
+                      style={{
+                        maxWidth: "85%",
+                        padding: "8px 12px",
+                        borderRadius: 10,
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        color: "var(--foreground)",
+                        ...(msg.role === "user"
+                          ? { background: "rgba(255,255,255,0.08)" }
+                          : {
+                              background: "rgba(255,255,255,0.02)",
+                              border: "0.5px solid rgba(255,255,255,0.05)",
+                            }),
+                      }}
+                    >
+                      {msg.content}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
-            {/* Hint pills */}
-            <div
-              className="flex flex-wrap gap-1.5"
-              style={{ padding: "4px 20px 8px", flexShrink: 0 }}
-            >
-              {["Explain risk factors", "Show evidence chain", "Suggest revisions"].map((hint) => (
-                <button
-                  key={hint}
-                  onClick={() => {
-                    setChatInput(hint);
-                    inputRef.current?.focus();
-                  }}
-                  style={{
-                    fontSize: 10,
-                    padding: "3px 8px",
-                    borderRadius: 4,
-                    background: "rgba(255,255,255,0.04)",
-                    border: "0.5px solid rgba(255,255,255,0.07)",
-                    color: "var(--fg3)",
-                    cursor: "pointer",
-                  }}
-                  className="hover:brightness-125 transition"
-                >
-                  {hint}
-                </button>
-              ))}
-            </div>
-
-            {/* Input */}
+            {/* Disabled input (visually dimmed, non-interactive) */}
             <div
               className="flex items-center gap-2"
               style={{
                 padding: "10px 20px 14px",
                 borderTop: "0.5px solid rgba(255,255,255,0.05)",
                 flexShrink: 0,
+                opacity: 0.45,
+                pointerEvents: "none",
               }}
             >
               <input
-                ref={inputRef}
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendChat();
-                  }
-                }}
-                placeholder="Ask about this deliverable..."
+                placeholder="Chat coming soon…"
+                disabled
                 style={{
                   flex: 1,
                   background: "rgba(255,255,255,0.04)",
@@ -568,8 +258,7 @@ export default function DeliverableDetailPage() {
                 }}
               />
               <button
-                onClick={handleSendChat}
-                disabled={!chatInput.trim() || sending}
+                disabled
                 style={{
                   width: 28,
                   height: 28,
@@ -577,12 +266,11 @@ export default function DeliverableDetailPage() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  background: chatInput.trim() ? "var(--btn-primary-bg)" : "rgba(255,255,255,0.05)",
-                  color: chatInput.trim() ? "var(--btn-primary-text)" : "var(--fg4)",
+                  background: "rgba(255,255,255,0.05)",
+                  color: "var(--fg4)",
                   border: "none",
-                  cursor: chatInput.trim() ? "pointer" : "default",
+                  cursor: "default",
                   flexShrink: 0,
-                  transition: "background 0.15s, color 0.15s",
                 }}
               >
                 <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
@@ -621,7 +309,7 @@ function StageBadge({ stage, confidenceLevel }: { stage: string; confidenceLevel
           }}
         />
         <span style={{ fontSize: 10, color: "var(--fg4)" }}>
-          {confidenceLevel ? `${confidenceLevel} confidence` : "analyzing"}
+          {confidenceLevel ? `${confidenceLevel} confidence` : "intelligence"}
         </span>
       </span>
     );
@@ -666,159 +354,93 @@ function StageBadge({ stage, confidenceLevel }: { stage: string; confidenceLevel
   return null;
 }
 
-// ── Report content renderer ──────────────────────────────────────────────────
+// ── Wiki markdown content renderer ───────────────────────────────────────────
 
-function ReportContent({ sections }: { sections: ContentSection[] }) {
+function WikiMarkdownContent({ title, content }: { title: string; content: string }) {
+  const processed = useMemo(() => {
+    // Strip a leading H1 if it matches the page title (same heuristic as the
+    // wiki ContentPane, so the title doesn't appear twice).
+    const match = content.match(/^#{1,2}\s+(.+)\n/);
+    if (match) {
+      const headingText = match[1].trim().replace(/\s*\(.*\)\s*$/, "").trim();
+      const pageTitle = title.replace(/\s*\(.*\)\s*$/, "").trim();
+      if (
+        headingText.toLowerCase() === pageTitle.toLowerCase() ||
+        pageTitle.toLowerCase().startsWith(headingText.toLowerCase())
+      ) {
+        return content.slice(match[0].length);
+      }
+    }
+    return content;
+  }, [content, title]);
+
   return (
-    <div>
-      {sections.map((s, i) => {
-        switch (s.type) {
-          case "heading":
-            if (s.level === 2) {
-              return (
-                <h2
-                  key={i}
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 500,
-                    color: "var(--foreground)",
-                    borderBottom: "0.5px solid rgba(255,255,255,0.06)",
-                    paddingBottom: 10,
-                    marginBottom: 20,
-                    marginTop: i > 0 ? 32 : 0,
-                  }}
-                >
-                  {s.text}
-                </h2>
-              );
-            }
-            return (
-              <h3
-                key={i}
-                style={{
-                  fontSize: 13,
-                  fontWeight: 500,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.04em",
-                  color: "rgba(255,255,255,0.4)",
-                  marginTop: 24,
-                  marginBottom: 10,
-                }}
-              >
-                {s.text}
-              </h3>
-            );
-
-          case "paragraph":
-            return (
-              <p
-                key={i}
-                style={{
-                  fontSize: 13,
-                  lineHeight: 1.65,
-                  color: "rgba(255,255,255,0.65)",
-                  marginBottom: 14,
-                }}
-              >
-                {s.text}
-              </p>
-            );
-
-          case "risk":
-            return (
-              <div
-                key={i}
-                style={{
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: "#facc15",
-                  marginBottom: 8,
-                  lineHeight: 1.5,
-                }}
-              >
-                {s.text}
-              </div>
-            );
-
-          case "evidence":
-            return (
-              <div
-                key={i}
-                style={{
-                  fontSize: 12,
-                  fontStyle: "italic",
-                  color: "rgba(255,255,255,0.3)",
-                  marginBottom: 14,
-                  lineHeight: 1.5,
-                }}
-              >
-                {s.text}
-              </div>
-            );
-
-          case "completeness_ok":
-            return (
-              <div
-                key={i}
-                style={{
-                  fontSize: 12,
-                  color: "rgb(52,211,153)",
-                  marginBottom: 4,
-                }}
-              >
-                ✓ {s.text}
-              </div>
-            );
-
-          case "completeness_gap":
-            return (
-              <div
-                key={i}
-                style={{
-                  fontSize: 12,
-                  color: "#facc15",
-                  marginBottom: 4,
-                }}
-              >
-                ⚠ {s.text}
-              </div>
-            );
-
-          default:
-            return null;
-        }
-      })}
-    </div>
-  );
-}
-
-// ── Empty content state ──────────────────────────────────────────────────────
-
-function EmptyContent({ stage }: { stage: string }) {
-  return (
-    <div style={{ textAlign: "center", paddingTop: 80 }}>
-      <div style={{ marginBottom: 16 }}>
-        <svg
-          width={32}
-          height={32}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="rgba(255,255,255,0.15)"
-          strokeWidth={1.5}
-          style={{ margin: "0 auto" }}
-        >
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 6v6l4 2" />
-        </svg>
-      </div>
-      <p style={{ fontSize: 14, fontWeight: 500, color: "var(--fg3)", marginBottom: 6 }}>
-        {stage === "intelligence" ? "Analysis in progress..." : "Queued"}
-      </p>
-      <p style={{ fontSize: 12, color: "var(--fg4)", lineHeight: 1.5 }}>
-        {stage === "intelligence"
-          ? "The AI is analyzing data sources and generating findings."
-          : "Waiting for data ingestion to complete."}
-      </p>
+    <div
+      className="wiki-content"
+      style={{
+        fontSize: 14,
+        lineHeight: 1.7,
+        color: "var(--foreground)",
+      }}
+    >
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <p style={{ marginBottom: 12 }}>{children}</p>,
+          h1: ({ children }) => (
+            <h1 style={{ fontSize: 20, fontWeight: 600, marginTop: 24, marginBottom: 12, color: "var(--foreground)" }}>
+              {children}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 20, marginBottom: 10, color: "var(--foreground)" }}>
+              {children}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 16, marginBottom: 8, color: "var(--foreground)" }}>
+              {children}
+            </h3>
+          ),
+          ul: ({ children }) => <ul style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ul>,
+          ol: ({ children }) => <ol style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ol>,
+          li: ({ children }) => <li style={{ marginBottom: 4, color: "var(--fg2)" }}>{children}</li>,
+          strong: ({ children }) => <strong style={{ fontWeight: 600, color: "var(--foreground)" }}>{children}</strong>,
+          em: ({ children }) => <em style={{ color: "var(--fg2)" }}>{children}</em>,
+          hr: () => <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "16px 0" }} />,
+          code: ({ children }) => (
+            <code style={{ padding: "2px 5px", borderRadius: 3, background: "rgba(255,255,255,0.06)", fontSize: 12, fontFamily: "monospace" }}>
+              {children}
+            </code>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote style={{ borderLeft: "2px solid var(--border)", paddingLeft: 14, color: "var(--fg3)", margin: "12px 0" }}>
+              {children}
+            </blockquote>
+          ),
+          table: ({ children }) => (
+            <table style={{ width: "100%", borderCollapse: "collapse", margin: "12px 0", fontSize: 12 }}>
+              {children}
+            </table>
+          ),
+          th: ({ children }) => (
+            <th style={{ textAlign: "left", padding: "6px 10px", borderBottom: "1px solid var(--border)", color: "var(--fg3)", fontWeight: 600 }}>
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td style={{ padding: "6px 10px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+              {children}
+            </td>
+          ),
+          a: ({ href, children }) => (
+            <a href={href} style={{ color: "var(--accent)" }}>
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {processed}
+      </ReactMarkdown>
     </div>
   );
 }
