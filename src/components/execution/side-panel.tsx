@@ -54,6 +54,105 @@ function PanelRightCloseIcon({ size = 14 }: { size?: number }) {
   );
 }
 
+function UndoIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-15-6.7L3 13" />
+    </svg>
+  );
+}
+
+function RedoIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 7v6h-6" /><path d="M3 17a9 9 0 0 1 15-6.7L21 13" />
+    </svg>
+  );
+}
+
+function CheckIcon({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+
+function SaveStatusPill({ status, onSaveNow }: { status: SaveStatus; onSaveNow?: () => void }) {
+  if (status === "saving") {
+    return (
+      <span
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          fontSize: 12, fontWeight: 500, padding: "5px 10px", borderRadius: 6,
+          background: "transparent", color: "var(--fg3)",
+          border: "1px solid var(--border)", flexShrink: 0,
+        }}
+      >
+        <span
+          className="animate-spin"
+          style={{
+            width: 10, height: 10, borderRadius: "50%",
+            border: "1.5px solid var(--fg4)", borderTopColor: "var(--accent)",
+          }}
+        />
+        Saving…
+      </span>
+    );
+  }
+  if (status === "saved") {
+    return (
+      <span
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 5,
+          fontSize: 12, fontWeight: 500, padding: "5px 10px", borderRadius: 6,
+          color: "var(--ok, #34d399)", background: "color-mix(in srgb, var(--ok, #34d399) 10%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--ok, #34d399) 25%, transparent)",
+          flexShrink: 0,
+        }}
+      >
+        <CheckIcon size={11} /> Saved
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <button
+        onClick={onSaveNow}
+        style={{
+          fontSize: 12, fontWeight: 500, padding: "5px 10px", borderRadius: 6,
+          color: "var(--danger, #f87171)",
+          background: "color-mix(in srgb, var(--danger, #f87171) 10%, transparent)",
+          border: "1px solid color-mix(in srgb, var(--danger, #f87171) 30%, transparent)",
+          cursor: onSaveNow ? "pointer" : "default", flexShrink: 0,
+        }}
+      >
+        Retry save
+      </button>
+    );
+  }
+  // dirty
+  return (
+    <button
+      onClick={onSaveNow}
+      disabled={!onSaveNow}
+      title="Save now (⌘S)"
+      style={{
+        fontSize: 12, fontWeight: 500, padding: "5px 10px", borderRadius: 6,
+        color: "var(--accent)",
+        background: "color-mix(in srgb, var(--accent) 10%, transparent)",
+        border: "1px solid color-mix(in srgb, var(--accent) 30%, transparent)",
+        cursor: onSaveNow ? "pointer" : "default", flexShrink: 0,
+      }}
+      className="hover:opacity-80 transition-opacity"
+    >
+      Save
+    </button>
+  );
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface BreadcrumbEntry {
@@ -73,6 +172,12 @@ interface SidePanelProps {
   footer?: ReactNode;
   isEditing?: boolean;
   onToggleEdit?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  saveStatus?: SaveStatus;
+  onSaveNow?: () => void;
   onWidthChange?: (percent: number) => void;
   onResizeStart?: () => void;
   onResizeEnd?: () => void;
@@ -331,6 +436,12 @@ export function SidePanel({
   footer,
   isEditing,
   onToggleEdit,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  saveStatus,
+  onSaveNow,
   onWidthChange,
   onResizeStart,
   onResizeEnd,
@@ -500,6 +611,49 @@ export function SidePanel({
             <ChatIcon size={13} />
             Discuss
           </button>
+        )}
+
+        {/* Undo / Redo (shown when editor is wired) */}
+        {onUndo && (
+          <button
+            onClick={onUndo}
+            disabled={!canUndo}
+            title="Undo (⌘Z)"
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 30, height: 30, borderRadius: 6,
+              background: "transparent", border: "1px solid var(--border-strong)",
+              color: canUndo ? "var(--foreground)" : "var(--fg4)",
+              cursor: canUndo ? "pointer" : "not-allowed", flexShrink: 0,
+              opacity: canUndo ? 1 : 0.45,
+            }}
+            className="hover:bg-[var(--hover)] transition-colors"
+          >
+            <UndoIcon size={14} />
+          </button>
+        )}
+        {onRedo && (
+          <button
+            onClick={onRedo}
+            disabled={!canRedo}
+            title="Redo (⌘⇧Z)"
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 30, height: 30, borderRadius: 6,
+              background: "transparent", border: "1px solid var(--border-strong)",
+              color: canRedo ? "var(--foreground)" : "var(--fg4)",
+              cursor: canRedo ? "pointer" : "not-allowed", flexShrink: 0,
+              opacity: canRedo ? 1 : 0.45,
+            }}
+            className="hover:bg-[var(--hover)] transition-colors"
+          >
+            <RedoIcon size={14} />
+          </button>
+        )}
+
+        {/* Save status pill */}
+        {saveStatus && saveStatus !== "idle" && (
+          <SaveStatusPill status={saveStatus} onSaveNow={onSaveNow} />
         )}
 
         {/* Edit toggle */}

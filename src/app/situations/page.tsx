@@ -1485,7 +1485,7 @@ function DetailPane({
 
           {/* ── CURRENT ACTION PLAN ── */}
           {reasoning && actionPlan && actionPlan.length > 0 ? (
-            <div className="overflow-hidden min-w-0 w-[70%] mx-auto">
+            <div className="overflow-hidden min-w-0">
               {/* Section header */}
               <div style={{ marginBottom: 16 }}>
                 <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "0.02em", color: "var(--foreground)" }}>

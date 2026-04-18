@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type RefObject } from "react";
 import { useSearchParams } from "next/navigation";
 import { diffLines, type Change } from "diff";
 import ReactMarkdown from "react-markdown";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { ContextualChat } from "@/components/contextual-chat";
-import { SidePanel } from "@/components/execution/side-panel";
+import { DeliverableEditor, type DeliverableEditorHandle } from "@/components/deliverable-editor";
+import { SidePanel, type SaveStatus } from "@/components/execution/side-panel";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
@@ -177,7 +178,6 @@ export default function InitiativesPage() {
   // Panel state
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelActiveTab, setPanelActiveTab] = useState<string>("overview");
-  const [panelEditing, setPanelEditing] = useState(false);
   const [panelChatVisible, setPanelChatVisible] = useState(true);
   const sidebarWasCollapsed = useRef(false);
 
@@ -241,7 +241,6 @@ export default function InitiativesPage() {
     if (selectedId && !filteredInitiatives.some(i => i.id === selectedId)) {
       setSelectedId(null);
       setPanelOpen(false);
-      setPanelEditing(false);
     }
   }, [filteredInitiatives, selectedId]);
 
@@ -283,7 +282,6 @@ export default function InitiativesPage() {
   const openInitiative = useCallback((id: string) => {
     setSelectedId(id);
     setPanelActiveTab("overview");
-    setPanelEditing(false);
     setPanelOpen(true);
   }, []);
 
@@ -297,7 +295,6 @@ export default function InitiativesPage() {
 
   const closePanel = useCallback(() => {
     setPanelOpen(false);
-    setPanelEditing(false);
     setPanelActiveTab("overview");
   }, []);
 
@@ -409,11 +406,8 @@ export default function InitiativesPage() {
               onClose={closePanel}
               activeTab={panelActiveTab}
               setActiveTab={setPanelActiveTab}
-              isEditing={panelEditing}
-              setIsEditing={setPanelEditing}
               isChatVisible={panelChatVisible}
               setIsChatVisible={setPanelChatVisible}
-              onPrimaryDeliverableSaved={() => fetchDetail(detail.id)}
               runExecutionAction={runExecutionAction}
               patchInitiative={patchInitiative}
             />
@@ -541,11 +535,8 @@ function InitiativePanel({
   onClose,
   activeTab,
   setActiveTab,
-  isEditing,
-  setIsEditing,
   isChatVisible,
   setIsChatVisible,
-  onPrimaryDeliverableSaved,
   runExecutionAction,
   patchInitiative,
 }: {
@@ -554,11 +545,8 @@ function InitiativePanel({
   onClose: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  isEditing: boolean;
-  setIsEditing: (editing: boolean) => void;
   isChatVisible: boolean;
   setIsChatVisible: (v: boolean) => void;
-  onPrimaryDeliverableSaved: () => void;
   runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
   patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
@@ -568,6 +556,13 @@ function InitiativePanel({
   // unmounts when the panel closes (see page.tsx conditional render), so each
   // open starts fresh at 35. Drag mutations persist within a single session.
   const [chatWidth, setChatWidth] = useState(35);
+
+  // Deliverable editor controls — lifted here so the SidePanel header can
+  // render undo/redo + save status for the content rendered inside the primary tab.
+  const editorRef = useRef<DeliverableEditorHandle>(null);
+  const [editorState, setEditorState] = useState({ canUndo: false, canRedo: false });
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const forceSaveRef = useRef<() => void>(() => {});
 
   const downstream = d.downstreamEffects ?? [];
   const canEditPrimary = d.status === "proposed" && activeTab === "primary";
@@ -606,8 +601,12 @@ function InitiativePanel({
       title={`${d.triggerSummary} — ${tabTitle}`}
       typeBadge={tabBadge}
       typeIcon={typeIcon}
-      isEditing={canEditPrimary ? isEditing : false}
-      onToggleEdit={canEditPrimary ? () => setIsEditing(!isEditing) : undefined}
+      onUndo={canEditPrimary ? () => editorRef.current?.undo() : undefined}
+      onRedo={canEditPrimary ? () => editorRef.current?.redo() : undefined}
+      canUndo={canEditPrimary && editorState.canUndo}
+      canRedo={canEditPrimary && editorState.canRedo}
+      saveStatus={canEditPrimary ? saveStatus : undefined}
+      onSaveNow={canEditPrimary ? () => forceSaveRef.current() : undefined}
       onDiscuss={() => setIsChatVisible(true)}
       isFullScreen={true}
       isChatVisible={isChatVisible}
@@ -626,11 +625,11 @@ function InitiativePanel({
       {/* ── Tab bar ── */}
       <div className="flex items-center gap-1 px-4 py-2 border-b overflow-x-auto"
            style={{ borderColor: "var(--border)" }}>
-        <TabButton active={activeTab === "overview"} onClick={() => { setActiveTab("overview"); setIsEditing(false); }}>
+        <TabButton active={activeTab === "overview"} onClick={() => setActiveTab("overview")}>
           ○ {t("tabOverview")}
         </TabButton>
         {hasDashboardForDetails && (
-          <TabButton active={activeTab === "details"} onClick={() => { setActiveTab("details"); setIsEditing(false); }}>
+          <TabButton active={activeTab === "details"} onClick={() => setActiveTab("details")}>
             ☰ {t("tabDetails")}
           </TabButton>
         )}
@@ -645,7 +644,7 @@ function InitiativePanel({
           <TabButton
             key={`downstream-${idx}`}
             active={activeTab === `downstream-${idx}`}
-            onClick={() => { setActiveTab(`downstream-${idx}`); setIsEditing(false); }}
+            onClick={() => setActiveTab(`downstream-${idx}`)}
           >
             ↪ {d.resolvedTargetTitles[de.targetPageSlug] ?? de.targetPageSlug}
           </TabButton>
@@ -659,9 +658,11 @@ function InitiativePanel({
         {activeTab === "primary" && d.primaryDeliverable && (
           <PrimaryDeliverableTab
             detail={d}
-            isEditing={canEditPrimary && isEditing}
-            onCancel={() => setIsEditing(false)}
-            onSaved={() => { setIsEditing(false); onPrimaryDeliverableSaved(); }}
+            editable={canEditPrimary}
+            editorRef={editorRef}
+            onEditorStateChange={setEditorState}
+            onSaveStatusChange={setSaveStatus}
+            onForceSaveRegister={(fn) => { forceSaveRef.current = fn; }}
           />
         )}
         {activeTab.startsWith("downstream-") && (() => {
@@ -1410,152 +1411,136 @@ function DeliverableMarkdown({ text }: { text: string }) {
 
 function PrimaryDeliverableTab({
   detail: d,
-  isEditing,
-  onCancel,
-  onSaved,
+  editable,
+  editorRef,
+  onEditorStateChange,
+  onSaveStatusChange,
+  onForceSaveRegister,
 }: {
   detail: InitiativeDetail;
-  isEditing: boolean;
-  onCancel: () => void;
-  onSaved: () => void;
+  editable: boolean;
+  editorRef: RefObject<DeliverableEditorHandle>;
+  onEditorStateChange: (state: { canUndo: boolean; canRedo: boolean }) => void;
+  onSaveStatusChange: (status: SaveStatus) => void;
+  onForceSaveRegister: (fn: () => void) => void;
 }) {
   const t = useTranslations("initiatives");
-
   const primary = d.primaryDeliverable!;
-  const [editContent, setEditContent] = useState(primary.proposedContent ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setEditContent(primary.proposedContent ?? "");
-    setError(null);
-  }, [primary, isEditing]);
+  // ── Autosave state ──
+  // `lastSavedRef` tracks what's currently persisted; compare against the
+  // editor's live markdown to compute dirty vs clean.
+  const lastSavedRef = useRef(primary.proposedContent ?? "");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initiativeId = d.id;
 
-  const save = async () => {
-    setSaving(true);
-    setError(null);
+  const buildBody = useCallback((content: string) => ({
+    deliverable: {
+      type: primary.type,
+      title: primary.title,
+      description: primary.description,
+      rationale: primary.rationale,
+      ...(primary.targetPageSlug ? { targetPageSlug: primary.targetPageSlug } : {}),
+      ...(primary.targetPageType ? { targetPageType: primary.targetPageType } : {}),
+      proposedContent: content,
+    },
+  }), [primary.type, primary.title, primary.description, primary.rationale, primary.targetPageSlug, primary.targetPageType]);
+
+  const persist = useCallback(async (content: string) => {
+    if (content === lastSavedRef.current) {
+      onSaveStatusChange("saved");
+      return;
+    }
+    onSaveStatusChange("saving");
     try {
-      const res = await fetch(`/api/initiatives/${d.id}/deliverable`, {
+      const res = await fetch(`/api/initiatives/${initiativeId}/deliverable`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deliverable: {
-            type: primary.type,
-            title: primary.title,
-            description: primary.description,
-            rationale: primary.rationale,
-            ...(primary.targetPageSlug ? { targetPageSlug: primary.targetPageSlug } : {}),
-            ...(primary.targetPageType ? { targetPageType: primary.targetPageType } : {}),
-            proposedContent: editContent,
-          },
-        }),
+        body: JSON.stringify(buildBody(content)),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error ?? `HTTP ${res.status}`);
-      }
-      onSaved();
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      lastSavedRef.current = content;
+      onSaveStatusChange("saved");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
-    } finally {
-      setSaving(false);
+      console.error("Autosave failed", err);
+      onSaveStatusChange("error");
     }
-  };
+  }, [initiativeId, buildBody, onSaveStatusChange]);
 
-  if (isEditing) {
-    return (
-      <div className="space-y-4 max-w-3xl">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              padding: "2px 6px",
-              borderRadius: 3,
-              background: "color-mix(in srgb, var(--accent) 14%, transparent)",
-              color: "var(--accent)",
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            {t(`changeType.${primary.type}` as never)}
-          </span>
-          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--foreground)" }}>
-            {primary.title}
-          </span>
-        </div>
+  const forceSave = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    const md = editorRef.current?.getMarkdown() ?? lastSavedRef.current;
+    void persist(md);
+  }, [editorRef, persist]);
 
-        <div>
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              color: "var(--fg3)",
-            }}
-            className="mb-1.5"
-          >
-            {t("deliverableProposedContent")}
-          </div>
-          <textarea
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            className="w-full outline-none resize-y"
-            style={{
-              minHeight: 400,
-              padding: "10px 12px",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: 12,
-              lineHeight: 1.6,
-              background: "var(--elevated)",
-              color: "var(--foreground)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-            }}
-          />
-        </div>
+  useEffect(() => {
+    onForceSaveRegister(forceSave);
+  }, [forceSave, onForceSaveRegister]);
 
-        {error && (
-          <div
-            style={{
-              padding: "10px 12px",
-              borderRadius: 6,
-              background: "color-mix(in srgb, var(--danger) 10%, transparent)",
-              border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
-              color: "var(--danger)",
-              fontSize: 13,
-            }}
-          >
-            {error}
-          </div>
-        )}
+  const handleChange = useCallback((md: string) => {
+    if (md === lastSavedRef.current) {
+      onSaveStatusChange("idle");
+      return;
+    }
+    onSaveStatusChange("dirty");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      void persist(md);
+    }, 800);
+  }, [persist, onSaveStatusChange]);
 
-        <div className="flex items-center gap-2 pt-2">
-          <button
-            onClick={save}
-            disabled={saving || !editContent.trim()}
-            className="rounded-md text-[13px] font-medium px-4 py-2 transition hover:opacity-90 disabled:opacity-60"
-            style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
-          >
-            {saving ? t("saving") : t("deliverableSave")}
-          </button>
-          <button
-            onClick={onCancel}
-            disabled={saving}
-            className="rounded-md text-[13px] font-medium px-4 py-2 transition hover:bg-[var(--hover)]"
-            style={{ background: "transparent", color: "var(--fg2)", border: "1px solid var(--border)" }}
-          >
-            {t("deliverableCancel")}
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // ⌘/Ctrl+S → force save
+  useEffect(() => {
+    if (!editable) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        forceSave();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editable, forceSave]);
 
-  // Display mode — wiki-style centered page container with header (badge +
-  // title + slug link + description + rationale), divider, then a body that
-  // dispatches by deliverable type.
+  // Warn on reload if unsaved
+  useEffect(() => {
+    if (!editable) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const live = editorRef.current?.getMarkdown();
+      if (live !== undefined && live !== lastSavedRef.current) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [editable, editorRef]);
+
+  // On unmount: cancel pending debounce; fire-and-forget flush if dirty.
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      const md = editorRef.current?.getMarkdown();
+      if (md !== undefined && md !== lastSavedRef.current) {
+        fetch(`/api/initiatives/${initiativeId}/deliverable`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildBody(md)),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Render ── header + divider + editor body, inside the shared page container.
 
   const headerEl = (
     <header>
@@ -1637,7 +1622,9 @@ function PrimaryDeliverableTab({
         </div>
       );
     }
-    if (primary.type === "wiki_update") {
+    // Read-only wiki_update previews stay as the diff view for context; once
+    // editable, switch to the editor on the proposed content itself.
+    if (primary.type === "wiki_update" && !editable) {
       return (
         <WikiUpdateDiffView
           current={d.primaryTargetCurrentContent}
@@ -1645,13 +1632,27 @@ function PrimaryDeliverableTab({
         />
       );
     }
-    if (primary.type === "wiki_create" || primary.type === "document") {
-      return <DeliverableMarkdown text={primary.proposedContent} />;
+    if (primary.type === "wiki_update" || primary.type === "wiki_create" || primary.type === "document") {
+      return (
+        <DeliverableEditor
+          ref={editorRef}
+          initialMarkdown={primary.proposedContent}
+          editable={editable}
+          onChange={handleChange}
+          onStateChange={onEditorStateChange}
+        />
+      );
     }
-    // settings_change — markdown description + properties table
+    // settings_change — markdown description (editable) + properties table (read-only)
     return (
       <div>
-        <DeliverableMarkdown text={primary.proposedContent} />
+        <DeliverableEditor
+          ref={editorRef}
+          initialMarkdown={primary.proposedContent}
+          editable={editable}
+          onChange={handleChange}
+          onStateChange={onEditorStateChange}
+        />
         {primary.proposedProperties && Object.keys(primary.proposedProperties).length > 0 && (
           <table style={{ fontSize: 12, width: "100%", borderCollapse: "collapse", marginTop: 16 }}>
             <thead>
