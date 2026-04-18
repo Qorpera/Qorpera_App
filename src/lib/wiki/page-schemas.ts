@@ -354,12 +354,15 @@ const SYSTEM_JOB: PageSchema = {
   properties: {
     status: { type: "enum", required: true, owner: "synthesis", enumValues: ["active", "paused", "disabled"], description: "Job status" },
     schedule: { type: "string", required: true, owner: "synthesis", description: "Cron expression or human-readable schedule" },
+    description: { type: "string", required: true, owner: "synthesis", description: "Short one-paragraph job description" },
     owner: { type: "page_ref", required: false, owner: "synthesis", description: "Job owner person slug" },
     domain: { type: "page_ref", required: false, owner: "synthesis", description: "Owning department" },
     trust_level: { type: "enum", required: false, owner: "synthesis", enumValues: ["observe", "propose", "act"], description: "Execution trust level" },
     auto_approve_steps: { type: "boolean", required: false, owner: "synthesis", description: "Whether steps auto-approve" },
     last_run: { type: "date", required: false, owner: "runtime", default: null, description: "Last execution timestamp" },
     next_run: { type: "date", required: false, owner: "runtime", default: null, description: "Next scheduled execution" },
+    latest_run_summary: { type: "string", required: false, owner: "runtime", default: null, description: "One-line synopsis of most recent run" },
+    latest_run_status: { type: "enum", required: false, owner: "runtime", default: null, enumValues: ["completed", "awaiting_review", "failed", "running"], description: "Status of the most recent run" },
   },
 };
 

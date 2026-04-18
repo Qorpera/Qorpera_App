@@ -243,14 +243,9 @@ Each entry lists what a file imports from other `src/lib/` files.
 | `/api/events/process` | POST | Admin |
 | `/api/events/cleanup` | POST | Admin |
 
-### Learning & Autonomy
+### Autonomy
 | Route | Methods | Auth |
 |---|---|---|
-| `/api/learning/overview` | GET | Scoped |
-| `/api/learning/departments` | GET | Scoped |
-| `/api/learning/situation-types/[id]` | GET | Scoped |
-| `/api/learning/feedback-impact` | GET | Scoped |
-| `/api/learning/export` | GET | Scoped |
 | `/api/autonomy/promote` | POST | Admin |
 | `/api/autonomy/demote` | POST | Admin |
 | `/api/autonomy/settings` | GET, PUT | Admin |

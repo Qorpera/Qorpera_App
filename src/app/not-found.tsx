@@ -8,10 +8,10 @@ export default function NotFound() {
           The page you&apos;re looking for doesn&apos;t exist or has been moved.
         </p>
         <a
-          href="/map"
+          href="/situations"
           className="px-4 py-2 bg-accent hover:bg-accent text-foreground text-sm rounded-lg transition inline-block"
         >
-          Go to Map
+          Go home
         </a>
       </div>
     </div>

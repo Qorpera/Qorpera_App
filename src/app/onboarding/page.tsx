@@ -84,7 +84,7 @@ function OnboardingPage() {
 
       // Phase-based routing
       if (phase === "orienting") { router.replace("/copilot"); return; }
-      if (phase === "active") { router.replace("/map"); return; }
+      if (phase === "active") { router.replace("/situations"); return; }
 
       // Data-state resume detection
       if (analysis?.status === "confirming") { setStep(4); return; }

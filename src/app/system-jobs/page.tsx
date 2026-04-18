@@ -7,62 +7,59 @@ import { formatRelativeTime } from "@/lib/format-helpers";
 import { useLocale } from "next-intl";
 import { fetchApi } from "@/lib/fetch-api";
 import { Badge } from "@/components/ui/badge";
+import ReactMarkdown from "react-markdown";
+import { replaceWikiLinksWithMarkdown, type WikiLinkLookup } from "@/lib/wiki-links";
+import Link from "next/link";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface SystemJobItem {
   id: string;
+  slug: string;
   title: string;
   description: string;
+  status: string;
+  schedule: string;
   scope: string;
-  domainPageSlug: string | null;
   ownerPageSlug: string | null;
-  domainName: string | null;
   ownerName: string | null;
-  cronExpression: string;
-  status: string;
-  importanceThreshold: number;
-  lastTriggeredAt: string | null;
-  nextTriggerAt: string | null;
+  domainPageSlug: string | null;
+  domainName: string | null;
+  lastRun: string | null;
+  nextRun: string | null;
+  trustLevel: string | null;
   latestRun: {
-    summary: string | null;
-    importanceScore: number | null;
+    summary: string;
     status: string;
-    createdAt: string;
+    needsReview: boolean;
   } | null;
-}
-
-interface RunItem {
-  id: string;
-  cycleNumber: number;
-  status: string;
-  summary: string | null;
-  importanceScore: number | null;
-  findings: unknown;
-  proposedSituationCount: number;
-  proposedInitiativeCount: number;
-  durationMs: number | null;
-  createdAt: string;
 }
 
 interface JobDetail {
   id: string;
+  slug: string;
   title: string;
+  content: string;
   description: string;
-  scope: string;
-  domainPageSlug: string | null;
-  ownerPageSlug: string | null;
-  domainName: string | null;
-  ownerName: string | null;
-  wikiPageSlug: string | null;
-  wikiPageContent: string | null;
-  cronExpression: string;
   status: string;
-  importanceThreshold: number;
-  lastTriggeredAt: string | null;
-  nextTriggerAt: string | null;
+  schedule: string;
+  scope: string;
+  ownerPageSlug: string | null;
+  ownerName: string | null;
+  domainPageSlug: string | null;
+  domainName: string | null;
+  lastRun: string | null;
+  nextRun: string | null;
+  trustLevel: string | null;
+  autoApproveSteps: boolean | null;
+  crossReferences: string[];
   createdAt: string;
-  runs: RunItem[];
+  updatedAt: string;
+  latestRun: {
+    summary: string;
+    status: string;
+    needsReview: boolean;
+  } | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -88,6 +85,7 @@ const STATUS_DOT: Record<string, string> = {
   paused: "var(--fg4)",
   proposed: "var(--warn)",
   deactivated: "var(--danger)",
+  disabled: "var(--danger)",
 };
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -99,7 +97,6 @@ export default function SystemJobsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [filter, setFilter] = useState<"active" | "all">("active");
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -114,7 +111,6 @@ export default function SystemJobsPage() {
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
 
-  // Fetch detail when a card is expanded
   useEffect(() => {
     if (!expandedId) { setDetail(null); return; }
     let cancelled = false;
@@ -127,11 +123,6 @@ export default function SystemJobsPage() {
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
   }, [expandedId]);
-
-  const filtered = useMemo(() =>
-    filter === "active" ? jobs.filter(j => j.status === "active") : jobs,
-    [jobs, filter],
-  );
 
   const toggleExpand = (id: string) => {
     setExpandedId(prev => prev === id ? null : id);
@@ -165,14 +156,14 @@ export default function SystemJobsPage() {
             </div>
           )}
 
-          {!loading && filtered.length === 0 && (
+          {!loading && jobs.length === 0 && (
             <div style={{ textAlign: "center", padding: "48px 0", color: "var(--fg4)", fontSize: 13 }}>
               No system jobs yet. Use the chat above to create one.
             </div>
           )}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-            {filtered.map(job => {
+            {jobs.map(job => {
               const isExpanded = expandedId === job.id;
               return (
                 <div key={job.id} style={{ gridColumn: isExpanded ? "1 / -1" : undefined }}>
@@ -203,6 +194,9 @@ export default function SystemJobsPage() {
                       <span style={{ fontSize: 14, fontWeight: 600, color: "var(--foreground)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                         {job.title}
                       </span>
+                      {job.latestRun?.needsReview && (
+                        <Badge variant="amber">Awaiting review</Badge>
+                      )}
                     </div>
 
                     {/* Domain + owner */}
@@ -218,12 +212,12 @@ export default function SystemJobsPage() {
 
                     {/* Schedule + next trigger */}
                     <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 16, marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: "var(--fg4)" }}>{cronToHuman(job.cronExpression)}</span>
-                      {job.nextTriggerAt && (
+                      <span style={{ fontSize: 11, color: "var(--fg4)" }}>{cronToHuman(job.schedule)}</span>
+                      {job.nextRun && (
                         <>
                           <span style={{ fontSize: 11, color: "var(--fg4)" }}>·</span>
                           <span style={{ fontSize: 11, color: "var(--fg4)" }}>
-                            Next {formatRelativeTime(job.nextTriggerAt, locale)}
+                            Next {formatRelativeTime(job.nextRun, locale)}
                           </span>
                         </>
                       )}
@@ -263,113 +257,7 @@ export default function SystemJobsPage() {
                       )}
 
                       {detail && detail.id === expandedId && (
-                        <div>
-                          {/* Description */}
-                          <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--fg2)", margin: "0 0 16px" }}>
-                            {detail.description}
-                          </p>
-
-                          {/* Metadata row */}
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 20 }}>
-                            <div>
-                              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Schedule</div>
-                              <div style={{ fontSize: 13, color: "var(--foreground)" }}>{cronToHuman(detail.cronExpression)}</div>
-                              <div style={{ fontSize: 11, color: "var(--fg4)", marginTop: 2 }}>
-                                <code style={{ background: "rgba(255,255,255,0.06)", padding: "1px 4px", borderRadius: 3 }}>{detail.cronExpression}</code>
-                              </div>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Importance threshold</div>
-                              <div style={{ fontSize: 13, color: "var(--foreground)" }}>{(detail.importanceThreshold * 100).toFixed(0)}%</div>
-                            </div>
-                            {detail.domainName && (
-                              <div>
-                                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Domain</div>
-                                <div style={{ fontSize: 13, color: "var(--foreground)" }}>{detail.domainName}</div>
-                              </div>
-                            )}
-                            {detail.ownerName && (
-                              <div>
-                                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Owner</div>
-                                <div style={{ fontSize: 13, color: "var(--foreground)" }}>{detail.ownerName}</div>
-                              </div>
-                            )}
-                            <div>
-                              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>Status</div>
-                              <Badge variant={detail.status === "active" ? "green" : detail.status === "paused" ? "default" : "red"}>
-                                {detail.status}
-                              </Badge>
-                            </div>
-                          </div>
-
-                          {/* Run History */}
-                          <div>
-                            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 8 }}>
-                              Run History ({detail.runs.length})
-                            </div>
-                            {detail.runs.length === 0 ? (
-                              <p style={{ fontSize: 12, color: "var(--fg4)", margin: 0 }}>No runs yet. The job will execute at its next scheduled time.</p>
-                            ) : (
-                              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                {detail.runs.map(run => (
-                                  <div
-                                    key={run.id}
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "flex-start",
-                                      gap: 10,
-                                      padding: "8px 10px",
-                                      borderRadius: 6,
-                                      background: "var(--surface)",
-                                      border: "1px solid var(--border)",
-                                    }}
-                                  >
-                                    <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fg3)", minWidth: 24 }}>#{run.cycleNumber}</span>
-                                    <Badge variant={run.status === "completed" ? "green" : run.status === "failed" ? "red" : "default"}>
-                                      {run.status}
-                                    </Badge>
-                                    {run.importanceScore != null && (
-                                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                        <div style={{ width: 40, height: 3, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                                          <div style={{ width: `${run.importanceScore * 100}%`, height: "100%", borderRadius: 2, background: run.importanceScore > 0.5 ? "var(--warn)" : "var(--fg3)" }} />
-                                        </div>
-                                        <span style={{ fontSize: 10, color: "var(--fg4)" }}>{(run.importanceScore * 100).toFixed(0)}%</span>
-                                      </div>
-                                    )}
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      {run.summary && (
-                                        <p style={{
-                                          fontSize: 12,
-                                          lineHeight: 1.4,
-                                          color: "var(--fg2)",
-                                          margin: 0,
-                                          overflow: "hidden",
-                                          display: "-webkit-box",
-                                          WebkitLineClamp: 2,
-                                          WebkitBoxOrient: "vertical",
-                                        }}>
-                                          {run.summary}
-                                        </p>
-                                      )}
-                                      {(run.proposedSituationCount > 0 || run.proposedInitiativeCount > 0) && (
-                                        <div style={{ display: "flex", gap: 10, marginTop: 2, fontSize: 11, color: "var(--fg3)" }}>
-                                          {run.proposedSituationCount > 0 && <span>{run.proposedSituationCount} situation{run.proposedSituationCount !== 1 ? "s" : ""}</span>}
-                                          {run.proposedInitiativeCount > 0 && <span>{run.proposedInitiativeCount} initiative{run.proposedInitiativeCount !== 1 ? "s" : ""}</span>}
-                                        </div>
-                                      )}
-                                    </div>
-                                    <span style={{ fontSize: 11, color: "var(--fg4)", flexShrink: 0, whiteSpace: "nowrap" }}>
-                                      {formatRelativeTime(run.createdAt, locale)}
-                                    </span>
-                                    {run.durationMs != null && (
-                                      <span style={{ fontSize: 10, color: "var(--fg4)", flexShrink: 0 }}>{(run.durationMs / 1000).toFixed(1)}s</span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                        <JobDetailPanel detail={detail} />
                       )}
                     </div>
                   )}
@@ -381,8 +269,101 @@ export default function SystemJobsPage() {
 
       </div>
 
-      {/* Spin keyframes for loading indicators */}
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </AppShell>
+  );
+}
+
+// ── Detail panel ────────────────────────────────────────────────────────────
+
+function JobDetailPanel({ detail }: { detail: JobDetail }) {
+  // Convert [[slug]] wiki refs to markdown links so ReactMarkdown can render them.
+  const processedContent = useMemo(() => {
+    const lookup: WikiLinkLookup = {};
+    for (const slug of detail.crossReferences) {
+      lookup[slug] = { title: slug };
+    }
+    let text = detail.content;
+    // Strip leading H1 matching the page title to avoid duplicate heading.
+    const titleMatch = text.match(/^#{1,2}\s+(.+)\n/);
+    if (titleMatch && titleMatch[1].trim().toLowerCase() === detail.title.trim().toLowerCase()) {
+      text = text.slice(titleMatch[0].length);
+    }
+    return replaceWikiLinksWithMarkdown(text, lookup);
+  }, [detail.content, detail.title, detail.crossReferences]);
+
+  return (
+    <div>
+      {/* Metadata row — schedule, status, trust level, domain, owner */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 20, marginBottom: 20 }}>
+        <MetaCell label="Schedule" value={cronToHuman(detail.schedule)} raw={detail.schedule} />
+        <MetaCell label="Status">
+          <Badge variant={detail.status === "active" ? "green" : detail.status === "paused" ? "default" : "red"}>
+            {detail.status}
+          </Badge>
+        </MetaCell>
+        {detail.trustLevel && <MetaCell label="Trust level" value={detail.trustLevel} />}
+        {detail.domainName && <MetaCell label="Domain" value={detail.domainName} />}
+        {detail.ownerName && <MetaCell label="Owner" value={detail.ownerName} />}
+      </div>
+
+      {/* Wiki content */}
+      <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--foreground)" }}>
+        <ReactMarkdown
+          components={{
+            p: ({ children }) => <p style={{ marginBottom: 12, color: "var(--fg2)" }}>{children}</p>,
+            h1: ({ children }) => <h1 style={{ fontSize: 18, fontWeight: 600, marginTop: 20, marginBottom: 10, color: "var(--foreground)" }}>{children}</h1>,
+            h2: ({ children }) => <h2 style={{ fontSize: 15, fontWeight: 600, marginTop: 18, marginBottom: 8, color: "var(--foreground)" }}>{children}</h2>,
+            h3: ({ children }) => <h3 style={{ fontSize: 13, fontWeight: 600, marginTop: 14, marginBottom: 6, color: "var(--foreground)" }}>{children}</h3>,
+            ul: ({ children }) => <ul style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ul>,
+            ol: ({ children }) => <ol style={{ paddingLeft: 20, marginBottom: 12 }}>{children}</ol>,
+            li: ({ children }) => <li style={{ marginBottom: 4, color: "var(--fg2)" }}>{children}</li>,
+            strong: ({ children }) => <strong style={{ fontWeight: 600, color: "var(--foreground)" }}>{children}</strong>,
+            em: ({ children }) => <em style={{ color: "var(--fg2)" }}>{children}</em>,
+            hr: () => <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "16px 0" }} />,
+            code: ({ children }) => (
+              <code style={{ padding: "2px 5px", borderRadius: 3, background: "rgba(255,255,255,0.06)", fontSize: 12, fontFamily: "monospace" }}>
+                {children}
+              </code>
+            ),
+            blockquote: ({ children }) => (
+              <blockquote style={{ borderLeft: "2px solid var(--border)", paddingLeft: 14, color: "var(--fg3)", margin: "12px 0" }}>
+                {children}
+              </blockquote>
+            ),
+            a: ({ href, children }) => {
+              if (href?.startsWith("wiki:")) {
+                const slug = href.slice(5);
+                return (
+                  <Link
+                    href={`/wiki?page=${encodeURIComponent(slug)}`}
+                    style={{ color: "var(--accent)", textDecoration: "underline", textDecorationStyle: "dotted" }}
+                  >
+                    {children}
+                  </Link>
+                );
+              }
+              return <a href={href} style={{ color: "var(--accent)" }}>{children}</a>;
+            },
+          }}
+        >
+          {processedContent}
+        </ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+function MetaCell({ label, value, raw, children }: { label: string; value?: string; raw?: string; children?: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--fg4)", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+      {children ?? <div style={{ fontSize: 13, color: "var(--foreground)" }}>{value}</div>}
+      {raw && raw !== value && (
+        <div style={{ fontSize: 11, color: "var(--fg4)", marginTop: 2 }}>
+          <code style={{ background: "rgba(255,255,255,0.06)", padding: "1px 4px", borderRadius: 3 }}>{raw}</code>
+        </div>
+      )}
+    </div>
   );
 }

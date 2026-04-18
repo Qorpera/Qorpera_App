@@ -611,7 +611,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
           clearInterval(pollInterval);
           clearInterval(msgInterval);
           setDetectResult({ count: 0, message: t("detectingTimeout") });
-          setTimeout(() => { window.location.href = "/map"; }, 2000);
+          setTimeout(() => { window.location.href = "/situations"; }, 2000);
         }
       }, 2000);
 

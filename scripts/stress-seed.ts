@@ -1,8 +1,5 @@
 // Performance targets (verify manually after seeding):
-// - Map overview (/map): loads in < 1 second
-// - Department detail (/map/[id]): loads in < 2 seconds
 // - Situation feed (/situations): loads in < 2 seconds
-// - Learning dashboard (/learning): loads in < 2 seconds
 // - RAG retrieval: < 100ms (if embeddings were real)
 // - Situation detection full scan: < 30 seconds
 

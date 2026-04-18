@@ -62,7 +62,7 @@ export default function AdminPage() {
     ])
       .then(([me, ops]) => {
         if (me.user?.role !== "superadmin") {
-          router.replace("/map");
+          router.replace("/situations");
           return;
         }
         setUserName(me.user.name);
@@ -73,7 +73,7 @@ export default function AdminPage() {
           .then((data) => { if (data) setSystemStatus(data); })
           .catch(() => {});
       })
-      .catch(() => router.replace("/map"))
+      .catch(() => router.replace("/situations"))
       .finally(() => setLoading(false));
   }, [router]);
 

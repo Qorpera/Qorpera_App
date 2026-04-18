@@ -11,12 +11,16 @@ import { useTranslations, useLocale } from "next-intl";
 import { useUser } from "@/components/user-provider";
 import { formatRelativeTime } from "@/lib/format-helpers";
 import { NotificationPreferences } from "@/components/settings/notification-preferences";
+import { GovernanceTab } from "@/components/settings/governance-tab";
+import { SystemHealthTab } from "@/components/settings/system-health-tab";
+import { AccountTab } from "@/components/settings/account-tab";
+import { EvaluationLogTab } from "@/components/settings/evaluation-log-tab";
 import { ConnectorLogo } from "@/components/connector-logo";
 import { ConnectorConfigModal, type ConfigField } from "@/components/connector-config-modal";
 import { Modal } from "@/components/ui/modal";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
-type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing" | "usage" | "limits";
+type Tab = "ai" | "connections" | "team" | "merges" | "governance" | "notifications" | "billing" | "usage" | "limits" | "account" | "system-health" | "evaluation-log";
 
 type ConnectorItem = {
   id: string;
@@ -118,9 +122,10 @@ function SettingsPageInner() {
   const stripeParam = searchParams.get("stripe");
   const reconnectedParam = searchParams.get("reconnected");
 
-  const [activeTab, setActiveTab] = useState<Tab>(
-    tabParam === "connections" ? "connections" : tabParam === "team" ? "team" : tabParam === "merges" ? "merges" : tabParam === "governance" ? "governance" : tabParam === "billing" ? "billing" : tabParam === "usage" ? "usage" : tabParam === "limits" ? "limits" : "connections"
-  );
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const valid: Tab[] = ["ai", "connections", "team", "merges", "governance", "notifications", "billing", "usage", "limits", "account", "system-health", "evaluation-log"];
+    return (valid as string[]).includes(tabParam ?? "") ? (tabParam as Tab) : "account";
+  });
 
   // AI state
   type FnConfig = { provider: string; apiKey: string; model: string };
@@ -562,7 +567,11 @@ function SettingsPageInner() {
   };
 
   const allTabs: { key: Tab; label: string; adminOnly?: boolean }[] = [
+    { key: "account", label: "Account" },
     { key: "connections", label: t("tabs.connections"), adminOnly: true },
+    { key: "governance", label: "Governance" },
+    { key: "system-health", label: "System Health", adminOnly: true },
+    { key: "evaluation-log", label: "Evaluation Log", adminOnly: true },
     { key: "billing", label: t("tabs.billing"), adminOnly: true },
     { key: "usage", label: "Usage", adminOnly: true },
     { key: "limits", label: "Limits", adminOnly: true },
@@ -1608,8 +1617,13 @@ function SettingsPageInner() {
                     </div>
                   </div>
                 </div>
+                <GovernanceTab />
           </div>
         )}
+
+        {activeTab === "account" && <AccountTab />}
+        {activeTab === "system-health" && <SystemHealthTab />}
+        {activeTab === "evaluation-log" && <EvaluationLogTab />}
 
         {/* Danger Zone — only visible to admins */}
         {isAdmin && operatorInfo && (

@@ -52,7 +52,7 @@ export default function InviteAcceptPage() {
         setAcceptError(data.error || "Failed to join");
         return;
       }
-      router.push(data.redirect || "/map");
+      router.push(data.redirect || "/situations");
     } catch {
       setAcceptError("Connection error");
     } finally {

@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   // Determine return destination
   const oauthReturn = cookieStore.get("google_ads_oauth_return")?.value;
   cookieStore.delete("google_ads_oauth_return");
-  let returnBase = "/account";
+  let returnBase = "/settings?tab=account";
   if (oauthReturn === "onboarding") {
     returnBase = "/onboarding";
   }

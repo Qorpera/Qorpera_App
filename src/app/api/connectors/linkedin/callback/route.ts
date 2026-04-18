@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   const oauthReturn = cookieStore.get("linkedin_oauth_return")?.value;
   cookieStore.delete("linkedin_oauth_return");
-  let returnBase = "/account";
+  let returnBase = "/settings?tab=account";
   if (oauthReturn === "onboarding") {
     returnBase = "/onboarding";
   }

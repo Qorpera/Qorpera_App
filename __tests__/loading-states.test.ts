@@ -37,10 +37,8 @@ describe("Skeleton components", () => {
     "src/components/skeletons/skeleton-list.tsx",
     "src/components/skeletons/skeleton-split-pane.tsx",
     "src/components/skeletons/skeleton-chat.tsx",
-    "src/components/skeletons/skeleton-map.tsx",
     "src/components/skeletons/skeleton-settings.tsx",
     "src/components/skeletons/skeleton-account.tsx",
-    "src/components/skeletons/skeleton-learning.tsx",
   ];
 
   for (const skeleton of skeletons) {

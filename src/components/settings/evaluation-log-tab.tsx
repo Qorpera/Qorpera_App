@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
-import { AppShell } from "@/components/app-shell";
 
 type Classification = "action_required" | "awareness" | "irrelevant" | "initiative_candidate";
 
@@ -44,8 +42,7 @@ const SOURCE_LABELS: Record<string, string> = {
   teams_message: "Teams",
 };
 
-export default function EvaluationLogPage() {
-  const router = useRouter();
+export function EvaluationLogTab() {
   const locale = useLocale();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<LogEntry[]>([]);
@@ -65,31 +62,7 @@ export default function EvaluationLogPage() {
     return res.json();
   }, [filter]);
 
-  // Auth guard + initial load
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => r.json())
-      .then((me) => {
-        if (me.user?.role !== "admin" && me.user?.role !== "superadmin") {
-          router.replace("/map");
-          return;
-        }
-        return fetchLogs();
-      })
-      .then((data) => {
-        if (data) {
-          setItems(data.items);
-          setStats(data.stats);
-          setNextCursor(data.nextCursor);
-        }
-      })
-      .catch(() => router.replace("/map"))
-      .finally(() => setLoading(false));
-  }, [router, fetchLogs]);
-
-  // Re-fetch when filter changes
-  useEffect(() => {
-    if (loading) return;
     setLoading(true);
     fetchLogs()
       .then((data) => {
@@ -100,8 +73,7 @@ export default function EvaluationLogPage() {
         }
       })
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  }, [fetchLogs]);
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
@@ -116,18 +88,14 @@ export default function EvaluationLogPage() {
 
   if (loading) {
     return (
-      <AppShell><div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-64">
         <div className="animate-spin h-6 w-6 border-2 border-accent border-t-transparent rounded-full" />
-      </div></AppShell>
+      </div>
     );
   }
 
   return (
-    <AppShell>
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <h1 className="text-lg font-medium text-foreground">Evaluation Log</h1>
-
-      {/* Stats pills */}
+    <div className="space-y-6">
       <div className="flex flex-wrap gap-3">
         <StatPill label="Total" count={stats.total} color="var(--fg2)" />
         <StatPill label="Action Required" count={stats.action_required} color="var(--ok)" />
@@ -135,7 +103,6 @@ export default function EvaluationLogPage() {
         <StatPill label="Irrelevant" count={stats.irrelevant} color="var(--fg3)" />
       </div>
 
-      {/* Filter */}
       <div>
         <select
           value={filter}
@@ -149,7 +116,6 @@ export default function EvaluationLogPage() {
         </select>
       </div>
 
-      {/* Log entries */}
       <div className="space-y-2">
         {items.length === 0 && (
           <p className="text-sm text-[var(--fg3)] py-8 text-center">No evaluation logs yet.</p>
@@ -159,55 +125,41 @@ export default function EvaluationLogPage() {
           return (
             <div key={entry.id} className="wf-soft rounded-lg border border-border p-4 space-y-1.5">
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Classification badge */}
                 <span
                   className="text-xs font-medium px-2 py-0.5 rounded-full"
                   style={{ color: style.color, backgroundColor: style.bg }}
                 >
                   {style.label}
                 </span>
-
-                {/* Source type */}
                 <span className="text-xs text-[var(--fg3)]">
                   {SOURCE_LABELS[entry.sourceType] ?? entry.sourceType}
                 </span>
-
-                {/* Actor */}
                 <span className="text-xs text-[var(--fg2)]">
                   {entry.actorName ?? "Unknown"}
                 </span>
-
-                {/* Urgency */}
                 {entry.urgency && (
                   <span className="text-xs text-[var(--fg3)]">
                     {entry.urgency} urgency
                   </span>
                 )}
-
-                {/* Confidence */}
                 {entry.confidence != null && (
                   <span className="text-xs text-[var(--fg3)]">
                     {Math.round(entry.confidence * 100)}%
                   </span>
                 )}
-
-                {/* Timestamp */}
                 <span className="text-xs text-[var(--fg3)] ml-auto">
                   {formatRelativeTime(entry.evaluatedAt, locale)}
                 </span>
               </div>
 
-              {/* Summary */}
               {entry.summary && (
                 <p className="text-sm text-foreground">{entry.summary}</p>
               )}
 
-              {/* Reasoning */}
               {entry.reasoning && (
                 <p className="text-xs text-[var(--fg3)]">{entry.reasoning}</p>
               )}
 
-              {/* Situation link */}
               {entry.situationId && (
                 <a
                   href={`/situations?id=${entry.situationId}`}
@@ -221,7 +173,6 @@ export default function EvaluationLogPage() {
         })}
       </div>
 
-      {/* Load more */}
       {nextCursor && (
         <div className="flex justify-center">
           <button
@@ -234,7 +185,6 @@ export default function EvaluationLogPage() {
         </div>
       )}
     </div>
-    </AppShell>
   );
 }
 

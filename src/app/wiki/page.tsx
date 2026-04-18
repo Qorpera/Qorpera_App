@@ -110,6 +110,12 @@ const PAGE_TYPE_META: Record<string, { label: string; icon: string }> = {
   topic_synthesis: { label: "Topics", icon: "T" },
   relationship_map: { label: "Relationships", icon: "R" },
   contradiction_log: { label: "Contradictions", icon: "!" },
+  system_job: { label: "System jobs", icon: "J" },
+  project_portfolio: { label: "Project portfolios", icon: "F" },
+  project: { label: "Projects", icon: "P" },
+  project_deliverable: { label: "Deliverables", icon: "D" },
+  initiative: { label: "Initiatives", icon: "I" },
+  situation_instance: { label: "Situations", icon: "S" },
 };
 
 const STATUS_COLOR: Record<string, string> = {

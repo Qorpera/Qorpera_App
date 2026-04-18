@@ -5,12 +5,21 @@
  * The seed runner creates KnowledgePage records from these.
  */
 
+import type { InitiativeDashboard } from "@/lib/initiative-dashboard-types";
+
 export interface PromoPage {
   slug: string;
   pageType: string;
   title: string;
   content: string;
   properties: Record<string, unknown>;
+}
+
+// Matches the exact format `injectDashboardSection` writes in initiative-reasoning.ts
+// so the parser in initiative-page-parser.ts reads embedded dashboards identically
+// to runtime-generated ones.
+function buildDashboardSection(dashboard: InitiativeDashboard): string {
+  return `## Dashboard\n\n\`\`\`json\n${JSON.stringify(dashboard, null, 2)}\n\`\`\`\n`;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -568,6 +577,295 @@ export const PROCESS_PAGES: PromoPage[] = [
 // INITIATIVES (3 pages)
 // ══════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════
+// INITIATIVE DASHBOARDS
+// Payloads embedded into the three initiative content strings below.
+// Format: parseInitiativePage → parseDashboardSection (see initiative-page-parser.ts).
+// ══════════════════════════════════════════════════════════
+
+const DASHBOARD_SCOPE_CREEP: InitiativeDashboard = {
+  cards: [
+    {
+      primitive: "impact_bar",
+      span: 6,
+      claim: "60–80% fewer unbudgeted hours per engagement",
+      explanation:
+        "Scope additions currently proceed without estimate or client signature. A change-order checkpoint converts informal expansion into budgeted work.",
+      confidence: "medium",
+      evidence: [
+        {
+          ref: "scope-creep-analysis",
+          inferred: false,
+          summary:
+            "38 hrs/mo averaged across 3 active engagements last quarter",
+        },
+        {
+          ref: null,
+          inferred: true,
+          summary:
+            "Projected 8–15 hrs/mo based on change-order benchmarks in similar consultancies",
+        },
+      ],
+      data: {
+        baseline: { typicalValue: 38, unit: "hrs/mo" },
+        projected: {
+          typicalValue: 12,
+          range: { low: 8, high: 15 },
+          unit: "hrs/mo",
+        },
+        savings: {
+          typicalValue: 26,
+          unit: "hrs/mo",
+          label: "recovered delivery capacity across active engagements",
+        },
+      },
+    },
+    {
+      primitive: "entity_set",
+      span: 6,
+      claim: "4 engagements with unbilled scope drift · last 90 days",
+      explanation:
+        "All four expanded mid-engagement without a written amendment. Ranked by unbilled hours.",
+      confidence: "high",
+      evidence: [
+        {
+          ref: "engagement-ledger",
+          inferred: false,
+          summary:
+            "Time entries tagged 'scope-change' aggregated per engagement",
+        },
+      ],
+      data: {
+        subtitle: "from past 90 days",
+        entities: [
+          {
+            name: "Hansen-Meier Industri",
+            slug: "hansen-meier",
+            flag: "bad",
+            metric: "+82 hrs",
+            metricFlag: "bad",
+          },
+          {
+            name: "Nordsø Logistik",
+            flag: "warn",
+            metric: "+54 hrs",
+            metricFlag: "warn",
+          },
+          {
+            name: "Baltica Retail",
+            flag: "warn",
+            metric: "+31 hrs",
+            metricFlag: "warn",
+          },
+          {
+            name: "Orsa Møbler",
+            flag: "neutral",
+            metric: "+12 hrs",
+          },
+        ],
+      },
+    },
+    {
+      primitive: "process_flow",
+      span: 12,
+      claim: "5-step change-order workflow with two mandatory checkpoints",
+      explanation:
+        "Quantification precedes client signature, which precedes any billable work. Both checkpoints are non-skippable.",
+      confidence: "high",
+      evidence: [
+        {
+          ref: "change-order-workflow",
+          inferred: false,
+          summary: "Draft workflow spec attached to this initiative",
+        },
+      ],
+      data: {
+        steps: [
+          { label: "Identify" },
+          { label: "Quantify", checkpoint: true, note: "Estimate" },
+          { label: "Client approval", checkpoint: true, note: "Signature" },
+          { label: "Invoice update" },
+          { label: "Track" },
+        ],
+      },
+    },
+  ],
+};
+
+const DASHBOARD_PROFITABILITY: InitiativeDashboard = {
+  cards: [
+    {
+      primitive: "conceptual_diagram",
+      span: 6,
+      claim: "Portfolio splits into three margin tiers, weighted toward low-margin foundation work",
+      explanation:
+        "Foundation-tier clients (<20% margin) make up more than half the portfolio but generate less than a quarter of profit. Tier framing would shift acquisition strategy.",
+      confidence: "medium",
+      evidence: [
+        {
+          ref: "client-ledger",
+          inferred: false,
+          summary:
+            "Client P&L breakdown across 14 active engagements, last 12 months",
+        },
+        {
+          ref: null,
+          inferred: true,
+          summary:
+            "Tier thresholds are hypothesis — sample size of 14 is below the stability mark",
+        },
+      ],
+      data: {
+        variant: "tier_pyramid",
+        tiers: [
+          {
+            label: "Strategic",
+            count: 2,
+            threshold: "≥35% margin",
+            flag: "good",
+          },
+          {
+            label: "Standard",
+            count: 5,
+            threshold: "20–35% margin",
+            flag: "neutral",
+          },
+          {
+            label: "Foundation",
+            count: 7,
+            threshold: "<20% margin",
+            flag: "bad",
+          },
+        ],
+      },
+    },
+    {
+      primitive: "impact_bar",
+      span: 6,
+      claim: "Hypothetical lift if foundation tier rebalances: +6pp average margin",
+      explanation:
+        "Modeled scenario: if half of foundation-tier engagements are replaced with standard-tier work, blended margin improves from 19% to 25%. Highly speculative at current sample size.",
+      confidence: "low",
+      evidence: [
+        {
+          ref: null,
+          inferred: true,
+          summary: "Scenario model, no empirical basis in current portfolio data",
+        },
+      ],
+      data: {
+        baseline: { typicalValue: 19, unit: "%" },
+        projected: {
+          typicalValue: 25,
+          range: { low: 21, high: 29 },
+          unit: "%",
+        },
+      },
+    },
+  ],
+};
+
+const DASHBOARD_REPORTING: InitiativeDashboard = {
+  cards: [
+    {
+      primitive: "automation_loop",
+      span: 12,
+      claim: "Monthly KPI report cycle — 4-node flow replacing 38 hours of manual compilation",
+      explanation:
+        "Runs 1st of each month. Trust gradient: first two cycles route through operator approval before send; auto-sends after two clean cycles with anomaly-only escalation.",
+      confidence: "high",
+      evidence: [
+        {
+          ref: "reporting-time-audit",
+          inferred: false,
+          summary: "38 hrs/mo measured across 3 reporters over 4 months",
+        },
+        {
+          ref: "reporting-template",
+          inferred: false,
+          summary:
+            "Existing monthly format — 4 sections, data from 6 source systems",
+        },
+      ],
+      data: {
+        annotation:
+          "First 2 cycles require operator approval before the Notify step. After 2 clean cycles, auto-sends with anomaly-only escalation.",
+        nodes: [
+          {
+            icon: "trigger",
+            title: "Trigger",
+            sub: "1st of month\n09:00 CET",
+          },
+          {
+            icon: "fetch",
+            title: "Fetch",
+            sub: "6 source systems\ne-conomic, Planday,\nHubSpot, Stripe,\nDinero, GSheets",
+          },
+          {
+            icon: "compose",
+            title: "Compose",
+            sub: "4-section format\nflags deviations\n>15% vs 3-mo avg",
+          },
+          {
+            icon: "notify",
+            title: "Notify",
+            sub: "4 recipients\nCEO, CFO, board,\ndelivery lead",
+          },
+        ],
+      },
+    },
+    {
+      primitive: "trend_or_distribution",
+      span: 6,
+      claim: "Manual reporting effort trending up 12 months running",
+      explanation:
+        "Hours spent compiling the monthly report have climbed 40% over the last year as source systems multiplied. Warning tint reflects the trajectory.",
+      confidence: "medium",
+      evidence: [
+        {
+          ref: "reporting-time-audit",
+          inferred: false,
+          summary: "Monthly hours logged under 'reporting' category",
+        },
+      ],
+      data: {
+        kind: "sparkline",
+        headlineValue: 38,
+        headlineUnit: "hrs",
+        deltaLabel: "↑ from 27",
+        flag: "warn",
+        points: [27, 28, 26, 29, 30, 31, 32, 33, 34, 36, 37, 38],
+        xAxisStart: "Apr 2025",
+        xAxisEnd: "Mar 2026",
+      },
+    },
+    {
+      primitive: "trend_or_distribution",
+      span: 6,
+      claim: "Where the 38 hours go",
+      explanation:
+        "Data pull and formatting dominate the effort. Automation targets the primary slice — data pull — first.",
+      confidence: "medium",
+      evidence: [
+        {
+          ref: "reporting-time-audit",
+          inferred: false,
+          summary: "Task-level breakdown from reporter timesheets",
+        },
+      ],
+      data: {
+        kind: "donut",
+        segments: [
+          { label: "Data pull & aggregation", value: 14, flag: "primary" },
+          { label: "Formatting & layout", value: 12, flag: "secondary" },
+          { label: "Review & edit", value: 8, flag: "secondary" },
+          { label: "Distribution", value: 4, flag: "tertiary" },
+        ],
+      },
+    },
+  ],
+};
+
 export const INITIATIVE_PAGES: PromoPage[] = [
   {
     slug: "init-client-profitability",
@@ -601,6 +899,7 @@ Cross-referencing billing data with project time tracking revealed 3 active enga
 - Meridian redesign: 40 hours unbudgeted scope creep, effective margin dropped to 11%
 - Northwave optimization: on track at 22% margin but below 25% threshold due to senior consultant rate
 
+${buildDashboardSection(DASHBOARD_PROFITABILITY)}
 ## Investigation
 Analyzed project profitability across all active engagements by cross-referencing e-conomic billing data with time tracking and resource allocation. Three engagements are below the 25% target margin. The root causes differ: Greenfield is underpriced relative to the senior resources deployed, Meridian suffered scope creep without a change order, and Northwave uses a senior consultant where a mid-level could handle established methodology steps.
 
@@ -662,6 +961,7 @@ Activity analysis detected that 3 people spend a combined 38 hours every month c
 - [[monthly-reporting]] process page documents 12 hours direct effort, 2 of last 4 reports delivered late
 - Coordination overhead adds ~26 hours/month (waiting for inputs, follow-up emails, revision cycles)
 
+${buildDashboardSection(DASHBOARD_REPORTING)}
 ## Investigation
 Mapped the end-to-end monthly reporting process. The 38 total hours break down as: 12 hours of direct compilation work (7 hours data gathering + 3 hours formatting + 2 hours analysis), plus 26 hours of coordination overhead (email follow-ups between departments, waiting for inputs, revision cycles). The data gathering portion pulls from 4 systems that are all connected to Qorpera: e-conomic (financials), HubSpot (pipeline), project tracking (delivery status), and wiki (headcount/team data).
 
@@ -726,6 +1026,7 @@ Situation history analysis revealed that website and digital projects consistent
 - No formal change order process exists — scope additions are approved verbally by project managers
 - See [[project-delay-meridian-redesign]] for the current instance
 
+${buildDashboardSection(DASHBOARD_SCOPE_CREEP)}
 ## Investigation
 Analyzed delivery timelines across all projects in the last 12 months. Website and digital projects show a consistent pattern: client requests additional UX research or design iterations during the UX phase, project managers approve to maintain client satisfaction, but no formal change order is created. This results in unbudgeted hours, timeline delays, and margin erosion. The pattern is structural — it recurs because there is no process to prevent it.
 
@@ -931,12 +1232,15 @@ export const SYSTEM_JOB_PAGES: PromoPage[] = [
     properties: {
       status: "active",
       schedule: "0 7 * * 1",
+      description: "Weekly scan of active client engagements for scope creep, timeline risk, margin erosion, and relationship concerns. Flags engagements needing follow-up.",
       owner: "sofie-nielsen",
       domain: "delivery",
       trust_level: "propose",
       auto_approve_steps: false,
       last_run: "2026-04-14T07:00:00Z",
       next_run: "2026-04-21T07:00:00Z",
+      latest_run_summary: "3 engagements reviewed. 1 flagged red on timeline dimension — Meridian redesign delay escalated.",
+      latest_run_status: "completed",
     },
     content: `# Client Engagement Health
 
@@ -990,12 +1294,15 @@ Each Monday morning the job:
     properties: {
       status: "active",
       schedule: "0 6 * * *",
+      description: "Daily scan for upcoming board meetings within 5 days. Surfaces preparation situations when briefing documents are missing.",
       owner: "anna-korsgaard",
       domain: "management",
       trust_level: "observe",
       auto_approve_steps: false,
       last_run: "2026-04-17T06:00:00Z",
       next_run: "2026-04-18T06:00:00Z",
+      latest_run_summary: "Upcoming board meeting in 3 days. Preparation situation already in proposed state; no new action needed.",
+      latest_run_status: "completed",
     },
     content: `# Board Meeting Preparation
 
@@ -1047,12 +1354,15 @@ Daily at 06:00 the job:
     properties: {
       status: "active",
       schedule: "0 8 1 * *",
+      description: "Monthly draft of the investor briefing covering prior month's financials, pipeline, delivery, team, and risks. Drafted for CEO review before distribution.",
       owner: "anna-korsgaard",
       domain: "management",
       trust_level: "propose",
       auto_approve_steps: false,
       last_run: "2026-04-01T08:00:00Z",
       next_run: "2026-05-01T08:00:00Z",
+      latest_run_summary: "March briefing produced, reviewed by Anna, and distributed to investor list on April 2.",
+      latest_run_status: "completed",
     },
     content: `# Monthly Investor Briefing
 
@@ -1108,12 +1418,15 @@ On the 1st of each month at 08:00 the job:
     properties: {
       status: "active",
       schedule: "0 17 * * 5",
+      description: "Friday reflective evaluation of the week's decisions and activity against stated purpose and strategic priorities. Surfaces drift and proposes corrective initiatives.",
       owner: "anna-korsgaard",
       domain: "management",
       trust_level: "propose",
       auto_approve_steps: false,
       last_run: "2026-04-17T17:00:00Z",
       next_run: "2026-04-24T17:00:00Z",
+      latest_run_summary: "Five material decisions tracked this week. Three aligned with Q2 margin-protection priority; two diverged — scope addition without change order, and launch/DD sequencing tension. Awaiting review.",
+      latest_run_status: "awaiting_review",
     },
     content: `# Weekly Performance Evaluation & Purpose Orientation
 

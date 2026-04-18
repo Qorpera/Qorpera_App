@@ -103,6 +103,6 @@ export async function POST(
 
   return NextResponse.json({
     user: { id: user.id, name: user.name, email: user.email, role: user.role },
-    redirect: "/map",
+    redirect: "/situations",
   }, { status: 201 });
 }

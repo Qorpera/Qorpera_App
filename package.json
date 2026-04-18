@@ -17,7 +17,6 @@
     "start": "next start",
     "lint": "next lint",
     "migrate-chunks": "npx tsx scripts/migrate-document-chunks.ts",
-    "seed:demo-dashboard": "tsx scripts/seed-demo-dashboard.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

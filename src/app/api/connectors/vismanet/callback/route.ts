@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   // Determine return destination
   const oauthReturn = cookieStore.get("vismanet_oauth_return")?.value;
   cookieStore.delete("vismanet_oauth_return");
-  let returnBase = "/account";
+  let returnBase = "/settings?tab=account";
   if (oauthReturn === "onboarding") {
     returnBase = "/onboarding";
   }

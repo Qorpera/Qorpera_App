@@ -33,17 +33,18 @@ export async function GET(req: NextRequest) {
   // Determine return path
   const returnPath = cookieStore.get("gws_oauth_return")?.value;
   cookieStore.delete("gws_oauth_return");
-  const returnBase = returnPath === "onboarding" ? "/onboarding" : "/account";
+  const returnBase = returnPath === "onboarding" ? "/onboarding" : "/settings?tab=account";
+  const sep = returnBase.includes("?") ? "&" : "?";
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`${returnBase}?workspace=error&reason=${encodeURIComponent(error)}`, APP_BASE),
+      new URL(`${returnBase}${sep}workspace=error&reason=${encodeURIComponent(error)}`, APP_BASE),
     );
   }
 
   if (!code || !state) {
     return NextResponse.redirect(
-      new URL(`${returnBase}?workspace=error&reason=missing_params`, APP_BASE),
+      new URL(`${returnBase}${sep}workspace=error&reason=missing_params`, APP_BASE),
     );
   }
 
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
   const storedState = cookieStore.get("gws_oauth_state")?.value;
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(
-      new URL(`${returnBase}?workspace=error&reason=invalid_state`, APP_BASE),
+      new URL(`${returnBase}${sep}workspace=error&reason=invalid_state`, APP_BASE),
     );
   }
   cookieStore.delete("gws_oauth_state");
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     return NextResponse.redirect(
-      new URL(`${returnBase}?workspace=error&reason=server_config`, APP_BASE),
+      new URL(`${returnBase}${sep}workspace=error&reason=server_config`, APP_BASE),
     );
   }
 
@@ -82,7 +83,7 @@ export async function GET(req: NextRequest) {
     const errBody = await tokenResp.text();
     console.error("[google-workspace-oauth] Token exchange failed:", errBody);
     return NextResponse.redirect(
-      new URL(`${returnBase}?workspace=error&reason=token_exchange`, APP_BASE),
+      new URL(`${returnBase}${sep}workspace=error&reason=token_exchange`, APP_BASE),
     );
   }
 
@@ -155,6 +156,6 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.redirect(
-    new URL(`${returnBase}?workspace=connected`, APP_BASE),
+    new URL(`${returnBase}${sep}workspace=connected`, APP_BASE),
   );
 }

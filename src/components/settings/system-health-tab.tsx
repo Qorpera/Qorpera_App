@@ -1,20 +1,16 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useTranslations } from "next-intl";
-import { useLocale } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import Link from "next/link";
 import { fetchApi } from "@/lib/fetch-api";
 import { formatRelativeTime } from "@/lib/format-helpers";
-import { AppShell } from "@/components/app-shell";
 import { ConnectorLogo } from "@/components/connector-logo";
 import { ContextualChat } from "@/components/contextual-chat";
 import type {
   ConnectorHealth,
   OperatorHealthSnapshot,
 } from "@/lib/system-health/compute-snapshot";
-
-// ─── Status helpers ──────────────────────────────────────
 
 const STATUS_COLORS: Record<string, string> = {
   healthy: "bg-green-500",
@@ -33,8 +29,6 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[status] ?? "bg-gray-500"}`} />;
 }
 
-// ─── Icons ───────────────────────────────────────────────
-
 function RefreshCw({ className }: { className?: string }) {
   return <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" /></svg>;
 }
@@ -49,9 +43,6 @@ function ActionButton({ label, href }: { label: string; href: string }) {
     </Link>
   );
 }
-
-// ─── Section components ──────────────────────────────────
-// TODO: migrate hardcoded strings below to useTranslations("systemHealth")
 
 function ConnectorsSection({ connectors, locale, t }: {
   connectors: ConnectorHealth[];
@@ -109,9 +100,7 @@ function ConnectorRow({ connector: c, locale, t }: {
   );
 }
 
-function WikiSection({ wiki }: {
-  wiki: OperatorHealthSnapshot["wiki"];
-}) {
+function WikiSection({ wiki }: { wiki: OperatorHealthSnapshot["wiki"] }) {
   if (wiki.totalPages === 0) {
     return (
       <p className="text-sm text-[var(--fg3)]">No wiki pages yet. Pages are created as the system processes your data.</p>
@@ -144,13 +133,9 @@ function WikiSection({ wiki }: {
   );
 }
 
-function PeopleSection({ people }: {
-  people: OperatorHealthSnapshot["people"];
-}) {
+function PeopleSection({ people }: { people: OperatorHealthSnapshot["people"] }) {
   if (people.totalProfiles === 0) {
-    return (
-      <p className="text-sm text-[var(--fg3)]">No person profiles yet.</p>
-    );
+    return <p className="text-sm text-[var(--fg3)]">No person profiles yet.</p>;
   }
 
   return (
@@ -162,13 +147,9 @@ function PeopleSection({ people }: {
   );
 }
 
-function DetectionSection({ detection }: {
-  detection: OperatorHealthSnapshot["detection"];
-}) {
+function DetectionSection({ detection }: { detection: OperatorHealthSnapshot["detection"] }) {
   if (detection.totalSituationTypes === 0) {
-    return (
-      <p className="text-sm text-[var(--fg3)]">No situation types configured.</p>
-    );
+    return <p className="text-sm text-[var(--fg3)]">No situation types configured.</p>;
   }
 
   return (
@@ -193,13 +174,9 @@ function DetectionSection({ detection }: {
   );
 }
 
-function RawContentSection({ rawContent }: {
-  rawContent: OperatorHealthSnapshot["rawContent"];
-}) {
+function RawContentSection({ rawContent }: { rawContent: OperatorHealthSnapshot["rawContent"] }) {
   if (rawContent.totalItems === 0) {
-    return (
-      <p className="text-sm text-[var(--fg3)]">No raw content ingested yet.</p>
-    );
+    return <p className="text-sm text-[var(--fg3)]">No raw content ingested yet.</p>;
   }
 
   return (
@@ -220,11 +197,7 @@ function RawContentSection({ rawContent }: {
   );
 }
 
-function StatCard({ label, value, color }: {
-  label: string;
-  value: number | string;
-  color?: string;
-}) {
+function StatCard({ label, value, color }: { label: string; value: number | string; color?: string }) {
   return (
     <div className="bg-hover/50 rounded-lg px-3 py-2">
       <p className="text-xs text-[var(--fg3)]">{label}</p>
@@ -233,12 +206,7 @@ function StatCard({ label, value, color }: {
   );
 }
 
-// ─── Section Card ───────────────────────────────────────
-
-function SectionCard({ title, children }: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden">
       <div className="px-5 py-3 border-b border-border">
@@ -251,9 +219,7 @@ function SectionCard({ title, children }: {
   );
 }
 
-// ─── Main Page ───────────────────────────────────────────
-
-export default function SystemHealthPage() {
+export function SystemHealthTab() {
   const t = useTranslations("systemHealth");
   const locale = useLocale();
   const [snapshot, setSnapshot] = useState<OperatorHealthSnapshot | null>(null);
@@ -262,7 +228,6 @@ export default function SystemHealthPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshCooldown, setRefreshCooldown] = useState(false);
 
-  // Stable ref for t() so fetchHealth doesn't depend on it
   const tRef = useRef(t);
   tRef.current = t;
 
@@ -311,7 +276,6 @@ export default function SystemHealthPage() {
 
   const refreshDisabled = refreshing || refreshCooldown;
 
-  // Summary
   let summaryText: string | undefined;
   let summaryColor: string | undefined;
   if (snapshot) {
@@ -330,115 +294,114 @@ export default function SystemHealthPage() {
     }
   }
 
-  return (
-    <AppShell>
-      {loading ? (
-        <div className="p-6 space-y-6">
-          <div className="bg-skeleton rounded-lg p-6 animate-pulse">
-            <div className="h-6 w-48 bg-skeleton rounded mb-2" />
-            <div className="h-4 w-32 bg-skeleton rounded" />
-          </div>
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-skeleton rounded-lg p-6 animate-pulse">
-              <div className="h-5 w-40 bg-skeleton rounded mb-4" />
-              <div className="space-y-3">
-                <div className="h-4 w-full bg-skeleton rounded" />
-                <div className="h-4 w-3/4 bg-skeleton rounded" />
-                <div className="h-4 w-1/2 bg-skeleton rounded" />
-              </div>
-            </div>
-          ))}
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-skeleton rounded-lg p-6 animate-pulse">
+          <div className="h-6 w-48 bg-skeleton rounded mb-2" />
+          <div className="h-4 w-32 bg-skeleton rounded" />
         </div>
-      ) : error && !snapshot ? (
-        <div className="p-6 flex flex-col items-center justify-center min-h-[400px] text-center">
-          <p className="text-sm text-[var(--fg3)] mb-4">{t("errorLoading")}</p>
-          <button onClick={fetchHealth} className="border border-border text-[var(--fg2)] hover:bg-hover text-sm px-4 py-2 rounded">
-            {t("retry")}
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="bg-skeleton rounded-lg p-6 animate-pulse">
+            <div className="h-5 w-40 bg-skeleton rounded mb-4" />
+            <div className="space-y-3">
+              <div className="h-4 w-full bg-skeleton rounded" />
+              <div className="h-4 w-3/4 bg-skeleton rounded" />
+              <div className="h-4 w-1/2 bg-skeleton rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (error && !snapshot) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
+        <p className="text-sm text-[var(--fg3)] mb-4">{t("errorLoading")}</p>
+        <button onClick={fetchHealth} className="border border-border text-[var(--fg2)] hover:bg-hover text-sm px-4 py-2 rounded">
+          {t("retry")}
+        </button>
+      </div>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
+        <p className="text-sm text-[var(--fg3)] mb-4">{t("completeOnboarding")}</p>
+        <Link href="/onboarding" className="border border-border text-[var(--fg2)] hover:bg-hover text-sm px-4 py-2 rounded">
+          {t("goToOnboarding")}
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-surface border border-border rounded-lg p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className={`w-3 h-3 rounded-full ${summaryColor}`} />
+            <h2 className="text-lg font-semibold text-foreground">{summaryText}</h2>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshDisabled}
+            className="flex items-center gap-2 border border-border text-[var(--fg2)] hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-1.5 rounded transition"
+          >
+            <RefreshCw className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? t("refreshing") : t("refresh")}
           </button>
         </div>
-      ) : !snapshot ? (
-        <div className="p-6 flex flex-col items-center justify-center min-h-[400px] text-center">
-          <p className="text-sm text-[var(--fg3)] mb-4">{t("completeOnboarding")}</p>
-          <Link href="/onboarding" className="border border-border text-[var(--fg2)] hover:bg-hover text-sm px-4 py-2 rounded">
-            {t("goToOnboarding")}
-          </Link>
+        <p className="text-xs text-[var(--fg3)] mt-2">
+          {t("lastChecked", { time: formatRelativeTime(snapshot.computedAt, locale) })}
+        </p>
+      </div>
+
+      <SectionCard title={t("dataPipeline")}>
+        <ConnectorsSection connectors={snapshot.connectors} locale={locale} t={t} />
+      </SectionCard>
+
+      <SectionCard title="Wiki Knowledge">
+        <WikiSection wiki={snapshot.wiki} />
+      </SectionCard>
+
+      <SectionCard title="People">
+        <PeopleSection people={snapshot.people} />
+      </SectionCard>
+
+      <SectionCard title={t("detection")}>
+        <DetectionSection detection={snapshot.detection} />
+      </SectionCard>
+
+      <SectionCard title="Raw Content">
+        <RawContentSection rawContent={snapshot.rawContent} />
+      </SectionCard>
+
+      <div className="bg-[color-mix(in_srgb,var(--accent)_4%,transparent)] border border-[color-mix(in_srgb,var(--accent)_15%,transparent)] rounded-lg p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+          </svg>
+          <h2 className="text-[13px] font-semibold text-accent">{t("weeklyDiagnosticTitle")}</h2>
+          <span className="text-[10px] font-medium ml-auto px-2 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-accent">{t("comingSoon")}</span>
         </div>
-      ) : (
-        <div className="p-6 space-y-6">
-          {/* Operator Summary */}
-          <div className="bg-surface border border-border rounded-lg p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className={`w-3 h-3 rounded-full ${summaryColor}`} />
-                <h1 className="text-lg font-semibold text-foreground">{summaryText}</h1>
-              </div>
-              <button
-                onClick={handleRefresh}
-                disabled={refreshDisabled}
-                className="flex items-center gap-2 border border-border text-[var(--fg2)] hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed text-xs px-3 py-1.5 rounded transition"
-              >
-                <RefreshCw className={refreshing ? "animate-spin" : ""} />
-                {refreshing ? t("refreshing") : t("refresh")}
-              </button>
-            </div>
-            <p className="text-xs text-[var(--fg3)] mt-2">
-              {t("lastChecked", { time: formatRelativeTime(snapshot.computedAt, locale) })}
-            </p>
-          </div>
+        <p className="text-sm text-[var(--fg2)] leading-relaxed">{t("weeklyDiagnosticDescription")}</p>
+      </div>
 
-          {/* Connectors */}
-          <SectionCard title={t("dataPipeline")}>
-            <ConnectorsSection connectors={snapshot.connectors} locale={locale} t={t} />
-          </SectionCard>
+      <ContextualChat
+        contextType="system-health"
+        contextId={snapshot.operatorId}
+        placeholder={t("chatPlaceholder")}
+        hints={[t("chatHint1"), t("chatHint2"), t("chatHint3")]}
+      />
 
-          {/* Wiki */}
-          <SectionCard title="Wiki Knowledge">
-            <WikiSection wiki={snapshot.wiki} />
-          </SectionCard>
-
-          {/* People */}
-          <SectionCard title="People">
-            <PeopleSection people={snapshot.people} />
-          </SectionCard>
-
-          {/* Detection */}
-          <SectionCard title={t("detection")}>
-            <DetectionSection detection={snapshot.detection} />
-          </SectionCard>
-
-          {/* Raw Content */}
-          <SectionCard title="Raw Content">
-            <RawContentSection rawContent={snapshot.rawContent} />
-          </SectionCard>
-
-          {/* Weekly AI Diagnostic */}
-          <div className="bg-[color-mix(in_srgb,var(--accent)_4%,transparent)] border border-[color-mix(in_srgb,var(--accent)_15%,transparent)] rounded-lg p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              </svg>
-              <h2 className="text-[13px] font-semibold text-accent">{t("weeklyDiagnosticTitle")}</h2>
-              <span className="text-[10px] font-medium ml-auto px-2 py-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] text-accent">{t("comingSoon")}</span>
-            </div>
-            <p className="text-sm text-[var(--fg2)] leading-relaxed">{t("weeklyDiagnosticDescription")}</p>
-          </div>
-
-          {/* Contextual Chat */}
-          <ContextualChat
-            contextType="system-health"
-            contextId={snapshot.operatorId}
-            placeholder={t("chatPlaceholder")}
-            hints={[t("chatHint1"), t("chatHint2"), t("chatHint3")]}
-          />
-
-          {/* Toast for rate limit */}
-          {error && (
-            <div className="fixed bottom-6 right-6 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm px-4 py-3 rounded-lg shadow-lg">
-              {error}
-            </div>
-          )}
+      {error && (
+        <div className="fixed bottom-6 right-6 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm px-4 py-3 rounded-lg shadow-lg">
+          {error}
         </div>
       )}
-    </AppShell>
+    </div>
   );
 }
