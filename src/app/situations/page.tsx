@@ -18,6 +18,7 @@ import { OpenQuestionsCard } from "@/components/execution/open-questions-card";
 import { DecisionsSection } from "@/components/execution/decisions-section";
 import { parseOpenQuestionsSection, parseDecisionsSection } from "@/lib/clarification-helpers";
 import { useToast } from "@/components/ui/toast";
+import { ActionDraftCard, categorizeAction, flushPendingDraftSaves, type ActionDraft } from "@/components/action-draft-card";
 
 function getApproveLabelKey(step: ExecutionStepForPreview): "send" | "accept" {
   const slug = step.actionCapability?.slug ?? "";
@@ -118,20 +119,7 @@ interface ExecutionPlanData {
   }>;
 }
 
-interface DraftPayload {
-  actionType: string;
-  provider: string;
-  payload: {
-    to?: string;
-    cc?: string;
-    subject?: string;
-    body?: string;
-    channel?: string;
-    message?: string;
-    [key: string]: unknown;
-  };
-  attachments?: unknown[];
-}
+type DraftPayload = ActionDraft;
 
 interface SituationDetail {
   id: string;
@@ -346,38 +334,24 @@ function wikiToExecutionPlan(detail: SituationDetail): ExecutionPlanData | null 
 }
 
 /**
- * Extract draft payloads from wiki action plan step params.
- * Replaces extractDraftPayloads which read from reasoning JSON.
+ * Extract draft payloads from wiki action plan step params. Each draft carries
+ * the originating step order and the full params object verbatim so continuous
+ * autosave in ActionDraftCard can PATCH the step without losing unrelated keys.
  */
 function wikiToDraftPayloads(detail: SituationDetail): DraftPayload[] {
   if (!detail.actionPlan) return [];
   const drafts: DraftPayload[] = [];
   for (const step of detail.actionPlan.steps) {
     if (!step.params) continue;
-    const p = step.params;
-    if (step.capabilityName?.includes("email") || step.capabilityName === "reply_to_thread" || step.capabilityName === "create_draft" || step.capabilityName === "send_with_attachment" || step.capabilityName === "forward_email") {
-      drafts.push({
-        actionType: step.executionMode,
-        provider: (p._provider as string) ?? "email",
-        payload: {
-          to: p.to as string,
-          cc: p.cc as string,
-          subject: p.subject as string,
-          body: p.body as string,
-        },
-        attachments: (p.attachments as unknown[]) ?? undefined,
-      });
-    }
-    if (step.capabilityName?.includes("slack") || step.capabilityName?.includes("teams")) {
-      drafts.push({
-        actionType: step.executionMode,
-        provider: step.capabilityName.includes("slack") ? "Slack" : "Teams",
-        payload: {
-          channel: p.channel as string,
-          message: (p.body as string) ?? (p.message as string),
-        },
-      });
-    }
+    const category = categorizeAction(step.capabilityName ?? null);
+    if (category === "other") continue;
+    drafts.push({
+      stepOrder: step.sequenceOrder,
+      capabilityName: step.capabilityName ?? null,
+      executionMode: step.executionMode,
+      provider: typeof step.params._provider === "string" ? (step.params._provider as string) : null,
+      params: step.params,
+    });
   }
   return drafts;
 }
@@ -386,22 +360,6 @@ function severityBadge(s: SituationItem): { label: string; variant: "red" | "amb
   if (s.severity >= 0.7) return { label: "Critical", variant: "red" };
   if (s.severity >= 0.4) return { label: "High", variant: "amber" };
   return { label: "Medium", variant: "default" };
-}
-
-function providerLabel(draft: DraftPayload): string {
-  const p = draft.provider?.toLowerCase();
-  if (p === "google" || p === "gmail") return "Gmail";
-  if (p === "slack") return "Slack";
-  if (p === "microsoft" || p === "outlook") return "Outlook";
-  return draft.provider ?? "Tool";
-}
-
-function providerDotColor(draft: DraftPayload): string {
-  const p = draft.provider?.toLowerCase();
-  if (p === "google" || p === "gmail") return "var(--danger)";
-  if (p === "slack") return "var(--accent)";
-  if (p === "microsoft" || p === "outlook") return "var(--info)";
-  return "var(--fg3)";
 }
 
 const CATEGORY_OPTIONS = [
@@ -473,7 +431,11 @@ export default function SituationsPage() {
   useEffect(() => {
     function handlePanelApprove() {
       if (selectedSituation && sidePanelData?.isEditable) {
-        patchSituation(selectedSituation.id, { status: "approved" });
+        // Flush any in-flight draft autosaves before approving so the executor
+        // reads the latest edits from the wiki.
+        void flushPendingDraftSaves().then(() => {
+          patchSituation(selectedSituation.id, { status: "approved" });
+        });
       }
     }
     window.addEventListener("panel-approve-action", handlePanelApprove);
@@ -858,6 +820,9 @@ export default function SituationsPage() {
                 onApprove={sidePanelData.isEditable ? () => {
                   const situationId = sidePanelData.situationId || selectedSituation!.id;
                   const stepOrder = sidePanelData.stepOrder;
+                  // Flush debounced draft edits first (fire-and-forget) so the
+                  // executor picks up the latest field values from the wiki.
+                  void flushPendingDraftSaves();
                   // Fire the POST immediately (fire-and-forget). UI timing is driven by the
                   // button's 1100ms animation, not by the network round-trip. On failure,
                   // toast the user and let the next fetchDetail reconcile the optimistic flip.
@@ -1150,9 +1115,6 @@ function DetailPane({
   const locale = useLocale();
   const { toast } = useToast();
   const [showEvidence, setShowEvidence] = useState(false);
-  const [editingDraft, setEditingDraft] = useState(false);
-  const [editedDraftBody, setEditedDraftBody] = useState("");
-  const [savedEditedDraft, setSavedEditedDraft] = useState<DraftPayload | null>(null);
   const [executionPlan, setExecutionPlan] = useState<ExecutionPlanData | null>(null);
   const router = useRouter();
   const [openSteps, setOpenSteps] = useState<Set<number>>(new Set([0]));
@@ -1204,10 +1166,16 @@ function DetailPane({
 
   const sev = severityBadge(s);
 
-  // Draft payloads from wiki action plan
+  // Draft payloads from wiki action plan — one per pending action step.
   const draftPayloads = detail ? wikiToDraftPayloads(detail) : [];
-  const primaryDraft = savedEditedDraft ?? draftPayloads[0] ?? null;
-  const originalDraft = draftPayloads[0] ?? null;
+  const draftEditableByStep = useMemo(() => {
+    const map = new Map<number, boolean>();
+    if (!detail?.actionPlan) return map;
+    for (const step of detail.actionPlan.steps) {
+      map.set(step.sequenceOrder, step.status === "pending");
+    }
+    return map;
+  }, [detail?.actionPlan]);
 
   const resetInteraction = () => {
     setActiveMode(null);
@@ -1215,32 +1183,6 @@ function DetailPane({
     setFeedbackCategory("");
     setOutcomeValue("");
     setOutcomeNote("");
-  };
-
-  const startDraftEdit = () => {
-    if (!originalDraft) return;
-    const body = originalDraft.payload.body ?? originalDraft.payload.message ?? "";
-    setEditedDraftBody(body);
-    setEditingDraft(true);
-  };
-
-  const saveDraftEdit = () => {
-    if (!originalDraft) return;
-    const isEmail = originalDraft.payload.body !== undefined;
-    const modified: DraftPayload = {
-      ...originalDraft,
-      payload: {
-        ...originalDraft.payload,
-        ...(isEmail ? { body: editedDraftBody } : { message: editedDraftBody }),
-      },
-    };
-    setSavedEditedDraft(modified);
-    setEditingDraft(false);
-  };
-
-  const cancelDraftEdit = () => {
-    setEditingDraft(false);
-    setEditedDraftBody("");
   };
 
   const submitStepNotes = async (stepOrder: number, notes: string) => {
@@ -1858,106 +1800,17 @@ function DetailPane({
             );
           })() : null}
 
-          {/* ── Draft Preview (HERO) ── */}
-          {primaryDraft && (
-            <div style={{
-              border: "1px solid var(--border-strong)",
-              borderRadius: 6,
-              boxShadow: "none",
-              overflow: "hidden",
-            }}>
-              {/* Header bar */}
-              <div className="flex items-center justify-between px-4 py-2" style={{
-                background: "rgba(255,255,255,0.06)",
-                borderBottom: "1px solid rgba(255,255,255,0.2)",
-              }}>
-                <div className="flex items-center gap-2">
-                  <span style={{ width: 8, height: 8, borderRadius: 4, background: providerDotColor(primaryDraft) }} />
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--fg2)" }}>{providerLabel(primaryDraft)}</span>
-                </div>
-                {!editingDraft ? (
-                  <button
-                    onClick={startDraftEdit}
-                    style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "var(--fg2)" }}
-                    className="flex items-center gap-1.5 hover:bg-hover transition"
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                    </svg>
-                    Edit
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={saveDraftEdit}
-                      className="transition"
-                      style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "var(--accent)" }}
-                    >
-                      {t("saveInstruction")}
-                    </button>
-                    <button
-                      onClick={cancelDraftEdit}
-                      style={{ background: "var(--elevated)", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 10px", fontSize: 11, color: "var(--fg2)" }}
-                      className="hover:bg-hover transition"
-                    >
-                      {tc("cancel")}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Body */}
-              <div style={{ padding: "14px 16px" }}>
-                {/* Email fields */}
-                {primaryDraft.payload.to && (
-                  <div style={{ fontSize: 12, color: "var(--fg3)" }} className="mb-1">
-                    <span style={{ color: "var(--fg4)" }}>{t("to")}</span> {primaryDraft.payload.to}
-                    {primaryDraft.payload.cc && <span className="ml-3"><span style={{ color: "var(--fg4)" }}>Cc:</span> {primaryDraft.payload.cc}</span>}
-                  </div>
-                )}
-                {primaryDraft.payload.subject && (
-                  <div style={{ fontSize: 12, color: "var(--fg3)" }} className="mb-2">
-                    <span style={{ color: "var(--fg4)" }}>{t("subject")}</span> {primaryDraft.payload.subject}
-                  </div>
-                )}
-                {/* Slack channel */}
-                {primaryDraft.payload.channel && !primaryDraft.payload.to && (
-                  <div style={{ fontSize: 12, color: "var(--fg3)" }} className="mb-2">
-                    <span style={{ color: "var(--fg4)" }}>{t("channel")}</span> #{primaryDraft.payload.channel}
-                  </div>
-                )}
-
-                {/* Divider for email */}
-                {primaryDraft.payload.subject && (
-                  <div style={{ borderTop: "1px solid var(--border)" }} className="mb-3" />
-                )}
-
-                {/* Body / message */}
-                {editingDraft ? (
-                  <textarea
-                    value={editedDraftBody}
-                    onChange={e => setEditedDraftBody(e.target.value)}
-                    style={{
-                      width: "100%",
-                      minHeight: 120,
-                      background: "var(--sidebar)",
-                      border: "1px solid rgba(255,255,255,0.25)",
-                      borderRadius: 4,
-                      padding: "10px 12px",
-                      fontSize: 13,
-                      lineHeight: 1.7,
-                      color: "var(--foreground)",
-                      outline: "none",
-                      resize: "vertical",
-                      fontFamily: "inherit",
-                    }}
-                  />
-                ) : (
-                  <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--fg2)", whiteSpace: "pre-wrap" }}>
-                    {primaryDraft.payload.body ?? primaryDraft.payload.message ?? ""}
-                  </div>
-                )}
-              </div>
+          {/* ── Draft Previews (HERO) ── one card per pending action step ── */}
+          {draftPayloads.length > 0 && detail && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {draftPayloads.map((d) => (
+                <ActionDraftCard
+                  key={`draft-${detail.id}-${d.stepOrder}`}
+                  situationId={detail.id}
+                  draft={d}
+                  editable={draftEditableByStep.get(d.stepOrder) ?? false}
+                />
+              ))}
             </div>
           )}
 
