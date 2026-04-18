@@ -18,7 +18,7 @@ import { OpenQuestionsCard } from "@/components/execution/open-questions-card";
 import { DecisionsSection } from "@/components/execution/decisions-section";
 import { parseOpenQuestionsSection, parseDecisionsSection } from "@/lib/clarification-helpers";
 import { useToast } from "@/components/ui/toast";
-import { ActionDraftCard, categorizeAction, flushPendingDraftSaves, type ActionDraft } from "@/components/action-draft-card";
+import { ActionDraftCard, flushPendingDraftSaves, stepToDraft } from "@/components/action-draft-card";
 
 function getApproveLabelKey(step: ExecutionStepForPreview): "send" | "accept" {
   const slug = step.actionCapability?.slug ?? "";
@@ -118,8 +118,6 @@ interface ExecutionPlanData {
     uncertainties?: Array<{ field: string; assumption: string; impact: string }> | null;
   }>;
 }
-
-type DraftPayload = ActionDraft;
 
 interface SituationDetail {
   id: string;
@@ -331,29 +329,6 @@ function wikiToExecutionPlan(detail: SituationDetail): ExecutionPlanData | null 
       uncertainties: null,
     })),
   };
-}
-
-/**
- * Extract draft payloads from wiki action plan step params. Each draft carries
- * the originating step order and the full params object verbatim so continuous
- * autosave in ActionDraftCard can PATCH the step without losing unrelated keys.
- */
-function wikiToDraftPayloads(detail: SituationDetail): DraftPayload[] {
-  if (!detail.actionPlan) return [];
-  const drafts: DraftPayload[] = [];
-  for (const step of detail.actionPlan.steps) {
-    if (!step.params) continue;
-    const category = categorizeAction(step.capabilityName ?? null);
-    if (category === "other") continue;
-    drafts.push({
-      stepOrder: step.sequenceOrder,
-      capabilityName: step.capabilityName ?? null,
-      executionMode: step.executionMode,
-      provider: typeof step.params._provider === "string" ? (step.params._provider as string) : null,
-      params: step.params,
-    });
-  }
-  return drafts;
 }
 
 function severityBadge(s: SituationItem): { label: string; variant: "red" | "amber" | "default" } {
@@ -804,6 +779,11 @@ export default function SituationsPage() {
                 setPanelBreadcrumbs([]);
               },
             }));
+            const editableDraft =
+              sidePanelData.isEditable && sidePanelData.step.status === "pending"
+                ? stepToDraft(sidePanelData.step)
+                : null;
+            const panelSituationId = sidePanelData.situationId || selectedSituation!.id;
             return (
               <SidePanel
                 isOpen={!!sidePanelData}
@@ -812,8 +792,8 @@ export default function SituationsPage() {
                 typeBadge={badge}
                 typeIcon={icon}
                 breadcrumbs={breadcrumbEntries}
-                isEditing={panelEditing}
-                onToggleEdit={() => setPanelEditing(prev => !prev)}
+                isEditing={editableDraft ? true : panelEditing}
+                onToggleEdit={editableDraft ? undefined : () => setPanelEditing(prev => !prev)}
                 onWidthChange={setPanelWidth}
                 onResizeStart={() => setIsResizing(true)}
                 onResizeEnd={() => setIsResizing(false)}
@@ -891,6 +871,15 @@ export default function SituationsPage() {
                   />
                 ) : undefined}
               >
+                {editableDraft ? (
+                  <div style={{ padding: 16 }}>
+                    <ActionDraftCard
+                      situationId={panelSituationId}
+                      draft={editableDraft}
+                      editable={true}
+                    />
+                  </div>
+                ) : (
                 <PanelPreview
                   step={sidePanelData.step}
                   isEditable={panelEditing && sidePanelData.isEditable}
@@ -944,6 +933,7 @@ export default function SituationsPage() {
                   }}
                   locale={locale}
                 />
+                )}
               </SidePanel>
             );
           })()}
@@ -1165,17 +1155,6 @@ function DetailPane({
   }, [reasoning, actionPlan]);
 
   const sev = severityBadge(s);
-
-  // Draft payloads from wiki action plan — one per pending action step.
-  const draftPayloads = detail ? wikiToDraftPayloads(detail) : [];
-  const draftEditableByStep = useMemo(() => {
-    const map = new Map<number, boolean>();
-    if (!detail?.actionPlan) return map;
-    for (const step of detail.actionPlan.steps) {
-      map.set(step.sequenceOrder, step.status === "pending");
-    }
-    return map;
-  }, [detail?.actionPlan]);
 
   const resetInteraction = () => {
     setActiveMode(null);
@@ -1800,19 +1779,7 @@ function DetailPane({
             );
           })() : null}
 
-          {/* ── Draft Previews (HERO) ── one card per pending action step ── */}
-          {draftPayloads.length > 0 && detail && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {draftPayloads.map((d) => (
-                <ActionDraftCard
-                  key={`draft-${detail.id}-${d.stepOrder}`}
-                  situationId={detail.id}
-                  draft={d}
-                  editable={draftEditableByStep.get(d.stepOrder) ?? false}
-                />
-              ))}
-            </div>
-          )}
+          {/* Action drafts have moved into the side panel — click a step card to edit. */}
 
           {/* Execution error */}
           {detail.actionTaken?.error && (

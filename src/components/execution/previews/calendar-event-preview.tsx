@@ -405,7 +405,7 @@ function SimpleCalendarFallback({
 
 // ── Panel wrapper: fetches events then renders CalendarWeekView ─────────────
 
-function CalendarWeekPanel({
+export function CalendarWeekPanel({
   weekOf,
   proposedEvent,
   extraExistingEvents,

@@ -84,6 +84,25 @@ interface PositionedEvent {
   totalColumns: number;
 }
 
+/**
+ * True iff [start, end) overlaps any non-all-day event in `events`. Open-end
+ * interval semantics (touching boundaries don't collide), which matches how
+ * calendar apps treat back-to-back meetings.
+ */
+function overlapsAnyEvent(start: Date, end: Date, events: CalendarEvent[]): boolean {
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  for (const ev of events) {
+    if (ev.isAllDay) continue;
+    const evStartMs = new Date(ev.startTime).getTime();
+    const evEndMs = ev.endTime
+      ? new Date(ev.endTime).getTime()
+      : evStartMs + 60 * 60_000;
+    if (startMs < evEndMs && endMs > evStartMs) return true;
+  }
+  return false;
+}
+
 function toLocalDatetimeValue(iso: string): string {
   try {
     const d = new Date(iso);
@@ -116,6 +135,20 @@ export function CalendarWeekView({
     location: proposedEvent.location || "",
   });
   const popoverRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  // ── Drag-to-reschedule state ──
+  interface DragState {
+    startX: number;
+    startY: number;
+    origStart: Date;
+    origEnd: Date;
+    snappedDx: number; // px (snapped to day-column widths)
+    snappedDy: number; // px (snapped to 15-min slots)
+    isValid: boolean;
+    dayWidth: number;
+  }
+  const [dragState, setDragState] = useState<DragState | null>(null);
 
   useEffect(() => {
     setEditState({
@@ -138,6 +171,55 @@ export function CalendarWeekView({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [editingProposed]);
+
+  // Global mousemove/mouseup while dragging the proposed event.
+  useEffect(() => {
+    if (!dragState) return;
+    const MINS_PER_STEP = 15;
+    const PX_PER_MIN = HOUR_HEIGHT / 60;
+
+    const compute = (clientX: number, clientY: number) => {
+      const rawDx = clientX - dragState.startX;
+      const rawDy = clientY - dragState.startY;
+      const dayShift = Math.round(rawDx / dragState.dayWidth);
+      const snappedDx = dayShift * dragState.dayWidth;
+      const minShift = Math.round(rawDy / PX_PER_MIN / MINS_PER_STEP) * MINS_PER_STEP;
+      const snappedDy = minShift * PX_PER_MIN;
+      const nextStart = new Date(dragState.origStart.getTime() + dayShift * 86400000 + minShift * 60000);
+      const nextEnd = new Date(dragState.origEnd.getTime() + dayShift * 86400000 + minShift * 60000);
+      const isValid = !overlapsAnyEvent(nextStart, nextEnd, existingEvents);
+      return { snappedDx, snappedDy, dayShift, minShift, nextStart, nextEnd, isValid };
+    };
+
+    const onMove = (e: MouseEvent) => {
+      const r = compute(e.clientX, e.clientY);
+      setDragState((prev) => prev && { ...prev, snappedDx: r.snappedDx, snappedDy: r.snappedDy, isValid: r.isValid });
+    };
+
+    const onUp = (e: MouseEvent) => {
+      const r = compute(e.clientX, e.clientY);
+      const rawDist = Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY);
+      setDragState(null);
+      if (rawDist < 5) {
+        // Treat tiny drags as a click → open the popup.
+        setEditingProposed(true);
+        return;
+      }
+      if (r.isValid && onProposedEventUpdate && (r.dayShift !== 0 || r.minShift !== 0)) {
+        onProposedEventUpdate({
+          startTime: r.nextStart.toISOString(),
+          endTime: r.nextEnd.toISOString(),
+        });
+      }
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, [dragState, existingEvents, onProposedEventUpdate]);
 
   const monday = useMemo(() => getMonday(weekOf), [weekOf]);
   const days = useMemo(() => {
@@ -276,7 +358,7 @@ export function CalendarWeekView({
       </div>
 
       {/* Grid body */}
-      <div style={{ display: "grid", gridTemplateColumns: `52px repeat(${visibleDays}, 1fr)`, position: "relative" }}>
+      <div ref={gridRef} style={{ display: "grid", gridTemplateColumns: `52px repeat(${visibleDays}, 1fr)`, position: "relative" }}>
         {/* Time labels */}
         <div style={{ position: "relative", height: gridHeight }}>
           {Array.from({ length: totalHours }, (_, i) => (
@@ -335,13 +417,34 @@ export function CalendarWeekView({
                 const evEndStr = pe.event.endTime || new Date(evStart.getTime() + 3600000).toISOString();
                 const evEnd = new Date(evEndStr);
 
+                const isBeingDragged = pe.isProposed && dragState != null;
+                const dragInvalid = isBeingDragged && dragState && !dragState.isValid;
+                const dragTransform = isBeingDragged && dragState
+                  ? `translate(${dragState.snappedDx}px, ${dragState.snappedDy}px)`
+                  : undefined;
+
                 return (
                   <div
                     key={pe.event.id}
                     title={pe.isProposed
                       ? `NEW: ${pe.event.title}\n${formatTimeShort(evStart, locale)} – ${formatTimeShort(evEnd, locale)}\n${(pe.event as ProposedEvent).attendees?.join(", ") || ""}`
                       : `${pe.event.title}\n${formatTimeShort(evStart, locale)} – ${formatTimeShort(evEnd, locale)}\n${(pe.event as CalendarEvent).attendees?.join(", ") || ""}`}
-                    onClick={pe.isProposed && isEditable ? () => setEditingProposed(true) : undefined}
+                    onMouseDown={pe.isProposed && isEditable ? (ev) => {
+                      if (!gridRef.current) return;
+                      // Day column width = (grid width − 52px time gutter) / visible day cols.
+                      const dayWidth = (gridRef.current.clientWidth - 52) / visibleDays;
+                      ev.preventDefault();
+                      setDragState({
+                        startX: ev.clientX,
+                        startY: ev.clientY,
+                        origStart: new Date(proposedEvent.startTime),
+                        origEnd: new Date(proposedEvent.endTime),
+                        snappedDx: 0,
+                        snappedDy: 0,
+                        isValid: true,
+                        dayWidth,
+                      });
+                    } : undefined}
                     style={{
                       position: "absolute",
                       top: adjustedTop,
@@ -351,14 +454,25 @@ export function CalendarWeekView({
                       borderRadius: 3,
                       padding: "2px 4px",
                       overflow: "hidden",
-                      cursor: pe.isProposed && isEditable ? "pointer" : "default",
+                      cursor: pe.isProposed && isEditable ? (isBeingDragged ? "grabbing" : "grab") : "default",
                       fontSize: 11,
                       lineHeight: "1.3",
+                      userSelect: "none",
+                      transform: dragTransform,
+                      transition: isBeingDragged ? "none" : "transform 0.12s ease-out",
+                      zIndex: isBeingDragged ? 20 : 2,
                       ...(pe.isProposed
                         ? {
-                            background: "color-mix(in srgb, #3b82f6 22%, transparent)",
-                            borderLeft: "3px solid #3b82f6",
-                            boxShadow: "0 1px 4px color-mix(in srgb, #3b82f6 30%, transparent)",
+                            background: dragInvalid
+                              ? "color-mix(in srgb, var(--danger) 24%, transparent)"
+                              : "color-mix(in srgb, #3b82f6 22%, transparent)",
+                            borderLeft: dragInvalid
+                              ? "3px solid var(--danger)"
+                              : "3px solid #3b82f6",
+                            boxShadow: dragInvalid
+                              ? "0 1px 6px color-mix(in srgb, var(--danger) 40%, transparent)"
+                              : "0 1px 4px color-mix(in srgb, #3b82f6 30%, transparent)",
+                            opacity: dragInvalid ? 0.75 : 1,
                           }
                         : {
                             background: "color-mix(in srgb, var(--fg3) 15%, transparent)",
@@ -434,20 +548,16 @@ export function CalendarWeekView({
             </label>
             <label style={{ fontSize: 11, color: "var(--fg2)" }}>
               Start
-              <input
-                type="datetime-local"
+              <DateTimeSplitInput
                 value={editState.startTime}
-                onChange={(e) => setEditState((s) => ({ ...s, startTime: e.target.value }))}
-                style={popoverInputStyle}
+                onChange={(v) => setEditState((s) => ({ ...s, startTime: v }))}
               />
             </label>
             <label style={{ fontSize: 11, color: "var(--fg2)" }}>
               End
-              <input
-                type="datetime-local"
+              <DateTimeSplitInput
                 value={editState.endTime}
-                onChange={(e) => setEditState((s) => ({ ...s, endTime: e.target.value }))}
-                style={popoverInputStyle}
+                onChange={(v) => setEditState((s) => ({ ...s, endTime: v }))}
               />
             </label>
             <label style={{ fontSize: 11, color: "var(--fg2)" }}>
@@ -517,3 +627,86 @@ const popoverInputStyle: React.CSSProperties = {
   color: "var(--foreground)",
   outline: "none",
 };
+
+// ── Split datetime input: date picker + typed HH:MM ─────────────────────────
+
+function splitLocalDatetime(v: string): { date: string; time: string } {
+  const [d, t] = (v || "").split("T");
+  return { date: d ?? "", time: (t ?? "").slice(0, 5) };
+}
+
+function joinLocalDatetime(date: string, time: string): string {
+  // Both halves must be present. Returning "YYYY-MM-DDT" or "THH:MM" would
+  // round-trip through `new Date(...).toISOString()` and throw
+  // RangeError: Invalid time value on the popup's Save button.
+  if (!date || !time) return "";
+  return `${date}T${time}`;
+}
+
+/**
+ * Mask a raw input to "HH:MM": accept up to 4 digits, inject the colon after
+ * the hour. Returns the cleaned string. Does NOT enforce valid hour/minute
+ * ranges — that's validated on blur.
+ */
+function maskHHMM(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return digits.slice(0, 2) + ":" + digits.slice(2);
+}
+
+function normalizeHHMM(v: string): string {
+  const m = v.match(/^(\d{1,2}):?(\d{0,2})$/);
+  if (!m) return "";
+  const h = Math.min(23, parseInt(m[1] || "0", 10));
+  const mm = Math.min(59, parseInt(m[2] || "0", 10));
+  return String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+}
+
+function DateTimeSplitInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { date, time } = splitLocalDatetime(value);
+  const [localTime, setLocalTime] = useState(time);
+
+  useEffect(() => {
+    setLocalTime(time);
+  }, [time]);
+
+  const commitTime = (raw: string) => {
+    const norm = normalizeHHMM(raw);
+    setLocalTime(norm);
+    if (norm) onChange(joinLocalDatetime(date, norm));
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
+      <input
+        type="date"
+        value={date}
+        onChange={(e) => onChange(joinLocalDatetime(e.target.value, time))}
+        style={{ ...popoverInputStyle, marginTop: 0, flex: 2 }}
+      />
+      <input
+        type="text"
+        inputMode="numeric"
+        placeholder="HH:MM"
+        value={localTime}
+        onChange={(e) => setLocalTime(maskHHMM(e.target.value))}
+        onBlur={(e) => commitTime(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            (e.currentTarget as HTMLInputElement).blur();
+          }
+        }}
+        style={{ ...popoverInputStyle, marginTop: 0, flex: 1, textAlign: "center", fontVariantNumeric: "tabular-nums" }}
+        maxLength={5}
+        aria-label="Time (HH:MM)"
+      />
+    </div>
+  );
+}

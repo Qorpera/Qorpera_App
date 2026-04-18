@@ -14,6 +14,7 @@ import {
   type DeliverableEditorHandle,
   type DeliverableEditorStateChange,
 } from "./deliverable-editor";
+import { CalendarWeekPanel } from "./execution/previews/calendar-event-preview";
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ export async function flushPendingDraftSaves(): Promise<void> {
 
 // ── Category resolution ─────────────────────────────────────────────────────
 
+// Keep in sync with src/components/execution/previews/get-preview-component.ts.
 const EMAIL_CAPS = new Set([
   "send_email",
   "reply_to_thread",
@@ -63,28 +65,81 @@ const EMAIL_CAPS = new Set([
   "create_draft",
   "send_with_attachment",
   "forward_email",
+  "send_email_via_salesforce",
 ]);
-
+const SLACK_CAPS = new Set([
+  "send_channel_message",
+  "reply_in_thread",
+]);
+const TEAMS_CAPS = new Set(["reply_to_teams_thread"]);
 const CALENDAR_CAPS = new Set([
   "create_calendar_event",
   "update_calendar_event",
   "rsvp_event",
 ]);
-
 const DOCUMENT_CAPS = new Set([
   "create_document",
+  "append_to_document",
   "create_spreadsheet",
+  "update_spreadsheet_cells",
+  "append_rows",
+  "create_sheet_tab",
+  "create_worksheet",
   "create_presentation",
 ]);
 
 export function categorizeAction(capabilityName: string | null): ActionCategory {
   if (!capabilityName) return "other";
-  if (EMAIL_CAPS.has(capabilityName) || capabilityName.includes("email")) return "email";
-  if (capabilityName.includes("slack")) return "slack";
-  if (capabilityName.includes("teams")) return "teams";
-  if (CALENDAR_CAPS.has(capabilityName) || capabilityName.includes("calendar")) return "calendar";
-  if (DOCUMENT_CAPS.has(capabilityName) || capabilityName.includes("document") || capabilityName.includes("doc") || capabilityName.includes("spreadsheet") || capabilityName.includes("presentation")) return "document";
+  if (EMAIL_CAPS.has(capabilityName) || capabilityName.startsWith("email")) return "email";
+  if (SLACK_CAPS.has(capabilityName) || capabilityName.startsWith("slack")) return "slack";
+  if (TEAMS_CAPS.has(capabilityName) || capabilityName.startsWith("teams")) return "teams";
+  if (CALENDAR_CAPS.has(capabilityName) || capabilityName.startsWith("calendar")) return "calendar";
+  if (
+    DOCUMENT_CAPS.has(capabilityName)
+    || capabilityName.startsWith("document")
+    || capabilityName.startsWith("spreadsheet")
+    || capabilityName.startsWith("presentation")
+  ) {
+    return "document";
+  }
   return "other";
+}
+
+const PREVIEW_TYPE_TO_CANONICAL_CAP: Record<string, string> = {
+  email: "send_email",
+  slack_message: "send_channel_message",
+  calendar_event: "create_calendar_event",
+  document: "create_document",
+  spreadsheet: "create_spreadsheet",
+  presentation: "create_presentation",
+};
+
+/**
+ * Map an ExecutionStep-shaped object to the ActionDraft shape the card expects.
+ * Falls back to `previewType` in params when the step carries no capability
+ * slug (common for demo-seeded steps). Returns null when the step is not in a
+ * category the card renders (human task, CRM update, ticket, etc.).
+ */
+export function stepToDraft(step: {
+  sequenceOrder: number;
+  executionMode: string;
+  actionCapability?: { slug: string | null } | null;
+  parameters?: Record<string, unknown> | null;
+}): ActionDraft | null {
+  const slug = step.actionCapability?.slug ?? null;
+  const params = step.parameters ?? {};
+  const previewType = typeof params.previewType === "string" ? (params.previewType as string) : null;
+
+  const capabilityName = slug ?? (previewType ? PREVIEW_TYPE_TO_CANONICAL_CAP[previewType] ?? null : null);
+  if (categorizeAction(capabilityName) === "other") return null;
+
+  return {
+    stepOrder: step.sequenceOrder,
+    capabilityName,
+    executionMode: step.executionMode,
+    provider: typeof params._provider === "string" ? (params._provider as string) : null,
+    params,
+  };
 }
 
 // ── Autosave hook ───────────────────────────────────────────────────────────
@@ -99,6 +154,7 @@ interface UseDraftAutosaveArgs {
 interface UseDraftAutosaveReturn {
   params: Record<string, unknown>;
   setField: (key: string, value: unknown) => void;
+  setFields: (patch: Record<string, unknown>) => void;
   saveStatus: SaveStatus;
   forceSave: () => Promise<void>;
   editorRef: RefObject<DeliverableEditorHandle>;
@@ -191,6 +247,14 @@ function useDraftAutosave({
     [setParams],
   );
 
+  const setFields = useCallback(
+    (patch: Record<string, unknown>) => {
+      const next = { ...latestParamsRef.current, ...patch };
+      setParams(next);
+    },
+    [setParams],
+  );
+
   const forceSave = useCallback(async () => {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
@@ -256,6 +320,7 @@ function useDraftAutosave({
   return {
     params,
     setField,
+    setFields,
     saveStatus,
     forceSave,
     editorRef,
@@ -339,6 +404,7 @@ export function ActionDraftCard({
           <CalendarFields
             params={autosave.params}
             setField={autosave.setField}
+            setFields={autosave.setFields}
             editable={editable}
           />
         )}
@@ -645,9 +711,41 @@ function EmailFields({
   const cc = asString(params.cc);
   const subject = asString(params.subject);
   const body = asString(params.body);
+  const attachments = asAttachments(params.attachments);
+  const [dragOver, setDragOver] = useState(false);
 
   return (
-    <div>
+    <div
+      onDragOver={(e) => {
+        if (!editable) return;
+        if (Array.from(e.dataTransfer.types).includes("Files")) {
+          e.preventDefault();
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        setDragOver(false);
+        if (!editable) return;
+        if (e.dataTransfer.files.length === 0) return;
+        e.preventDefault();
+        const next = [
+          ...attachments,
+          ...Array.from(e.dataTransfer.files).map((f) => ({
+            type: inferAttachmentType(f.name),
+            title: f.name,
+            size: formatBytes(f.size),
+          })),
+        ];
+        setField("attachments", next);
+      }}
+      style={{
+        position: "relative",
+        outline: dragOver ? "2px dashed var(--accent)" : "none",
+        outlineOffset: -2,
+        borderRadius: 4,
+      }}
+    >
       <FieldRow label="To">
         <InlineTextInput value={to} onChange={(v) => setField("to", v)} editable={editable} placeholder="recipient@example.com" />
       </FieldRow>
@@ -667,7 +765,7 @@ function EmailFields({
         />
       </div>
       <AttachmentList
-        attachments={asAttachments(params.attachments)}
+        attachments={attachments}
         editable={editable}
         onChange={(next) => setField("attachments", next)}
       />
@@ -715,56 +813,102 @@ function MessageFields({
 }
 
 // ── Calendar fields ─────────────────────────────────────────────────────────
+//
+// The scheduling UX (title, times, attendees, location, drag-to-move on a
+// week grid, overlap rejection) is the CalendarWeekPanel's popup — we reuse
+// it wholesale. Free-text "description" / "notes" stays below the grid for
+// content that doesn't belong on an event block.
 
 function CalendarFields({
   params,
   setField,
+  setFields,
   editable,
 }: {
   params: Record<string, unknown>;
   setField: (key: string, value: unknown) => void;
+  setFields: (patch: Record<string, unknown>) => void;
   editable: boolean;
 }) {
-  const summary = asString(params.summary) || asString(params.title);
-  const summaryKey = params.title !== undefined && params.summary === undefined ? "title" : "summary";
+  // Resolve the preferred keys so we write back to whatever the seed uses.
+  const titleKey = params.summary !== undefined ? "summary" : "title";
+  const startKey = params.startDateTime !== undefined ? "startDateTime" : (params.startTime !== undefined ? "startTime" : "start");
+  const endKey = params.endDateTime !== undefined ? "endDateTime" : (params.endTime !== undefined ? "endTime" : "end");
+  const attendeesKey = params.attendeeEmails !== undefined ? "attendeeEmails" : "attendees";
+
+  const title = asString(params[titleKey]);
+  const start = asString(params[startKey]);
+  const end = asString(params[endKey]);
+  const attendees = asAttendeeList(params[attendeesKey]);
   const location = asString(params.location);
   const description = asString(params.description);
-  const start = asString(params.start);
-  const end = asString(params.end);
-  const attendees = asAttendeeList(params.attendees);
+
+  // Fallback end for the week view when the seed didn't provide one.
+  const fallbackEnd = start && !end
+    ? new Date(new Date(start).getTime() + 3600_000).toISOString()
+    : end;
+
+  // If the start date is malformed or missing, degrade to a simple field list
+  // — the CalendarWeekPanel needs a valid ISO string to place the week.
+  const startValid = start && !Number.isNaN(new Date(start).getTime());
+
+  // Stable week key (YYYY-MM-DD of the Monday). Without this, every autosave
+  // that rewrites `start` (drag, time edit, etc.) changes the `weekOf` prop
+  // and re-fires the CalendarWeekPanel fetch even when the week hasn't moved.
+  const weekKey = useMemo(() => {
+    if (!startValid) return "";
+    const d = new Date(start);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString().slice(0, 10);
+  }, [start, startValid]);
 
   return (
     <div>
-      <FieldRow label="Title">
-        <InlineTextInput value={summary} onChange={(v) => setField(summaryKey, v)} editable={editable} />
-      </FieldRow>
-      <FieldRow label="Start">
-        <InlineTextInput
-          value={toLocalDatetime(start)}
-          onChange={(v) => setField("start", fromLocalDatetime(v))}
-          editable={editable}
-          type="datetime-local"
-        />
-      </FieldRow>
-      <FieldRow label="End">
-        <InlineTextInput
-          value={toLocalDatetime(end)}
-          onChange={(v) => setField("end", fromLocalDatetime(v))}
-          editable={editable}
-          type="datetime-local"
-        />
-      </FieldRow>
-      <FieldRow label="Location">
-        <InlineTextInput value={location} onChange={(v) => setField("location", v)} editable={editable} />
-      </FieldRow>
-      <FieldRow label="Attendees">
-        <InlineTextInput
-          value={attendees.join(", ")}
-          onChange={(v) => setField("attendees", parseAttendees(v))}
-          editable={editable}
-          placeholder="alice@x.com, bob@y.com"
-        />
-      </FieldRow>
+      {startValid ? (
+        <div style={{ marginBottom: 10 }}>
+          <CalendarWeekPanel
+            weekOf={weekKey}
+            proposedEvent={{
+              title,
+              startTime: start,
+              endTime: fallbackEnd,
+              attendees,
+              location: location || undefined,
+            }}
+            isEditable={editable}
+            locale={typeof navigator !== "undefined" ? navigator.language : "en"}
+            onProposedEventUpdate={(update) => {
+              const patch: Record<string, unknown> = {};
+              if (update.title !== undefined) patch[titleKey] = update.title;
+              if (update.startTime !== undefined) patch[startKey] = update.startTime;
+              if (update.endTime !== undefined) patch[endKey] = update.endTime;
+              if (update.attendees !== undefined) patch[attendeesKey] = update.attendees;
+              if (update.location !== undefined) patch.location = update.location;
+              setFields(patch);
+            }}
+          />
+        </div>
+      ) : (
+        <>
+          <FieldRow label="Title">
+            <InlineTextInput value={title} onChange={(v) => setField(titleKey, v)} editable={editable} />
+          </FieldRow>
+          <FieldRow label="Attendees">
+            <InlineTextInput
+              value={attendees.join(", ")}
+              onChange={(v) => setField(attendeesKey, parseAttendees(v))}
+              editable={editable}
+              placeholder="alice@x.com, bob@y.com"
+            />
+          </FieldRow>
+          <FieldRow label="Location">
+            <InlineTextInput value={location} onChange={(v) => setField("location", v)} editable={editable} />
+          </FieldRow>
+        </>
+      )}
       <FieldRow label="Notes">
         <InlineTextInput value={description} onChange={(v) => setField("description", v)} editable={editable} placeholder="Agenda or context…" />
       </FieldRow>
@@ -846,40 +990,112 @@ function AttachmentList({
   editable: boolean;
   onChange: (next: AttachmentRecord[]) => void;
 }) {
-  if (attachments.length === 0) return null;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      const list = Array.from(files);
+      if (list.length === 0) return;
+      // Metadata-only: no upload pipeline for situation attachments yet, so
+      // only filename + size land on the wiki. Replace with real upload when
+      // the endpoint exists.
+      const added: AttachmentRecord[] = list.map((f) => ({
+        type: inferAttachmentType(f.name),
+        title: f.name,
+        size: formatBytes(f.size),
+      }));
+      onChange([...attachments, ...added]);
+    },
+    [attachments, onChange],
+  );
+
+  const pickFiles = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  // Empty + not editable → render nothing.
+  if (attachments.length === 0 && !editable) return null;
+
   return (
     <div style={{ borderTop: "1px solid var(--border)", marginTop: 10, paddingTop: 10 }}>
-      <div
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: "var(--fg2)",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-          marginBottom: 6,
+      <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--fg2)",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
+          {attachments.length === 0
+            ? "Attachments"
+            : attachments.length === 1
+              ? "1 Attachment"
+              : `${attachments.length} Attachments`}
+        </div>
+        {editable && (
+          <button
+            type="button"
+            onClick={pickFiles}
+            style={{
+              fontSize: 11,
+              padding: "3px 10px",
+              borderRadius: 4,
+              border: "1px solid var(--border)",
+              background: "transparent",
+              color: "var(--fg2)",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+            className="hover:bg-hover transition"
+          >
+            <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14" />
+              <path d="M5 12h14" />
+            </svg>
+            Add
+          </button>
+        )}
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files);
+          e.target.value = ""; // allow re-adding same file
         }}
-      >
-        {attachments.length === 1 ? "1 Attachment" : `${attachments.length} Attachments`}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {attachments.map((att, idx) => (
-          <AttachmentRow
-            key={idx}
-            attachment={att}
-            editable={editable}
-            onChangeTitle={(title) => {
-              const next = attachments.slice();
-              next[idx] = { ...att, title };
-              onChange(next);
-            }}
-            onRemove={() => {
-              const next = attachments.slice();
-              next.splice(idx, 1);
-              onChange(next);
-            }}
-          />
-        ))}
-      </div>
+      />
+      {attachments.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {attachments.map((att, idx) => (
+            <AttachmentRow
+              key={idx}
+              attachment={att}
+              editable={editable}
+              onChangeTitle={(title) => {
+                const next = attachments.slice();
+                next[idx] = { ...att, title };
+                onChange(next);
+              }}
+              onRemove={() => {
+                const next = attachments.slice();
+                next.splice(idx, 1);
+                onChange(next);
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {editable && attachments.length === 0 && (
+        <p style={{ fontSize: 11, color: "var(--fg4)", marginTop: 2 }}>
+          Drop files here or click Add.
+        </p>
+      )}
     </div>
   );
 }
@@ -970,6 +1186,22 @@ function asAttachments(v: unknown): AttachmentRecord[] {
   return v.filter((item): item is AttachmentRecord => typeof item === "object" && item !== null);
 }
 
+function inferAttachmentType(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (["xlsx", "xls", "csv", "ods", "numbers"].includes(ext)) return "spreadsheet";
+  if (["ppt", "pptx", "key"].includes(ext)) return "presentation";
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) return "image";
+  if (ext === "pdf") return "pdf";
+  return "document";
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function asAttendeeList(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   const out: string[] = [];
@@ -989,20 +1221,6 @@ function parseAttendees(input: string): string[] {
     .split(/[,;\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
-}
-
-function toLocalDatetime(iso: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function fromLocalDatetime(local: string): string {
-  if (!local) return "";
-  const d = new Date(local);
-  return Number.isNaN(d.getTime()) ? local : d.toISOString();
 }
 
 function providerLabel(provider: string | null, category: ActionCategory): string {
