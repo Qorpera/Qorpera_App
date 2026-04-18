@@ -250,8 +250,49 @@ const PROJECT: PageSchema = {
     target_date: { type: "date", required: false, owner: "synthesis", description: "Target completion date" },
     budget: { type: "string", required: false, owner: "synthesis", description: "Budget amount" },
     spawned_from: { type: "page_ref", required: false, owner: "synthesis", description: "Originating situation/initiative slug" },
+    parent_project: { type: "page_ref", required: false, owner: "synthesis", description: "Parent project_portfolio slug, if this project sits inside a portfolio" },
     completed_date: { type: "date", required: false, owner: "runtime", default: null, description: "Actual completion date" },
     progress: { type: "number", required: false, owner: "runtime", default: null, description: "Progress percentage 0\u2013100" },
+  },
+};
+
+const PROJECT_PORTFOLIO: PageSchema = {
+  pageType: "project_portfolio",
+  description: "A container that groups related projects into a coordinated workstream. Hub into child projects.",
+  sectionMenu: [
+    "Purpose & Scope", "Child Projects", "Team", "Timeline & Milestones",
+    "Risks & Issues", "Decisions", "Status Updates",
+  ],
+  properties: {
+    status: { type: "enum", required: true, owner: "synthesis", enumValues: ["planned", "active", "paused", "completed", "cancelled"], description: "Portfolio status" },
+    owner: { type: "page_ref", required: true, owner: "synthesis", description: "Portfolio owner person slug" },
+    domain: { type: "page_ref", required: false, owner: "synthesis", description: "Owning department" },
+    priority: { type: "enum", required: false, owner: "synthesis", enumValues: ["low", "medium", "high", "critical"], description: "Priority level" },
+    start_date: { type: "date", required: false, owner: "synthesis", description: "Portfolio start date" },
+    target_date: { type: "date", required: false, owner: "synthesis", description: "Target completion date" },
+    budget: { type: "string", required: false, owner: "synthesis", description: "Total portfolio budget" },
+    spawned_from: { type: "page_ref", required: false, owner: "synthesis", description: "Originating situation/initiative slug" },
+    completed_date: { type: "date", required: false, owner: "runtime", default: null, description: "Actual completion date" },
+  },
+};
+
+const PROJECT_DELIVERABLE: PageSchema = {
+  pageType: "project_deliverable",
+  description: "A terminal artifact produced by a project — a report section, document, analysis, or asset. Hub for the deliverable's content, evidence, and review state.",
+  sectionMenu: [
+    "Objective", "Content", "Evidence & Sources", "Completeness",
+    "Risks & Findings", "Review Status", "Decisions",
+  ],
+  properties: {
+    status: { type: "enum", required: true, owner: "synthesis", enumValues: ["planned", "in_progress", "in_review", "accepted", "rejected"], description: "Deliverable review status" },
+    stage: { type: "enum", required: true, owner: "synthesis", enumValues: ["intelligence", "workboard", "deliverable"], description: "Lifecycle stage" },
+    parent_project: { type: "page_ref", required: true, owner: "synthesis", description: "Parent project slug" },
+    assigned_to: { type: "page_ref", required: false, owner: "synthesis", description: "Assigned reviewer person slug" },
+    generation_mode: { type: "enum", required: false, owner: "synthesis", enumValues: ["ai_generated", "human_authored", "ai_assisted"], description: "How this deliverable was produced" },
+    confidence: { type: "enum", required: false, owner: "synthesis", enumValues: ["high", "medium", "low"], description: "Overall confidence in findings" },
+    risk_count: { type: "number", required: false, owner: "synthesis", default: 0, description: "Number of risks identified in this deliverable" },
+    accepted_by: { type: "page_ref", required: false, owner: "runtime", default: null, description: "Person who accepted this deliverable" },
+    accepted_date: { type: "date", required: false, owner: "runtime", default: null, description: "Acceptance date" },
   },
 };
 
@@ -388,7 +429,9 @@ export const PAGE_SCHEMAS: Record<string, PageSchema> = {
   external_contact: EXTERNAL_CONTACT,
   external_relationship: EXTERNAL_RELATIONSHIP,
   process: PROCESS,
+  project_portfolio: PROJECT_PORTFOLIO,
   project: PROJECT,
+  project_deliverable: PROJECT_DELIVERABLE,
   initiative: INITIATIVE,
   strategic_link: STRATEGIC_LINK,
   tool_system: TOOL_SYSTEM,

@@ -1064,7 +1064,7 @@ Expected reduction in delivery delays: 60-80% for affected project types. Margin
 export const PROJECT_PAGES: PromoPage[] = [
   {
     slug: "proj-launch-marketing-plan",
-    pageType: "project",
+    pageType: "project_portfolio",
     title: "Launch Marketing Plan",
     properties: {
       status: "active",
@@ -1073,20 +1073,25 @@ export const PROJECT_PAGES: PromoPage[] = [
       priority: "high",
       start_date: "2026-04-01",
       target_date: "2026-09-30",
-      progress: 15,
-      is_portfolio: true,
     },
     content: `# Launch Marketing Plan
 
-## Objective
+## Purpose & Scope
 
 Coordinate the marketing and go-to-market workstreams for an upcoming service offering launch planned for late Q3 2026. Success criteria: positioning and messaging finalized by end of Q2, launch assets production complete by end of August, beachhead campaign live by target launch date, first 10 qualified pipeline opportunities generated within 30 days of launch.
-
-## Scope
 
 **Included:** Brand positioning, messaging development, launch asset production (website, collateral, sales enablement), campaign planning, launch event planning, internal rollout.
 
 **Not included:** Product/service offering definition (handled separately), pricing decisions (sign-off by [[anna-korsgaard]] outside this portfolio), post-launch demand generation (separate portfolio after launch).
+
+## Child Projects
+
+Individual workstreams tracked as child projects under this portfolio:
+
+1. [[proj-brand-messaging]] — Brand + Messaging. Positioning, value proposition, messaging pillars, competitor comparison. Target complete: end of Q2.
+2. [[proj-launch-asset-production]] — Launch Asset Production. Website, one-pager, sales deck, demo script, case study templates. Target complete: end of August.
+3. [[proj-beachhead-campaign]] — Beachhead Campaign. Target account list, outreach sequences, content calendar, paid placement plan. Launch: target launch date.
+4. [[proj-launch-event]] — Launch Event. In-person event for first-wave customers and partners. Target: within two weeks of launch.
 
 ## Team
 
@@ -1096,15 +1101,6 @@ Coordinate the marketing and go-to-market workstreams for an upcoming service of
 - [[ida-frost]] — Customer-facing messaging review
 
 External vendors (creative agency, web development) to be selected during scoping.
-
-## Deliverables
-
-This is a portfolio. Individual workstreams will be tracked as child projects:
-
-1. **Brand + Messaging** — positioning statement, value proposition, messaging pillars, competitor comparison. Target complete: end of Q2.
-2. **Launch Asset Production** — website, one-pager, sales deck, demo script, case study templates. Target complete: end of August.
-3. **Beachhead Campaign** — target account list, outreach sequences, content calendar, paid placement plan. Launch: target launch date.
-4. **Launch Event** — in-person event for first-wave customers and partners. Target: within two weeks of launch.
 
 ## Timeline & Milestones
 
@@ -1126,13 +1122,269 @@ This is a portfolio. Individual workstreams will be tracked as child projects:
 
 No formal decisions logged yet. This section will fill as child project work generates material trade-offs.
 
-## Related Situations
-
-No detected situations currently. A situation may be generated if launch readiness slips against the September 30 target.
-
 ## Status Updates
 
 - **2026-04-15** — Portfolio created. Initial scoping started. Owner: [[camilla-ravn]]. Sponsor: [[anna-korsgaard]].`,
+  },
+
+  {
+    slug: "proj-brand-messaging",
+    pageType: "project",
+    title: "Brand + Messaging",
+    properties: {
+      status: "planned",
+      owner: "camilla-ravn",
+      domain: "sales",
+      priority: "high",
+      start_date: "2026-05-01",
+      target_date: "2026-06-30",
+      parent_project: "proj-launch-marketing-plan",
+    },
+    content: `# Brand + Messaging
+
+## Objective
+
+Define the positioning, value proposition, and messaging framework for the upcoming service offering launch. Lock brand tone, competitive differentiation, and messaging pillars before Launch Asset Production begins. Success criteria: approved positioning statement, messaging pillars with voice guidelines, and competitor comparison matrix ready to hand off to design and sales enablement workstreams by end of Q2.
+
+## Scope
+
+**Included:** Positioning statement development, value proposition framing, messaging pillars, voice and tone guidelines, competitor comparison matrix, internal messaging validation with sales team.
+
+**Not included:** Visual identity (handled in [[proj-launch-asset-production]]), sales collateral (handled in Asset Production), pricing narratives (sign-off by [[anna-korsgaard]]).
+
+## Team
+
+- [[camilla-ravn]] — Project owner, primary author
+- [[martin-bach]] — Sales review and validation
+- [[ida-frost]] — Customer-voice checkpoint
+- [[anna-korsgaard]] — Executive sign-off on positioning
+
+## Deliverables
+
+1. [[del-positioning-statement]] — Positioning statement
+2. [[del-messaging-pillars]] — Messaging pillars and voice guidelines
+3. [[del-competitor-comparison]] — Competitor comparison matrix
+
+## Timeline & Milestones
+
+- **2026-05-01** — Kickoff, competitor research begins
+- **2026-05-15** — Draft positioning statement circulated
+- **2026-06-05** — Messaging pillars v1 complete
+- **2026-06-20** — Sales team validation session
+- **2026-06-30** — Positioning and messaging locked, handoff to Asset Production
+
+## Risks & Issues
+
+- **Competitor landscape shifting** — Two competitors preparing launches in overlapping window. Positioning may need late adjustments if their messaging lands first.
+- **Sales validation bandwidth** — [[martin-bach]] is in active client delivery through mid-May; validation session may slip if his calendar tightens.
+
+## Decisions
+
+No decisions logged yet. Awaiting project start.
+
+## Related Situations
+
+No detected situations currently.
+
+## Status Updates
+
+- **2026-04-15** — Project planned as child of [[proj-launch-marketing-plan]]. Kickoff scheduled for May 1.`,
+  },
+
+  {
+    slug: "proj-launch-asset-production",
+    pageType: "project",
+    title: "Launch Asset Production",
+    properties: {
+      status: "planned",
+      owner: "camilla-ravn",
+      domain: "sales",
+      priority: "high",
+      start_date: "2026-07-01",
+      target_date: "2026-08-31",
+      parent_project: "proj-launch-marketing-plan",
+    },
+    content: `# Launch Asset Production
+
+## Objective
+
+Produce the full set of launch assets: website, service one-pager, sales deck, demo script, and case study templates. All assets must reflect locked positioning and messaging from [[proj-brand-messaging]]. Success criteria: website live in preview mode, sales deck approved for use, one-pager and demo script in sales hands before beachhead campaign launches.
+
+## Scope
+
+**Included:** Website copy and build (vendor-led), service one-pager, sales deck, demo script, case study templates (3 variants), asset library on shared drive.
+
+**Not included:** Positioning and messaging development (handled in [[proj-brand-messaging]]), paid media creative (handled in [[proj-beachhead-campaign]]), launch event materials (handled in [[proj-launch-event]]).
+
+## Team
+
+- [[camilla-ravn]] — Project owner, content lead
+- [[martin-bach]] — Sales deck and demo script owner
+- [[anna-korsgaard]] — Final approval on website and sales deck
+- External creative agency (TBD) — Design and web development
+
+## Deliverables
+
+1. [[del-website]] — Launch website
+2. [[del-sales-deck]] — Sales deck
+3. [[del-one-pager]] — Service one-pager
+
+## Timeline & Milestones
+
+- **2026-07-01** — Kickoff, vendor selection finalized
+- **2026-07-15** — Content wireframes and sales deck outline approved
+- **2026-08-01** — Website draft v1 in preview, sales deck v1 ready for review
+- **2026-08-20** — One-pager final, demo script rehearsed
+- **2026-08-31** — All assets production-complete, handoff to beachhead
+
+## Risks & Issues
+
+- **Vendor selection slip** — If creative and web vendor not confirmed by end of April ([[proj-launch-marketing-plan]] dependency), this workstream's start date compresses.
+- **Messaging handoff gap** — Depends on [[proj-brand-messaging]] locking positioning by June 30. Any slip pushes this workstream's start back.
+- **[[camilla-ravn]] capacity** — Running Brand + Messaging and Asset Production concurrently for two weeks in late June. External support may be needed.
+
+## Decisions
+
+No decisions logged yet. Awaiting project start.
+
+## Related Situations
+
+No detected situations currently.
+
+## Status Updates
+
+- **2026-04-15** — Project planned as child of [[proj-launch-marketing-plan]]. Start date depends on Brand + Messaging completion.`,
+  },
+
+  {
+    slug: "proj-beachhead-campaign",
+    pageType: "project",
+    title: "Beachhead Campaign",
+    properties: {
+      status: "planned",
+      owner: "martin-bach",
+      domain: "sales",
+      priority: "high",
+      start_date: "2026-08-15",
+      target_date: "2026-09-30",
+      parent_project: "proj-launch-marketing-plan",
+    },
+    content: `# Beachhead Campaign
+
+## Objective
+
+Plan and execute a focused outbound campaign targeting a narrow segment of high-fit prospects ahead of full launch. Produce the target account list, outreach sequences, content calendar, and paid placement plan. Success criteria: target list approved, sequences ready for sales hands on launch date, content calendar populated through the first 6 weeks post-launch, first 10 qualified pipeline opportunities within 30 days.
+
+## Scope
+
+**Included:** Target account list (50-100 accounts), personalised outreach sequences, content calendar (blog, social, newsletter), paid placement on 2-3 channels, tracking and reporting setup.
+
+**Not included:** Asset production (handled in [[proj-launch-asset-production]]), launch event (handled in [[proj-launch-event]]), post-launch demand generation.
+
+## Team
+
+- [[martin-bach]] — Project owner, target list and sequences
+- [[ida-frost]] — Outreach execution, content calendar
+- [[camilla-ravn]] — Content and paid placement coordination
+- External paid media partner (TBD)
+
+## Deliverables
+
+1. [[del-target-account-list]] — Target account list
+2. [[del-outreach-sequences]] — Outreach sequences
+3. [[del-content-calendar]] — Content calendar
+
+## Timeline & Milestones
+
+- **2026-08-15** — Kickoff, target list criteria locked
+- **2026-08-31** — Target list approved, sequences drafted
+- **2026-09-10** — Content calendar populated, paid placement contracts signed
+- **2026-09-15** — Soft launch outreach begins to invite-only accounts
+- **2026-09-30** — Full launch, sequences activated, first opportunities tracked
+
+## Risks & Issues
+
+- **[[martin-bach]] capacity overlap** — Running beachhead concurrently with ongoing client delivery. Expect 20-30% of time consumed through October.
+- **List quality** — Without a pre-existing validated ICP, target list accuracy depends on research cycles. May require a second pass if early responses are weak.
+- **Paid channel timing** — Contracts on 2-3 channels need signing by September 10; any delay compresses the activation window.
+
+## Decisions
+
+No decisions logged yet. Awaiting project start.
+
+## Related Situations
+
+No detected situations currently.
+
+## Status Updates
+
+- **2026-04-15** — Project planned as child of [[proj-launch-marketing-plan]]. Start date depends on Asset Production nearing completion.`,
+  },
+
+  {
+    slug: "proj-launch-event",
+    pageType: "project",
+    title: "Launch Event",
+    properties: {
+      status: "planned",
+      owner: "camilla-ravn",
+      domain: "sales",
+      priority: "high",
+      start_date: "2026-09-01",
+      target_date: "2026-10-15",
+      parent_project: "proj-launch-marketing-plan",
+    },
+    content: `# Launch Event
+
+## Objective
+
+Organise an in-person launch event for first-wave customers, partners, and a small number of press contacts. The event anchors the launch narrative, generates qualified conversations, and produces assets (photos, quotes, short-form video) for use in post-launch demand generation. Success criteria: 40-60 attendees, event runs without operational issues, 8-12 qualified conversations produced, post-event content package ready within two weeks.
+
+## Scope
+
+**Included:** Venue and logistics, invitation list, presentation deck, run-of-show, on-site content capture plan, post-event follow-up sequence.
+
+**Not included:** Ongoing campaign execution (handled in [[proj-beachhead-campaign]]), core launch assets (handled in [[proj-launch-asset-production]]).
+
+## Team
+
+- [[camilla-ravn]] — Project owner, event production
+- [[anna-korsgaard]] — Keynote presenter
+- [[martin-bach]] — Invitation list and on-site conversations
+- [[ida-frost]] — Post-event follow-up sequence
+- External event coordinator (TBD)
+
+## Deliverables
+
+1. [[del-event-plan]] — Event plan and run-of-show
+2. [[del-invite-list]] — Invitation list
+3. [[del-presentation-deck]] — Presentation deck
+
+## Timeline & Milestones
+
+- **2026-09-01** — Kickoff, venue shortlist confirmed
+- **2026-09-15** — Venue contract signed, invitations sent
+- **2026-09-25** — RSVP count reviewed, final agenda locked
+- **2026-10-05** — Event day
+- **2026-10-15** — Post-event follow-up complete, content package delivered
+
+## Risks & Issues
+
+- **Venue availability** — Preferred Copenhagen venues book out 8-12 weeks in advance. Contract must be signed by mid-September.
+- **RSVP volatility** — First-wave event RSVPs tend to confirm late. Expect 25-40% attrition from invited-to-attended.
+- **Anna's keynote prep** — [[anna-korsgaard]] will also be running Q3 board cycle. Keynote rehearsal window is tight.
+
+## Decisions
+
+No decisions logged yet. Awaiting project start.
+
+## Related Situations
+
+No detected situations currently.
+
+## Status Updates
+
+- **2026-04-15** — Project planned as child of [[proj-launch-marketing-plan]]. Target date: within two weeks of the September 30 full launch.`,
   },
 
   {
@@ -1173,18 +1425,18 @@ External counsel (to be engaged) for legal, tax, and IP review.
 
 Twelve workstreams produce one report section each, consolidated into a final DD memo:
 
-1. **Revenue quality assessment** — owner: [[lars-eriksen]]. Status: in progress.
-2. **EBITDA normalization** — owner: [[lars-eriksen]]. Status: data gathering.
-3. **Working capital analysis** — owner: [[lars-eriksen]]. Status: not started.
-4. **Debt and liabilities review** — owner: [[lars-eriksen]]. Status: not started.
-5. **Customer concentration analysis** — owner: [[martin-bach]]. Status: in progress.
-6. **Contract portfolio review** — owner: [[martin-bach]]. Status: data gathering.
-7. **Employee and key-person risk** — owner: [[sofie-nielsen]]. Status: in progress.
-8. **Technology stack assessment** — owner: [[sofie-nielsen]]. Status: not started.
-9. **Tax compliance review** — owner: external counsel. Status: not started.
-10. **Regulatory and license audit** — owner: external counsel. Status: not started.
-11. **Vendor dependency analysis** — owner: [[sofie-nielsen]]. Status: not started.
-12. **IP and patent analysis** — owner: external counsel. Status: not started.
+1. [[del-dd-revenue-quality]] — Revenue quality assessment (owner: [[lars-eriksen]])
+2. [[del-dd-ebitda-normalization]] — EBITDA normalization (owner: [[lars-eriksen]])
+3. [[del-dd-working-capital]] — Working capital analysis (owner: [[lars-eriksen]])
+4. [[del-dd-debt-liabilities]] — Debt and liabilities review (owner: [[lars-eriksen]])
+5. [[del-dd-customer-concentration]] — Customer concentration analysis (owner: [[martin-bach]])
+6. [[del-dd-contract-portfolio]] — Contract portfolio review (owner: [[martin-bach]])
+7. [[del-dd-employee-keyperson]] — Employee and key-person risk (owner: [[sofie-nielsen]])
+8. [[del-dd-tech-stack]] — Technology stack assessment (owner: [[sofie-nielsen]])
+9. [[del-dd-tax-compliance]] — Tax compliance review (owner: [[lars-eriksen]])
+10. [[del-dd-regulatory-license]] — Regulatory and license audit (owner: [[sofie-nielsen]])
+11. [[del-dd-vendor-dependency]] — Vendor dependency analysis (owner: [[sofie-nielsen]])
+12. [[del-dd-ip-patent]] — IP and patent analysis (owner: [[sofie-nielsen]])
 
 **Final deliverable:** Consolidated DD memo with executive summary, per-workstream findings, risk register, and go/no-go recommendation.
 
@@ -1484,6 +1736,1172 @@ Every Friday at 17:00 the job:
 ];
 
 // ══════════════════════════════════════════════════════════
+// DELIVERABLE PAGES
+// ══════════════════════════════════════════════════════════
+
+export const DELIVERABLE_PAGES: PromoPage[] = [
+  // ── Portfolio-tree: Brand + Messaging ──────────────────
+  {
+    slug: "del-positioning-statement",
+    pageType: "project_deliverable",
+    title: "Positioning Statement",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-brand-messaging",
+      assigned_to: "camilla-ravn",
+      risk_count: 0,
+    },
+    content: `# Positioning Statement
+
+## Objective
+
+Produce a single-sentence positioning statement and supporting narrative that captures who the target buyer is, what category the service plays in, what makes it different, and why that difference matters now. Anchors every downstream asset and campaign.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Target buyer interviews (5-8 conversations planned with [[martin-bach]]'s accounts)
+- Competitor positioning scan (see [[del-competitor-comparison]])
+- Customer outcome data from existing engagements
+- Founding narrative session with [[anna-korsgaard]]
+
+## Completeness
+
+Not started. Target completion: 2026-06-15.
+
+## Risks & Findings
+
+- Interview availability from target buyers is the gating factor. If scheduling slips past late May, the deliverable compresses against the Brand + Messaging lock date.
+- Category framing is contested: "operational intelligence" vs. "AI COO" vs. "situation monitoring" — decision needed early to align with [[del-competitor-comparison]].
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[martin-bach]]. Final sign-off: [[anna-korsgaard]].
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-messaging-pillars",
+    pageType: "project_deliverable",
+    title: "Messaging Pillars & Voice Guidelines",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-brand-messaging",
+      assigned_to: "camilla-ravn",
+      risk_count: 0,
+    },
+    content: `# Messaging Pillars & Voice Guidelines
+
+## Objective
+
+Produce 3-5 messaging pillars (the core claims repeated across every asset and channel) and a voice guideline document (tone, vocabulary, sentence patterns to use and avoid). Output lands in the sales deck, website, and outreach sequences as repeat-ready language.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Positioning statement from [[del-positioning-statement]] as foundational input
+- Interview transcripts with existing customers
+- Sales objection log from [[martin-bach]] and [[ida-frost]]
+- Brand voice benchmarks from 3-5 admired companies in adjacent categories
+
+## Completeness
+
+Not started. Target completion: 2026-06-25. Depends on positioning statement landing first.
+
+## Risks & Findings
+
+- Voice guidelines need sales adoption — if [[martin-bach]] and [[ida-frost]] don't buy in early, outreach sequences drift off-brand and asset consistency breaks.
+- Pillars must resolve the top 3 objections in the sales log. If they don't, they're not ready.
+
+## Review Status
+
+Not yet in review. Sales validation session planned 2026-06-20 with [[martin-bach]] and [[ida-frost]].
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-competitor-comparison",
+    pageType: "project_deliverable",
+    title: "Competitor Comparison Matrix",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-brand-messaging",
+      assigned_to: "camilla-ravn",
+      risk_count: 0,
+    },
+    content: `# Competitor Comparison Matrix
+
+## Objective
+
+Produce a structured comparison across 5-8 competitors covering category positioning, target buyer, pricing tier, core capabilities, and visible gaps. Identifies where to amplify differentiation and where competitors are stronger.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Competitor websites, public demos, pricing pages
+- G2, Capterra, product-hunt listings
+- Customer conversations where competitors were also evaluated
+- Analyst coverage (Gartner, Forrester) where available
+
+## Completeness
+
+Not started. Target completion: 2026-05-30. Output feeds [[del-positioning-statement]] and [[del-messaging-pillars]].
+
+## Risks & Findings
+
+- Competitor set is partially unknown — two stealth companies may launch in the same window. If one lands first with similar positioning, matrix needs rapid update.
+- Differentiation claims must be defensible; any claim in messaging must be backable by the matrix.
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[martin-bach]] for sales-realism check.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  // ── Portfolio-tree: Launch Asset Production ────────────
+  {
+    slug: "del-website",
+    pageType: "project_deliverable",
+    title: "Launch Website",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-launch-asset-production",
+      assigned_to: "camilla-ravn",
+      risk_count: 0,
+    },
+    content: `# Launch Website
+
+## Objective
+
+Produce the launch marketing site: home, solution pages segmented by buyer, pricing, about, lead capture flow. Must reflect locked positioning and messaging, host the launch assets, and route qualified traffic to sales.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Locked positioning from [[del-positioning-statement]]
+- Messaging pillars from [[del-messaging-pillars]]
+- Teardown of 5-7 comparable launch sites
+- Vendor-provided design system (pending vendor selection)
+
+## Completeness
+
+Not started. Target completion: 2026-08-15 for v1 preview, 2026-08-31 for production-ready.
+
+## Risks & Findings
+
+- Vendor dependency — creative and web dev vendor selection must complete by end of April. Every week slipped compresses the build timeline.
+- Content capacity — [[camilla-ravn]] is primary copy author while also running Brand + Messaging. Cross-project context load is a real risk.
+- Lead capture integration requires CRM wiring before launch. Cannot launch without this loop closed.
+
+## Review Status
+
+Not yet in review. Final approval: [[anna-korsgaard]].
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-sales-deck",
+    pageType: "project_deliverable",
+    title: "Sales Deck",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-launch-asset-production",
+      assigned_to: "martin-bach",
+      risk_count: 0,
+    },
+    content: `# Sales Deck
+
+## Objective
+
+Produce the sales deck used in discovery and qualification conversations post-launch. 12-18 slides covering problem framing, category framing, product overview, differentiation, pricing anchor, customer evidence, next steps. Must land cleanly in 20-minute customer calls.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Messaging pillars from [[del-messaging-pillars]]
+- Positioning statement from [[del-positioning-statement]]
+- Sales objection log and win/loss notes from [[martin-bach]]
+- 2-3 anonymised customer-story candidates from existing engagements
+
+## Completeness
+
+Not started. Target completion: 2026-08-10 for v1, 2026-08-25 for production-ready.
+
+## Risks & Findings
+
+- Customer evidence availability — only 2-3 engagements are appropriate for story use. If any decline, the evidence section is thin.
+- Length discipline — past decks have crept to 25+ slides. Enforcing the 12-18 slide cap is a discipline risk.
+
+## Review Status
+
+Not yet in review. [[martin-bach]] authors; [[anna-korsgaard]] final sign-off.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-one-pager",
+    pageType: "project_deliverable",
+    title: "Service One-Pager",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-launch-asset-production",
+      assigned_to: "camilla-ravn",
+      risk_count: 0,
+    },
+    content: `# Service One-Pager
+
+## Objective
+
+Produce a single-page summary of the service offering for first-touch conversations, follow-up emails, and partner/advisor packs. Must communicate core value, target buyer, and next-step CTA in <60 seconds of reading.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Positioning statement from [[del-positioning-statement]]
+- Messaging pillars from [[del-messaging-pillars]]
+- Price anchor from [[del-sales-deck]]
+- Visual system from design vendor
+
+## Completeness
+
+Not started. Target completion: 2026-08-20.
+
+## Risks & Findings
+
+- Content density — compressing positioning, differentiation, and CTA onto one page risks either too sparse (vague) or too dense (skipped). Needs 3-5 iteration passes.
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[martin-bach]] for sales-usability.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  // ── Portfolio-tree: Beachhead Campaign ─────────────────
+  {
+    slug: "del-target-account-list",
+    pageType: "project_deliverable",
+    title: "Target Account List",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-beachhead-campaign",
+      assigned_to: "martin-bach",
+      risk_count: 0,
+    },
+    content: `# Target Account List
+
+## Objective
+
+Produce a curated list of 50-100 target accounts for the beachhead campaign. Each account has firmographic fit score, account owner assignment, named-stakeholder mapping, and outreach channel mix. Entry point for [[del-outreach-sequences]] and the paid targeting plan.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- ICP definition (to be refined from existing customer patterns)
+- Firmographic data from public sources and sales databases
+- [[martin-bach]]'s existing prospect pipeline
+- Exclusion list (existing customers, active prospects, lost deals <12 months)
+
+## Completeness
+
+Not started. Target completion: 2026-08-31.
+
+## Risks & Findings
+
+- ICP precision — without 20+ existing customer data points, firmographic fit scoring is heuristic. Expect re-scoring after first response wave.
+- Data source coverage — Nordic mid-market accounts are often missing from standard databases. Manual research required.
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[anna-korsgaard]] for target-market alignment.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-outreach-sequences",
+    pageType: "project_deliverable",
+    title: "Outreach Sequences",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-beachhead-campaign",
+      assigned_to: "ida-frost",
+      risk_count: 0,
+    },
+    content: `# Outreach Sequences
+
+## Objective
+
+Produce sequenced outreach templates (email + LinkedIn + phone touchpoints) for the target account list. 3 sequence variants to test: problem-framing, category-framing, customer-story. Each sequence runs over 14-21 days with 5-7 touches.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Messaging pillars from [[del-messaging-pillars]]
+- Target account list structure from [[del-target-account-list]]
+- Sales playbook archives from [[martin-bach]]'s prior engagements
+- Benchmark sequences from analogous categories
+
+## Completeness
+
+Not started. Target completion: 2026-09-10.
+
+## Risks & Findings
+
+- Personalisation vs. scale — highly personalised sequences convert better but cap scale. Decide which 20-30% of accounts get deep personalisation.
+- Channel rotation — spam filters and LinkedIn algorithm changes affect deliverability. Sequences need monitoring from day 1.
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[martin-bach]] for sales-tone check.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-content-calendar",
+    pageType: "project_deliverable",
+    title: "Content Calendar",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-beachhead-campaign",
+      assigned_to: "camilla-ravn",
+      risk_count: 0,
+    },
+    content: `# Content Calendar
+
+## Objective
+
+Produce a 6-week content calendar spanning launch through end of October. Formats: blog, LinkedIn posts, newsletter, short-form video. Each piece mapped to a messaging pillar and a target buyer segment. Provides the steady-state content flow supporting outreach sequences.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Messaging pillars from [[del-messaging-pillars]]
+- Sales objection log — each objection becomes a piece of content
+- Customer story inventory
+- Industry calendar (events, holidays, reporting periods) affecting Nordic mid-market audience
+
+## Completeness
+
+Not started. Target completion: 2026-09-10.
+
+## Risks & Findings
+
+- Production capacity — 3-4 pieces of original content per week is aggressive. Needs clear short-form vs. long-form allocation.
+- Video — short-form video requires either in-house talent (limited) or vendor support (cost).
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[ida-frost]] for customer-voice alignment.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  // ── Portfolio-tree: Launch Event ───────────────────────
+  {
+    slug: "del-event-plan",
+    pageType: "project_deliverable",
+    title: "Event Plan & Run-of-Show",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-launch-event",
+      assigned_to: "camilla-ravn",
+      risk_count: 0,
+    },
+    content: `# Event Plan & Run-of-Show
+
+## Objective
+
+Produce the complete operational plan for the launch event: venue, logistics, catering, AV, agenda with timing, run-of-show document, staffing assignments, contingency plan. The single source of truth for event-day operations.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Venue shortlist (3-5 Copenhagen options under evaluation)
+- Agenda template from past internal events
+- Standard event-production checklist
+- Benchmarks from adjacent-company launch events
+
+## Completeness
+
+Not started. Target completion: 2026-09-20.
+
+## Risks & Findings
+
+- Venue availability — preferred venues book 8-12 weeks out; contract must be signed by mid-September. If first-choice falls through, fallbacks are less central.
+- Catering allergen and dietary coverage — at 40-60 attendees, coverage gaps are common if not explicitly surveyed in RSVP.
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[anna-korsgaard]] for narrative alignment.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-invite-list",
+    pageType: "project_deliverable",
+    title: "Invitation List",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-launch-event",
+      assigned_to: "martin-bach",
+      risk_count: 0,
+    },
+    content: `# Invitation List
+
+## Objective
+
+Produce the curated invitation list for the launch event. 80-120 invitees to yield 40-60 attendees after attrition. Mix: first-wave customers (priority), warm prospects from [[del-target-account-list]], partners/advisors, a small press contingent.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Customer CRM records
+- Target account list from [[del-target-account-list]]
+- Partner and advisor network from [[anna-korsgaard]]
+- Press contact list (to be assembled — limited existing relationships)
+
+## Completeness
+
+Not started. Target completion: 2026-09-12.
+
+## Risks & Findings
+
+- RSVP attrition — first-wave events typically see 25-40% decline from invite to attend. Over-invite by 2x the attendee target.
+- Press coverage — no existing press relationships means cold outreach; expect low conversion.
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[anna-korsgaard]] for customer-relationship appropriateness.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-presentation-deck",
+    pageType: "project_deliverable",
+    title: "Presentation Deck",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-launch-event",
+      assigned_to: "anna-korsgaard",
+      risk_count: 0,
+    },
+    content: `# Presentation Deck
+
+## Objective
+
+Produce the keynote deck for the launch event. 25-35 slides, 35-minute delivery: origin story, problem framing, category framing, product reveal, early customer outcomes, roadmap tease. Visually cohesive with website and sales deck.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Sales deck from [[del-sales-deck]] (overlapping content)
+- Anna's founding narrative
+- Visual design system from website build
+- Rehearsal feedback from dry runs
+
+## Completeness
+
+Not started. Target completion: 2026-09-30.
+
+## Risks & Findings
+
+- Rehearsal time — [[anna-korsgaard]] running board cycle concurrently. Protected rehearsal windows must be scheduled.
+- Live product demo vs. pre-recorded — live demo risks technical failure, pre-recorded feels less authentic. Decision needed.
+
+## Review Status
+
+Not yet in review. [[anna-korsgaard]] owns content; [[camilla-ravn]] owns visual consistency.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  // ── DD Deliverables (12 — proj-buyer-side-dd) ──────────
+  {
+    slug: "del-dd-revenue-quality",
+    pageType: "project_deliverable",
+    title: "Revenue Quality Assessment",
+    properties: {
+      status: "in_progress",
+      stage: "workboard",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "lars-eriksen",
+      generation_mode: "ai_assisted",
+      confidence: "high",
+      risk_count: 3,
+    },
+    content: `# Revenue Quality Assessment
+
+## Objective
+
+Assess the quality of target-company revenue: recurring vs. one-time, customer concentration, contract length, seasonality, and growth trajectory. Informs go/no-go and valuation reconciliation. Output: revenue quality memo with concentration risk, stickiness signals, and adjusted recurring revenue baseline.
+
+## Content
+
+Initial findings (2026-04-14):
+
+- **Top-3 customer concentration: 61%** of trailing 12-month revenue. Top-1 alone: 32%. Above comfort threshold; material driver of risk.
+- **Recurring vs. one-time:** 74% recurring (multi-year contracts or annual auto-renew), 26% one-time project revenue. Recurring base is stable for 2026.
+- **Contract length:** weighted-average 2.3 years remaining on recurring contracts. Longest top-10: 4.1 years. Shortest: 0.7 years.
+- **Growth trajectory:** CAGR 18% over last 3 years, but latest year's growth driven by expansion at top-3 customers, not new logos.
+
+Deeper analysis needed in: new-logo acquisition rate, churn in mid-market tier, cross-sell rates within the book.
+
+## Evidence & Sources
+
+- Target-company financial data room (accessed 2026-04-10)
+- Contract register and customer agreements (partial — see [[del-dd-contract-portfolio]])
+- Last 3 years of audited financials
+- Revenue recognition policy notes (footnotes to 2025 financials)
+
+## Completeness
+
+~60% complete. Remaining: new-logo acquisition rate, churn by tier, cross-sell pattern. Target completion: 2026-04-22.
+
+## Risks & Findings
+
+- **Concentration risk: elevated** — top-3 at 61% is high. Loss of top-1 alone would shift the target from growing to shrinking. Correlates with findings in [[del-dd-customer-concentration]].
+- **New-logo momentum weakening** — growth comes from existing-customer expansion. If that plateaus, overall growth collapses.
+- **Revenue recognition** — no red flags in policy, but two large 2025 deals had unusual milestone structures. Flagged for follow-up with target CFO.
+
+## Review Status
+
+In progress. Draft memo to be circulated to [[anna-korsgaard]] 2026-04-23. Cross-reference points with [[del-dd-customer-concentration]] being reconciled.
+
+## Decisions
+
+No decisions logged at deliverable level. Contributes to final go/no-go.`,
+  },
+
+  {
+    slug: "del-dd-ebitda-normalization",
+    pageType: "project_deliverable",
+    title: "EBITDA Normalization",
+    properties: {
+      status: "in_progress",
+      stage: "workboard",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "lars-eriksen",
+      generation_mode: "ai_assisted",
+      confidence: "medium",
+      risk_count: 3,
+    },
+    content: `# EBITDA Normalization
+
+## Objective
+
+Normalise target-company EBITDA by removing one-time items, owner-operator adjustments, and non-recurring costs to derive run-rate profitability for valuation. Output: normalised EBITDA bridge with itemised adjustments and defensible run-rate number.
+
+## Content
+
+Initial findings (2026-04-14):
+
+- **Reported EBITDA FY2025:** DKK 8.4M.
+- **Identified adjustments (preliminary):**
+  - Owner salary above market: +DKK 1.2M (owner-operator pays himself below market; bring to market rate)
+  - One-time settlement (litigation): +DKK 0.6M
+  - Deferred rent concession (COVID-era): +DKK 0.3M
+  - IT migration consulting: +DKK 0.4M
+- **Preliminary normalised EBITDA:** DKK 10.9M (+30% vs. reported).
+
+Further adjustments pending: R&D capitalisation policy, Q3-2025 inventory write-down, ERP implementation cost (capex vs. opex).
+
+## Evidence & Sources
+
+- Target-company P&L (3-year audited)
+- Payroll records (owner and key-person compensation)
+- Litigation settlement documents
+- Rent agreements and amendment letters
+- IT vendor contracts
+
+## Completeness
+
+~55% complete. Remaining: R&D and ERP treatment, inventory adjustment, working-capital impact reconciliation. Target completion: 2026-04-25.
+
+## Risks & Findings
+
+- **Normalisation delta is large** — +30% swing from reported to normalised is material. Requires defensible documentation for each adjustment.
+- **Owner-operator compensation** — adjustment assumes future hire at market rate. If target intends to retain current owner post-close, adjustment may not stand.
+- **Inventory write-down** — Q3-2025 write-down of DKK 0.5M is partly discontinued SKUs. Needs classification call.
+
+## Review Status
+
+In progress. Working with target CFO on adjustment documentation. Confidence "medium" — high on major items, unresolved on R&D/ERP treatment.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-working-capital",
+    pageType: "project_deliverable",
+    title: "Working Capital Analysis",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "lars-eriksen",
+      generation_mode: "ai_assisted",
+      risk_count: 0,
+    },
+    content: `# Working Capital Analysis
+
+## Objective
+
+Analyse target-company working capital: AR days, AP days, inventory turns, seasonality. Derive a minimum working-capital requirement at close. Output: WC run-rate, seasonal adjustment curve, close-date WC target.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Monthly balance sheets (36 months, to be requested)
+- AR and AP aging reports
+- Inventory records and turnover data
+- Cash flow statements
+
+## Completeness
+
+Not started. Target completion: 2026-05-05.
+
+## Risks & Findings
+
+None identified yet. Initial concern from adjacent workstreams: inventory buildup in late 2025 may distort simple averages.
+
+## Review Status
+
+Not yet in review. Primary reviewer: [[anna-korsgaard]].
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-debt-liabilities",
+    pageType: "project_deliverable",
+    title: "Debt & Liabilities Review",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "lars-eriksen",
+      generation_mode: "ai_assisted",
+      risk_count: 0,
+    },
+    content: `# Debt & Liabilities Review
+
+## Objective
+
+Review target-company debt and liability structure: bank debt, lease obligations, deferred consideration from prior acquisitions, employee benefit liabilities, contingent liabilities. Output: total indebtedness bridge at close, pension/benefit gap, contingent-liability register.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Debt schedule from target
+- Lease register (IFRS 16)
+- Pension plan actuarial reports
+- Litigation log
+- Board minutes referencing commitments
+
+## Completeness
+
+Not started. Target completion: 2026-05-10.
+
+## Risks & Findings
+
+None identified yet. Early signal from [[del-dd-contract-portfolio]]: two contracts reference potential earn-out obligations from prior acquisition.
+
+## Review Status
+
+Not yet in review.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-customer-concentration",
+    pageType: "project_deliverable",
+    title: "Customer Concentration Analysis",
+    properties: {
+      status: "in_progress",
+      stage: "workboard",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "martin-bach",
+      generation_mode: "ai_assisted",
+      confidence: "high",
+      risk_count: 3,
+    },
+    content: `# Customer Concentration Analysis
+
+## Objective
+
+Quantify customer concentration and assess stickiness of top customers. Informs go/no-go and valuation discount for concentration risk. Output: concentration curve, top-10 customer dossiers, churn/retention profile.
+
+## Content
+
+Initial findings (2026-04-14):
+
+- **Top-1 customer: 32%** of revenue. Relationship duration: 6 years. Contract renewal in 18 months. Relationship health per interviews: strong but not contractual exclusivity.
+- **Top-3: 61%.** Top-5: 74%. Top-10: 88%.
+- **Mid-market tier (revenue <DKK 200K/yr):** long tail of 40+ customers, low switching cost, moderate churn (~12%/year).
+- **Retention:** logo retention 92% over trailing 3 years. Revenue retention (including expansion): 108%. Strong signal, but skewed by top-1 growth.
+
+Customer interviews requested for top-5. One scheduled for 2026-04-20 with top-1 customer's COO.
+
+## Evidence & Sources
+
+- Target-company revenue-by-customer data (3 years)
+- Customer contract register (partial)
+- Customer interview notes (2 completed, 3 scheduled)
+- Market benchmark data on concentration norms in the sector
+
+## Completeness
+
+~50% complete. Remaining: top-5 interviews, deep-dive on top-1 contract structure, churn model for mid-market tail. Target completion: 2026-04-28.
+
+## Risks & Findings
+
+- **Top-1 dependency is existential** — losing top-1 shifts target from growing to declining. Contract renewal in 18 months is a material deal-structure consideration (earn-out? holdback?).
+- **No exclusivity or multi-year commitment** from top-1; renewal is boilerplate.
+- **Mid-market churn** — 12%/year is high for a sticky service offering. Suggests either value gap or weak onboarding in the tail.
+
+## Review Status
+
+In progress. Cross-referenced with [[del-dd-revenue-quality]]. Draft due 2026-04-28.
+
+## Decisions
+
+No decisions logged at deliverable level.`,
+  },
+
+  {
+    slug: "del-dd-contract-portfolio",
+    pageType: "project_deliverable",
+    title: "Contract Portfolio Review",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "martin-bach",
+      generation_mode: "ai_assisted",
+      risk_count: 0,
+    },
+    content: `# Contract Portfolio Review
+
+## Objective
+
+Review the target-company contract portfolio: term lengths, renewal clauses, change-of-control provisions, pricing mechanisms, SLAs, indemnity. Flag any contracts unusually onerous, at-risk on change of control, or materially affecting valuation.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Target contract register (in data room — partial access)
+- Full contract set for top-20 customers (requested)
+- Template master service agreements
+- Amendment letters and side letters
+
+## Completeness
+
+Not started. Target completion: 2026-05-12.
+
+## Risks & Findings
+
+- **Data room gap:** two contract amendments referenced in the register have not been located. Request pending with target counsel.
+- Change-of-control clauses not yet reviewed — expected to be a major concern for top-3 customers.
+
+## Review Status
+
+Not yet in review. External counsel will review legal provisions in parallel.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-employee-keyperson",
+    pageType: "project_deliverable",
+    title: "Employee & Key Person Risk",
+    properties: {
+      status: "in_progress",
+      stage: "workboard",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "sofie-nielsen",
+      generation_mode: "ai_assisted",
+      confidence: "medium",
+      risk_count: 3,
+    },
+    content: `# Employee & Key Person Risk
+
+## Objective
+
+Assess employee and key-person risk: organisation structure, key-person dependencies, retention risk at close, compensation competitiveness, employment contracts. Output: key-person register, retention plan recommendation, compensation gap analysis.
+
+## Content
+
+Initial findings (2026-04-14):
+
+- **Total headcount:** 47 FTE + 6 contractors.
+- **Key-person register (preliminary):** 5 individuals identified as critical. Owner-CEO (clearly critical), CTO (architectural + customer-facing), Head of Customer Success (top-3 relationship owner), senior ops lead, lead engineer.
+- **Compensation:** CTO and lead engineer paid 15-20% below market. Risk of loss in 6 months post-close unless retention plan in place.
+- **Employment contracts:** Owner-CEO has no non-compete. CTO has 12-month non-compete. Lead engineer has 6-month non-compete. Other key people: no non-compete.
+- **Culture signal:** moderate turnover in 2024 (12%), low in 2025 (5%). Could indicate stabilisation or pre-deal cohesion.
+
+Interviews with 3 of 5 key persons scheduled. Retention plan draft in progress.
+
+## Evidence & Sources
+
+- Target-company HR data (payroll, contracts, org structure)
+- Employment agreements (top-10 employees)
+- Benchmark compensation data (Nordic mid-market sector)
+- Key-person interview notes
+
+## Completeness
+
+~50% complete. Remaining: 2 key-person interviews, retention plan draft, compensation gap quantification. Target completion: 2026-04-30.
+
+## Risks & Findings
+
+- **Owner-CEO transition** is the single biggest people risk. No non-compete, no post-close commitment agreed. Must be in deal structure.
+- **Compensation gap on technical talent** — 15-20% gap creates real retention risk during integration.
+- **Customer Success role** carries top-3 relationship. Loss cascades into concentration risk.
+
+## Review Status
+
+In progress. Draft memo to [[anna-korsgaard]] by 2026-04-30.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-tech-stack",
+    pageType: "project_deliverable",
+    title: "Technology Stack Assessment",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "sofie-nielsen",
+      generation_mode: "ai_assisted",
+      risk_count: 0,
+    },
+    content: `# Technology Stack Assessment
+
+## Objective
+
+Assess the target-company technology stack: architecture, tech debt, scalability, security posture, third-party dependencies. Inform integration approach and surface any material tech-risk affecting valuation or post-close plan.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Architecture diagrams (requested)
+- Code repository access (pending NDA)
+- Security audit reports (last 2 years)
+- Cloud infrastructure bills (AWS, third-party SaaS)
+- Developer interviews
+
+## Completeness
+
+Not started. Target completion: 2026-05-15.
+
+## Risks & Findings
+
+None identified yet. Early signal from [[del-dd-employee-keyperson]]: CTO has been the sole architect — single point of knowledge failure is probable.
+
+## Review Status
+
+Not yet in review.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-tax-compliance",
+    pageType: "project_deliverable",
+    title: "Tax Compliance Review",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "lars-eriksen",
+      generation_mode: "ai_assisted",
+      risk_count: 0,
+    },
+    content: `# Tax Compliance Review
+
+## Objective
+
+Review target-company tax compliance: corporate income tax, VAT, payroll tax, transfer pricing (if applicable), indirect taxes, tax-audit history. Flag any unresolved tax exposures, non-compliance risks, or uncertain tax positions.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Corporate tax filings (last 5 years)
+- VAT returns
+- Payroll tax filings
+- Tax audit correspondence
+- Transfer pricing documentation (if applicable)
+
+## Completeness
+
+Not started. Target completion: 2026-05-18. Will coordinate with external tax counsel.
+
+## Risks & Findings
+
+None identified yet. Standard tax DD scope applies.
+
+## Review Status
+
+Not yet in review. External tax counsel will co-review.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-regulatory-license",
+    pageType: "project_deliverable",
+    title: "Regulatory & License Audit",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "sofie-nielsen",
+      generation_mode: "ai_assisted",
+      risk_count: 0,
+    },
+    content: `# Regulatory & License Audit
+
+## Objective
+
+Audit target-company regulatory status and license portfolio: industry-specific licenses, data protection compliance (GDPR/NIS2), certifications (ISO, SOC2), any open regulatory correspondence. Flag any non-compliance or upcoming renewal risks.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- License register (requested)
+- Regulatory correspondence (last 3 years)
+- GDPR Article 30 records
+- Certification documents
+- Data processor agreements
+
+## Completeness
+
+Not started. Target completion: 2026-05-18.
+
+## Risks & Findings
+
+None identified yet. NIS2 applicability to the sector will be assessed.
+
+## Review Status
+
+Not yet in review. External regulatory counsel will co-review if material.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-vendor-dependency",
+    pageType: "project_deliverable",
+    title: "Vendor Dependency Analysis",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "sofie-nielsen",
+      generation_mode: "ai_assisted",
+      risk_count: 0,
+    },
+    content: `# Vendor Dependency Analysis
+
+## Objective
+
+Analyse target-company critical vendor dependencies: cloud infrastructure providers, SaaS platforms, key service vendors. Identify single-source vendors, contract terms, substitution difficulty, and any vendor-risk material to valuation or integration.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- Vendor register (requested)
+- Top-20 vendor contracts
+- Cloud infrastructure bills
+- IT and service spend by vendor
+
+## Completeness
+
+Not started. Target completion: 2026-05-20.
+
+## Risks & Findings
+
+None identified yet. Early signal from [[del-dd-tech-stack]]: AWS is the primary infrastructure vendor (single-source, but standard risk).
+
+## Review Status
+
+Not yet in review.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+
+  {
+    slug: "del-dd-ip-patent",
+    pageType: "project_deliverable",
+    title: "IP & Patent Analysis",
+    properties: {
+      status: "planned",
+      stage: "intelligence",
+      parent_project: "proj-buyer-side-dd",
+      assigned_to: "sofie-nielsen",
+      generation_mode: "ai_assisted",
+      risk_count: 0,
+    },
+    content: `# IP & Patent Analysis
+
+## Objective
+
+Assess target-company intellectual property: owned IP (software, content, trademarks), licensed IP, open-source usage, pending or granted patents, IP freedom-to-operate. Flag any IP risks affecting valuation or post-close integration.
+
+## Content
+
+Analysis pending. Data gathering in progress.
+
+## Evidence & Sources
+
+- IP register (requested)
+- Patent applications and grants
+- Trademark registrations
+- Open-source license audit
+- Employee IP assignment agreements
+
+## Completeness
+
+Not started. Target completion: 2026-05-20.
+
+## Risks & Findings
+
+None identified yet. External IP counsel will coordinate for patent freedom-to-operate analysis.
+
+## Review Status
+
+Not yet in review. External IP counsel will co-review.
+
+## Decisions
+
+No decisions logged yet.`,
+  },
+];
+
+// ══════════════════════════════════════════════════════════
 // ALL PAGES combined
 // ══════════════════════════════════════════════════════════
 
@@ -1497,4 +2915,5 @@ export const ALL_PROMO_PAGES: PromoPage[] = [
   ...INITIATIVE_PAGES,
   ...PROJECT_PAGES,
   ...SYSTEM_JOB_PAGES,
+  ...DELIVERABLE_PAGES,
 ];
