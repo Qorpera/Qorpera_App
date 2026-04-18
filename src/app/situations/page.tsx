@@ -450,13 +450,14 @@ export default function SituationsPage() {
   const [panelBreadcrumbs, setPanelBreadcrumbs] = useState<Array<{ label: string; icon: React.ReactNode; step: ExecutionStepForPreview }>>([]);
   const [panelEditing, setPanelEditing] = useState(false);
   const [panelWidth, setPanelWidth] = useState(55);
+  const [isResizing, setIsResizing] = useState(false);
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false);
   const [isChatVisible, setIsChatVisible] = useState(true);
   const sidebarWasCollapsed = useRef(false);
 
-  // Auto-collapse main nav sidebar when panel opens, restore on close
+  // Auto-collapse main nav sidebar when a situation is entered, restore on exit
   useEffect(() => {
-    if (sidePanelData) {
+    if (selectedId) {
       sidebarWasCollapsed.current = localStorage.getItem("sidebar-collapsed") === "true";
       if (!sidebarWasCollapsed.current) {
         window.dispatchEvent(new CustomEvent("sidebar-collapse-request", { detail: { collapsed: true } }));
@@ -466,7 +467,7 @@ export default function SituationsPage() {
         window.dispatchEvent(new CustomEvent("sidebar-collapse-request", { detail: { collapsed: false } }));
       }
     }
-  }, [!!sidePanelData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [!!selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for approve-action events from email preview footer
   useEffect(() => {
@@ -773,7 +774,7 @@ export default function SituationsPage() {
           gridTemplateColumns: isPreviewFullScreen
             ? "0fr 1fr"
             : sidePanelData ? `1fr ${panelWidth}%` : "1fr",
-          transition: "grid-template-columns 0.25s ease-in-out",
+          transition: isResizing ? "none" : "grid-template-columns 0.25s ease-in-out",
         }}>
           {/* Detail column — resizes with the side panel; content inside is max-width + centered */}
           <div className="flex flex-col min-h-0 overflow-hidden" style={{
@@ -852,6 +853,8 @@ export default function SituationsPage() {
                 isEditing={panelEditing}
                 onToggleEdit={() => setPanelEditing(prev => !prev)}
                 onWidthChange={setPanelWidth}
+                onResizeStart={() => setIsResizing(true)}
+                onResizeEnd={() => setIsResizing(false)}
                 onApprove={sidePanelData.isEditable ? () => {
                   const situationId = sidePanelData.situationId || selectedSituation!.id;
                   const stepOrder = sidePanelData.stepOrder;

@@ -74,6 +74,8 @@ interface SidePanelProps {
   isEditing?: boolean;
   onToggleEdit?: () => void;
   onWidthChange?: (percent: number) => void;
+  onResizeStart?: () => void;
+  onResizeEnd?: () => void;
   onApprove?: () => void;
   onApprovalComplete?: () => void;
   onDiscuss?: () => void;
@@ -330,6 +332,8 @@ export function SidePanel({
   isEditing,
   onToggleEdit,
   onWidthChange,
+  onResizeStart,
+  onResizeEnd,
   onApprove,
   onApprovalComplete,
   onDiscuss,
@@ -369,6 +373,7 @@ export function SidePanel({
     isDragging.current = true;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
+    onResizeStart?.();
 
     function onMouseMove(ev: MouseEvent) {
       if (!isDragging.current) return;
@@ -382,13 +387,14 @@ export function SidePanel({
       isDragging.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      onResizeEnd?.();
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
     }
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mouseup", onMouseUp);
-  }, [onWidthChange]);
+  }, [onWidthChange, onResizeStart, onResizeEnd]);
 
   if (!isOpen) return null;
 

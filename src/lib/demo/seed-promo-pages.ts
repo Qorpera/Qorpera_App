@@ -757,6 +757,420 @@ Expected reduction in delivery delays: 60-80% for affected project types. Margin
 ];
 
 // ══════════════════════════════════════════════════════════
+// PROJECT PAGES
+// ══════════════════════════════════════════════════════════
+
+export const PROJECT_PAGES: PromoPage[] = [
+  {
+    slug: "proj-launch-marketing-plan",
+    pageType: "project",
+    title: "Launch Marketing Plan",
+    properties: {
+      status: "active",
+      owner: "camilla-ravn",
+      domain: "sales",
+      priority: "high",
+      start_date: "2026-04-01",
+      target_date: "2026-09-30",
+      progress: 15,
+      is_portfolio: true,
+    },
+    content: `# Launch Marketing Plan
+
+## Objective
+
+Coordinate the marketing and go-to-market workstreams for an upcoming service offering launch planned for late Q3 2026. Success criteria: positioning and messaging finalized by end of Q2, launch assets production complete by end of August, beachhead campaign live by target launch date, first 10 qualified pipeline opportunities generated within 30 days of launch.
+
+## Scope
+
+**Included:** Brand positioning, messaging development, launch asset production (website, collateral, sales enablement), campaign planning, launch event planning, internal rollout.
+
+**Not included:** Product/service offering definition (handled separately), pricing decisions (sign-off by [[anna-korsgaard]] outside this portfolio), post-launch demand generation (separate portfolio after launch).
+
+## Team
+
+- [[camilla-ravn]] — Portfolio owner (Business Development)
+- [[anna-korsgaard]] — Executive sponsor
+- [[martin-bach]] — Sales input on positioning and messaging
+- [[ida-frost]] — Customer-facing messaging review
+
+External vendors (creative agency, web development) to be selected during scoping.
+
+## Deliverables
+
+This is a portfolio. Individual workstreams will be tracked as child projects:
+
+1. **Brand + Messaging** — positioning statement, value proposition, messaging pillars, competitor comparison. Target complete: end of Q2.
+2. **Launch Asset Production** — website, one-pager, sales deck, demo script, case study templates. Target complete: end of August.
+3. **Beachhead Campaign** — target account list, outreach sequences, content calendar, paid placement plan. Launch: target launch date.
+4. **Launch Event** — in-person event for first-wave customers and partners. Target: within two weeks of launch.
+
+## Timeline & Milestones
+
+- **2026-04-15** — Portfolio kicked off
+- **2026-05-01** — Brand + Messaging workstream scoped and staffed
+- **2026-06-30** — Positioning and messaging locked
+- **2026-07-15** — Launch Asset Production in full execution
+- **2026-08-31** — Launch assets complete, beachhead campaign in final prep
+- **2026-09-15** — Soft launch (invite-only briefings)
+- **2026-09-30** — Full launch
+
+## Risks & Issues
+
+- **Headcount capacity** — [[camilla-ravn]] is the only full-time Business Development resource. If the portfolio scope expands, external support will be needed by July.
+- **Sales bandwidth during launch** — Expect pipeline conversations to consume 20-30% of [[martin-bach]]'s time through October. Existing client commitments need to be sequenced.
+- **Vendor selection timeline** — Creative and web development vendors not yet selected. If selection slips past end of April, the Asset Production workstream compresses.
+
+## Decisions
+
+No formal decisions logged yet. This section will fill as child project work generates material trade-offs.
+
+## Related Situations
+
+No detected situations currently. A situation may be generated if launch readiness slips against the September 30 target.
+
+## Status Updates
+
+- **2026-04-15** — Portfolio created. Initial scoping started. Owner: [[camilla-ravn]]. Sponsor: [[anna-korsgaard]].`,
+  },
+
+  {
+    slug: "proj-buyer-side-dd",
+    pageType: "project",
+    title: "Buyer Side Due Diligence",
+    properties: {
+      status: "active",
+      owner: "anna-korsgaard",
+      domain: "management",
+      priority: "high",
+      start_date: "2026-04-10",
+      target_date: "2026-05-30",
+      progress: 25,
+    },
+    content: `# Buyer Side Due Diligence
+
+## Objective
+
+Conduct buyer-side due diligence on an identified acquisition target to inform a go/no-go recommendation to leadership and, if go, support deal structuring and post-close integration planning. Success criteria: all twelve DD workstreams complete with supporting evidence, risk register produced, go/no-go recommendation delivered by target date.
+
+## Scope
+
+**Included:** Financial review (revenue quality, EBITDA normalization, working capital), commercial review (customer concentration, contract portfolio), operational review (team, technology, key-person risk), legal and regulatory review (corporate structure, contracts, licenses, IP), valuation reconciliation.
+
+**Not included:** Deal negotiation and structuring (post-DD), integration planning (triggered if go decision), external legal DD by third-party counsel (parallel engagement, coordinated but not owned here).
+
+## Team
+
+- [[anna-korsgaard]] — Deal lead, final sign-off on recommendation
+- [[lars-eriksen]] — Finance DD workstream (revenue quality, EBITDA normalization, working capital, debt)
+- [[martin-bach]] — Commercial DD workstream (customer concentration, contract portfolio)
+- [[sofie-nielsen]] — Operational DD workstream (team, technology, key-person risk, vendor dependency)
+
+External counsel (to be engaged) for legal, tax, and IP review.
+
+## Deliverables
+
+Twelve workstreams produce one report section each, consolidated into a final DD memo:
+
+1. **Revenue quality assessment** — owner: [[lars-eriksen]]. Status: in progress.
+2. **EBITDA normalization** — owner: [[lars-eriksen]]. Status: data gathering.
+3. **Working capital analysis** — owner: [[lars-eriksen]]. Status: not started.
+4. **Debt and liabilities review** — owner: [[lars-eriksen]]. Status: not started.
+5. **Customer concentration analysis** — owner: [[martin-bach]]. Status: in progress.
+6. **Contract portfolio review** — owner: [[martin-bach]]. Status: data gathering.
+7. **Employee and key-person risk** — owner: [[sofie-nielsen]]. Status: in progress.
+8. **Technology stack assessment** — owner: [[sofie-nielsen]]. Status: not started.
+9. **Tax compliance review** — owner: external counsel. Status: not started.
+10. **Regulatory and license audit** — owner: external counsel. Status: not started.
+11. **Vendor dependency analysis** — owner: [[sofie-nielsen]]. Status: not started.
+12. **IP and patent analysis** — owner: external counsel. Status: not started.
+
+**Final deliverable:** Consolidated DD memo with executive summary, per-workstream findings, risk register, and go/no-go recommendation.
+
+## Timeline & Milestones
+
+- **2026-04-10** — Engagement started, data room access established
+- **2026-04-25** — Financial workstreams first pass complete
+- **2026-05-05** — Commercial workstreams first pass complete
+- **2026-05-12** — Operational workstreams first pass complete
+- **2026-05-20** — All workstreams second pass with target-company Q&A
+- **2026-05-25** — Risk register finalized, go/no-go draft
+- **2026-05-30** — Final memo and recommendation delivered to leadership
+
+## Risks & Issues
+
+- **Data room gaps** — Two contract amendments referenced in the target's contract register but not yet located in the data room. Request pending with target counsel.
+- **Management availability** — Target-company CFO is transitioning; key financial Q&A may slip beyond the planned schedule.
+- **Timeline pressure** — 50-day window to complete full DD. If initial findings surface material concerns, the timeline must extend or a reduced-scope recommendation is issued.
+
+## Decisions
+
+- **2026-04-10** — Scope locked to twelve workstreams. Legal DD scoped to external counsel to preserve internal capacity during active delivery commitments.
+
+## Related Situations
+
+No detected situations currently. A situation may be generated if DD surfaces material risk requiring broader organizational response.
+
+## Status Updates
+
+- **2026-04-10** — Engagement kicked off. Data room access confirmed. Workstream owners assigned.
+- **2026-04-14** — Financial workstream first findings: revenue composition reviewed, early concentration signal noted (to be quantified in workstream 5).
+- **2026-04-17** — Overall ~25% complete. No red flags yet. Contract amendment gap opened with target.`,
+  },
+];
+
+// ══════════════════════════════════════════════════════════
+// SYSTEM JOB PAGES
+// ══════════════════════════════════════════════════════════
+
+export const SYSTEM_JOB_PAGES: PromoPage[] = [
+  {
+    slug: "sj-client-engagement-health",
+    pageType: "system_job",
+    title: "Client Engagement Health",
+    properties: {
+      status: "active",
+      schedule: "0 7 * * 1",
+      owner: "sofie-nielsen",
+      domain: "delivery",
+      trust_level: "propose",
+      auto_approve_steps: false,
+      last_run: "2026-04-14T07:00:00Z",
+      next_run: "2026-04-21T07:00:00Z",
+    },
+    content: `# Client Engagement Health
+
+## Purpose
+
+Monitor the health of active client engagements and surface early warning signals for scope creep, timeline risk, margin erosion, and relationship concerns before they compound. The output is a weekly review of all active engagements with a health rating and, where relevant, a proposed situation for follow-up.
+
+## Scope
+
+All active client engagements tracked in the operator's wiki under the [[delivery]] domain. Signals drawn from communications (response lags, tone shifts), project wiki pages (milestone slippage, scope change notes), and billing data (burn rate vs. budget).
+
+## Method
+
+Each Monday morning the job:
+
+1. Lists all engagements with [[delivery]] domain and status "active" in the wiki.
+2. For each engagement, pulls the past 7 days of activity signals (communications, project page edits, billing entries).
+3. Scores engagement health on four dimensions: scope, timeline, margin, relationship.
+4. Flags engagements with any dimension at red or two dimensions at amber.
+5. Proposes situations for flagged engagements; updates the engagement's project page with a status note.
+
+## Output
+
+- Weekly health summary across all engagements.
+- Proposed situation_instance pages for flagged engagements.
+- Status update appended to each affected project's wiki page.
+
+## Recipients
+
+- [[sofie-nielsen]] — Delivery lead, owns response to flagged engagements.
+- [[anna-korsgaard]] — CEO, cc'd on red-flagged engagements only.
+
+## Configuration
+
+- **Cron:** \`0 7 * * 1\` (Mondays at 07:00 CET)
+- **Importance threshold:** 0.3 — propose situation if any engagement scores above threshold
+- **Scope:** domain
+- **Trust level:** propose — surfaces situations for human review; does not auto-commit
+
+## Execution History
+
+- **2026-04-14 (Monday, 07:00)** — 3 active engagements reviewed. 1 flagged red on timeline dimension. Situation [[project-delay-meridian-redesign]] updated with status note. Importance score: 0.62.
+- **2026-04-07 (Monday, 07:00)** — 3 active engagements reviewed. 1 flagged amber on scope dimension (same engagement, earlier signal). No situation proposed; status note appended to project page. Importance score: 0.28.
+- **2026-03-31 (Monday, 07:00)** — 3 active engagements reviewed. All green. No output. Importance score: 0.12.`,
+  },
+
+  {
+    slug: "sj-board-meeting-prep-monitor",
+    pageType: "system_job",
+    title: "Board Meeting Preparation",
+    properties: {
+      status: "active",
+      schedule: "0 6 * * *",
+      owner: "anna-korsgaard",
+      domain: "management",
+      trust_level: "observe",
+      auto_approve_steps: false,
+      last_run: "2026-04-17T06:00:00Z",
+      next_run: "2026-04-18T06:00:00Z",
+    },
+    content: `# Board Meeting Preparation
+
+## Purpose
+
+Ensure board meetings have preparation materials ready with enough lead time for the board to review. The job detects upcoming board meetings from the calendar and surfaces a situation when a meeting is within 5 days and no briefing document has been prepared or circulated.
+
+## Scope
+
+[[management]] domain. Calendar events matching the board-meeting pattern. Cross-references to [[anna-korsgaard]] (chair of prep), [[erik-vestergaard]] (board chair), and the situation type [[board-meeting-preparation]].
+
+## Method
+
+Daily at 06:00 the job:
+
+1. Scans the calendar for events in the next 14 days matching the board-meeting pattern.
+2. For each upcoming meeting, checks whether a briefing document has been created in Qorpera, and whether it has been circulated.
+3. If a meeting is within 5 days and no briefing exists, proposes a situation.
+4. If a meeting is within 2 days and no briefing has been circulated, escalates with priority "high".
+
+## Output
+
+- Proposed situation_instance pages of type [[board-meeting-preparation]] when the 5-day threshold is crossed.
+- Updated status on the latest board-meeting-preparation situation (if open).
+
+## Recipients
+
+- [[anna-korsgaard]] — Owns briefing preparation.
+- [[erik-vestergaard]] — Board chair, cc'd on escalated situations only.
+
+## Configuration
+
+- **Cron:** \`0 6 * * *\` (daily at 06:00 CET)
+- **Importance threshold:** 0.3
+- **Scope:** domain
+- **Trust level:** observe — surfaces signal only; situation creation requires manual confirmation for now
+
+## Execution History
+
+- **2026-04-17 (Friday, 06:00)** — Upcoming board meeting detected in 3 days. Situation [[sit-board-meeting]] already exists in "proposed" state. No new situation created; state confirmed. Importance score: 0.55.
+- **2026-04-13 (Monday, 06:00)** — Upcoming board meeting detected in 7 days. Below 5-day threshold; no action. Importance score: 0.08.
+- **2026-04-10 (Friday, 06:00)** — No board meetings detected in the next 14 days. No output. Importance score: 0.00.`,
+  },
+
+  {
+    slug: "sj-monthly-investor-briefing",
+    pageType: "system_job",
+    title: "Monthly Investor Briefing",
+    properties: {
+      status: "active",
+      schedule: "0 8 1 * *",
+      owner: "anna-korsgaard",
+      domain: "management",
+      trust_level: "propose",
+      auto_approve_steps: false,
+      last_run: "2026-04-01T08:00:00Z",
+      next_run: "2026-05-01T08:00:00Z",
+    },
+    content: `# Monthly Investor Briefing
+
+## Purpose
+
+Prepare a monthly briefing for investors covering the prior month's operating performance, financial position, pipeline status, team changes, and material risks or opportunities. The job produces a draft briefing ready for [[anna-korsgaard]]'s review and sign-off before distribution.
+
+## Scope
+
+[[management]] domain with inputs from [[finance]] (revenue, margin, cash position), [[sales]] (pipeline, new business), and [[delivery]] (engagement status, capacity). Cross-references to [[anna-korsgaard]] (drafter and distributor), [[lars-eriksen]] (financial data sanity check), [[martin-bach]] (commercial data sanity check).
+
+## Method
+
+On the 1st of each month at 08:00 the job:
+
+1. Pulls the prior month's financial summary from connected accounting data.
+2. Compiles the pipeline and deal-movement summary from CRM data.
+3. Gathers engagement status and capacity data from active project pages in the wiki.
+4. Gathers team changes (new hires, departures) from person-page changes in the wiki.
+5. Drafts the briefing in the standard format: Executive Summary, Financial Performance, Commercial Pipeline, Delivery Performance, Team, Risks, Outlook.
+6. Routes draft to [[anna-korsgaard]] for review.
+
+## Output
+
+- Draft briefing document produced as a deliverable on this job's wiki page.
+- Notification to Anna when draft is ready for review.
+- Final version distributed by Anna to the investor list after review (distribution is manual, outside this job's scope).
+
+## Recipients
+
+- [[anna-korsgaard]] — Reviewer and distributor.
+- [[lars-eriksen]] — Financial data sanity check (cc'd on draft).
+- [[martin-bach]] — Commercial data sanity check (cc'd on draft).
+
+## Configuration
+
+- **Cron:** \`0 8 1 * *\` (1st of each month at 08:00 CET)
+- **Importance threshold:** 0.5 — briefing is always produced; the score reflects whether anything in the draft warrants early attention from Anna
+- **Scope:** company_wide
+- **Trust level:** propose — drafts are reviewed, never sent without approval
+
+## Execution History
+
+- **2026-04-01 (08:00)** — March briefing draft produced. Reviewed and signed off by Anna 2026-04-02. Distributed to investor list 2026-04-02. Importance score: 0.48.
+- **2026-03-01 (08:00)** — February briefing draft produced. Reviewed and signed off 2026-03-02. Distributed 2026-03-03. Importance score: 0.34.
+- **2026-02-01 (08:00)** — January briefing draft produced. Reviewed and signed off 2026-02-02. Distributed 2026-02-02. Importance score: 0.41.`,
+  },
+
+  {
+    slug: "sj-weekly-performance-purpose-orientation",
+    pageType: "system_job",
+    title: "Weekly Performance Evaluation & Purpose Orientation",
+    properties: {
+      status: "active",
+      schedule: "0 17 * * 5",
+      owner: "anna-korsgaard",
+      domain: "management",
+      trust_level: "propose",
+      auto_approve_steps: false,
+      last_run: "2026-04-17T17:00:00Z",
+      next_run: "2026-04-24T17:00:00Z",
+    },
+    content: `# Weekly Performance Evaluation & Purpose Orientation
+
+## Purpose
+
+Evaluate the week's operating activity against the company's stated purpose, strategic priorities, and commitments. The job produces a reflective evaluation each Friday afternoon, asking: did the week's decisions and activity move us toward our stated purpose, or did we drift? The output is an evaluation for leadership review — a structured mirror for the CEO at week's end, not an external-facing report.
+
+## Scope
+
+Company-wide. Inputs: decisions logged during the week (meetings, approvals, commitments captured in wiki pages), activity signals from connected tools, and the stated strategic priorities captured on company-level pages. Cross-references to [[anna-korsgaard]] (primary reviewer) and all [[management]]-domain pages.
+
+## Method
+
+Every Friday at 17:00 the job:
+
+1. Reads current company-level strategic priorities to anchor the evaluation lens.
+2. Scans the week's activity: decisions logged on wiki pages, significant communications, project status changes, resource allocation shifts, initiative proposals surfaced.
+3. For each material activity, evaluates alignment with stated purpose on a three-way scale: aligned, neutral, divergent.
+4. Produces a short narrative evaluation: what went well, where the company drifted, what the drift implies, what leadership should consider.
+5. If drift is material, proposes an initiative or flags a strategic-link candidate for review.
+
+## Output
+
+- Weekly evaluation narrative written to this wiki page's Execution History each run.
+- When drift is material, a proposed initiative or strategic_link page.
+- Notification to Anna when evaluation is ready.
+
+## Recipients
+
+- [[anna-korsgaard]] — Primary reviewer. The evaluation is ultimately for leadership reflection, not external distribution.
+
+## Configuration
+
+- **Cron:** \`0 17 * * 5\` (Fridays at 17:00 CET)
+- **Importance threshold:** 0.3
+- **Scope:** company_wide
+- **Trust level:** propose — evaluations are never published without review; initiatives surfaced for consideration, not auto-accepted
+
+## Execution History
+
+- **2026-04-17 (Friday, 17:00) — AWAITING REVIEW**
+
+  Importance score: 0.71
+
+  **Evaluation summary (unreviewed):** Five material decisions tracked this week across [[management]], [[sales]], and [[delivery]]. Three aligned directly with the stated Q2 priority of margin protection on active engagements — [[init-client-profitability]] proposed, [[init-scope-creep-process]] proposed, [[sit-overdue-invoices]] acted on. Two diverged: (1) the late-stage scope addition accepted on the Meridian engagement without change order ran counter to the stated margin-protection priority, and (2) the acceleration of the [[proj-launch-marketing-plan]] staffing ahead of the Q2 close of the ongoing [[proj-buyer-side-dd]] engagement created a sequencing tension that has not been surfaced in any leadership discussion this week.
+
+  **Proposed for leadership attention:** The sequencing tension between launch readiness and acquisition readiness is not visible in any current initiative. Consider surfacing it as a strategic_link candidate before it becomes a resource conflict in May.
+
+  **Status:** Awaiting [[anna-korsgaard]]'s review. Draft initiative and strategic_link candidates not yet generated — will generate on request or after review sign-off.
+
+- **2026-04-11 (Friday, 17:00)** — 4 material decisions tracked. All aligned with stated priorities. No drift flagged. Reviewed and acknowledged by [[anna-korsgaard]] 2026-04-11 evening. Importance score: 0.18.
+
+- **2026-04-04 (Friday, 17:00)** — 3 material decisions tracked. One divergence flagged: delayed response to a prospective client inquiry that fell within the stated "respond within 48h" commitment. Reviewed and acknowledged 2026-04-05. Importance score: 0.44.`,
+  },
+];
+
+// ══════════════════════════════════════════════════════════
 // ALL PAGES combined
 // ══════════════════════════════════════════════════════════
 
@@ -768,4 +1182,6 @@ export const ALL_PROMO_PAGES: PromoPage[] = [
   ...CLIENT_PAGES,
   ...PROCESS_PAGES,
   ...INITIATIVE_PAGES,
+  ...PROJECT_PAGES,
+  ...SYSTEM_JOB_PAGES,
 ];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { diffLines, type Change } from "diff";
 import ReactMarkdown from "react-markdown";
@@ -179,6 +179,21 @@ export default function InitiativesPage() {
   const [panelActiveTab, setPanelActiveTab] = useState<string>("overview");
   const [panelEditing, setPanelEditing] = useState(false);
   const [panelChatVisible, setPanelChatVisible] = useState(true);
+  const sidebarWasCollapsed = useRef(false);
+
+  // Auto-collapse main nav sidebar when an initiative is entered, restore on exit
+  useEffect(() => {
+    if (selectedId) {
+      sidebarWasCollapsed.current = localStorage.getItem("sidebar-collapsed") === "true";
+      if (!sidebarWasCollapsed.current) {
+        window.dispatchEvent(new CustomEvent("sidebar-collapse-request", { detail: { collapsed: true } }));
+      }
+    } else {
+      if (!sidebarWasCollapsed.current) {
+        window.dispatchEvent(new CustomEvent("sidebar-collapse-request", { detail: { collapsed: false } }));
+      }
+    }
+  }, [!!selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchInitiatives = useCallback(async () => {
     try {
