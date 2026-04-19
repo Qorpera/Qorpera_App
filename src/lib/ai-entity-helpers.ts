@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 const NOTIFICATION_TYPES = [
   "situation_proposed",
   "situation_resolved",
-  "initiative_proposed",
+  "idea_proposed",
   "step_ready",
   "delegation_received",
   "follow_up_triggered",

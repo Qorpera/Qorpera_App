@@ -327,7 +327,7 @@ const BASE_TOOLS: AITool[] = [
         title: { type: "string", description: "Page title" },
         page_type: {
           type: "string",
-          description: "Page type: company_overview, domain_hub, person_profile, process, project, situation_type, external_relationship, tool_system, external_contact, initiative, strategic_link, system_job, other",
+          description: "Page type: company_overview, domain_hub, person_profile, process, project, situation_type, external_relationship, tool_system, external_contact, idea, strategic_link, system_job, other",
         },
         properties: {
           type: "object",

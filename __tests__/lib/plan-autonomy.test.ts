@@ -6,7 +6,7 @@ vi.mock("@/lib/db", () => ({
     planAutonomy: { upsert: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
     situation: { findUnique: vi.fn() },
     entity: { findUnique: vi.fn(), findFirst: vi.fn() },
-    initiative: { findUnique: vi.fn() },
+    idea: { findUnique: vi.fn() },
     recurringTask: { findUnique: vi.fn() },
     delegation: { findUnique: vi.fn() },
     notificationPreference: { findUnique: vi.fn() },
@@ -34,7 +34,7 @@ beforeEach(() => {
   (sendNotificationToAdmins as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 });
 
-const basePlan = { id: "plan1", operatorId: "op1", sourceType: "initiative", sourceId: "init1" };
+const basePlan = { id: "plan1", operatorId: "op1", sourceType: "idea", sourceId: "init1" };
 const baseSteps = [
   { title: "Step A", executionMode: "action" },
   { title: "Step B", executionMode: "generate" },
@@ -67,7 +67,7 @@ describe("computePlanPatternHash", () => {
 describe("recordPlanCompletion", () => {
   it("creates PlanAutonomy record on first completion", async () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(baseSteps);
-    (prisma.initiative.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
+    (prisma.idea.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
     (prisma.planAutonomy.upsert as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "pa1", consecutiveApprovals: 1, autoApproved: false,
     });
@@ -88,7 +88,7 @@ describe("recordPlanCompletion", () => {
 
   it("increments consecutiveApprovals on subsequent completions", async () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(baseSteps);
-    (prisma.initiative.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
+    (prisma.idea.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
     (prisma.planAutonomy.upsert as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "pa1", consecutiveApprovals: 5, autoApproved: false,
     });
@@ -106,7 +106,7 @@ describe("recordPlanCompletion", () => {
 
   it("graduates to autoApproved at 20 consecutive approvals", async () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(baseSteps);
-    (prisma.initiative.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
+    (prisma.idea.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
     (prisma.planAutonomy.upsert as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "pa1", consecutiveApprovals: 20, autoApproved: false,
     });
@@ -122,7 +122,7 @@ describe("recordPlanCompletion", () => {
 
   it("sends notification on graduation", async () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(baseSteps);
-    (prisma.initiative.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
+    (prisma.idea.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
     (prisma.planAutonomy.upsert as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: "pa1", consecutiveApprovals: 20, autoApproved: false,
     });
@@ -142,7 +142,7 @@ describe("recordPlanCompletion", () => {
 describe("recordPlanRejection", () => {
   it("resets consecutiveApprovals to 0", async () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(baseSteps);
-    (prisma.initiative.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
+    (prisma.idea.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
     (prisma.planAutonomy.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 
     await recordPlanRejection(basePlan);
@@ -155,7 +155,7 @@ describe("recordPlanRejection", () => {
 
   it("sets autoApproved back to false", async () => {
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue(baseSteps);
-    (prisma.initiative.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
+    (prisma.idea.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ aiEntityId: "ai1" });
     (prisma.planAutonomy.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 1 });
 
     await recordPlanRejection(basePlan);

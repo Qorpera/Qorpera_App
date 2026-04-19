@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { ExecutionStateSchema, ExecutionSummarySchema } from "@/lib/initiative-execution-types";
+import { ExecutionStateSchema, ExecutionSummarySchema } from "@/lib/idea-execution-types";
 
 // ── GET ── Detail from wiki page (with legacy fallback) ──────────────────────
 
@@ -15,15 +15,15 @@ export async function GET(
   const { operatorId } = su;
   const { id } = await params;
 
-  // Try wiki page first (slug or initiative_id property)
+  // Try wiki page first (slug or idea_id property)
   const page = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      pageType: "initiative",
+      pageType: "idea",
       scope: "operator",
       OR: [
         { slug: id },
-        { properties: { path: ["initiative_id"], equals: id } },
+        { properties: { path: ["idea_id"], equals: id } },
       ],
     },
     select: { slug: true, title: true, content: true, properties: true, crossReferences: true, createdAt: true, updatedAt: true },
@@ -117,7 +117,7 @@ export async function GET(
       if (parsed.success) {
         executionState = parsed.data;
       } else {
-        console.warn(`[initiatives-api] execution_state schema validation failed for ${id}:`, parsed.error.message);
+        console.warn(`[ideas-api] execution_state schema validation failed for ${id}:`, parsed.error.message);
       }
     }
     let executionSummary: unknown = null;
@@ -126,7 +126,7 @@ export async function GET(
       if (parsed.success) {
         executionSummary = parsed.data;
       } else {
-        console.warn(`[initiatives-api] execution_summary schema validation failed for ${id}:`, parsed.error.message);
+        console.warn(`[ideas-api] execution_summary schema validation failed for ${id}:`, parsed.error.message);
       }
     }
 
@@ -135,7 +135,7 @@ export async function GET(
       ownerPageSlug: ownerSlug,
       ownerName,
       proposalType: props.proposal_type ?? "general",
-      triggerSummary: page.title || "Untitled initiative",
+      triggerSummary: page.title || "Untitled idea",
       status: props.status ?? "proposed",
 
       // Full markdown content — the UI parses sections
@@ -180,17 +180,17 @@ export async function GET(
     });
   }
 
-  // Fallback: try Initiative table (legacy records)
-  const initiative = await prisma.initiative.findFirst({
+  // Fallback: try Idea table (legacy records)
+  const idea = await prisma.idea.findFirst({
     where: { id, operatorId },
   });
-  if (!initiative) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!idea) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Resolve owner wiki page title
   let ownerName: string | null = null;
-  if (initiative.ownerPageSlug) {
+  if (idea.ownerPageSlug) {
     const ownerPage = await prisma.knowledgePage.findFirst({
-      where: { operatorId, slug: initiative.ownerPageSlug, scope: "operator" },
+      where: { operatorId, slug: idea.ownerPageSlug, scope: "operator" },
       select: { title: true },
     });
     ownerName = ownerPage?.title ?? null;
@@ -203,23 +203,23 @@ export async function GET(
   };
 
   return NextResponse.json({
-    id: initiative.id,
-    aiEntityId: initiative.aiEntityId,
-    ownerPageSlug: initiative.ownerPageSlug,
+    id: idea.id,
+    aiEntityId: idea.aiEntityId,
+    ownerPageSlug: idea.ownerPageSlug,
     ownerName,
-    proposalType: initiative.proposalType,
-    triggerSummary: initiative.triggerSummary,
-    evidence: parseJson(initiative.evidence),
-    proposal: parseJson(initiative.proposal),
-    status: initiative.status,
-    rationale: initiative.rationale,
-    impactAssessment: initiative.impactAssessment,
-    proposedProjectConfig: initiative.proposedProjectConfig,
-    projectId: initiative.projectId,
+    proposalType: idea.proposalType,
+    triggerSummary: idea.triggerSummary,
+    evidence: parseJson(idea.evidence),
+    proposal: parseJson(idea.proposal),
+    status: idea.status,
+    rationale: idea.rationale,
+    impactAssessment: idea.impactAssessment,
+    proposedProjectConfig: idea.proposedProjectConfig,
+    projectId: idea.projectId,
     resolvedTargetTitles: {},
     crossReferences: {},
-    createdAt: initiative.createdAt.toISOString(),
-    updatedAt: initiative.updatedAt.toISOString(),
+    createdAt: idea.createdAt.toISOString(),
+    updatedAt: idea.updatedAt.toISOString(),
   });
 }
 
@@ -248,11 +248,11 @@ export async function PATCH(
   const page = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      pageType: "initiative",
+      pageType: "idea",
       scope: "operator",
       OR: [
         { slug: id },
-        { properties: { path: ["initiative_id"], equals: id } },
+        { properties: { path: ["idea_id"], equals: id } },
       ],
     },
     select: { slug: true, title: true, content: true, properties: true, operatorId: true },
@@ -273,8 +273,8 @@ export async function PATCH(
       sendNotificationToAdmins({
         operatorId,
         type: "system_alert",
-        title: `Initiative rejected: ${page.title.slice(0, 80)}`,
-        body: "The proposed initiative was rejected.",
+        title: `Idea rejected: ${page.title.slice(0, 80)}`,
+        body: "The proposed idea was rejected.",
         sourceType: "wiki_page",
         sourceId: page.slug,
       }).catch(() => {});
@@ -282,16 +282,16 @@ export async function PATCH(
       try {
         const { emitEvent } = await import("@/lib/system-job-events");
         await emitEvent({
-          type: "initiative.rejected",
+          type: "idea.rejected",
           operatorId,
           payload: {
             proposalType,
             domain,
-            initiativeSlug: page.slug,
+            ideaSlug: page.slug,
           },
         });
       } catch (err) {
-        console.warn(`[event-emit] initiative.rejected failed:`, err);
+        console.warn(`[event-emit] idea.rejected failed:`, err);
       }
 
       return NextResponse.json({ id: page.slug, status: "rejected" });
@@ -299,7 +299,7 @@ export async function PATCH(
 
     // Accept: transition to "accepted" and enqueue execution.
     // Execution engine (Session C) will generate the staged changeset.
-    // For now: execute_initiative is a stub handler — initiative stays in "accepted" until Session C.
+    // For now: execute_idea is a stub handler — idea stays in "accepted" until Session C.
     await updatePageWithLock(operatorId, page.slug, (p) => ({
       properties: {
         ...(p.properties ?? {}),
@@ -312,34 +312,34 @@ export async function PATCH(
     try {
       const { emitEvent } = await import("@/lib/system-job-events");
       await emitEvent({
-        type: "initiative.accepted",
+        type: "idea.accepted",
         operatorId,
         payload: {
           proposalType,
           domain,
-          initiativeSlug: page.slug,
+          ideaSlug: page.slug,
         },
       });
     } catch (err) {
-      console.warn(`[event-emit] initiative.accepted failed:`, err);
+      console.warn(`[event-emit] idea.accepted failed:`, err);
     }
 
     const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
-    await enqueueWorkerJob("execute_initiative", operatorId, {
+    await enqueueWorkerJob("execute_idea", operatorId, {
       operatorId,
       pageSlug: page.slug,
     }).catch(err => {
-      console.error(`[initiative-api] Failed to enqueue execute_initiative for ${page.slug}:`, err);
+      console.error(`[idea-api] Failed to enqueue execute_idea for ${page.slug}:`, err);
     });
 
     return NextResponse.json({ id: page.slug, status: "accepted" });
   }
 
-  // Fallback: legacy Initiative table — map action → legacy status
-  const initiative = await prisma.initiative.findFirst({ where: { id, operatorId } });
-  if (!initiative) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Fallback: legacy Idea table — map action → legacy status
+  const idea = await prisma.idea.findFirst({ where: { id, operatorId } });
+  if (!idea) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const legacyStatus = action === "accept" ? "approved" : "rejected";
-  await prisma.initiative.update({ where: { id }, data: { status: legacyStatus } });
+  await prisma.idea.update({ where: { id }, data: { status: legacyStatus } });
   return NextResponse.json({ id, status: legacyStatus });
 }

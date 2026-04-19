@@ -22,10 +22,10 @@ const MODEL_ROUTES = {
   multiAgentCoordinator: "claude-opus-4-7",
 
   // ── Strategic intelligence ──
-  initiativeReasoning: "claude-opus-4-7",
-  initiativeContentGeneration: "claude-opus-4-7",
+  ideaReasoning: "claude-opus-4-7",
+  ideaContentGeneration: "claude-opus-4-7",
   deliverableDraftRefinement: "claude-opus-4-7",
-  initiativeDownstream: "claude-sonnet-4-6",
+  ideaDownstream: "claude-sonnet-4-6",
   strategicScan: "claude-opus-4-7",
   systemJobReasoning: "claude-opus-4-7",
 
@@ -100,10 +100,10 @@ export const THINKING_BUDGET: Partial<Record<ModelRoute, number | null>> = {
   // All situation reasoning now uses the agentic path (agenticReasoning route).
   multiAgentSpecialist: 4_096,
   multiAgentCoordinator: 16_384,
-  initiativeReasoning: 16_384,
-  initiativeContentGeneration: 16_384,
+  ideaReasoning: 16_384,
+  ideaContentGeneration: 16_384,
   deliverableDraftRefinement: 16_384,
-  initiativeDownstream: null,
+  ideaDownstream: null,
   strategicScan: 16_384,
   systemJobReasoning: 16_384,
   agenticReasoning: 16_384,

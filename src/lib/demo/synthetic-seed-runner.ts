@@ -471,7 +471,7 @@ export async function cleanupSyntheticCompany(operatorId: string, domain?: strin
 
     // 3. Delete tables with operatorId — ordered so FK children go before parents
     await tx.$executeRaw`DELETE FROM "Project" WHERE "operatorId" = ${operatorId}`;
-    await tx.$executeRaw`DELETE FROM "Initiative" WHERE "operatorId" = ${operatorId}`;
+    await tx.$executeRaw`DELETE FROM "Idea" WHERE "operatorId" = ${operatorId}`;
     // Group B: reference Entity via FK — must go before Entity
     await tx.$executeRaw`DELETE FROM "SlackChannelMapping" WHERE "operatorId" = ${operatorId}`;
     await tx.$executeRaw`DELETE FROM "DepartmentHealth" WHERE "operatorId" = ${operatorId}`;

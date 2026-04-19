@@ -147,5 +147,5 @@ export interface AnalysisProgressResponse {
     byType: Record<string, number>;
     avgConfidence: number;
   };
-  initiativeCount?: number;
+  ideaCount?: number;
 }

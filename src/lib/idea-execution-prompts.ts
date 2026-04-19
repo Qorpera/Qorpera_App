@@ -1,11 +1,11 @@
 import { PAGE_SCHEMAS, WIKI_STYLE_RULES, buildPropertyPrompt, buildSectionPrompt } from "@/lib/wiki/page-schemas";
-import type { InitiativePrimaryDeliverable, InitiativeDownstreamEffect } from "@/lib/reasoning-types";
+import type { IdeaPrimaryDeliverable, IdeaDownstreamEffect } from "@/lib/reasoning-types";
 
 export interface DownstreamInvestigationInput {
-  initiativeTitle: string;
-  initiativePageContent: string;
-  primary: InitiativePrimaryDeliverable;
-  effect: InitiativeDownstreamEffect;
+  ideaTitle: string;
+  ideaPageContent: string;
+  primary: IdeaPrimaryDeliverable;
+  effect: IdeaDownstreamEffect;
   targetPageCurrentContent: string | null;
   targetPageCurrentProperties: Record<string, unknown> | null;
   businessContext: string | null;
@@ -17,7 +17,7 @@ export function buildDownstreamSystemPrompt(input: DownstreamInvestigationInput)
   const targetType = effect.targetPageType;
 
   const parts: string[] = [];
-  parts.push(`You are investigating a downstream effect of a primary initiative change, and producing the concrete content the downstream page needs.
+  parts.push(`You are investigating a downstream effect of a primary idea change, and producing the concrete content the downstream page needs.
 
 The primary change has already been approved by a user. Your job:
 1. Read the downstream target page and any cross-references needed to understand context
@@ -99,11 +99,11 @@ export function buildDownstreamSeedContext(input: DownstreamInvestigationInput):
 
   const parts: string[] = [];
 
-  parts.push(`## INITIATIVE BEING IMPLEMENTED
-${input.initiativeTitle}
+  parts.push(`## IDEA BEING IMPLEMENTED
+${input.ideaTitle}
 
 Investigation / proposal:
-${input.initiativePageContent}`);
+${input.ideaPageContent}`);
 
   parts.push(`\n## PRIMARY DELIVERABLE (already approved by user)
 

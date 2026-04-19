@@ -44,7 +44,7 @@ Either works. (2) is cleaner if we later unify parsing into a shared tokenizer (
 **Logged:** 2026-04-17 (v0.3.42 review)
 **Severity:** Cosmetic.
 
-`src/app/initiatives/page.tsx:1480, 1733` render `primary.proposedContent` / `state.proposedContent` inside a `<pre>` block. Any `[[slug]]` tokens in proposedContent render as raw text rather than clickable links.
+`src/app/ideas/page.tsx:1480, 1733` render `primary.proposedContent` / `state.proposedContent` inside a `<pre>` block. Any `[[slug]]` tokens in proposedContent render as raw text rather than clickable links.
 
 **Decide based on promo:** if the promo video shows the deliverable preview tab, convert to `<WikiText asParagraphs>` (or a markdown renderer that composes WikiText). If the video doesn't surface this tab, ignore — the `<pre>` is fine for a code-like preview.
 
@@ -66,6 +66,6 @@ Either works. (2) is cleaner if we later unify parsing into a shared tokenizer (
 **Logged:** 2026-04-19 (flagged sessions: system-jobs prompt 3, 6, 8 — third deferral)
 **Severity:** Pilot-blocking if any pilot operator has members with restricted scope.
 
-No runtime scope filtering exists. `visibleToRoles` is a ghost field. System Jobs API now returns `triggers`, `recipients`, `domainScope`, `reachMode`, `anchorPages`, `executionHistory`, `linkedInitiatives`, `runReports`, `creatorUserIdSnapshot` — all of which should respect per-user scope. Extending the leak surface each session until this is addressed.
+No runtime scope filtering exists. `visibleToRoles` is a ghost field. System Jobs API now returns `triggers`, `recipients`, `domainScope`, `reachMode`, `anchorPages`, `executionHistory`, `linkedIdeas`, `runReports`, `creatorUserIdSnapshot` — all of which should respect per-user scope. Extending the leak surface each session until this is addressed.
 
 **Needs:** per-user domain-scope model (or formalized `visibleToRoles` with a `canAccessPage` helper), retrofitted into every reasoning-tool wiki read AND every GET route returning wiki-page data. Cross-cutting. Not a one-prompt fix — worth raising as its own session before or alongside pilot prep, not at the end.

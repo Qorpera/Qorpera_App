@@ -7,7 +7,7 @@ import path from "path";
 describe("Route loading.tsx files", () => {
   const routes = [
     "src/app/situations/loading.tsx",
-    "src/app/initiatives/loading.tsx",
+    "src/app/ideas/loading.tsx",
     "src/app/projects/loading.tsx",
     "src/app/copilot/loading.tsx",
     "src/app/map/loading.tsx",
@@ -56,7 +56,7 @@ describe("Skeleton components", () => {
 // ── 3. Empty state messages in both locales ─────────────────────────────────
 
 describe("Empty state messages in both locales", () => {
-  it("situations, initiatives, projects have emptyHint keys in both locales", async () => {
+  it("situations, ideas, projects have emptyHint keys in both locales", async () => {
     const en = await import("../../messages/en.json");
     const da = await import("../../messages/da.json");
     const enData = en.default || en;
@@ -67,9 +67,9 @@ describe("Empty state messages in both locales", () => {
     expect(daData.situations.emptyHint).toBeTruthy();
     expect(enData.situations.emptyHint).not.toEqual(daData.situations.emptyHint);
 
-    // Initiatives
-    expect(enData.initiatives.emptyHint).toBeTruthy();
-    expect(daData.initiatives.emptyHint).toBeTruthy();
+    // Ideas
+    expect(enData.ideas.emptyHint).toBeTruthy();
+    expect(daData.ideas.emptyHint).toBeTruthy();
 
     // Projects
     expect(enData.projects.emptyHint).toBeTruthy();

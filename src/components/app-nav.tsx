@@ -42,7 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
     labelKey: "operations",
     items: [
       { href: "/situations", labelKey: "situations", icon: "briefcase", badgeKey: "situations" },
-      { href: "/initiatives", labelKey: "initiatives", icon: "lightbulb", adminOnly: true },
+      { href: "/ideas", labelKey: "ideas", icon: "lightbulb", adminOnly: true },
       { href: "/projects", labelKey: "projects", icon: "layers", badgeKey: "projects", adminOnly: true },
       { href: "/system-jobs", labelKey: "systemJobs", icon: "robot", adminOnly: true },
     ],

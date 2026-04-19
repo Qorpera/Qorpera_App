@@ -3,11 +3,11 @@
  *
  * 1-3 Opus investigator agents enter the wiki through different hubs,
  * form hypotheses, navigate the graph, search raw content, and propose
- * initiatives backed by evidence trails.
+ * ideas backed by evidence trails.
  *
  * 1 Opus strategic data agent ignores all communication and analyses
  * non-communication business data (financial records, documents,
- * calendar patterns, CRM data) for initiatives the wiki missed.
+ * calendar patterns, CRM data) for ideas the wiki missed.
  *
  * 1 Opus evaluator filters, deduplicates, and approves proposals.
  *
@@ -22,7 +22,7 @@ import { extractJSONAny } from "@/lib/json-helpers";
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface WikiScanReport {
-  initiativesCreated: number;
+  ideasCreated: number;
   situationsCreated: number;
   patternsDetected: number;
   duplicatesSkipped: number;
@@ -32,7 +32,7 @@ export interface WikiScanReport {
   errors: string[];
 }
 
-interface InitiativeProposal {
+interface IdeaProposal {
   title: string;
   description: string;
   patternType: string;
@@ -138,8 +138,8 @@ const investigatorTools: AITool[] = [
     },
   },
   {
-    name: "propose_initiative",
-    description: "Submit an initiative proposal. Call this when you've found a genuine improvement opportunity with evidence.",
+    name: "propose_idea",
+    description: "Submit an idea proposal. Call this when you've found a genuine improvement opportunity with evidence.",
     parameters: {
       type: "object",
       properties: {
@@ -171,7 +171,7 @@ async function dispatchInvestigatorTool(
   operatorId: string,
   name: string,
   args: Record<string, unknown>,
-  proposals: InitiativeProposal[],
+  proposals: IdeaProposal[],
   agentIndex: number,
 ): Promise<string> {
   switch (name) {
@@ -240,7 +240,7 @@ async function dispatchInvestigatorTool(
       }).join("\n---\n");
     }
 
-    case "propose_initiative": {
+    case "propose_idea": {
       proposals.push({
         title: args.title as string,
         description: args.description as string,
@@ -253,7 +253,7 @@ async function dispatchInvestigatorTool(
         proposedAction: args.proposed_action as string,
         agentIndex,
       });
-      return `Initiative proposed: "${args.title}". ${proposals.length} total proposals so far. Continue investigating or stop if you've exhausted productive paths.`;
+      return `Idea proposed: "${args.title}". ${proposals.length} total proposals so far. Continue investigating or stop if you've exhausted productive paths.`;
     }
 
     default:
@@ -265,13 +265,13 @@ async function runInvestigatorAgent(
   operatorId: string,
   hubSlugs: string[],
   agentIndex: number,
-  existingInitiativeTitles: string[],
+  existingIdeaTitles: string[],
   agentCount: number,
-): Promise<{ proposals: InitiativeProposal[]; costCents: number }> {
-  const proposals: InitiativeProposal[] = [];
+): Promise<{ proposals: IdeaProposal[]; costCents: number }> {
+  const proposals: IdeaProposal[] = [];
   let costCents = 0;
 
-  const systemPrompt = `You are an organizational improvement investigator (#${agentIndex + 1} of ${agentCount}). Your job: navigate the company wiki, form hypotheses about gaps and opportunities, investigate them by following paths through the wiki, and propose specific initiatives.
+  const systemPrompt = `You are an organizational improvement investigator (#${agentIndex + 1} of ${agentCount}). Your job: navigate the company wiki, form hypotheses about gaps and opportunities, investigate them by following paths through the wiki, and propose specific ideas.
 
 ## Your Starting Points
 
@@ -286,7 +286,7 @@ Read these hubs first. Then form hypotheses and investigate.
 2. FORM A HYPOTHESIS — "This department has 5 people but only 1 documented process — are there undocumented workflows?"
 3. INVESTIGATE — follow cross-references to person pages, process pages, other domains. Search raw content for evidence the wiki missed.
 4. DISCOVER — find the actual gap, risk, or opportunity. Ground it in specific evidence.
-5. PROPOSE — call propose_initiative with a specific, actionable proposal backed by evidence.
+5. PROPOSE — call propose_idea with a specific, actionable proposal backed by evidence.
 6. REPEAT — form another hypothesis, investigate another angle.
 
 ## What to Look For
@@ -302,14 +302,14 @@ Read these hubs first. Then form hypotheses and investigate.
 - Missing situation types: operational risks that aren't being monitored
 - Team gaps: responsibilities described in the wiki with no clear owner
 
-## Existing Initiatives (do NOT duplicate)
-${existingInitiativeTitles.length > 0 ? existingInitiativeTitles.map(t => `- ${t}`).join("\n") : "(none yet)"}
+## Existing Ideas (do NOT duplicate)
+${existingIdeaTitles.length > 0 ? existingIdeaTitles.map(t => `- ${t}`).join("\n") : "(none yet)"}
 
 ## Rules
 
 - Every proposal MUST cite specific wiki pages or raw content as evidence
-- No generic advice — "improve communication" is not an initiative
-- Be specific — "Document the deployment process that Mark handles solo" IS an initiative
+- No generic advice — "improve communication" is not an idea
+- Be specific — "Document the deployment process that Mark handles solo" IS an idea
 - Investigate at least 2-3 different angles from your assigned hubs before finishing
 - When you've exhausted productive paths, stop. Don't force weak proposals.`;
 
@@ -409,8 +409,8 @@ const strategicDataTools: AITool[] = [
     },
   },
   {
-    name: "propose_initiative",
-    description: "Submit an initiative proposal grounded in business data evidence.",
+    name: "propose_idea",
+    description: "Submit an idea proposal grounded in business data evidence.",
     parameters: {
       type: "object",
       properties: {
@@ -442,7 +442,7 @@ async function dispatchStrategicDataTool(
   operatorId: string,
   name: string,
   args: Record<string, unknown>,
-  proposals: InitiativeProposal[],
+  proposals: IdeaProposal[],
   agentIndex: number,
 ): Promise<string> {
   switch (name) {
@@ -507,7 +507,7 @@ async function dispatchStrategicDataTool(
       return `## ${page.title} [${page.pageType}]\n\n${(page.content || "").slice(0, 2000)}`;
     }
 
-    case "propose_initiative": {
+    case "propose_idea": {
       proposals.push({
         title: args.title as string,
         description: args.description as string,
@@ -520,7 +520,7 @@ async function dispatchStrategicDataTool(
         proposedAction: args.proposed_action as string,
         agentIndex,
       });
-      return `Initiative proposed: "${args.title}". Continue investigating or stop if done.`;
+      return `Idea proposed: "${args.title}". Continue investigating or stop if done.`;
     }
 
     default:
@@ -530,10 +530,10 @@ async function dispatchStrategicDataTool(
 
 async function runStrategicDataAgent(
   operatorId: string,
-  existingInitiativeTitles: string[],
+  existingIdeaTitles: string[],
   agentCount: number,
-): Promise<{ proposals: InitiativeProposal[]; costCents: number }> {
-  const proposals: InitiativeProposal[] = [];
+): Promise<{ proposals: IdeaProposal[]; costCents: number }> {
+  const proposals: IdeaProposal[] = [];
   let costCents = 0;
 
   // Check if there's any non-communication data at all
@@ -558,7 +558,7 @@ async function runStrategicDataAgent(
 1. Start with list_business_data_summary to see what data types are available
 2. Search across the available data for strategic patterns
 3. Read the wiki sparingly — only for organizational context (who owns what, team structure)
-4. Propose initiatives that are invisible from the wiki alone
+4. Propose ideas that are invisible from the wiki alone
 
 ## What to Look For
 
@@ -587,8 +587,8 @@ async function runStrategicDataAgent(
 - Customer segments being neglected
 - Upsell opportunities visible in usage/invoice data
 
-## Existing Initiatives (do NOT duplicate)
-${existingInitiativeTitles.length > 0 ? existingInitiativeTitles.map(t => `- ${t}`).join("\n") : "(none yet)"}
+## Existing Ideas (do NOT duplicate)
+${existingIdeaTitles.length > 0 ? existingIdeaTitles.map(t => `- ${t}`).join("\n") : "(none yet)"}
 
 ## Rules
 
@@ -652,10 +652,10 @@ ${existingInitiativeTitles.length > 0 ? existingInitiativeTitles.map(t => `- ${t
 
 async function evaluateProposals(
   operatorId: string,
-  allProposals: InitiativeProposal[],
-  existingInitiativeTitles: string[],
+  allProposals: IdeaProposal[],
+  existingIdeaTitles: string[],
   agentCount: number,
-): Promise<{ approved: InitiativeProposal[]; costCents: number }> {
+): Promise<{ approved: IdeaProposal[]; costCents: number }> {
   if (allProposals.length === 0) return { approved: [], costCents: 0 };
 
   const proposalText = allProposals.map((p, i) => `
@@ -669,18 +669,18 @@ Proposed Action: ${p.proposedAction}
 
   const response = await callLLM({
     operatorId,
-    instructions: `You are evaluating initiative proposals from ${agentCount} independent investigators who analyzed a company's wiki. Each investigator entered through different wiki hubs and explored different paths. Your job: filter, deduplicate, and approve the best proposals.
+    instructions: `You are evaluating idea proposals from ${agentCount} independent investigators who analyzed a company's wiki. Each investigator entered through different wiki hubs and explored different paths. Your job: filter, deduplicate, and approve the best proposals.
 
 PROPOSALS (${allProposals.length} total):
 ${proposalText}
 
-EXISTING INITIATIVES (do NOT duplicate):
-${existingInitiativeTitles.join("\n") || "(none)"}
+EXISTING IDEAS (do NOT duplicate):
+${existingIdeaTitles.join("\n") || "(none)"}
 
 For each proposal, decide: APPROVE or REJECT.
 
 REJECT if:
-- Duplicates an existing initiative or another proposal in this batch
+- Duplicates an existing idea or another proposal in this batch
 - Evidence is weak or generic — not grounded in specific wiki content
 - Proposed action is vague ("improve X") rather than actionable
 - It's obvious advice that doesn't require wiki analysis
@@ -720,7 +720,7 @@ Respond with ONLY JSON:
     }>;
   } | null;
 
-  const approved: InitiativeProposal[] = [];
+  const approved: IdeaProposal[] = [];
   if (parsed?.evaluated) {
     for (const eval_ of parsed.evaluated) {
       if (eval_.decision !== "approve") continue;
@@ -735,15 +735,15 @@ Respond with ONLY JSON:
   return { approved, costCents: response.apiCostCents };
 }
 
-// ── Stage 4: Create Initiatives ────────────────────────────────────────────────
+// ── Stage 4: Create Ideas ────────────────────────────────────────────────
 
-async function createInitiativeFromProposal(
+async function createIdeaFromProposal(
   operatorId: string,
-  proposal: InitiativeProposal,
+  proposal: IdeaProposal,
 ): Promise<string> {
-  const slug = `initiative-${Date.now()}-${proposal.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+  const slug = `idea-${Date.now()}-${proposal.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
 
-  const initiativeProps = {
+  const ideaProps = {
     status: "detected",
     proposal_type: mapPatternType(proposal.patternType),
     proposed_at: new Date().toISOString(),
@@ -780,13 +780,13 @@ async function createInitiativeFromProposal(
       operatorId,
       slug,
       title: proposal.title,
-      pageType: "initiative",
+      pageType: "idea",
       scope: "operator",
       status: "draft",
       content: articleBody,
       contentTokens,
       crossReferences: [...new Set(crossRefs)],
-      properties: initiativeProps as any,
+      properties: ideaProps as any,
       synthesisPath: "detection",
       synthesizedByModel: "strategic_scanner",
       confidence: 0.5,
@@ -799,7 +799,7 @@ async function createInitiativeFromProposal(
       operatorId,
       sourceType: "wiki_scanner",
       sourceId: slug,
-      classification: "initiative_created",
+      classification: "idea_created",
       evaluatedAt: new Date(),
       metadata: {
         patternTitle: proposal.title,
@@ -810,15 +810,15 @@ async function createInitiativeFromProposal(
     },
   });
 
-  // Enqueue reasoning — the initiative reasoning engine will investigate and
+  // Enqueue reasoning — the idea reasoning engine will investigate and
   // either dismiss (not valuable) or promote to "proposed" (user sees it)
   const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
-  await enqueueWorkerJob("reason_initiative", operatorId, {
+  await enqueueWorkerJob("reason_idea", operatorId, {
     operatorId,
     pageSlug: slug,
   }).catch(err => {
-    console.error(`[wiki-scanner] Failed to enqueue reason_initiative for ${slug}:`, err);
-    // Don't throw — the initiative page exists, reasoning can be retried
+    console.error(`[wiki-scanner] Failed to enqueue reason_idea for ${slug}:`, err);
+    // Don't throw — the idea page exists, reasoning can be retried
   });
 
   return page.id;
@@ -829,7 +829,7 @@ async function createInitiativeFromProposal(
 export async function runWikiStrategicScan(operatorId: string): Promise<WikiScanReport> {
   const startTime = performance.now();
   const report: WikiScanReport = {
-    initiativesCreated: 0,
+    ideasCreated: 0,
     situationsCreated: 0,
     patternsDetected: 0,
     duplicatesSkipped: 0,
@@ -854,18 +854,18 @@ export async function runWikiStrategicScan(operatorId: string): Promise<WikiScan
       ],
     },
   });
-  const activeInitiatives = await prisma.knowledgePage.count({
-    where: { operatorId, pageType: "initiative", scope: "operator",
+  const activeIdeas = await prisma.knowledgePage.count({
+    where: { operatorId, pageType: "idea", scope: "operator",
       properties: { path: ["status"], string_contains: "proposed" } },
   });
-  const activityLevel = activeSituations + activeInitiatives;
+  const activityLevel = activeSituations + activeIdeas;
   const agentCount = activityLevel < 5 ? 3 : 1;
   report.activityLevel = activityLevel;
   report.scanDepth = activityLevel < 5 ? "deep" : "light";
 
-  // Existing initiative titles for dedup
+  // Existing idea titles for dedup
   const existing = await prisma.knowledgePage.findMany({
-    where: { operatorId, pageType: "initiative", scope: "operator" },
+    where: { operatorId, pageType: "idea", scope: "operator" },
     select: { title: true },
   });
   const existingTitles = existing.map(e => e.title);
@@ -889,7 +889,7 @@ export async function runWikiStrategicScan(operatorId: string): Promise<WikiScan
 
   const agentResults = await Promise.allSettled(allAgentPromises);
 
-  const allProposals: InitiativeProposal[] = [];
+  const allProposals: IdeaProposal[] = [];
   const totalAgents = agentCount + 1; // wiki investigators + strategic data agent
   for (const result of agentResults) {
     if (result.status === "fulfilled") {
@@ -913,18 +913,18 @@ export async function runWikiStrategicScan(operatorId: string): Promise<WikiScan
   report.costCents += evaluation.costCents;
   report.duplicatesSkipped = allProposals.length - evaluation.approved.length;
 
-  // Stage 4: Create approved initiatives
+  // Stage 4: Create approved ideas
   for (const proposal of evaluation.approved) {
     try {
-      await createInitiativeFromProposal(operatorId, proposal);
-      report.initiativesCreated++;
+      await createIdeaFromProposal(operatorId, proposal);
+      report.ideasCreated++;
     } catch (err) {
-      console.error(`[wiki-scanner] Failed to create initiative "${proposal.title}":`, err);
+      console.error(`[wiki-scanner] Failed to create idea "${proposal.title}":`, err);
       report.errors.push(`Create failed: ${proposal.title}`);
     }
   }
 
-  console.log(`[wiki-scanner] Complete: ${report.initiativesCreated} initiatives, ${report.duplicatesSkipped} rejected ($${(report.costCents / 100).toFixed(2)}, ${Math.round((performance.now() - startTime) / 1000)}s)`);
+  console.log(`[wiki-scanner] Complete: ${report.ideasCreated} ideas, ${report.duplicatesSkipped} rejected ($${(report.costCents / 100).toFixed(2)}, ${Math.round((performance.now() - startTime) / 1000)}s)`);
 
   return report;
 }
@@ -946,11 +946,11 @@ export async function shouldRunScan(operatorId: string): Promise<boolean> {
       ],
     },
   });
-  const activeInitiatives = await prisma.knowledgePage.count({
-    where: { operatorId, pageType: "initiative", scope: "operator",
+  const activeIdeas = await prisma.knowledgePage.count({
+    where: { operatorId, pageType: "idea", scope: "operator",
       properties: { path: ["status"], string_contains: "proposed" } },
   });
-  const activityLevel = activeSituations2 + activeInitiatives;
+  const activityLevel = activeSituations2 + activeIdeas;
 
   const lastScan = await prisma.evaluationLog.findFirst({
     where: { operatorId, sourceType: "wiki_scanner" },

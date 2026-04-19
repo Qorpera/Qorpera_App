@@ -1712,7 +1712,7 @@ function SettingsPageInner() {
               <li>All organizational data and wiki knowledge</li>
               <li>All connected system integrations</li>
               <li>All team member accounts ({teamUsers.length} members)</li>
-              <li>All situations, projects, and initiatives</li>
+              <li>All situations, projects, and ideas</li>
               <li>All AI learning and system intelligence</li>
             </ul>
             <p className="text-sm text-[var(--fg3)]">

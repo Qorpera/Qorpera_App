@@ -11,7 +11,7 @@ vi.mock("@/lib/db", () => ({
     entity: { findMany: vi.fn().mockResolvedValue([]) },
     propertyValue: { findFirst: vi.fn().mockResolvedValue(null) },
     entityType: { findFirst: vi.fn().mockResolvedValue(null) },
-    initiative: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
+    idea: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
     evaluationLog: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
     situation: { findFirst: vi.fn().mockResolvedValue(null) },
     operator: { findUnique: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
@@ -131,11 +131,11 @@ describe("enrichSignalContext", () => {
   });
 });
 
-describe("initiative_candidate classification shape", () => {
+describe("idea_candidate classification shape", () => {
   it("projectRecommendation has correct structure", () => {
     const rawResult = {
       messageIndex: 0,
-      classification: "initiative_candidate" as const,
+      classification: "idea_candidate" as const,
       summary: "Board meeting requiring 6 deliverables from 4 people",
       urgency: "high" as const,
       confidence: 0.92,
@@ -164,7 +164,7 @@ describe("initiative_candidate classification shape", () => {
       },
     };
 
-    expect(rawResult.classification).toBe("initiative_candidate");
+    expect(rawResult.classification).toBe("idea_candidate");
     expect(rawResult.projectRecommendation).not.toBeNull();
     expect(rawResult.projectRecommendation.proposedDeliverables).toHaveLength(3);
     expect(rawResult.projectRecommendation.coordinatorEmail).toBe("rasmus@hansens-is.dk");
@@ -249,11 +249,11 @@ describe("synthetic signal format", () => {
   });
 });
 
-describe("createProjectFromInitiative", () => {
-  it("throws on non-existent initiative", async () => {
-    const { createProjectFromInitiative } = await import("@/lib/initiative-project");
+describe("createProjectFromIdea", () => {
+  it("throws on non-existent idea", async () => {
+    const { createProjectFromIdea } = await import("@/lib/idea-project");
     await expect(
-      createProjectFromInitiative("nonexistent-id", "test-user-id"),
+      createProjectFromIdea("nonexistent-id", "test-user-id"),
     ).rejects.toThrow("not found");
   });
 });

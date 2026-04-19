@@ -57,14 +57,14 @@ export async function GET(
 
   const executionHistory = parseExecutionHistory(page.content, 20);
 
-  // Linked initiatives — broad query + in-code filter (safer than Prisma JSON-path equality).
-  const linkedInitiativesRaw = await prisma.knowledgePage.findMany({
-    where: { operatorId, pageType: "initiative", scope: "operator" },
+  // Linked ideas — broad query + in-code filter (safer than Prisma JSON-path equality).
+  const linkedIdeasRaw = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "idea", scope: "operator" },
     select: { id: true, slug: true, title: true, properties: true, createdAt: true },
     orderBy: { createdAt: "desc" },
     take: 100,
   });
-  const linkedInitiatives = linkedInitiativesRaw
+  const linkedIdeas = linkedIdeasRaw
     .filter(i => {
       const ip = (i.properties ?? {}) as Record<string, unknown>;
       return ip.source_job_id === page.id || ip.source_job_slug === page.slug;
@@ -179,7 +179,7 @@ export async function GET(
       errorMessage: e.errorMessage,
       trustBannerNote: e.trustBannerNote,
     })),
-    linkedInitiatives,
+    linkedIdeas,
     runReports,
 
     crossReferences: page.crossReferences,

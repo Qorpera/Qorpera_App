@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     scopeInfo = { userName: scopeUser?.name, domainName, visibleDomains };
   }
 
-  // Context injection for embedded chat (situation, initiative, workstream detail panes)
+  // Context injection for embedded chat (situation, idea, workstream detail panes)
   let contextInfo: { contextType: string; contextText: string } | null = null;
   let ctxType = typeof body.contextType === "string" ? body.contextType.trim() : null;
   let ctxId = typeof body.contextId === "string" ? body.contextId.trim() : null;
@@ -94,8 +94,8 @@ export async function POST(req: NextRequest) {
             ctxType = null; ctxId = null;
           }
         }
-      } else if (ctxType === "initiative") {
-        const init = await prisma.initiative.findFirst({
+      } else if (ctxType === "idea") {
+        const init = await prisma.idea.findFirst({
           where: { id: ctxId, operatorId },
           select: { id: true },
         });

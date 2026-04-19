@@ -33,7 +33,7 @@ import {
 import { CONTENT_CHUNKS } from "./seed-content";
 import { SITUATION_TYPE_UPDATES, SITUATIONS, ACTION_CAPABILITIES } from "./seed-situations";
 import {
-  INITIATIVES, OPERATIONAL_INSIGHTS,
+  IDEAS, OPERATIONAL_INSIGHTS,
   NOTIFICATIONS, COPILOT_SESSIONS,
 } from "./seed-phase3";
 // ── Cleanup ──────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ async function cleanupOperator(operatorId: string): Promise<void> {
   });
 
   // Phase 3 models
-  await prisma.initiative.deleteMany({ where: { operatorId } });
+  await prisma.idea.deleteMany({ where: { operatorId } });
   await prisma.operationalInsight.deleteMany({ where: { operatorId } });
   await prisma.domainHealth.deleteMany({ where: { operatorId } });
   await prisma.priorityOverride.deleteMany({ where: { operatorId } });
@@ -309,7 +309,7 @@ export async function runDemoSeed(operatorId: string) {
   });
 
   // ─── Layer 4: AI Entities ────────────────────────────────────────
-  // Legacy hq-ai / domain-ai entities removed — aiEntityId is deprecated on Initiative/OperationalInsight
+  // Legacy hq-ai / domain-ai entities removed — aiEntityId is deprecated on Idea/OperationalInsight
   const hqAiId: string | null = null;
   const deptAiIds: Record<string, string> = {};
 
@@ -848,19 +848,19 @@ export async function runDemoSeed(operatorId: string) {
   console.log(`[demo-seed] Created ${situationCount} situation wiki pages`);
 
   // ═══════════════════════════════════════════════════════════════════
-  // Prompt 4 layers: Initiatives, Insights, etc.
+  // Prompt 4 layers: Ideas, Insights, etc.
   // ═══════════════════════════════════════════════════════════════════
 
-  // ─── P4 Layer 1: Initiatives ──────────────────────────────────────
-  console.log("[demo-seed] Creating initiatives...");
+  // ─── P4 Layer 1: Ideas ──────────────────────────────────────
+  console.log("[demo-seed] Creating ideas...");
 
-  for (const init of INITIATIVES) {
+  for (const init of IDEAS) {
     // Resolve AI entity ID
     const aiEntityId = init.aiEntityType === "hq"
       ? hqAiId
       : deptAiIds[init.aiEntityDept ?? ""] ?? hqAiId;
 
-    await prisma.initiative.create({
+    await prisma.idea.create({
       data: {
         operatorId,
         aiEntityId,
@@ -973,7 +973,7 @@ export async function runDemoSeed(operatorId: string) {
       situationTypesUpdated: SITUATION_TYPE_UPDATES.length,
       actionCapabilities: ACTION_CAPABILITIES.length,
       situationPages: situationCount,
-      initiatives: INITIATIVES.length,
+      ideas: IDEAS.length,
       insights: OPERATIONAL_INSIGHTS.length,
       notifications: NOTIFICATIONS.length,
       copilotSessions: COPILOT_SESSIONS.length,

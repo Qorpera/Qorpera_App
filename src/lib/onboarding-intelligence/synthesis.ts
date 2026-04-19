@@ -354,7 +354,7 @@ DETECTION LOGIC FORMAT:
 The description should be a clear natural language description of WHAT to look for in communications. The content evaluator LLM uses this to classify incoming content.
 
 ### Mode 3: "natural" — Strategic cross-entity reasoning
-USE FOR: Situations that cannot be detected from a single entity or a single message. Requires reasoning across multiple entities, relationships, activity patterns, and content to identify strategic patterns, initiatives, or organizational health issues.
+USE FOR: Situations that cannot be detected from a single entity or a single message. Requires reasoning across multiple entities, relationships, activity patterns, and content to identify strategic patterns, ideas, or organizational health issues.
 EXAMPLES: Cash flow risk (aggregation across multiple invoices + planned purchases), resource bottleneck (workload distribution across team), key person dependency (knowledge concentration analysis), pipeline vs capacity mismatch (sales pipeline compared against delivery capacity)
 SCOPING: Reasons across the full company state — entity graph, activity patterns, content themes.
 DETECTION LOGIC FORMAT:

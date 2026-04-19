@@ -1,11 +1,11 @@
 /**
- * Initiative Page Parser
+ * Idea Page Parser
  *
- * Parses an initiative wiki page into structured sections for API responses.
- * The page content follows the template enforced by initiative-reasoning-prompts.ts:
+ * Parses an idea wiki page into structured sections for API responses.
+ * The page content follows the template enforced by idea-reasoning-prompts.ts:
  *   ## Trigger
  *   ## Evidence
- *   ## Dashboard                (JSON payload in fenced json block — see initiative-dashboard-types.ts)
+ *   ## Dashboard                (JSON payload in fenced json block — see idea-dashboard-types.ts)
  *   ## Investigation
  *   ## Proposal
  *   ## Primary Deliverable      (narrative — structured version lives in properties.primary_deliverable)
@@ -15,9 +15,9 @@
  *   ## Timeline
  */
 
-import { DashboardCardSchema, InitiativeDashboardSchema, type DashboardCard } from "@/lib/initiative-dashboard-types";
+import { DashboardCardSchema, IdeaDashboardSchema, type DashboardCard } from "@/lib/idea-dashboard-types";
 
-export interface ParsedInitiativePage {
+export interface ParsedIdeaPage {
   sections: {
     trigger?: string;
     evidence?: string;
@@ -101,7 +101,7 @@ function parseDashboardSection(sectionText: string | undefined): ParsedDashboard
     };
   }
 
-  const whole = InitiativeDashboardSchema.safeParse(raw);
+  const whole = IdeaDashboardSchema.safeParse(raw);
   if (whole.success) {
     return {
       cards: whole.data.cards,
@@ -137,12 +137,12 @@ function parseDashboardSection(sectionText: string | undefined): ParsedDashboard
   return { cards, failedCards, fallback, parseError: null };
 }
 
-export function parseInitiativePage(content: string | null | undefined): ParsedInitiativePage {
+export function parseIdeaPage(content: string | null | undefined): ParsedIdeaPage {
   if (!content) {
     return { sections: {}, evidenceItems: [], dashboard: emptyDashboard() };
   }
 
-  const sections: ParsedInitiativePage["sections"] = {
+  const sections: ParsedIdeaPage["sections"] = {
     trigger: extractSection(content, "Trigger"),
     evidence: extractSection(content, "Evidence"),
     dashboard: extractSection(content, "Dashboard"),

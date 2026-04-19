@@ -105,7 +105,7 @@ model Operator {
   users                User[]
   internalDocuments    InternalDocument[]
   contentChunks        ContentChunk[]
-  initiatives          Initiative[]
+  ideas                Idea[]
   operationalInsights  OperationalInsight[]
   systemJobIndices     SystemJobIndex[]
   priorityOverrides    PriorityOverride[]
@@ -758,9 +758,9 @@ model AnalysisPromptVersion {
 
 // ─── Activity Signals ───────────────────────────────────
 
-// ─── Initiatives & Execution ────────────────────────────
+// ─── Ideas & Execution ──────────────────────────────────
 
-model Initiative {
+model Idea {
   id               String   @id @default(cuid())
   operatorId       String
   aiEntityId       String? // @deprecated — legacy AI entity attribution. Use ownerPageSlug instead.
@@ -842,7 +842,7 @@ model OperationalInsight {
 model NotificationPreference {
   id               String @id @default(cuid())
   userId           String
-  notificationType String // situation_proposed, situation_resolved, initiative_proposed, step_ready, delegation_received, follow_up_triggered, plan_auto_executed, peer_signal, insight_discovered, system_alert
+  notificationType String // situation_proposed, situation_resolved, idea_proposed, step_ready, delegation_received, follow_up_triggered, plan_auto_executed, peer_signal, insight_discovered, system_alert
   channel          String @default("both") // in_app, email, both, none
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1117,7 +1117,7 @@ model Project {
   parentProject    Project?              @relation("ProjectHierarchy", fields: [parentProjectId], references: [id], onDelete: SetNull)
   childProjects    Project[]             @relation("ProjectHierarchy")
 
-  sourceInitiative Initiative?
+  sourceIdea       Idea?
   contentChunks    ContentChunk[]
   documents        InternalDocument[]
   fileUploads      FileUpload[]
@@ -1420,9 +1420,9 @@ model WikiBookmark {
   // Resolution
   resolved             Boolean     @default(false)
   resolvedAt           DateTime?
-  resolvedAction       String? // "initiative_created", "dismissed", "merged"
-  resolvedInitiativeId String?
-  resolvedInitiative   Initiative? @relation(fields: [resolvedInitiativeId], references: [id], onDelete: SetNull)
+  resolvedAction       String? // "idea_created", "dismissed", "merged"
+  resolvedIdeaId       String?
+  resolvedIdea         Idea?   @relation(fields: [resolvedIdeaId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
 

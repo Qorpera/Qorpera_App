@@ -76,7 +76,7 @@ interface AnalysisProgress {
     byType: Record<string, number>;
     avgConfidence: number;
   };
-  initiativeCount?: number;
+  ideaCount?: number;
 }
 
 interface CompanyModelEdits {
@@ -160,7 +160,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
   const [wikiPageLoading, setWikiPageLoading] = useState(false);
   const [wikiTypeFilter, setWikiTypeFilter] = useState<string>("");
   const [wikiInitialized, setWikiInitialized] = useState(false);
-  const [initiatives, setInitiatives] = useState<Array<{
+  const [ideas, setIdeas] = useState<Array<{
     id: string;
     status: string;
     rationale: string;
@@ -198,7 +198,7 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
         setSynthesis(DEMO_SYNTHESIS_OUTPUT as unknown as SynthesisOutput);
         setQuestions(DEMO_UNCERTAINTY_LOG as unknown as UncertaintyQuestion[]);
         setWikiStats({ totalPages: 42, verifiedPages: 38, byType: { entity_profile: 12, domain_overview: 5, financial_pattern: 8, communication_pattern: 7, process_description: 6, topic_synthesis: 4 }, avgConfidence: 0.78 });
-        setInitiatives([
+        setIdeas([
           {
             id: "demo-1",
             status: "proposed",
@@ -233,12 +233,12 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
       }
       if (data.wikiStats) setWikiStats(data.wikiStats);
 
-      // Fetch initiatives for preview tab
+      // Fetch ideas for preview tab
       try {
-        const initRes = await fetch("/api/initiatives?status=proposed");
+        const initRes = await fetch("/api/ideas?status=proposed");
         if (initRes.ok) {
           const initData = await initRes.json();
-          setInitiatives(initData.items ?? []);
+          setIdeas(initData.items ?? []);
         }
       } catch {}
     } finally {
@@ -1159,17 +1159,17 @@ export function StepConfirmStructure({ demoMode }: StepConfirmStructureProps) {
       {/* Section D — Operational Intelligence Preview */}
       {activeTab === "preview" && (
         <div className="space-y-4">
-          {/* Initiatives with proposals */}
-          {initiatives.length > 0 && (
+          {/* Ideas with proposals */}
+          {ideas.length > 0 && (
             <div className="wf-soft p-4 space-y-3">
               <h3 className="text-sm font-medium text-foreground">
-                Strategic Initiatives ({initiatives.length})
+                Strategic Ideas ({ideas.length})
               </h3>
               <p className="text-xs text-[var(--fg2)]">
                 The system detected patterns in your data that may warrant structured projects.
-                You can create projects from these after completing setup, or from the Initiatives page.
+                You can create projects from these after completing setup, or from the Ideas page.
               </p>
-              {initiatives.slice(0, 5).map(init => (
+              {ideas.slice(0, 5).map(init => (
                 <div
                   key={init.id}
                   className="rounded-lg p-3"

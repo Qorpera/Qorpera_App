@@ -38,18 +38,18 @@ export async function GET(_req: NextRequest) {
     for (const r of refs) pageMap.set(r.slug, r.title);
   }
 
-  // Bucket pending initiatives by source_job_id using one broad query + in-code filter.
+  // Bucket pending ideas by source_job_id using one broad query + in-code filter.
   // Avoids N+1 per-job counts and sidesteps the Prisma JSON-path `string_contains`
   // caveat (substring match on CUIDs would be semantically wrong even if unlikely).
   const TERMINAL_INIT_STATUSES = new Set(["accepted", "rejected", "failed"]);
-  const allInitiatives = await prisma.knowledgePage.findMany({
-    where: { operatorId, pageType: "initiative", scope: "operator" },
+  const allIdeas = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "idea", scope: "operator" },
     select: { properties: true },
     orderBy: { createdAt: "desc" },
     take: 1000,
   });
   const pendingByJobId = new Map<string, number>();
-  for (const init of allInitiatives) {
+  for (const init of allIdeas) {
     const ip = (init.properties ?? {}) as Record<string, unknown>;
     const status = typeof ip.status === "string" ? ip.status : "";
     const sourceJobId = typeof ip.source_job_id === "string" ? ip.source_job_id : null;

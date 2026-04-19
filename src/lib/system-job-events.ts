@@ -7,9 +7,9 @@ export type SystemEventType =
   | "situation.detected"
   | "situation.resolved"
   | "situation.escalated"
-  | "initiative.proposed"
-  | "initiative.accepted"
-  | "initiative.rejected"
+  | "idea.proposed"
+  | "idea.accepted"
+  | "idea.rejected"
   | "system_job.completed"
   | "page.updated";
 
@@ -33,9 +33,9 @@ const EVENT_TYPES: readonly SystemEventType[] = [
   "situation.detected",
   "situation.resolved",
   "situation.escalated",
-  "initiative.proposed",
-  "initiative.accepted",
-  "initiative.rejected",
+  "idea.proposed",
+  "idea.accepted",
+  "idea.rejected",
   "system_job.completed",
   "page.updated",
 ];
@@ -132,7 +132,7 @@ export function matchesFilter(
  *
  * Throws on DB errors (subscriber lookup, enqueue). Per-subscriber failures
  * within the loop are caught and logged, not rethrown. Callers in
- * user-facing paths (e.g. wiki save handler, initiative accept route) MUST
+ * user-facing paths (e.g. wiki save handler, idea accept route) MUST
  * wrap the call in try/catch — a transient DB blip in the bus must not
  * break the primary write path. See prompt 5 for the canonical wrap pattern.
  */

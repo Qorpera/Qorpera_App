@@ -37,7 +37,7 @@ describe("Mobile sidebar drawer", () => {
 describe("Split-pane mobile mode", () => {
   const splitPanePages = [
     "src/app/situations/page.tsx",
-    "src/app/initiatives/page.tsx",
+    "src/app/ideas/page.tsx",
     "src/app/projects/page.tsx",
   ];
 

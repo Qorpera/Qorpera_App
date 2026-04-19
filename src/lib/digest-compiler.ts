@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 
 const SOURCE_TYPE_PATHS: Record<string, string> = {
   situation: "situations",
-  initiative: "initiatives",
+  idea: "ideas",
   insight: "insights",
 };
 

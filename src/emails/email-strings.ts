@@ -15,7 +15,7 @@ export const emailStrings: Record<string, EmailStrings> = {
     subjects: {
       situation_proposed: (p) => `[Qorpera] New situation: ${p.situationTitle || "Review needed"}`,
       situation_resolved: (p) => `[Qorpera] Resolved: ${p.situationTitle || "Situation resolved"}`,
-      initiative_proposed: (p) => `[Qorpera] New initiative: ${p.initiativeTitle || "Review needed"}`,
+      idea_proposed: (p) => `[Qorpera] New idea: ${p.ideaTitle || "Review needed"}`,
       step_ready: (p) => `[Qorpera] Action needed: ${p.stepTitle || "Step ready"}`,
       delegation_received: (p) => `[Qorpera] New task: ${p.taskTitle || "Task assigned"}`,
       follow_up_triggered: (p) => `[Qorpera] Follow-up: ${p.followUpTitle || "Condition met"}`,
@@ -39,7 +39,7 @@ export const emailStrings: Record<string, EmailStrings> = {
     subjects: {
       situation_proposed: (p) => `[Qorpera] Ny situation: ${p.situationTitle || "Gennemgang nødvendig"}`,
       situation_resolved: (p) => `[Qorpera] Løst: ${p.situationTitle || "Situation løst"}`,
-      initiative_proposed: (p) => `[Qorpera] Nyt initiativ: ${p.initiativeTitle || "Gennemgang nødvendig"}`,
+      idea_proposed: (p) => `[Qorpera] Ny idé: ${p.ideaTitle || "Gennemgang nødvendig"}`,
       step_ready: (p) => `[Qorpera] Handling påkrævet: ${p.stepTitle || "Trin klar"}`,
       delegation_received: (p) => `[Qorpera] Ny opgave: ${p.taskTitle || "Opgave tildelt"}`,
       follow_up_triggered: (p) => `[Qorpera] Opfølgning: ${p.followUpTitle || "Betingelse opfyldt"}`,

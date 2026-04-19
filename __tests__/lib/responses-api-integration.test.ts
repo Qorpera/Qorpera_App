@@ -10,7 +10,7 @@ vi.mock("@/lib/ai-provider", () => ({
   getModel: vi.fn((route: string) => {
     const routes: Record<string, string> = {
       situationReasoning: "gpt-5.4",
-      initiativeReasoning: "gpt-5.4",
+      ideaReasoning: "gpt-5.4",
       copilot: "gpt-5.4",
       contentDetection: "gpt-5.4-mini",
       insightExtraction: "gpt-5.4",
@@ -160,7 +160,7 @@ describe("Responses API integration — caller configuration", () => {
     expect(getModel("contentDetection")).toBe("gpt-5.4-mini");
     expect(getModel("executionGenerate")).toBe("gpt-5.4");
     expect(getModel("copilot")).toBe("gpt-5.4");
-    expect(getModel("initiativeReasoning")).toBe("gpt-5.4");
+    expect(getModel("ideaReasoning")).toBe("gpt-5.4");
     expect(getModel("insightExtraction")).toBe("gpt-5.4");
   });
 });

@@ -1,6 +1,6 @@
-// ── Initiative → Project ────────────────────────────────────────────────
+// ── Idea → Project ────────────────────────────────────────────────
 // Creates a Project with members and deliverables from an approved
-// Initiative's proposedProjectConfig, then queues AI generation.
+// Idea's proposedProjectConfig, then queues AI generation.
 
 import { prisma } from "@/lib/db";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
@@ -37,22 +37,22 @@ interface ProjectConfig {
 // ── Main Function ───────────────────────────────────────────────────────
 
 /**
- * Creates a Project from an approved Initiative's proposedProjectConfig.
- * Called when an initiative with proposedProjectConfig is approved.
+ * Creates a Project from an approved Idea's proposedProjectConfig.
+ * Called when an idea with proposedProjectConfig is approved.
  */
-export async function createProjectFromInitiative(
-  initiativeId: string,
+export async function createProjectFromIdea(
+  ideaId: string,
   userId: string,
   configOverrides?: Partial<ProjectConfig>,
 ): Promise<string> {
-  // Try wiki page first (slug or initiative_id property)
+  // Try wiki page first (slug or idea_id property)
   const page = await prisma.knowledgePage.findFirst({
     where: {
       OR: [
-        { slug: initiativeId },
-        { properties: { path: ["initiative_id"], equals: initiativeId } },
+        { slug: ideaId },
+        { properties: { path: ["idea_id"], equals: ideaId } },
       ],
-      pageType: "initiative",
+      pageType: "idea",
     },
     select: { slug: true, title: true, properties: true, content: true, operatorId: true },
   });
@@ -68,7 +68,7 @@ export async function createProjectFromInitiative(
         description: (wikiConfig.description as string) ?? page.content.slice(0, 500),
         status: "active",
         createdById: userId,
-        config: { sourceInitiativeSlug: page.slug },
+        config: { sourceIdeaSlug: page.slug },
       },
     });
 
@@ -81,9 +81,9 @@ export async function createProjectFromInitiative(
     return project.id;
   }
 
-  // Fallback: legacy Initiative table
-  const initiative = await prisma.initiative.findUnique({
-    where: { id: initiativeId },
+  // Fallback: legacy Idea table
+  const idea = await prisma.idea.findUnique({
+    where: { id: ideaId },
     select: {
       id: true,
       operatorId: true,
@@ -92,12 +92,12 @@ export async function createProjectFromInitiative(
     },
   });
 
-  if (!initiative) throw new Error(`Initiative ${initiativeId} not found`);
-  if (!initiative.proposedProjectConfig) {
-    throw new Error(`Initiative ${initiativeId} has no proposedProjectConfig`);
+  if (!idea) throw new Error(`Idea ${ideaId} not found`);
+  if (!idea.proposedProjectConfig) {
+    throw new Error(`Idea ${ideaId} has no proposedProjectConfig`);
   }
 
-  const baseConfig = initiative.proposedProjectConfig as unknown as ProjectConfig;
+  const baseConfig = idea.proposedProjectConfig as unknown as ProjectConfig;
   const config: ProjectConfig = {
     ...baseConfig,
     ...configOverrides,
@@ -105,7 +105,7 @@ export async function createProjectFromInitiative(
     deliverables: configOverrides?.deliverables ?? baseConfig.deliverables,
   };
 
-  const operatorId = initiative.operatorId;
+  const operatorId = idea.operatorId;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const childProjects = (config as any).childProjects as Array<{
@@ -154,7 +154,7 @@ export async function createProjectFromInitiative(
         createdById: userId,
         dueDate: config.dueDate ? new Date(config.dueDate) : null,
         config: {
-          sourceInitiativeId: initiativeId,
+          sourceIdeaId: ideaId,
           sourceSignal: config.sourceSignal ?? null,
         },
       },
@@ -214,7 +214,7 @@ export async function createProjectFromInitiative(
             description: child.description,
             status: "active",
             createdById: userId,
-            config: { sourceInitiativeId: initiativeId, parentProjectId: proj.id },
+            config: { sourceIdeaId: ideaId, parentProjectId: proj.id },
           },
         });
 
@@ -248,9 +248,9 @@ export async function createProjectFromInitiative(
     return proj;
   });
 
-  // Link initiative to the created project and mark completed
-  await prisma.initiative.update({
-    where: { id: initiativeId },
+  // Link idea to the created project and mark completed
+  await prisma.idea.update({
+    where: { id: ideaId },
     data: {
       status: "completed",
       projectId: project.id,
@@ -268,7 +268,7 @@ export async function createProjectFromInitiative(
       deliverableId: del.id,
       projectId: project.id,
     }).catch((err) =>
-      console.error(`[initiative-project] Failed to queue generation for deliverable ${del.id}:`, err),
+      console.error(`[idea-project] Failed to queue generation for deliverable ${del.id}:`, err),
     );
   }
 
@@ -291,14 +291,14 @@ export async function createProjectFromInitiative(
           deliverableId: del.id,
           projectId: child.id,
         }).catch((err) =>
-          console.error(`[initiative-project] Failed to queue generation for child deliverable ${del.id}:`, err),
+          console.error(`[idea-project] Failed to queue generation for child deliverable ${del.id}:`, err),
         );
       }
     }
   }
 
   console.log(
-    `[initiative-project] Created project "${config.title}" (${project.id}) with ${config.members.length} members and ${config.deliverables.length} deliverables from initiative ${initiativeId}`,
+    `[idea-project] Created project "${config.title}" (${project.id}) with ${config.members.length} members and ${config.deliverables.length} deliverables from idea ${ideaId}`,
   );
 
   return project.id;

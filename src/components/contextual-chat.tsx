@@ -10,7 +10,7 @@ interface Message {
 }
 
 interface ContextualChatProps {
-  contextType: "situation" | "initiative" | "system-health" | "system_job" | "system_jobs";
+  contextType: "situation" | "idea" | "system-health" | "system_job" | "system_jobs";
   contextId: string;
   placeholder?: string;
   hints?: string[];

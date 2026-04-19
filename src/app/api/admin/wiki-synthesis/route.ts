@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "operatorId query param required" }, { status: 400 });
   }
 
-  const [pages, unprocessedChunks, unprocessedSignals, initiativeCount] = await Promise.all([
+  const [pages, unprocessedChunks, unprocessedSignals, ideaCount] = await Promise.all([
     prisma.knowledgePage.findMany({
       where: { operatorId, scope: "operator" },
       select: { status: true, lastSynthesizedAt: true },
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
       where: { operatorId, wikiProcessedAt: null },
     }),
     Promise.resolve(0), // ActivitySignal table removed
-    prisma.initiative.count({
+    prisma.idea.count({
       where: { operatorId },
     }),
   ]);
@@ -67,6 +67,6 @@ export async function GET(req: NextRequest) {
     lastSynthesizedAt: lastSynthesizedAt?.toISOString() ?? null,
     unprocessedChunks,
     unprocessedSignals,
-    initiatives: initiativeCount,
+    ideas: ideaCount,
   });
 }

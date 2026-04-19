@@ -16,19 +16,19 @@ interface BookmarkGroup {
 interface AssemblyReport {
   bookmarksReviewed: number;
   groupsFormed: number;
-  initiativesCreated: number;
+  ideasCreated: number;
   bookmarksDismissed: number;
   durationMs: number;
 }
 
-export async function assembleInitiativesFromBookmarks(
+export async function assembleIdeasFromBookmarks(
   operatorId: string,
 ): Promise<AssemblyReport> {
   const startTime = performance.now();
   const report: AssemblyReport = {
     bookmarksReviewed: 0,
     groupsFormed: 0,
-    initiativesCreated: 0,
+    ideasCreated: 0,
     bookmarksDismissed: 0,
     durationMs: 0,
   };
@@ -51,7 +51,7 @@ export async function assembleInitiativesFromBookmarks(
   } catch (err: any) {
     if (err?.code === "P2021") {
       console.log("[wiki-bookmark-assembly] WikiBookmark table not yet migrated, skipping");
-      return { bookmarksReviewed: 0, groupsFormed: 0, initiativesCreated: 0, bookmarksDismissed: 0, durationMs: 0 };
+      return { bookmarksReviewed: 0, groupsFormed: 0, ideasCreated: 0, bookmarksDismissed: 0, durationMs: 0 };
     }
     throw err;
   }
@@ -85,7 +85,7 @@ export async function assembleInitiativesFromBookmarks(
     where: { operatorId, category: "base", status: "active" },
   });
 
-  // Single LLM call to review all groups and propose initiatives
+  // Single LLM call to review all groups and propose ideas
   const groupSummary = groups
     .map((g, i) => {
       const bms = g.bookmarks
@@ -97,16 +97,16 @@ export async function assembleInitiativesFromBookmarks(
 
   const systemPrompt = `You are reviewing bookmark signals from a wiki synthesis for ${companyName} (team size: ${teamSize}).
 
-During wiki synthesis, the system flagged these as potentially significant. Your job is to decide which groups warrant creating an initiative (a proposed project for the user to approve) and which are just informational context that doesn't need action.
+During wiki synthesis, the system flagged these as potentially significant. Your job is to decide which groups warrant creating an idea (a proposed project for the user to approve) and which are just informational context that doesn't need action.
 
 Bookmark groups:
 ${groupSummary}
 
 For each group, decide:
-- **create_initiative**: This is an active engagement, project, or risk that would benefit from organized tracking. Propose a project structure.
+- **create_idea**: This is an active engagement, project, or risk that would benefit from organized tracking. Propose a project structure.
 - **dismiss**: This is interesting context but doesn't warrant a separate project. The wiki page is sufficient.
 
-For initiatives, consider:
+For ideas, consider:
 - If this looks like an active deal/engagement, propose it as a PORTFOLIO — a parent project with suggested workstreams as child projects
 - ${teamSize <= 3 ? "This is a small operation. The owner likely handles everything. Don't propose sub-projects with assigned team members — propose workstreams as organizational containers." : "Propose team members and assignments based on what the wiki shows."}
 - Deliverables should be concrete: "Financial DD Report", "Risk Assessment", "Buyer Communication Log" — not vague.
@@ -115,9 +115,9 @@ Respond with ONLY a JSON array:
 [
   {
     "groupIndex": 0,
-    "action": "create_initiative" | "dismiss",
+    "action": "create_idea" | "dismiss",
     "dismissReason": "only if dismissed — brief reason",
-    "initiative": {
+    "idea": {
       "title": "Deal or project name",
       "description": "What this is and why it matters",
       "severity": "high" | "medium" | "low",
@@ -144,7 +144,7 @@ Respond with ONLY a JSON array:
       operatorId,
       instructions: systemPrompt,
       messages: [
-        { role: "user", content: "Review bookmark groups and propose initiatives." },
+        { role: "user", content: "Review bookmark groups and propose ideas." },
       ],
       model,
       maxTokens: 4000,
@@ -164,7 +164,7 @@ Respond with ONLY a JSON array:
       groupIndex: number;
       action: string;
       dismissReason?: string;
-      initiative?: {
+      idea?: {
         title: string;
         description: string;
         severity: string;
@@ -199,8 +199,8 @@ Respond with ONLY a JSON array:
         continue;
       }
 
-      if (decision.action === "create_initiative" && decision.initiative) {
-        const ini = decision.initiative;
+      if (decision.action === "create_idea" && decision.idea) {
+        const ini = decision.idea;
 
         // Build project config for wiki page properties
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -233,7 +233,7 @@ Respond with ONLY a JSON array:
           }));
         }
 
-        const slug = `initiative-${Date.now()}-${ini.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+        const slug = `idea-${Date.now()}-${ini.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
 
         const articleBody = [
           `## Summary`,
@@ -257,7 +257,7 @@ Respond with ONLY a JSON array:
             operatorId,
             slug,
             title: ini.title,
-            pageType: "initiative",
+            pageType: "idea",
             scope: "operator",
             status: "draft",
             content: articleBody,
@@ -285,18 +285,18 @@ Respond with ONLY a JSON array:
         try {
           const { emitEvent } = await import("@/lib/system-job-events");
           await emitEvent({
-            type: "initiative.proposed",
+            type: "idea.proposed",
             operatorId,
             payload: {
               proposalType: "project_creation",
               source: "bookmark_assembly",
               domain: null,
-              initiativeSlug: slug,
+              ideaSlug: slug,
               sourceJobId: null,
             },
           });
         } catch (err) {
-          console.warn(`[event-emit] initiative.proposed failed:`, err);
+          console.warn(`[event-emit] idea.proposed failed:`, err);
         }
 
         // Mark bookmarks as resolved
@@ -305,7 +305,7 @@ Respond with ONLY a JSON array:
           data: {
             resolved: true,
             resolvedAt: new Date(),
-            resolvedAction: "initiative_created",
+            resolvedAction: "idea_created",
           },
         });
 
@@ -315,9 +315,9 @@ Respond with ONLY a JSON array:
             operatorId,
             sourceType: "bookmark_assembly",
             sourceId: slug,
-            classification: "initiative_created",
+            classification: "idea_created",
             metadata: {
-              initiativeSlug: slug,
+              ideaSlug: slug,
               bookmarkCount: bookmarkIds.length,
               subject: group.subject,
               severity: ini.severity,
@@ -329,14 +329,14 @@ Respond with ONLY a JSON array:
         // Notify
         sendNotificationToAdmins({
           operatorId,
-          type: "initiative_proposed",
-          title: `New initiative proposed: ${ini.title}`,
+          type: "idea_proposed",
+          title: `New idea proposed: ${ini.title}`,
           body: ini.description,
           sourceType: "bookmark_assembly",
           sourceId: slug,
         }).catch(() => {});
 
-        report.initiativesCreated++;
+        report.ideasCreated++;
       }
     }
   } catch (err) {

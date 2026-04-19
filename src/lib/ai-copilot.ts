@@ -229,13 +229,13 @@ const COPILOT_TOOLS: AITool[] = [
     },
   },
   {
-    name: "get_initiatives",
-    description: "Get AI-proposed initiatives and their progress. Use when the user asks what the AI has proposed, what strategic work is happening, or about department AI activity.",
+    name: "get_ideas",
+    description: "Get AI-proposed ideas and their progress. Use when the user asks what the AI has proposed, what strategic work is happening, or about department AI activity.",
     parameters: {
       type: "object",
       properties: {
         domainId: { type: "string", description: "Filter to a specific department." },
-        status: { type: "string", enum: ["proposed", "approved", "executing", "completed", "rejected"], description: "Initiative status filter." },
+        status: { type: "string", enum: ["proposed", "approved", "executing", "completed", "rejected"], description: "Idea status filter." },
       },
     },
   },
@@ -348,7 +348,7 @@ const ORIENTATION_TOOLS: AITool[] = [
 
 const CONTEXT_EXCLUDED_TOOLS: Record<string, Set<string>> = {
   situation: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
-  initiative: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
+  idea: new Set(["create_situation_type", "list_departments", "get_org_structure"]),
 };
 
 export function getToolsForContext(contextType: string | null): typeof COPILOT_TOOLS {
@@ -476,7 +476,7 @@ CAPABILITIES:
 - Search messages: use when user asks about Slack or Teams conversations, channel discussions, or internal chat
 - Get message thread: retrieve the full thread from Slack or Teams by thread ID
 - Get activity summary: use when user asks about activity levels, trends, communication volume, or what's been happening
-- Get initiatives: use when user asks about objectives, targets, strategic work, or AI proposals
+- Get ideas: use when user asks about objectives, targets, strategic work, or AI proposals
 - Get work streams: use when user asks about projects, grouped work, or progress
 - Get insights: use when user asks what the AI has learned, best approaches, or effectiveness patterns
 - Get priorities: use when user asks what needs attention, what's most urgent, or what to work on next
@@ -1183,12 +1183,12 @@ export async function executeTool(
               ],
             },
           },
-          { sourceType: "initiative" },
+          { sourceType: "idea" },
           { sourceType: { in: ["recurring", "delegation"] } },
         ];
       }
 
-      // Build initiative scope filter
+      // Build idea scope filter
       const initScopeFilter: Record<string, unknown> = { operatorId };
 
       // Resolve visible AI entity IDs (used by delegation, insight, recurring scopes)
@@ -1276,8 +1276,8 @@ export async function executeTool(
         situationsByDept,
         unscopedSituations,
         priorityPlans,
-        executingInitiatives,
-        proposedInitiatives,
+        executingIdeas,
+        proposedIdeas,
         pendingDelegations,
         humanDelegations,
         watchingFollowUps,
@@ -1296,14 +1296,14 @@ export async function executeTool(
         Promise.resolve(situationPagesMapped.filter(s => !s.domain && (!s.crossRefs || s.crossRefs.length === 0))),
         // Priority plans (ExecutionPlan table dropped — return empty)
         Promise.resolve([] as Array<{ id: string; sourceType: string; sourceId: string; priorityScore: number | null; currentStepOrder: number; priorityOverride: { overrideType: string; snoozeUntil: Date | null } | null; steps: Array<{ title: string; sequenceOrder: number }> }>),
-        // Executing initiatives count (wiki pages)
+        // Executing ideas count (wiki pages)
         prisma.knowledgePage.count({
-          where: { operatorId, pageType: "initiative", scope: "operator",
+          where: { operatorId, pageType: "idea", scope: "operator",
             properties: { path: ["status"], equals: "executing" } },
         }),
-        // Proposed initiatives awaiting approval (wiki pages)
+        // Proposed ideas awaiting approval (wiki pages)
         prisma.knowledgePage.count({
-          where: { operatorId, pageType: "initiative", scope: "operator",
+          where: { operatorId, pageType: "idea", scope: "operator",
             properties: { path: ["status"], equals: "proposed" } },
         }),
         // Delegations removed (model dropped v0.3.17)
@@ -1368,7 +1368,7 @@ export async function executeTool(
       }
 
       // Build new sections
-      const initiativeSection = `\n  Initiatives: ${executingInitiatives} executing, ${proposedInitiatives} awaiting approval`;
+      const ideaSection = `\n  Ideas: ${executingIdeas} executing, ${proposedIdeas} awaiting approval`;
 
       const delegationSection = pendingDelegations + humanDelegations > 0
         ? `\n  Delegations: ${pendingDelegations} pending approval, ${humanDelegations} human tasks in progress`
@@ -1388,7 +1388,7 @@ export async function executeTool(
         ? `Operational briefing for ${deptName} (${period}):`
         : `Operational briefing across ${targetDepts.length} departments (${period}):`;
 
-      return `${header}\n\n${sections.join("\n\n")}${prioritySection}${initiativeSection}${delegationSection}${followUpSection}${insightSection}`;
+      return `${header}\n\n${sections.join("\n\n")}${prioritySection}${ideaSection}${delegationSection}${followUpSection}${insightSection}`;
     }
 
     case "search_department_knowledge": {
@@ -1735,10 +1735,10 @@ export async function executeTool(
 
     // ── Phase 3 Tools ──────────────────────────────────────────────────────
 
-    case "get_initiatives": {
+    case "get_ideas": {
       const status = args.status ? String(args.status) : undefined;
 
-      const where: Record<string, unknown> = { operatorId, pageType: "initiative", scope: "operator" };
+      const where: Record<string, unknown> = { operatorId, pageType: "idea", scope: "operator" };
       if (status) where.properties = { path: ["status"], equals: status };
 
       const pages = await prisma.knowledgePage.findMany({
@@ -1748,7 +1748,7 @@ export async function executeTool(
         take: 20,
       });
 
-      if (pages.length === 0) return "No initiatives found matching those criteria.";
+      if (pages.length === 0) return "No ideas found matching those criteria.";
 
       return JSON.stringify(pages.map(p => {
         const props = (p.properties ?? {}) as Record<string, unknown>;

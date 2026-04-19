@@ -53,21 +53,21 @@ export async function loadSituationContext(
   return lines.filter(Boolean).join("\n");
 }
 
-// ── Initiative Context ───────────────────────────────────────────────────────
+// ── Idea Context ───────────────────────────────────────────────────────
 
-export async function loadInitiativeContext(
-  initiativeId: string,
+export async function loadIdeaContext(
+  ideaId: string,
   operatorId: string,
 ): Promise<string | null> {
-  // Try wiki page first (new initiatives are wiki pages)
+  // Try wiki page first (new ideas are wiki pages)
   const page = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      pageType: "initiative",
+      pageType: "idea",
       scope: "operator",
       OR: [
-        { slug: initiativeId },
-        { properties: { path: ["initiative_id"], equals: initiativeId } },
+        { slug: ideaId },
+        { properties: { path: ["idea_id"], equals: ideaId } },
       ],
     },
     select: { slug: true, title: true, content: true, properties: true },
@@ -76,26 +76,26 @@ export async function loadInitiativeContext(
   if (page) {
     const props = (page.properties ?? {}) as Record<string, unknown>;
     return [
-      "INITIATIVE CONTEXT:",
-      `Initiative: ${page.title}`,
+      "IDEA CONTEXT:",
+      `Idea: ${page.title}`,
       `Status: ${props.status ?? "unknown"}`,
       page.content.slice(0, 2000),
     ].join("\n");
   }
 
-  // Fallback: try Initiative table (legacy records)
-  const initiative = await prisma.initiative.findFirst({
-    where: { id: initiativeId, operatorId },
+  // Fallback: try Idea table (legacy records)
+  const idea = await prisma.idea.findFirst({
+    where: { id: ideaId, operatorId },
     select: { triggerSummary: true, status: true, rationale: true },
   });
 
-  if (!initiative) return null;
+  if (!idea) return null;
 
   return [
-    "INITIATIVE CONTEXT:",
-    `Initiative: ${initiative.triggerSummary}`,
-    `Status: ${initiative.status}`,
-    initiative.rationale?.slice(0, 1000) ?? "",
+    "IDEA CONTEXT:",
+    `Idea: ${idea.triggerSummary}`,
+    `Status: ${idea.status}`,
+    idea.rationale?.slice(0, 1000) ?? "",
   ].join("\n");
 }
 
@@ -238,8 +238,8 @@ export async function loadContextForCopilot(
   switch (contextType) {
     case "situation":
       return loadSituationContext(contextId, operatorId);
-    case "initiative":
-      return loadInitiativeContext(contextId, operatorId);
+    case "idea":
+      return loadIdeaContext(contextId, operatorId);
     case "system_jobs":
       return loadSystemJobsContext(operatorId);
     default:
@@ -253,8 +253,8 @@ export function getContextRoleInstruction(contextType: string): string {
   switch (contextType) {
     case "situation":
       return "You are advising on this specific situation. You have full context about the AI's analysis, the proposed action plan, and the current execution status. Help the user understand the situation, evaluate the AI's reasoning, discuss alternatives, or take action. If the user wants to approve or modify the plan, guide them through the options.";
-    case "initiative":
-      return "You are advising on this specific initiative proposed by the department AI. You have full context about the rationale and the execution plan. Help the user evaluate whether this initiative makes sense, discuss the approach, or understand the expected impact.";
+    case "idea":
+      return "You are advising on this specific idea proposed by the department AI. You have full context about the rationale and the execution plan. Help the user evaluate whether this idea makes sense, discuss the approach, or understand the expected impact.";
     case "system-health":
       return "The user is viewing the System Health page. Help them understand and resolve any issues shown. When suggesting fixes, provide specific navigation paths (e.g., \"Go to Settings → Connections to reconnect Gmail\"). If a department has no issues, say so briefly. Focus on actionable advice — what specifically should the user do next to improve their system health.";
     case "system_jobs":

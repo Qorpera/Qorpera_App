@@ -59,7 +59,7 @@ interface ExecutionHistoryEntry {
   trustBannerNote: string | null;
 }
 
-interface LinkedInitiative {
+interface LinkedIdea {
   id: string;
   slug: string;
   title: string;
@@ -106,7 +106,7 @@ interface JobDetail {
   nextRun: string | null;
   latestRun: { summary: string; status: string; needsReview: boolean } | null;
   executionHistory: ExecutionHistoryEntry[];
-  linkedInitiatives: LinkedInitiative[];
+  linkedIdeas: LinkedIdea[];
   runReports: RunReport[];
   crossReferences: string[];
   createdAt: string;
@@ -179,9 +179,9 @@ function formatCents(cents: number | null): string | null {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-type InitiativeBucket = "pending" | "accepted" | "closed";
+type IdeaBucket = "pending" | "accepted" | "closed";
 
-function initiativeStatusBucket(item: LinkedInitiative): InitiativeBucket {
+function ideaStatusBucket(item: LinkedIdea): IdeaBucket {
   if (item.status === "proposed" || item.status === "concerns_raised") {
     return "pending";
   }
@@ -197,7 +197,7 @@ function initiativeStatusBucket(item: LinkedInitiative): InitiativeBucket {
   return "closed";
 }
 
-function statusBadge(item: LinkedInitiative): { variant: "amber" | "green" | "blue" | "red" | "default"; label: string } {
+function statusBadge(item: LinkedIdea): { variant: "amber" | "green" | "blue" | "red" | "default"; label: string } {
   if (item.autoAccepted) return { variant: "blue", label: "Auto-accepted" };
   switch (item.status) {
     case "proposed": return { variant: "default", label: "Proposed" };
@@ -742,33 +742,33 @@ function ReportDeliverable({ detail, locale }: { detail: JobDetail; locale: stri
 }
 
 function ProposalsDeliverable({ detail, locale }: { detail: JobDetail; locale: string }) {
-  const groups = useMemo(() => bucketInitiatives(detail.linkedInitiatives), [detail.linkedInitiatives]);
+  const groups = useMemo(() => bucketIdeas(detail.linkedIdeas), [detail.linkedIdeas]);
 
-  if (detail.linkedInitiatives.length === 0) {
-    return <div style={{ fontSize: 13, color: "var(--fg3)" }}>No initiatives produced yet.</div>;
+  if (detail.linkedIdeas.length === 0) {
+    return <div style={{ fontSize: 13, color: "var(--fg3)" }}>No ideas produced yet.</div>;
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <InitiativeGroup
+      <IdeaGroup
         label={`Awaiting decision: ${groups.pending.length}`}
         items={groups.pending}
-        rowRenderer={renderInitiativeRow}
+        rowRenderer={renderIdeaRow}
         locale={locale}
         defaultOpen
         showAcceptHint
       />
-      <InitiativeGroup
+      <IdeaGroup
         label={`Accepted: ${groups.accepted.length}`}
         items={groups.accepted}
-        rowRenderer={renderInitiativeRow}
+        rowRenderer={renderIdeaRow}
         locale={locale}
         defaultOpen={false}
       />
-      <InitiativeGroup
+      <IdeaGroup
         label={`Closed: ${groups.closed.length}`}
         items={groups.closed}
-        rowRenderer={renderInitiativeRow}
+        rowRenderer={renderIdeaRow}
         locale={locale}
         defaultOpen={false}
       />
@@ -776,12 +776,12 @@ function ProposalsDeliverable({ detail, locale }: { detail: JobDetail; locale: s
   );
 }
 
-function bucketInitiatives(items: LinkedInitiative[]): Record<InitiativeBucket, LinkedInitiative[]> {
-  const pending: LinkedInitiative[] = [];
-  const accepted: LinkedInitiative[] = [];
-  const closed: LinkedInitiative[] = [];
+function bucketIdeas(items: LinkedIdea[]): Record<IdeaBucket, LinkedIdea[]> {
+  const pending: LinkedIdea[] = [];
+  const accepted: LinkedIdea[] = [];
+  const closed: LinkedIdea[] = [];
   for (const item of items) {
-    const bucket = initiativeStatusBucket(item);
+    const bucket = ideaStatusBucket(item);
     if (bucket === "pending") pending.push(item);
     else if (bucket === "accepted") accepted.push(item);
     else closed.push(item);
@@ -789,27 +789,27 @@ function bucketInitiatives(items: LinkedInitiative[]): Record<InitiativeBucket, 
   return { pending, accepted, closed };
 }
 
-function renderInitiativeRow(item: LinkedInitiative, locale: string) {
-  return <InitiativeRow key={item.id} item={item} locale={locale} />;
+function renderIdeaRow(item: LinkedIdea, locale: string) {
+  return <IdeaRow key={item.id} item={item} locale={locale} />;
 }
 
-function renderEditRow(item: LinkedInitiative, locale: string) {
+function renderEditRow(item: LinkedIdea, locale: string) {
   return <EditRow key={item.id} item={item} locale={locale} />;
 }
 
 function EditsDeliverable({ detail, locale }: { detail: JobDetail; locale: string }) {
   const groups = useMemo(() => {
-    const edits = detail.linkedInitiatives.filter(i => i.proposalType === "wiki_update");
-    return { edits, buckets: bucketInitiatives(edits) };
-  }, [detail.linkedInitiatives]);
+    const edits = detail.linkedIdeas.filter(i => i.proposalType === "wiki_update");
+    return { edits, buckets: bucketIdeas(edits) };
+  }, [detail.linkedIdeas]);
 
   if (groups.edits.length === 0) {
-    return <div style={{ fontSize: 13, color: "var(--fg3)" }}>No initiatives produced yet.</div>;
+    return <div style={{ fontSize: 13, color: "var(--fg3)" }}>No ideas produced yet.</div>;
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <InitiativeGroup
+      <IdeaGroup
         label={`Awaiting decision: ${groups.buckets.pending.length}`}
         items={groups.buckets.pending}
         rowRenderer={renderEditRow}
@@ -817,14 +817,14 @@ function EditsDeliverable({ detail, locale }: { detail: JobDetail; locale: strin
         defaultOpen
         showAcceptHint
       />
-      <InitiativeGroup
+      <IdeaGroup
         label={`Accepted: ${groups.buckets.accepted.length}`}
         items={groups.buckets.accepted}
         rowRenderer={renderEditRow}
         locale={locale}
         defaultOpen={false}
       />
-      <InitiativeGroup
+      <IdeaGroup
         label={`Closed: ${groups.buckets.closed.length}`}
         items={groups.buckets.closed}
         rowRenderer={renderEditRow}
@@ -837,8 +837,8 @@ function EditsDeliverable({ detail, locale }: { detail: JobDetail; locale: strin
 
 function MixedDeliverable({ detail, locale }: { detail: JobDetail; locale: string }) {
   const hasReport = detail.runReports.length > 0;
-  const proposals = detail.linkedInitiatives.filter(i => i.proposalType !== "wiki_update");
-  const edits = detail.linkedInitiatives.filter(i => i.proposalType === "wiki_update");
+  const proposals = detail.linkedIdeas.filter(i => i.proposalType !== "wiki_update");
+  const edits = detail.linkedIdeas.filter(i => i.proposalType === "wiki_update");
   const sections: ReactNode[] = [];
   if (hasReport) {
     sections.push(<ReportDeliverable key="report" detail={detail} locale={locale} />);
@@ -849,7 +849,7 @@ function MixedDeliverable({ detail, locale }: { detail: JobDetail; locale: strin
         <SectionHeader>Proposals ({proposals.length})</SectionHeader>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {proposals.map(i => (
-            <InitiativeRow key={i.id} item={i} locale={locale} />
+            <IdeaRow key={i.id} item={i} locale={locale} />
           ))}
         </div>
       </div>,
@@ -873,7 +873,7 @@ function MixedDeliverable({ detail, locale }: { detail: JobDetail; locale: strin
   return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>{sections}</div>;
 }
 
-function InitiativeGroup({
+function IdeaGroup({
   label,
   items,
   rowRenderer,
@@ -882,8 +882,8 @@ function InitiativeGroup({
   showAcceptHint,
 }: {
   label: string;
-  items: LinkedInitiative[];
-  rowRenderer: (item: LinkedInitiative, locale: string) => ReactNode;
+  items: LinkedIdea[];
+  rowRenderer: (item: LinkedIdea, locale: string) => ReactNode;
   locale: string;
   defaultOpen: boolean;
   showAcceptHint?: boolean;
@@ -911,7 +911,7 @@ function InitiativeGroup({
           {items.map(item => rowRenderer(item, locale))}
           {showAcceptHint && (
             <div style={{ fontSize: 11, color: "var(--fg4)", marginTop: 6, fontStyle: "italic" }}>
-              Open an initiative to accept or reject.
+              Open an idea to accept or reject.
             </div>
           )}
         </div>
@@ -923,11 +923,11 @@ function InitiativeGroup({
   );
 }
 
-function InitiativeRow({ item, locale }: { item: LinkedInitiative; locale: string }) {
+function IdeaRow({ item, locale }: { item: LinkedIdea; locale: string }) {
   const status = statusBadge(item);
   return (
     <Link
-      href={`/initiatives?id=${item.id}`}
+      href={`/ideas?id=${item.id}`}
       prefetch={false}
       style={{
         display: "flex", alignItems: "center", gap: 10,
@@ -960,12 +960,12 @@ function InitiativeRow({ item, locale }: { item: LinkedInitiative; locale: strin
   );
 }
 
-function EditRow({ item, locale }: { item: LinkedInitiative; locale: string }) {
+function EditRow({ item, locale }: { item: LinkedIdea; locale: string }) {
   const target = item.slug || item.title;
   const status = statusBadge(item);
   return (
     <Link
-      href={`/initiatives?id=${item.id}`}
+      href={`/ideas?id=${item.id}`}
       prefetch={false}
       style={{
         display: "flex", alignItems: "center", gap: 10,

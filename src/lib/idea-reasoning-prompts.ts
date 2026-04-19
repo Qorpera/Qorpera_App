@@ -1,13 +1,13 @@
 import { PAGE_SCHEMAS, WIKI_STYLE_RULES, buildPropertyPrompt, buildSectionPrompt, type PageSchema } from "@/lib/wiki/page-schemas";
-import type { InitiativePrimaryDeliverable } from "@/lib/reasoning-types";
+import type { IdeaPrimaryDeliverable } from "@/lib/reasoning-types";
 
 // ── Seed Input ──────────────────────────────────────────────────────────────
 
-export interface InitiativeSeedInput {
-  // The initiative itself
-  initiativeSlug: string;
-  initiativeTitle: string;
-  initiativePageContent: string;
+export interface IdeaSeedInput {
+  // The idea itself
+  ideaSlug: string;
+  ideaTitle: string;
+  ideaPageContent: string;
   detectionSource: string;             // "strategic_scanner" | "content_detector" | "system_job"
   proposalType: string;                // current proposal_type property
   severity?: string;
@@ -21,11 +21,11 @@ export interface InitiativeSeedInput {
     role: string;                      // "domain_hub" | "owner" | "evidence_reference"
   }>;
 
-  // Existing initiatives in the same domain (dedup awareness)
-  existingInitiativeTitles: Array<{ slug: string; title: string; status: string }>;
+  // Existing ideas in the same domain (dedup awareness)
+  existingIdeaTitles: Array<{ slug: string; title: string; status: string }>;
 
-  // Prior dismissed initiatives of the same proposal_type (don't re-propose bad ideas)
-  priorDismissedInitiatives: Array<{ title: string; dismissalReason: string }>;
+  // Prior dismissed ideas of the same proposal_type (don't re-propose bad ideas)
+  priorDismissedIdeas: Array<{ title: string; dismissalReason: string }>;
 
   // Business context
   businessContext: string | null;
@@ -53,16 +53,16 @@ export interface InitiativeSeedInput {
 
 // ── System Prompt ───────────────────────────────────────────────────────────
 
-export function buildInitiativeSystemPrompt(
+export function buildIdeaSystemPrompt(
   businessContext: string | null,
   companyName: string | undefined,
   connectorToolNames: Set<string>,
 ): string {
   const parts: string[] = [];
 
-  parts.push(`You are Qorpera's initiative reasoning engine. A detection pipeline (scanner, content classifier, or system job) has flagged something as a potential initiative. Your job is to investigate and decide two things:
+  parts.push(`You are Qorpera's idea reasoning engine. A detection pipeline (scanner, content classifier, or system job) has flagged something as a potential idea. Your job is to investigate and decide two things:
 
-1. **Is it worth doing?** Quality gate. Dismiss initiatives that are redundant, too speculative, out of scope, already handled, low impact, or based on misreading the evidence.
+1. **Is it worth doing?** Quality gate. Dismiss ideas that are redundant, too speculative, out of scope, already handled, low impact, or based on misreading the evidence.
 2. **If yes, what exactly should change?** Specify the primary deliverable (one main change) and identify downstream effects (other pages that may need updating).
 
 You do NOT execute anything. You do not draft the actual new content of the deliverable. You investigate, decide, and specify. A human reviews your proposal and a separate execution phase generates the actual changes.`);
@@ -82,19 +82,19 @@ You do NOT execute anything. You do not draft the actual new content of the deli
 - The evidence is too thin to justify action (e.g., one-off event, not a pattern)
 - The proposed change would contradict an explicit policy or business context
 - The cost/effort wildly exceeds the likely benefit
-- A related initiative is already active or was recently dismissed for the same reason
+- A related idea is already active or was recently dismissed for the same reason
 
 **Promote (isValuable: true)** when:
 - The evidence describes a real gap, risk, or opportunity
 - A specific, scoped change would address it
-- No existing initiative covers the same ground
+- No existing idea covers the same ground
 - The change is implementable given the operator's connected tools or as a human task
 
 When in doubt, dismiss — the scanner will catch the pattern again if it persists.`);
 
-  parts.push(`\n## Initiative Types
+  parts.push(`\n## Idea Types
 
-Each initiative has a \`proposal_type\`. Your primary deliverable must align with the type:
+Each idea has a \`proposal_type\`. Your primary deliverable must align with the type:
 
 - **wiki_update**: Modify a specific existing wiki page. targetPageSlug required.
 - **process_creation**: Create a new page with pageType "process". targetPageType "process".
@@ -119,16 +119,16 @@ You write the complete article body (no title heading — the system adds \`# Ti
 ## Investigation
 [Your findings. What you looked up. What you confirmed or refuted. Why this matters or doesn't.
 Be specific — cite cross-references, specific data points, counts. This is the LONGEST section.
-For dismissed initiatives, this explains WHY it was dismissed.]
+For dismissed ideas, this explains WHY it was dismissed.]
 
 ## Proposal
 [Concrete description of what should change. Not vague advice — specific deliverables.
-Skip or keep brief for dismissed initiatives.]
+Skip or keep brief for dismissed ideas.]
 
 ## Primary Deliverable
 **[Type]: [Title]**
 [Description of the main change]
-Rationale: [Why this specific change addresses the initiative]
+Rationale: [Why this specific change addresses the idea]
 
 ## Downstream Effects
 - **[[target-page-slug]]** (pageType): [One sentence: what changes and why]
@@ -144,21 +144,21 @@ Rationale: [Why this specific change addresses the initiative]
 
 ## Timeline
 [Preserve the detection timestamp line. Add:]
-YYYY-MM-DD HH:MM — Investigated by initiative reasoning engine — [outcome: proposed | dismissed]
+YYYY-MM-DD HH:MM — Investigated by idea reasoning engine — [outcome: proposed | dismissed]
 \`\`\``);
 
   parts.push(`\n## Dashboard Generation
 
-When isValuable is true, produce a \`dashboard\` payload that will render on the initiative's Overview tab. The dashboard is the operator's primary decision interface — they will scan it in 20–30 seconds before reading any prose.
+When isValuable is true, produce a \`dashboard\` payload that will render on the idea's Overview tab. The dashboard is the operator's primary decision interface — they will scan it in 20–30 seconds before reading any prose.
 
 Aim for **2–4 cards** composed from this catalog:
 
-- \`impact_bar\` — before/after metric with uncertainty range. Use for almost every valuable initiative. Baseline = current state, projected = post-implementation state. Include a prominent \`savings\` figure when it clarifies the value.
-- \`entity_set\` — a list of affected people, clients, projects, or documents. Use when the initiative targets a discrete cohort. Flag each entity ('bad' for problem entities, 'warn' for attention, 'good' for positive, 'neutral' otherwise).
+- \`impact_bar\` — before/after metric with uncertainty range. Use for almost every valuable idea. Baseline = current state, projected = post-implementation state. Include a prominent \`savings\` figure when it clarifies the value.
+- \`entity_set\` — a list of affected people, clients, projects, or documents. Use when the idea targets a discrete cohort. Flag each entity ('bad' for problem entities, 'warn' for attention, 'good' for positive, 'neutral' otherwise).
 - \`process_flow\` — ordered steps with optional checkpoints. Use for process_creation and project_creation types. Mark checkpoints with \`checkpoint: true\` and a short \`note\` like 'Signature' or 'Approval'.
 - \`automation_loop\` — trigger → work → output schematic. Use for system_job_creation type. Include an \`annotation\` describing the trust gradient ("first 2 cycles require approval").
 - \`conceptual_diagram\` — schema-driven diagram. Only variant available in v1 is \`tier_pyramid\`. Use for strategy_revision type when tiers or segments are the idea.
-- \`trend_or_distribution\` — sparkline (trend over time) or donut (distribution breakdown). Use sparkline for historical context that motivates the initiative. Use donut to break down a total (e.g., where 38 reporting hours go).
+- \`trend_or_distribution\` — sparkline (trend over time) or donut (distribution breakdown). Use sparkline for historical context that motivates the idea. Use donut to break down a total (e.g., where 38 reporting hours go).
 
 **Rules that separate good dashboards from bad ones:**
 
@@ -172,8 +172,8 @@ Aim for **2–4 cards** composed from this catalog:
    - \`low\` = scenario-modelled or inferred without strong grounding
 4. **Prefer ranges over false precision.** If you're estimating "about 40 to 80 hours", emit \`{ typicalValue: 60, range: { low: 40, high: 80 }, unit: "hrs" }\`. Do NOT emit \`{ typicalValue: 60, unit: "hrs" }\` as if you measured it exactly.
 5. **Span guidance:** start at 12 for the hero card. Use 6 + 6 for paired secondary cards. Use 4 only when composing three-in-a-row.
-6. **When you cannot find quantifiable or structural content:** emit \`{ cards: [], fallback: "prose_only" }\`. This is acceptable and preferable to fabricated cards. Target ~1% of initiatives fall back to prose-only.
-7. **Dismissed initiatives get null dashboard.** When \`isValuable: false\`, set \`dashboard: null\`.
+6. **When you cannot find quantifiable or structural content:** emit \`{ cards: [], fallback: "prose_only" }\`. This is acceptable and preferable to fabricated cards. Target ~1% of ideas fall back to prose-only.
+7. **Dismissed ideas get null dashboard.** When \`isValuable: false\`, set \`dashboard: null\`.
 
 ### Example dashboards
 
@@ -282,7 +282,7 @@ You have the same reasoning tools as situation reasoning: read_wiki_page, search
 
 Investigation budget is BOUNDED. Typically 3-8 tool calls are enough for a solid investigation. Use them to:
 1. Confirm the evidence the scanner cited (read the referenced pages)
-2. Check for existing pages/initiatives that already cover this ground
+2. Check for existing pages/ideas that already cover this ground
 3. Understand the target (if wiki_update: read the target page)
 4. Assess downstream effects (read 1-3 pages that might be affected)
 
@@ -298,20 +298,20 @@ Do not tool-call for things you can infer from the seed context. Do not repeat t
 
 // ── Seed Context Builder ────────────────────────────────────────────────────
 
-export function buildInitiativeSeedContext(input: InitiativeSeedInput): string {
+export function buildIdeaSeedContext(input: IdeaSeedInput): string {
   const sections: string[] = [];
 
-  // INITIATIVE UNDER INVESTIGATION
-  sections.push(`INITIATIVE UNDER INVESTIGATION
+  // IDEA UNDER INVESTIGATION
+  sections.push(`IDEA UNDER INVESTIGATION
 
-Slug: ${input.initiativeSlug}
-Title: ${input.initiativeTitle}
+Slug: ${input.ideaSlug}
+Title: ${input.ideaTitle}
 Detection source: ${input.detectionSource}
 Proposal type (from detection): ${input.proposalType}
 Severity (from detection): ${input.severity ?? "not set"}
 
 CURRENT PAGE CONTENT:
-${input.initiativePageContent}`);
+${input.ideaPageContent}`);
 
   // EDIT INSTRUCTION (if re-reasoning after user edit)
   if (input.editInstruction) {
@@ -347,26 +347,26 @@ Properties:
 ${props}`);
   }
 
-  // EXISTING INITIATIVES (dedup)
-  if (input.existingInitiativeTitles.length > 0) {
-    const titles = input.existingInitiativeTitles
+  // EXISTING IDEAS (dedup)
+  if (input.existingIdeaTitles.length > 0) {
+    const titles = input.existingIdeaTitles
       .slice(0, 20)
       .map(i => `- [[${i.slug}]] (${i.status}): ${i.title}`)
       .join("\n");
-    sections.push(`EXISTING INITIATIVES IN THIS OPERATOR (dedup awareness)
+    sections.push(`EXISTING IDEAS IN THIS OPERATOR (dedup awareness)
 If any of these already cover the same ground, dismiss with a reference.
 
 ${titles}`);
   }
 
   // PRIOR DISMISSED (don't re-propose bad ideas)
-  if (input.priorDismissedInitiatives.length > 0) {
-    const dismissed = input.priorDismissedInitiatives
+  if (input.priorDismissedIdeas.length > 0) {
+    const dismissed = input.priorDismissedIdeas
       .slice(0, 5)
       .map(d => `- "${d.title}" — dismissed: ${d.dismissalReason}`)
       .join("\n");
-    sections.push(`PRIOR DISMISSED INITIATIVES (same proposal_type)
-Reasoning previously dismissed these. If this initiative repeats a dismissed idea with no new evidence, dismiss it again.
+    sections.push(`PRIOR DISMISSED IDEAS (same proposal_type)
+Reasoning previously dismissed these. If this idea repeats a dismissed idea with no new evidence, dismiss it again.
 
 ${dismissed}`);
   }
@@ -396,12 +396,12 @@ ${expertise}`);
   sections.push(`## Your Task
 
 1. Use tools to verify the scanner's evidence and check for existing coverage.
-2. Decide: is this initiative valuable? If not, set isValuable=false with a clear dismissalReason.
+2. Decide: is this idea valuable? If not, set isValuable=false with a clear dismissalReason.
 3. If valuable: specify the primary deliverable and identify downstream effects (bullet-level).
 4. Write the complete enriched page content following the template.
 5. Set properties accurately — severity, priority, expected_impact, effort_estimate.
 
-Return InitiativeReasoningOutput JSON. No prose outside the JSON object.`);
+Return IdeaReasoningOutput JSON. No prose outside the JSON object.`);
 
   return sections.join("\n\n---\n\n");
 }
@@ -409,9 +409,9 @@ Return InitiativeReasoningOutput JSON. No prose outside the JSON object.`);
 // ── Phase 2: Content Generation Prompt ──────────────────────────────────────
 
 export interface ContentGenerationInput {
-  initiativeTitle: string;
-  initiativePageContent: string;
-  deliverable: InitiativePrimaryDeliverable;
+  ideaTitle: string;
+  ideaPageContent: string;
+  deliverable: IdeaPrimaryDeliverable;
   targetPageCurrentContent?: string;
   targetPageCurrentProperties?: Record<string, unknown>;
   businessContext: string | null;
@@ -428,7 +428,7 @@ export function buildContentGenerationPrompt(input: ContentGenerationInput): {
 
   // ── System prompt ──────────
   const systemParts: string[] = [];
-  systemParts.push(`You are generating the actual content for an initiative's primary deliverable. The deliverable has already been investigated and specified — your job is to produce the concrete content the user will review and approve.`);
+  systemParts.push(`You are generating the actual content for an idea's primary deliverable. The deliverable has already been investigated and specified — your job is to produce the concrete content the user will review and approve.`);
 
   if (input.companyName) systemParts.push(`Company: ${input.companyName}`);
   if (input.businessContext) systemParts.push(`\nBUSINESS CONTEXT:\n${input.businessContext}`);
@@ -462,7 +462,7 @@ You are creating a NEW wiki page from scratch. Follow the template exactly.`);
   } else if (type === "document") {
     systemParts.push(`\n## Task: document
 
-You are producing a document body. Return clean markdown. The document will be created as an actual file (Google Doc or similar) when the initiative is implemented.`);
+You are producing a document body. Return clean markdown. The document will be created as an actual file (Google Doc or similar) when the idea is implemented.`);
   } else if (type === "settings_change") {
     systemParts.push(`\n## Task: settings_change
 
@@ -492,12 +492,12 @@ proposedProperties rules:
   // ── User content ──────────
   const userParts: string[] = [];
 
-  userParts.push(`## INITIATIVE BEING IMPLEMENTED
+  userParts.push(`## IDEA BEING IMPLEMENTED
 
-Title: ${input.initiativeTitle}
+Title: ${input.ideaTitle}
 
 Investigation & reasoning:
-${input.initiativePageContent}`);
+${input.ideaPageContent}`);
 
   userParts.push(`\n## PRIMARY DELIVERABLE SPEC
 

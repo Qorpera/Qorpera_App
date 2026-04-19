@@ -10,7 +10,7 @@ const mockPrisma = vi.hoisted(() => ({
     update: vi.fn(),
     delete: vi.fn(),
   },
-  initiative: {
+  idea: {
     create: vi.fn(),
     count: vi.fn(),
   },
@@ -129,11 +129,11 @@ describe("Goal CRUD", () => {
     expect(result.status).toBe("achieved");
   });
 
-  it("deletes a goal without active initiatives", async () => {
-    mockPrisma.initiative.count.mockResolvedValue(0);
+  it("deletes a goal without active ideas", async () => {
+    mockPrisma.idea.count.mockResolvedValue(0);
     mockPrisma.goal.delete.mockResolvedValue({ id: "goal1" });
 
-    const activeCount = await mockPrisma.initiative.count({
+    const activeCount = await mockPrisma.idea.count({
       where: { goalId: "goal1", status: { in: ["approved", "executing"] } },
     });
     expect(activeCount).toBe(0);
@@ -142,10 +142,10 @@ describe("Goal CRUD", () => {
     expect(mockPrisma.goal.delete).toHaveBeenCalledWith({ where: { id: "goal1" } });
   });
 
-  it("blocks delete when active initiatives exist", async () => {
-    mockPrisma.initiative.count.mockResolvedValue(2);
+  it("blocks delete when active ideas exist", async () => {
+    mockPrisma.idea.count.mockResolvedValue(2);
 
-    const activeCount = await mockPrisma.initiative.count({
+    const activeCount = await mockPrisma.idea.count({
       where: { goalId: "goal1", status: { in: ["approved", "executing"] } },
     });
     expect(activeCount).toBe(2);

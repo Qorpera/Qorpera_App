@@ -51,7 +51,7 @@ export async function GET() {
 
   // Include real entity/situation counts from database
   if (analysis.status === "confirming" || analysis.status === "complete") {
-    const [situationCount, entityCount, relationshipCount, pipelineJob, wikiStatsResult, initiativeCount] = await Promise.all([
+    const [situationCount, entityCount, relationshipCount, pipelineJob, wikiStatsResult, ideaCount] = await Promise.all([
       prisma.knowledgePage.count({
         where: { operatorId: session.operatorId, pageType: "situation_instance", scope: "operator" },
       }),
@@ -72,7 +72,7 @@ export async function GET() {
         _count: true,
         _avg: { confidence: true },
       }),
-      prisma.initiative.count({
+      prisma.idea.count({
         where: { operatorId: session.operatorId, status: { notIn: ["completed", "rejected", "failed"] } },
       }),
     ]);
@@ -99,7 +99,7 @@ export async function GET() {
       byType: wikiByType,
       avgConfidence: Math.round(avgConfidence * 100) / 100,
     };
-    response.initiativeCount = initiativeCount;
+    response.ideaCount = ideaCount;
   }
 
   // Include synthesis output when available

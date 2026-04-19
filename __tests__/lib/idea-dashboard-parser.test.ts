@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { parseInitiativePage } from "@/lib/initiative-page-parser";
-import { injectDashboardSection } from "@/lib/initiative-reasoning";
-import { InitiativeReasoningOutputSchema } from "@/lib/reasoning-types";
+import { parseIdeaPage } from "@/lib/idea-page-parser";
+import { injectDashboardSection } from "@/lib/idea-reasoning";
+import { IdeaReasoningOutputSchema } from "@/lib/reasoning-types";
 import type {
-  InitiativeDashboard,
+  IdeaDashboard,
   DashboardCard,
-} from "@/lib/initiative-dashboard-types";
+} from "@/lib/idea-dashboard-types";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -113,12 +113,12 @@ Introduce a mandatory checkpoint.`;
 
 describe("dashboard round-trip: happy path", () => {
   it("preserves a 3-card dashboard through inject + parse", () => {
-    const dashboard: InitiativeDashboard = {
+    const dashboard: IdeaDashboard = {
       cards: [impactBarCard, entitySetCard, processFlowCard],
     };
 
     const enrichedContent = injectDashboardSection(basePageContent, dashboard);
-    const parsed = parseInitiativePage(enrichedContent);
+    const parsed = parseIdeaPage(enrichedContent);
 
     expect(parsed.dashboard.cards).toEqual(dashboard.cards);
     expect(parsed.dashboard.failedCards).toEqual([]);
@@ -127,10 +127,10 @@ describe("dashboard round-trip: happy path", () => {
   });
 
   it("preserves a 1-card dashboard through inject + parse", () => {
-    const dashboard: InitiativeDashboard = { cards: [impactBarCard] };
+    const dashboard: IdeaDashboard = { cards: [impactBarCard] };
 
     const enrichedContent = injectDashboardSection(basePageContent, dashboard);
-    const parsed = parseInitiativePage(enrichedContent);
+    const parsed = parseIdeaPage(enrichedContent);
 
     expect(parsed.dashboard.cards).toEqual([impactBarCard]);
     expect(parsed.dashboard.failedCards).toEqual([]);
@@ -139,13 +139,13 @@ describe("dashboard round-trip: happy path", () => {
   });
 
   it("preserves a prose_only fallback dashboard through inject + parse", () => {
-    const dashboard: InitiativeDashboard = {
+    const dashboard: IdeaDashboard = {
       cards: [],
       fallback: "prose_only",
     };
 
     const enrichedContent = injectDashboardSection(basePageContent, dashboard);
-    const parsed = parseInitiativePage(enrichedContent);
+    const parsed = parseIdeaPage(enrichedContent);
 
     expect(parsed.dashboard.cards).toEqual([]);
     expect(parsed.dashboard.failedCards).toEqual([]);
@@ -158,7 +158,7 @@ describe("dashboard round-trip: happy path", () => {
 
 describe("dashboard parse: no section", () => {
   it("returns an empty-but-valid ParsedDashboard when the page has no ## Dashboard section", () => {
-    const parsed = parseInitiativePage(basePageContent);
+    const parsed = parseIdeaPage(basePageContent);
 
     expect(parsed.dashboard.cards).toEqual([]);
     expect(parsed.dashboard.failedCards).toEqual([]);
@@ -185,7 +185,7 @@ something
 
 prose`;
 
-    const parsed = parseInitiativePage(content);
+    const parsed = parseIdeaPage(content);
 
     expect(parsed.dashboard.parseError).not.toBeNull();
     expect(parsed.dashboard.parseError?.startsWith("invalid json")).toBe(true);
@@ -209,7 +209,7 @@ some prose here, no code block
 
 prose`;
 
-    const parsed = parseInitiativePage(content);
+    const parsed = parseIdeaPage(content);
 
     expect(parsed.dashboard.parseError).toBe(
       "no json block in dashboard section",
@@ -252,7 +252,7 @@ ${JSON.stringify(rawJson, null, 2)}
 
 prose`;
 
-    const parsed = parseInitiativePage(content);
+    const parsed = parseIdeaPage(content);
 
     expect(parsed.dashboard.parseError).toBeNull();
     expect(parsed.dashboard.cards).toHaveLength(2);
@@ -298,7 +298,7 @@ ${JSON.stringify(rawJson, null, 2)}
 
 prose`;
 
-    const parsed = parseInitiativePage(content);
+    const parsed = parseIdeaPage(content);
 
     expect(parsed.dashboard.parseError).toBeNull();
     expect(parsed.dashboard.cards).toEqual([impactBarCard]);
@@ -317,7 +317,7 @@ prose`;
 
 describe("injectDashboardSection: section ordering", () => {
   it("places ## Dashboard between ## Evidence and ## Investigation", () => {
-    const dashboard: InitiativeDashboard = { cards: [impactBarCard] };
+    const dashboard: IdeaDashboard = { cards: [impactBarCard] };
     const result = injectDashboardSection(basePageContent, dashboard);
 
     const evidenceIdx = result.indexOf("## Evidence");
@@ -336,7 +336,7 @@ describe("injectDashboardSection: section ordering", () => {
   });
 
   it("appends ## Dashboard at the end when ## Investigation is absent", () => {
-    const dashboard: InitiativeDashboard = { cards: [impactBarCard] };
+    const dashboard: IdeaDashboard = { cards: [impactBarCard] };
     const contentWithoutInvestigation = `## Trigger
 
 t
@@ -361,7 +361,7 @@ t
 
 // ── Test suite 7: E2E roundtrip ─────────────────────────────────────────────
 
-describe("E2E roundtrip: InitiativeReasoningOutput → inject → parse", () => {
+describe("E2E roundtrip: IdeaReasoningOutput → inject → parse", () => {
   it("preserves a 2-card dashboard (impact_bar + entity_set) through validate → inject → parse", () => {
     const impactBar: DashboardCard = {
       primitive: "impact_bar",
@@ -437,7 +437,7 @@ describe("E2E roundtrip: InitiativeReasoningOutput → inject → parse", () => 
       dashboard: { cards: [impactBar, entitySet] },
     };
 
-    const validated = InitiativeReasoningOutputSchema.safeParse(output);
+    const validated = IdeaReasoningOutputSchema.safeParse(output);
     expect(validated.success).toBe(true);
     if (!validated.success) return;
 
@@ -453,7 +453,7 @@ Contracts lack a change-order process.`;
       baseContent,
       validated.data.dashboard!,
     );
-    const parsed = parseInitiativePage(injected);
+    const parsed = parseIdeaPage(injected);
 
     expect(parsed.dashboard.cards).toEqual(output.dashboard.cards);
     expect(parsed.dashboard.parseError).toBeNull();

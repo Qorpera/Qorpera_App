@@ -27,16 +27,16 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     await runPartialDeliberationPass(operatorId, situationSlug, unblockedStepOrders);
   },
 
-  async reason_initiative(payload) {
+  async reason_idea(payload) {
     const { operatorId, pageSlug } = payload as { operatorId: string; pageSlug: string };
-    const { reasonAboutInitiative } = await import("@/lib/initiative-reasoning");
-    await reasonAboutInitiative(operatorId, pageSlug);
+    const { reasonAboutIdea } = await import("@/lib/idea-reasoning");
+    await reasonAboutIdea(operatorId, pageSlug);
   },
 
-  async execute_initiative(payload) {
+  async execute_idea(payload) {
     const { operatorId, pageSlug } = payload as { operatorId: string; pageSlug: string };
-    const { executeInitiative } = await import("@/lib/initiative-execution");
-    await executeInitiative(operatorId, pageSlug);
+    const { executeIdea } = await import("@/lib/idea-execution");
+    await executeIdea(operatorId, pageSlug);
   },
 
   async evaluate_content(payload) {

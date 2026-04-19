@@ -2,25 +2,25 @@ import { prisma } from "@/lib/db";
 import { runAgenticLoop } from "@/lib/agentic-loop";
 import { getBusinessContext, formatBusinessContext } from "@/lib/business-context";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
-import { InitiativeReasoningOutputSchema, type InitiativeReasoningOutput } from "@/lib/reasoning-types";
-import type { InitiativeDashboard } from "@/lib/initiative-dashboard-types";
+import { IdeaReasoningOutputSchema, type IdeaReasoningOutput } from "@/lib/reasoning-types";
+import type { IdeaDashboard } from "@/lib/idea-dashboard-types";
 import { captureApiError } from "@/lib/api-error";
 import { REASONING_TOOLS, executeReasoningTool } from "@/lib/reasoning-tools";
 import { getConnectorReadTools, executeConnectorReadTool } from "@/lib/connector-read-tools";
 import { processWikiUpdates, updatePageWithLock, type WikiUpdate } from "@/lib/wiki-engine";
 import { PAGE_SCHEMAS } from "@/lib/wiki/page-schemas";
 import {
-  buildInitiativeSystemPrompt,
-  buildInitiativeSeedContext,
-  type InitiativeSeedInput,
-} from "@/lib/initiative-reasoning-prompts";
+  buildIdeaSystemPrompt,
+  buildIdeaSeedContext,
+  type IdeaSeedInput,
+} from "@/lib/idea-reasoning-prompts";
 
-/** Increment when the initiative reasoning prompt changes meaningfully. */
-export const INITIATIVE_REASONING_PROMPT_VERSION = 1;
+/** Increment when the idea reasoning prompt changes meaningfully. */
+export const IDEA_REASONING_PROMPT_VERSION = 1;
 
 export function injectDashboardSection(
   pageContent: string,
-  dashboard: InitiativeDashboard,
+  dashboard: IdeaDashboard,
 ): string {
   const serialized = `## Dashboard\n\n\`\`\`json\n${JSON.stringify(dashboard, null, 2)}\n\`\`\`\n`;
 
@@ -48,27 +48,27 @@ function resolveTargetPageType(proposalType: string): string | null {
   }
 }
 
-export async function reasonAboutInitiative(
+export async function reasonAboutIdea(
   operatorId: string,
   pageSlug: string,
 ): Promise<void> {
-  // 1. Load the initiative page
-  const initiativePage = await prisma.knowledgePage.findFirst({
+  // 1. Load the idea page
+  const ideaPage = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
       slug: pageSlug,
-      pageType: "initiative",
+      pageType: "idea",
       scope: "operator",
     },
     select: { slug: true, title: true, content: true, properties: true },
   });
 
-  if (!initiativePage) {
-    console.warn(`[initiative-reasoning] Page ${pageSlug} not found`);
+  if (!ideaPage) {
+    console.warn(`[idea-reasoning] Page ${pageSlug} not found`);
     return;
   }
 
-  const props = (initiativePage.properties ?? {}) as Record<string, unknown>;
+  const props = (ideaPage.properties ?? {}) as Record<string, unknown>;
   const currentStatus = props.status as string | undefined;
   const detectionSource = (props.source as string) ?? "unknown";
   const proposalType = (props.proposal_type as string) ?? "general";
@@ -80,7 +80,7 @@ export async function reasonAboutInitiative(
 
   // 2. Status guard
   if (currentStatus !== "detected") {
-    console.log(`[initiative-reasoning] ${pageSlug} status is ${currentStatus}, skipping`);
+    console.log(`[idea-reasoning] ${pageSlug} status is ${currentStatus}, skipping`);
     return;
   }
 
@@ -118,7 +118,7 @@ export async function reasonAboutInitiative(
       capabilities,
       businessCtx,
       operator,
-      existingInitiatives,
+      existingIdeas,
       priorDismissed,
     ] = await Promise.all([
       hubSlugs.length > 0
@@ -136,11 +136,11 @@ export async function reasonAboutInitiative(
         where: { id: operatorId },
         select: { companyName: true },
       }),
-      // Existing initiatives (excluding self and detected ones)
+      // Existing ideas (excluding self and detected ones)
       prisma.knowledgePage.findMany({
         where: {
           operatorId,
-          pageType: "initiative",
+          pageType: "idea",
           scope: "operator",
           slug: { not: pageSlug },
         },
@@ -152,7 +152,7 @@ export async function reasonAboutInitiative(
       prisma.knowledgePage.findMany({
         where: {
           operatorId,
-          pageType: "initiative",
+          pageType: "idea",
           scope: "operator",
           slug: { not: pageSlug },
           AND: [
@@ -167,22 +167,22 @@ export async function reasonAboutInitiative(
     ]);
 
     // Assemble hub pages with roles
-    const hubPages: InitiativeSeedInput["hubPages"] = [];
+    const hubPages: IdeaSeedInput["hubPages"] = [];
     for (const p of hubPageResults) {
       const role = hubRoles[p.slug];
       if (!role) continue;
       hubPages.push({ slug: p.slug, title: p.title, pageType: p.pageType, content: p.content, role });
     }
 
-    // Filter existing initiatives to those with visible statuses (not "detected")
-    const existingInitiativeTitles = existingInitiatives
+    // Filter existing ideas to those with visible statuses (not "detected")
+    const existingIdeaTitles = existingIdeas
       .map(p => {
         const pp = (p.properties ?? {}) as Record<string, unknown>;
         return { slug: p.slug, title: p.title, status: (pp.status as string) ?? "unknown" };
       })
       .filter(i => i.status !== "detected");
 
-    const priorDismissedInitiatives = priorDismissed.map(p => {
+    const priorDismissedIdeas = priorDismissed.map(p => {
       const pp = (p.properties ?? {}) as Record<string, unknown>;
       return {
         title: p.title,
@@ -195,13 +195,13 @@ export async function reasonAboutInitiative(
     const targetPageTypeTemplate = targetPageType ? (PAGE_SCHEMAS[targetPageType] ?? null) : null;
 
     // System expertise discovery (best-effort)
-    let systemExpertiseIndex: InitiativeSeedInput["systemExpertiseIndex"] = [];
+    let systemExpertiseIndex: IdeaSeedInput["systemExpertiseIndex"] = [];
     try {
       const { discoverSystemExpertise } = await import("@/lib/wiki-discovery");
-      const query = [initiativePage.title, proposalType].filter(Boolean).join(" ");
+      const query = [ideaPage.title, proposalType].filter(Boolean).join(" ");
       systemExpertiseIndex = await discoverSystemExpertise(operatorId, query, 10);
     } catch (err) {
-      console.warn("[initiative-reasoning] System expertise discovery failed:", err);
+      console.warn("[idea-reasoning] System expertise discovery failed:", err);
     }
 
     const businessContextStr = businessCtx ? formatBusinessContext(businessCtx) : null;
@@ -219,22 +219,22 @@ export async function reasonAboutInitiative(
     };
 
     // 6. Build prompts
-    const systemPrompt = buildInitiativeSystemPrompt(
+    const systemPrompt = buildIdeaSystemPrompt(
       businessContextStr,
       operator?.companyName ?? undefined,
       connectorToolNames,
     );
 
-    const seedInput: InitiativeSeedInput = {
-      initiativeSlug: initiativePage.slug,
-      initiativeTitle: initiativePage.title,
-      initiativePageContent: initiativePage.content,
+    const seedInput: IdeaSeedInput = {
+      ideaSlug: ideaPage.slug,
+      ideaTitle: ideaPage.title,
+      ideaPageContent: ideaPage.content,
       detectionSource,
       proposalType,
       severity,
       hubPages,
-      existingInitiativeTitles,
-      priorDismissedInitiatives,
+      existingIdeaTitles,
+      priorDismissedIdeas,
       businessContext: businessContextStr,
       companyName: operator?.companyName ?? undefined,
       availableCapabilities: capabilities.map(c => ({ name: c.name, description: c.description })),
@@ -243,16 +243,16 @@ export async function reasonAboutInitiative(
       editInstruction: editInstruction ?? null,
     };
 
-    const seedContext = buildInitiativeSeedContext(seedInput);
+    const seedContext = buildIdeaSeedContext(seedInput);
 
     // 7. Run the agentic loop (Opus, bounded budget)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const outputSchema = InitiativeReasoningOutputSchema as any;
+    const outputSchema = IdeaReasoningOutputSchema as any;
 
     const agenticResult = await runAgenticLoop({
       operatorId,
       contextId: pageSlug,
-      contextType: "initiative",
+      contextType: "idea",
       cycleNumber: 1,
       systemPrompt,
       seedContext,
@@ -264,20 +264,20 @@ export async function reasonAboutInitiative(
       editInstruction: editInstruction ?? null,
     });
 
-    const reasoning = agenticResult.output as InitiativeReasoningOutput;
+    const reasoning = agenticResult.output as IdeaReasoningOutput;
     console.log(
-      `[initiative-reasoning] ${pageSlug}: ${agenticResult.durationMs}ms, $${(agenticResult.apiCostCents / 100).toFixed(2)}, isValuable=${reasoning.isValuable}`
+      `[idea-reasoning] ${pageSlug}: ${agenticResult.durationMs}ms, $${(agenticResult.apiCostCents / 100).toFixed(2)}, isValuable=${reasoning.isValuable}`
     );
 
     // 8. Validate output
     if (!reasoning.isValuable && !reasoning.dismissalReason) {
-      console.warn(`[initiative-reasoning] ${pageSlug}: dismissed without reason, using fallback`);
+      console.warn(`[idea-reasoning] ${pageSlug}: dismissed without reason, using fallback`);
     }
 
     const finalStatus = reasoning.isValuable ? "proposed" : "dismissed";
-    const updatedTitle = reasoning.initiativeTitle ?? initiativePage.title;
+    const updatedTitle = reasoning.ideaTitle ?? ideaPage.title;
 
-    // ── Phase 2: Content generation (only for valuable initiatives) ──────────────
+    // ── Phase 2: Content generation (only for valuable ideas) ──────────────
     let contentGenCostCents = 0;
     let contentGenModelId = "";
     let contentGenerationFailed = false;
@@ -307,13 +307,13 @@ export async function reasonAboutInitiative(
           }
         }
 
-        const { buildContentGenerationPrompt } = await import("@/lib/initiative-reasoning-prompts");
+        const { buildContentGenerationPrompt } = await import("@/lib/idea-reasoning-prompts");
         const { callLLM, getModel, getThinkingBudget } = await import("@/lib/ai-provider");
         const { extractJSON } = await import("@/lib/json-helpers");
 
         const prompt = buildContentGenerationPrompt({
-          initiativeTitle: updatedTitle,
-          initiativePageContent: reasoning.pageContent,
+          ideaTitle: updatedTitle,
+          ideaPageContent: reasoning.pageContent,
           deliverable: reasoning.primaryDeliverable,
           targetPageCurrentContent: targetCurrent?.content,
           targetPageCurrentProperties: targetCurrent?.properties ?? undefined,
@@ -321,7 +321,7 @@ export async function reasonAboutInitiative(
           companyName: operator?.companyName ?? undefined,
         });
 
-        const modelRoute = "initiativeContentGeneration";
+        const modelRoute = "ideaContentGeneration";
         const model = getModel(modelRoute);
         const thinkingBudget = getThinkingBudget(modelRoute);
 
@@ -355,12 +355,12 @@ export async function reasonAboutInitiative(
         };
 
         console.log(
-          `[initiative-reasoning] Phase 2 content generation for ${pageSlug}: $${(contentGenCostCents / 100).toFixed(2)}, ${parsed.proposedContent.length} chars`
+          `[idea-reasoning] Phase 2 content generation for ${pageSlug}: $${(contentGenCostCents / 100).toFixed(2)}, ${parsed.proposedContent.length} chars`
         );
       } catch (err) {
         contentGenerationFailed = true;
         contentGenerationError = err instanceof Error ? err.message : String(err);
-        console.error(`[initiative-reasoning] Phase 2 content generation failed for ${pageSlug}:`, err);
+        console.error(`[idea-reasoning] Phase 2 content generation failed for ${pageSlug}:`, err);
         // Don't throw — fall through to write the page with spec-only primaryDeliverable.
         // The UI will handle the missing proposedContent gracefully (placeholder banner).
       }
@@ -412,12 +412,12 @@ export async function reasonAboutInitiative(
         operatorId,
         situationId: pageSlug,
         updates: reasoning.wikiUpdates as WikiUpdate[],
-        synthesisPath: "initiative_reasoning",
+        synthesisPath: "idea_reasoning",
         synthesizedByModel: agenticResult.modelId,
         synthesisCostCents: Math.round(agenticResult.apiCostCents),
         synthesisDurationMs: Math.round(agenticResult.durationMs),
       }).catch((err) => {
-        console.error(`[initiative-reasoning] Wiki update processing failed for ${pageSlug}:`, err);
+        console.error(`[idea-reasoning] Wiki update processing failed for ${pageSlug}:`, err);
       });
     }
 
@@ -425,7 +425,7 @@ export async function reasonAboutInitiative(
     await prisma.evaluationLog.create({
       data: {
         operatorId,
-        sourceType: "initiative_reasoning",
+        sourceType: "idea_reasoning",
         sourceId: pageSlug,
         classification: reasoning.isValuable ? "promoted_to_proposed" : "dismissed",
         evaluatedAt: new Date(),
@@ -441,37 +441,37 @@ export async function reasonAboutInitiative(
         },
       },
     }).catch(err => {
-      console.warn(`[initiative-reasoning] EvaluationLog creation failed:`, err);
+      console.warn(`[idea-reasoning] EvaluationLog creation failed:`, err);
     });
 
     // 12. Notify admins
     if (reasoning.isValuable) {
       await sendNotificationToAdmins({
         operatorId,
-        type: "initiative_proposed",
-        title: `Initiative proposed: ${updatedTitle.slice(0, 80)}`,
+        type: "idea_proposed",
+        title: `Idea proposed: ${updatedTitle.slice(0, 80)}`,
         body: reasoning.primaryDeliverable?.description?.slice(0, 200)
-          ?? "A new initiative has been proposed for review.",
+          ?? "A new idea has been proposed for review.",
         sourceType: "wiki_page",
         sourceId: pageSlug,
       }).catch(() => {});
     } else {
-      // Informational — the initiative doesn't land in the list, but admins should
+      // Informational — the idea doesn't land in the list, but admins should
       // know the scanner found something that didn't survive reasoning.
       await sendNotificationToAdmins({
         operatorId,
-        type: "initiative_dismissed",
-        title: `Initiative dismissed: ${updatedTitle.slice(0, 80)}`,
-        body: reasoning.dismissalReason ?? "Reasoning determined this initiative is not valuable.",
+        type: "idea_dismissed",
+        title: `Idea dismissed: ${updatedTitle.slice(0, 80)}`,
+        body: reasoning.dismissalReason ?? "Reasoning determined this idea is not valuable.",
         sourceType: "wiki_page",
         sourceId: pageSlug,
       }).catch(() => {});
     }
 
-    console.log(`[initiative-reasoning] ${pageSlug} → ${finalStatus}`);
+    console.log(`[idea-reasoning] ${pageSlug} → ${finalStatus}`);
   } catch (err) {
-    console.error(`[initiative-reasoning] Error reasoning about ${pageSlug}:`, err);
-    captureApiError(err, { route: "initiative-reasoning", initiativeSlug: pageSlug });
+    console.error(`[idea-reasoning] Error reasoning about ${pageSlug}:`, err);
+    captureApiError(err, { route: "idea-reasoning", ideaSlug: pageSlug });
     // Reset status so it can be retried
     await updatePageWithLock(operatorId, pageSlug, (p) => ({
       properties: { ...(p.properties ?? {}), status: "detected" },

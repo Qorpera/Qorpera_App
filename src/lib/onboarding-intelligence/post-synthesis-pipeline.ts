@@ -11,7 +11,7 @@ import { prisma } from "@/lib/db";
 export async function runPostSynthesisPipeline(operatorId: string): Promise<{
   situations: number;
   investigations: number;
-  initiatives: number;
+  ideas: number;
 }> {
   // ── Research Planning ──────────────────────────────────────────
   console.log(`[post-synthesis] Generating research plan for ${operatorId}`);
@@ -118,12 +118,12 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
 
   // ── Wiki Strategic Scanner ──────────────────────────
   console.log(`[post-synthesis] Running strategic wiki scan for ${operatorId}`);
-  let initiativeCount = 0;
+  let ideaCount = 0;
   try {
     const { runWikiStrategicScan } = await import("@/lib/wiki-strategic-scanner");
     const scanResult = await runWikiStrategicScan(operatorId);
-    initiativeCount = scanResult.initiativesCreated;
-    console.log(`[post-synthesis] Strategic scan: ${initiativeCount} initiatives, ${scanResult.situationsCreated} situations`);
+    ideaCount = scanResult.ideasCreated;
+    console.log(`[post-synthesis] Strategic scan: ${ideaCount} ideas, ${scanResult.situationsCreated} situations`);
   } catch (err) {
     console.error("[post-synthesis] Strategic scan failed:", err);
   }
@@ -132,11 +132,11 @@ export async function runPostSynthesisPipeline(operatorId: string): Promise<{
     where: { operatorId, pageType: "situation_instance", scope: "operator" },
   });
 
-  console.log(`[post-synthesis] Complete: ${totalSituations} situations, ${investigationCount} investigations, ${initiativeCount} initiatives`);
+  console.log(`[post-synthesis] Complete: ${totalSituations} situations, ${investigationCount} investigations, ${ideaCount} ideas`);
 
   return {
     situations: totalSituations,
     investigations: investigationCount,
-    initiatives: initiativeCount,
+    ideas: ideaCount,
   };
 }

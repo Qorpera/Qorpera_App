@@ -5,8 +5,8 @@
 export const NOTIFICATION_TYPES = [
   "situation_proposed",
   "situation_resolved",
-  "initiative_proposed",
-  "initiative_dismissed",
+  "idea_proposed",
+  "idea_dismissed",
   "step_ready",
   "delegation_received",
   "follow_up_triggered",
@@ -29,8 +29,8 @@ export type NotificationChannel = "in_app" | "email" | "both" | "none";
 const DEFAULT_CHANNELS: Record<NotificationType, NotificationChannel> = {
   situation_proposed: "both",
   situation_resolved: "in_app",
-  initiative_proposed: "both",
-  initiative_dismissed: "in_app",
+  idea_proposed: "both",
+  idea_dismissed: "in_app",
   step_ready: "both",
   delegation_received: "both",
   follow_up_triggered: "email",

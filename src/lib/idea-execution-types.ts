@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { InitiativePrimaryDeliverable, InitiativeDownstreamEffect } from "@/lib/reasoning-types";
+import type { IdeaPrimaryDeliverable, IdeaDownstreamEffect } from "@/lib/reasoning-types";
 
 export type ChangeApplyStatus = "pending" | "generating" | "generated" | "applying" | "applied" | "failed";
 
@@ -11,7 +11,7 @@ export interface PrimaryExecState {
 
 export interface DownstreamExecState {
   changeId: string;                 // `downstream-${idx}`
-  effect: InitiativeDownstreamEffect; // copy of the reasoning-engine spec
+  effect: IdeaDownstreamEffect; // copy of the reasoning-engine spec
   status: ChangeApplyStatus;
   proposedContent: string | null;
   proposedProperties: Record<string, unknown> | null;
@@ -50,7 +50,7 @@ export interface DownstreamLLMOutput {
   }>;
 }
 
-export type { InitiativePrimaryDeliverable, InitiativeDownstreamEffect };
+export type { IdeaPrimaryDeliverable, IdeaDownstreamEffect };
 
 // ── Runtime validation schema for resume ────────────────────────────────────
 
@@ -66,7 +66,7 @@ const ChangeApplyStatusSchema = z.enum([
   "pending", "generating", "generated", "applying", "applied", "failed",
 ]);
 
-const InitiativeDownstreamEffectSchema = z.object({
+const IdeaDownstreamEffectSchema = z.object({
   targetPageSlug: z.string(),
   targetPageType: z.string(),
   changeType: z.enum(["update", "create", "review"]),
@@ -75,7 +75,7 @@ const InitiativeDownstreamEffectSchema = z.object({
 
 const DownstreamExecStateSchema = z.object({
   changeId: z.string(),
-  effect: InitiativeDownstreamEffectSchema,
+  effect: IdeaDownstreamEffectSchema,
   status: ChangeApplyStatusSchema,
   proposedContent: z.string().nullable(),
   proposedProperties: z.record(z.unknown()).nullable(),

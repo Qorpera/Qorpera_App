@@ -8,7 +8,7 @@ import { EmailVerificationEmail } from "@/emails/email-verification";
 import { GenericNotificationEmail } from "@/emails/generic-notification";
 import { SituationProposedEmail } from "@/emails/situation-proposed";
 import { SituationResolvedEmail } from "@/emails/situation-resolved";
-import { InitiativeProposedEmail } from "@/emails/initiative-proposed";
+import { IdeaProposedEmail } from "@/emails/idea-proposed";
 import { StepReadyEmail } from "@/emails/step-ready";
 import { DelegationReceivedEmail } from "@/emails/delegation-received";
 import { FollowUpTriggeredEmail } from "@/emails/follow-up-triggered";
@@ -75,12 +75,12 @@ const templates = [
     }),
   },
   {
-    name: "InitiativeProposedEmail",
-    element: React.createElement(InitiativeProposedEmail, {
-      initiativeTitle: "Improve response time",
+    name: "IdeaProposedEmail",
+    element: React.createElement(IdeaProposedEmail, {
+      ideaTitle: "Improve response time",
       domainName: "Customer Support",
       rationale: "Average response time has increased by 40%.",
-      viewUrl: "https://app.qorpera.com/initiatives/1",
+      viewUrl: "https://app.qorpera.com/ideas/1",
     }),
   },
   {

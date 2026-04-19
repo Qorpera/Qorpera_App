@@ -115,7 +115,7 @@ const PAGE_TYPE_META: Record<string, { label: string; icon: string }> = {
   project_portfolio: { label: "Project portfolios", icon: "F" },
   project: { label: "Projects", icon: "P" },
   project_deliverable: { label: "Deliverables", icon: "D" },
-  initiative: { label: "Initiatives", icon: "I" },
+  idea: { label: "Ideas", icon: "I" },
   situation_instance: { label: "Situations", icon: "S" },
 };
 

@@ -73,7 +73,7 @@ export type CommunicationItem = {
 
 type EvaluationResult = {
   messageIndex: number;
-  classification: "action_required" | "awareness" | "irrelevant" | "initiative_candidate";
+  classification: "action_required" | "awareness" | "irrelevant" | "idea_candidate";
   awarenessType: "informational" | "strategic" | null; // only for awareness
   summary: string;
   urgency: "low" | "medium" | "high" | null; // null for irrelevant
@@ -412,19 +412,19 @@ For each awareness message, you must ALSO sub-classify as:
 - **informational** — Routine updates requiring zero thought or decision-making: meeting acceptances/declines, calendar reminders for existing meetings, read receipts, auto-generated status notifications, newsletter digests, booking confirmations, schedule change confirmations, system notifications ("synced successfully"), out-of-office auto-replies, meeting notes shared as FYI with no questions asked. The KEY TEST: would the recipient delete this email without reading it twice? If yes → informational.
 - **strategic** — Information the recipient didn't ask for but that carries BUSINESS RISK or OPPORTUNITY if ignored: being CC'd on an escalating dispute, competitor pricing shared in a thread, a client's payment pattern changing, an employee mentioning they're considering leaving, a regulatory deadline appearing in a forwarded document, a partner signaling dissatisfaction. The KEY TEST: could ignoring this cost the company money, a relationship, or a legal obligation within 30 days? If yes → strategic. Calendar reminders, meeting confirmations, and scheduling logistics are NEVER strategic — even if the meeting topic is important, the reminder itself carries no strategic information.
 
-**initiative_candidate** — This signal indicates work that requires COORDINATION across multiple people, each producing distinct deliverables toward a shared objective with a deadline. Use this when:
+**idea_candidate** — This signal indicates work that requires COORDINATION across multiple people, each producing distinct deliverables toward a shared objective with a deadline. Use this when:
 - The signal references a meeting/event where multiple people must PREPARE MATERIALS (not just attend)
 - The signal describes a project, audit, review, or coordinated effort involving 3+ people producing distinct outputs
 - A calendar event exists with multiple attendees and substantive preparation is clearly needed but hasn't started
 - The effort has a clear deadline and the deliverables don't exist yet
 
-Do NOT use initiative_candidate for:
+Do NOT use idea_candidate for:
 - A meeting that's just a discussion with no deliverables needed
 - A single person being asked to do multiple tasks (that's action_required)
 - Status updates about ongoing work (that's awareness)
 - An event that already has an active Project with these participants (check ACTIVE PROJECTS in enriched context)
 
-When you classify as initiative_candidate, you must ALSO provide a projectRecommendation object.
+When you classify as idea_candidate, you must ALSO provide a projectRecommendation object.
 
 **irrelevant** — This has nothing to do with the recipient's work responsibilities. Spam, marketing solicitations, newsletters they didn't subscribe to for work purposes, automated system notifications with no actionable content, social/casual messages with no work relevance, promotional offers (gambling, personal shopping, etc).
 
@@ -553,7 +553,7 @@ For each message, respond with:
 [
   {
     "messageIndex": 0,
-    "classification": "action_required" | "awareness" | "irrelevant" | "initiative_candidate",
+    "classification": "action_required" | "awareness" | "irrelevant" | "idea_candidate",
     "awarenessType": "informational" | "strategic" | null,
     "summary": "Brief description (1-2 sentences). For awareness: what the person should know. For irrelevant: why it doesn't matter.",
     "urgency": "low" | "medium" | "high" | null,
@@ -563,7 +563,7 @@ For each message, respond with:
     "evidence": "The specific text that drove the classification",
     "reasoning": "One sentence: why this classification",
     "investigationDepth": "standard | thorough (for action_required and strategic awareness only)",
-    "projectRecommendation": "(include ONLY for initiative_candidate — see system prompt for schema)"
+    "projectRecommendation": "(include ONLY for idea_candidate — see system prompt for schema)"
   }
 ]`;
 
@@ -586,7 +586,7 @@ For each message, respond with:
 
   return parsed.map((r) => ({
     messageIndex: Number(r.messageIndex ?? 0),
-    classification: (["action_required", "awareness", "irrelevant", "initiative_candidate"].includes(r.classification as string)
+    classification: (["action_required", "awareness", "irrelevant", "idea_candidate"].includes(r.classification as string)
       ? r.classification
       : r.actionRequired === true ? "action_required" : "irrelevant") as EvaluationResult["classification"],
     awarenessType: r.classification === "awareness"
@@ -603,7 +603,7 @@ For each message, respond with:
     investigationDepth: (r.investigationDepth === "thorough" ? "thorough" : "standard") as "standard" | "thorough",
     reasoning: String(r.reasoning ?? ""),
     projectRecommendation: (() => {
-      if (r.classification !== "initiative_candidate" || !r.projectRecommendation) return null;
+      if (r.classification !== "idea_candidate" || !r.projectRecommendation) return null;
       const pr = r.projectRecommendation as Record<string, any>;
       return {
         title: String(pr.title ?? ""),
@@ -648,9 +648,9 @@ async function checkResponseToOpenSituation(
   return null;
 }
 
-// ── Initiative Candidate Handler ─────────────────────────────────────────────
+// ── Idea Candidate Handler ─────────────────────────────────────────────
 
-async function handleInitiativeCandidate(
+async function handleIdeaCandidate(
   operatorId: string,
   batch: ActorBatch,
   result: EvaluationResult,
@@ -668,7 +668,7 @@ async function handleInitiativeCandidate(
       where: {
         operatorId,
         scope: "operator",
-        pageType: "initiative",
+        pageType: "idea",
         title: { contains: rec.title.slice(0, 50), mode: "insensitive" },
       },
       select: { slug: true },
@@ -677,24 +677,24 @@ async function handleInitiativeCandidate(
       where: {
         operatorId,
         scope: "operator",
-        pageType: "initiative",
+        pageType: "idea",
         properties: { path: ["source_id"], equals: item.sourceId },
       },
       select: { slug: true },
     }),
   ]);
   if (existing) {
-    console.log(`[content-detection] Initiative "${rec.title}" already exists (${existing.slug}), skipping`);
+    console.log(`[content-detection] Idea "${rec.title}" already exists (${existing.slug}), skipping`);
     return;
   }
   if (existingFromSource) {
-    console.log(`[content-detection] Initiative already created from source ${item.sourceId}, skipping`);
+    console.log(`[content-detection] Idea already created from source ${item.sourceId}, skipping`);
     return;
   }
 
-  const initiativeSlug = `initiative-${createId().slice(0, 8)}-${rec.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+  const ideaSlug = `idea-${createId().slice(0, 8)}-${rec.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
 
-  const initiativeProps = {
+  const ideaProps = {
     status: "detected",
     proposed_at: now.toISOString(),
     source: "content_detected",
@@ -721,12 +721,12 @@ async function handleInitiativeCandidate(
   await prisma.knowledgePage.create({
     data: {
       operatorId,
-      slug: initiativeSlug,
+      slug: ideaSlug,
       title: rec.title,
       scope: "operator",
-      pageType: "initiative",
+      pageType: "idea",
       content: articleBody,
-      properties: initiativeProps,
+      properties: ideaProps,
       synthesisPath: "detection",
       synthesizedByModel: "content-detector",
       lastSynthesizedAt: now,
@@ -736,33 +736,33 @@ async function handleInitiativeCandidate(
   try {
     const { emitEvent } = await import("@/lib/system-job-events");
     await emitEvent({
-      type: "initiative.proposed",
+      type: "idea.proposed",
       operatorId,
       payload: {
         proposalType: "general",
-        source: (initiativeProps.source as string) ?? "content_detected",
-        domain: (initiativeProps.domain as string) ?? null,
-        initiativeSlug,
+        source: (ideaProps.source as string) ?? "content_detected",
+        domain: (ideaProps.domain as string) ?? null,
+        ideaSlug,
         sourceJobId: null,
       },
     });
   } catch (err) {
-    console.warn(`[event-emit] initiative.proposed failed:`, err);
+    console.warn(`[event-emit] idea.proposed failed:`, err);
   }
 
-  // Enqueue reasoning — the initiative reasoning engine will investigate and
+  // Enqueue reasoning — the idea reasoning engine will investigate and
   // either dismiss (not valuable) or promote to "proposed" (user sees it)
   const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
-  await enqueueWorkerJob("reason_initiative", operatorId, {
+  await enqueueWorkerJob("reason_idea", operatorId, {
     operatorId,
-    pageSlug: initiativeSlug,
+    pageSlug: ideaSlug,
   }).catch(err => {
-    console.error(`[content-detection] Failed to enqueue reason_initiative for ${initiativeSlug}:`, err);
-    // Don't throw — the initiative page exists, reasoning can be retried
+    console.error(`[content-detection] Failed to enqueue reason_idea for ${ideaSlug}:`, err);
+    // Don't throw — the idea page exists, reasoning can be retried
   });
 
   console.log(
-    `[content-detection] Created initiative wiki page "${rec.title}" (${initiativeSlug}) with ${rec.proposedDeliverables.length} proposed deliverables`,
+    `[content-detection] Created idea wiki page "${rec.title}" (${ideaSlug}) with ${rec.proposedDeliverables.length} proposed deliverables`,
   );
 }
 
@@ -1284,8 +1284,8 @@ export async function evaluateContentForSituations(
           console.error("[content-detection] Failed to log evaluation:", err),
         );
 
-        if (result.classification === "initiative_candidate") {
-          await handleInitiativeCandidate(operatorId, batch, result, correlationId);
+        if (result.classification === "idea_candidate") {
+          await handleIdeaCandidate(operatorId, batch, result, correlationId);
         } else if (result.classification === "action_required") {
           await handleActionRequired(operatorId, batch, result, wikiEnrichment, createdInBatch, correlationId);
         } else if (result.classification === "awareness") {

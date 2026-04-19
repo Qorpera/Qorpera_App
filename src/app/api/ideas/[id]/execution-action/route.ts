@@ -3,7 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { updatePageWithLock } from "@/lib/wiki-engine";
 import { enqueueWorkerJob } from "@/lib/worker-dispatch";
-import { skipDownstreamAndImplement } from "@/lib/initiative-execution";
+import { skipDownstreamAndImplement } from "@/lib/idea-execution";
 import { sendNotificationToAdmins } from "@/lib/notification-dispatch";
 
 const ALLOWED = new Set(["retry", "skip_downstream", "abandon"]);
@@ -28,7 +28,7 @@ export async function POST(
   }
 
   const page = await prisma.knowledgePage.findFirst({
-    where: { operatorId, slug: id, pageType: "initiative", scope: "operator" },
+    where: { operatorId, slug: id, pageType: "idea", scope: "operator" },
     select: { slug: true, title: true, properties: true },
   });
   if (!page) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -36,14 +36,14 @@ export async function POST(
   const props = (page.properties ?? {}) as Record<string, unknown>;
   if (props.status !== "concerns_raised") {
     return NextResponse.json(
-      { error: `Can only run execution actions on concerns_raised initiatives (current: ${props.status})` },
+      { error: `Can only run execution actions on concerns_raised ideas (current: ${props.status})` },
       { status: 409 }
     );
   }
 
   try {
     if (action === "retry") {
-      await enqueueWorkerJob("execute_initiative", operatorId, {
+      await enqueueWorkerJob("execute_idea", operatorId, {
         operatorId,
         pageSlug: page.slug,
       });
@@ -69,8 +69,8 @@ export async function POST(
       sendNotificationToAdmins({
         operatorId,
         type: "system_alert",
-        title: `Initiative abandoned: ${page.title.slice(0, 80)}`,
-        body: "The user abandoned this initiative after execution concerns.",
+        title: `Idea abandoned: ${page.title.slice(0, 80)}`,
+        body: "The user abandoned this idea after execution concerns.",
         sourceType: "wiki_page",
         sourceId: page.slug,
       }).catch(() => {});

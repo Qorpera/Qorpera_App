@@ -135,17 +135,17 @@ async function findQualifyingEvents(operatorId: string): Promise<CalendarEvent[]
 // ── Already Handled Check ───────────────────────────────────────────────
 
 async function isAlreadyHandled(operatorId: string, event: CalendarEvent): Promise<boolean> {
-  // Check 1: Initiative wiki page with matching title
-  const initiativePage = await prisma.knowledgePage.findFirst({
+  // Check 1: Idea wiki page with matching title
+  const ideaPage = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      pageType: "initiative",
+      pageType: "idea",
       scope: "operator",
       title: { contains: event.title.slice(0, 50), mode: "insensitive" },
     },
     select: { slug: true },
   });
-  if (initiativePage) return true;
+  if (ideaPage) return true;
 
   // Check 2: EvaluationLog from a prior proactive scan for this event
   const evalLog = await prisma.evaluationLog.findFirst({

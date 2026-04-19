@@ -860,7 +860,7 @@ export const SITUATIONS: SituationDef[] = [
             "Risiko for at S\u00f8ren allerede kigger p\u00e5 alternativer",
             "Kortere forhandlingstid",
           ],
-          expectedOutcome: "Risiko for at miste initiativet i forhandlingen",
+          expectedOutcome: "Risiko for at miste ideat i forhandlingen",
         },
         {
           action: "Send rapport over leverancens resultater f\u00f8r fornyelsesm\u00f8de",
@@ -2365,7 +2365,7 @@ export const SITUATIONS: SituationDef[] = [
   },
 
   // =========================================================================
-  // GROUP F: Escalated to initiative (2) — status "resolved"
+  // GROUP F: Escalated to idea (2) — status "resolved"
   // =========================================================================
 
   // S19 — Client retention: Fjordview Ejendomme
@@ -2379,7 +2379,7 @@ export const SITUATIONS: SituationDef[] = [
     triggerEntityType: "company",
     reasoning: {
       analysis:
-        "Fjordview Ejendomme har v\u00e6ret kunde i 9 m\u00e5neder og bruger aktuelt kun \u00e9n service (website management). Lise Fjord har ved to lejligheder n\u00e6vnt interesse for social media og SEO, men der er ikke fulgt op systematisk. Kundens tilfredshedsscore er 8/10, og deres branche (ejendom) har typisk behov for b\u00e5de digital markedsf\u00f8ring og content. Analysen viste et bredere m\u00f8nster: flere kunder i samme segment viser tegn p\u00e5 at v\u00e6re under-serviceret, hvilket f\u00f8rte til eskalering til et strategisk Q2-initiativ.",
+        "Fjordview Ejendomme har v\u00e6ret kunde i 9 m\u00e5neder og bruger aktuelt kun \u00e9n service (website management). Lise Fjord har ved to lejligheder n\u00e6vnt interesse for social media og SEO, men der er ikke fulgt op systematisk. Kundens tilfredshedsscore er 8/10, og deres branche (ejendom) har typisk behov for b\u00e5de digital markedsf\u00f8ring og content. Analysen viste et bredere m\u00f8nster: flere kunder i samme segment viser tegn p\u00e5 at v\u00e6re under-serviceret, hvilket f\u00f8rte til eskalering til en strategisk Q2-idé.",
       evidenceSummary:
         "9 m\u00e5neders kunde med kun 1 aktiv service trods udtrykt interesse for flere. Tilfredshedsscore 8/10 indikerer godt udgangspunkt for mersalg. M\u00f8nster identificeret p\u00e5 tv\u00e6rs af kundesegmentet.",
       consideredActions: [
@@ -2397,7 +2397,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Udvidet samarbejde med 1-2 ekstra services",
         },
         {
-          action: "Eskaler til strategisk initiativ",
+          action: "Eskaler til strategisk idé",
           evidenceFor: [
             "M\u00f8nster p\u00e5 tv\u00e6rs af kundesegment",
             "Systematisk tilgang giver bedre resultater",
@@ -2412,8 +2412,8 @@ export const SITUATIONS: SituationDef[] = [
       ],
       actionBatch: [
         {
-          title: "Eskaler til Q2 Client Retention initiativ",
-          description: "Identificeret m\u00f8nster p\u00e5 tv\u00e6rs af kundesegmentet \u2014 eskaleres til strategisk initiativ",
+          title: "Eskaler til Q2 Client Retention idé",
+          description: "Identificeret m\u00f8nster p\u00e5 tv\u00e6rs af kundesegmentet \u2014 eskaleres til strategisk idé",
           executionMode: "manual",
         },
       ],
@@ -2447,8 +2447,8 @@ export const SITUATIONS: SituationDef[] = [
     resolvedHoursAgo: 4 * 24 - 12,
     outcome: "positive",
     outcomeDetails: {
-      escalatedTo: "initiative",
-      initiativeName: "Q2 Client Retention",
+      escalatedTo: "idea",
+      ideaName: "Q2 Client Retention",
       affectedClients: 4,
       estimatedRevenueOpportunity: 180000,
     },
@@ -2466,9 +2466,9 @@ export const SITUATIONS: SituationDef[] = [
     triggerEntityType: "team-member",
     reasoning: {
       analysis:
-        "Kasper Dahl var overbelastet med 7 samtidige opgaver (4 tickets + 3 projektopgaver), hvilket bragte hans kapacitetsudnyttelse op p\u00e5 130%. To SLA-brud var t\u00e6t p\u00e5, og kvaliteten p\u00e5 hans leverancer var begyndt at falde if\u00f8lge seneste code review-feedback. Analysen afdækkede at dette ikke var et engangsproblem — det var det tredje kapacitetsoverskridelse p\u00e5 6 uger, hvilket indikerer et systemisk problem i opgavefordelingen i leverings-teamet. Situationen blev eskaleret til et procesoptimerings-initiativ.",
+        "Kasper Dahl var overbelastet med 7 samtidige opgaver (4 tickets + 3 projektopgaver), hvilket bragte hans kapacitetsudnyttelse op p\u00e5 130%. To SLA-brud var t\u00e6t p\u00e5, og kvaliteten p\u00e5 hans leverancer var begyndt at falde if\u00f8lge seneste code review-feedback. Analysen afdækkede at dette ikke var et engangsproblem — det var det tredje kapacitetsoverskridelse p\u00e5 6 uger, hvilket indikerer et systemisk problem i opgavefordelingen i leverings-teamet. Situationen blev eskaleret til en procesoptimerings-idé.",
       evidenceSummary:
-        "130% kapacitetsudnyttelse, tredje gang p\u00e5 6 uger. Kvalitetsfald i leverancer. Systemisk problem i opgavefordeling identificeret \u2014 eskaleret fra individuel situation til strategisk initiativ.",
+        "130% kapacitetsudnyttelse, tredje gang p\u00e5 6 uger. Kvalitetsfald i leverancer. Systemisk problem i opgavefordeling identificeret \u2014 eskaleret fra individuel situation til strategisk idé.",
       consideredActions: [
         {
           action: "Omfordel opgaver til Thomas og Emil",
@@ -2484,7 +2484,7 @@ export const SITUATIONS: SituationDef[] = [
           expectedOutcome: "Midlertidig aflastning, men gentager sig",
         },
         {
-          action: "Eskaler til procesoptimerings-initiativ",
+          action: "Eskaler til procesoptimerings-idé",
           evidenceFor: [
             "Tredje gang p\u00e5 6 uger — tydeligt systemisk",
             "Kr\u00e6ver \u00e6ndring i opgavefordelings-processer",
@@ -2512,7 +2512,7 @@ export const SITUATIONS: SituationDef[] = [
       ],
       actionBatch: [
         {
-          title: "Eskaler til Delivery Process Optimization initiativ",
+          title: "Eskaler til Delivery Process Optimization idé",
           description: "Systemisk kapacitetsproblem identificeret \u2014 eskaleres til strategisk procesoptimering",
           executionMode: "manual",
         },
@@ -2551,8 +2551,8 @@ export const SITUATIONS: SituationDef[] = [
     resolvedHoursAgo: 3 * 24 - 8,
     outcome: "positive",
     outcomeDetails: {
-      escalatedTo: "initiative",
-      initiativeName: "Delivery Process Optimization",
+      escalatedTo: "idea",
+      ideaName: "Delivery Process Optimization",
       rootCause: "Manglende kapacitetsstyring og workload-balancering i leverings-teamet",
       immediateActions: ["2 tickets omfordelt til Thomas", "Kasper frigjort til projektfokus"],
       strategicActions: ["Workload-dashboard implementeres", "Ugentlig kapacitetsgennemgang indført"],

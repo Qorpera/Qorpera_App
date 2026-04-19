@@ -80,7 +80,7 @@ describe("matchesFilter", () => {
 describe("isKnownEventType", () => {
   it("accepts taxonomy events", () => {
     expect(isKnownEventType("situation.detected")).toBe(true);
-    expect(isKnownEventType("initiative.accepted")).toBe(true);
+    expect(isKnownEventType("idea.accepted")).toBe(true);
     expect(isKnownEventType("system_job.completed")).toBe(true);
   });
 

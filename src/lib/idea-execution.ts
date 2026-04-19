@@ -10,10 +10,10 @@ import {
   buildDownstreamSystemPrompt,
   buildDownstreamSeedContext,
   type DownstreamInvestigationInput,
-} from "@/lib/initiative-execution-prompts";
+} from "@/lib/idea-execution-prompts";
 import type {
-  InitiativePrimaryDeliverable,
-  InitiativeDownstreamEffect,
+  IdeaPrimaryDeliverable,
+  IdeaDownstreamEffect,
 } from "@/lib/reasoning-types";
 import {
   ExecutionStateSchema,
@@ -21,9 +21,9 @@ import {
   type DownstreamExecState,
   type ExecConcern,
   type DownstreamLLMOutput,
-} from "@/lib/initiative-execution-types";
+} from "@/lib/idea-execution-types";
 
-export const INITIATIVE_EXECUTION_VERSION = 1;
+export const IDEA_EXECUTION_VERSION = 1;
 
 const MAX_DOWNSTREAM = 10;
 const PER_DOWNSTREAM_SOFT_BUDGET = 4;
@@ -48,33 +48,33 @@ const DownstreamOutputSchema = z.object({
 
 // ── Entry point ─────────────────────────────────────────────────────────────
 
-export async function executeInitiative(
+export async function executeIdea(
   operatorId: string,
   pageSlug: string,
 ): Promise<void> {
-  // 1. Load initiative
-  const initiativePage = await prisma.knowledgePage.findFirst({
-    where: { operatorId, slug: pageSlug, pageType: "initiative", scope: "operator" },
+  // 1. Load idea
+  const ideaPage = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug: pageSlug, pageType: "idea", scope: "operator" },
     select: { slug: true, title: true, content: true, properties: true },
   });
-  if (!initiativePage) {
-    console.warn(`[initiative-execution] Page ${pageSlug} not found`);
+  if (!ideaPage) {
+    console.warn(`[idea-execution] Page ${pageSlug} not found`);
     return;
   }
 
-  const props = (initiativePage.properties ?? {}) as Record<string, unknown>;
+  const props = (ideaPage.properties ?? {}) as Record<string, unknown>;
   const currentStatus = props.status as string | undefined;
-  const primary = props.primary_deliverable as InitiativePrimaryDeliverable | null;
-  const downstream = (props.downstream_effects ?? []) as InitiativeDownstreamEffect[];
+  const primary = props.primary_deliverable as IdeaPrimaryDeliverable | null;
+  const downstream = (props.downstream_effects ?? []) as IdeaDownstreamEffect[];
 
   // 2. Status guard — accept "accepted" (fresh) or "concerns_raised" (retry)
   if (currentStatus !== "accepted" && currentStatus !== "concerns_raised") {
-    console.log(`[initiative-execution] ${pageSlug} status is ${currentStatus}, skipping`);
+    console.log(`[idea-execution] ${pageSlug} status is ${currentStatus}, skipping`);
     return;
   }
 
   if (!primary || !primary.proposedContent) {
-    console.warn(`[initiative-execution] ${pageSlug} has no primary.proposedContent — rejecting execution`);
+    console.warn(`[idea-execution] ${pageSlug} has no primary.proposedContent — rejecting execution`);
     await writeConcernState(operatorId, pageSlug, {
       startedAt: new Date().toISOString(),
       totalCostCents: 0,
@@ -85,7 +85,7 @@ export async function executeInitiative(
         targetChangeId: "primary",
         description: "Primary deliverable has no proposedContent — reasoning Phase 2 failed",
         severity: "blocking",
-        recommendation: "Reject this initiative and let the scanner re-surface it",
+        recommendation: "Reject this idea and let the scanner re-surface it",
       }],
       completedAt: null,
     });
@@ -102,7 +102,7 @@ export async function executeInitiative(
       return { properties: { ...pp, status: "implementing" } };
     });
   } catch (err) {
-    console.error(`[initiative-execution] Lock acquisition failed for ${pageSlug}:`, err);
+    console.error(`[idea-execution] Lock acquisition failed for ${pageSlug}:`, err);
     return;
   }
   if (!lockAcquired) return;
@@ -116,11 +116,11 @@ export async function executeInitiative(
     let state: ExecutionState;
     if (parsedExisting?.success) {
       state = parsedExisting.data;
-      console.log(`[initiative-execution] ${pageSlug}: resumed from stored execution_state`);
+      console.log(`[idea-execution] ${pageSlug}: resumed from stored execution_state`);
     } else {
       if (parsedExisting && !parsedExisting.success) {
         console.warn(
-          `[initiative-execution] ${pageSlug}: stored execution_state failed schema validation, starting fresh:`,
+          `[idea-execution] ${pageSlug}: stored execution_state failed schema validation, starting fresh:`,
           parsedExisting.error.message,
         );
       }
@@ -154,20 +154,20 @@ export async function executeInitiative(
 
     // Context for DB record creation and cross-linkage
     const acceptedBy = (props.accepted_by as string) ?? null;
-    const extras: ApplyExtras = { acceptedBy, sourceInitiativeSlug: pageSlug };
+    const extras: ApplyExtras = { acceptedBy, sourceIdeaSlug: pageSlug };
 
     // 5. Zero-downstream fast path
     if (state.downstream.length === 0) {
-      console.log(`[initiative-execution] ${pageSlug}: zero downstream, direct apply`);
+      console.log(`[idea-execution] ${pageSlug}: zero downstream, direct apply`);
       if (state.primary.status !== "applied") {
         await applyPrimary(operatorId, primary, state, extras);
       }
       if (state.primary.status === "applied") {
         state.completedAt = new Date().toISOString();
-        await finalizeImplemented(operatorId, pageSlug, state, initiativePage.title);
+        await finalizeImplemented(operatorId, pageSlug, state, ideaPage.title);
       } else {
         await writeConcernState(operatorId, pageSlug, state);
-        await notifyConcerns(operatorId, pageSlug, initiativePage.title, state);
+        await notifyConcerns(operatorId, pageSlug, ideaPage.title, state);
       }
       return;
     }
@@ -178,14 +178,14 @@ export async function executeInitiative(
       .filter(({ d }) => d.status === "pending" || d.status === "failed" || d.status === "generating");
 
     if (needsGeneration.length > 0) {
-      console.log(`[initiative-execution] ${pageSlug}: generating ${needsGeneration.length} downstream effects in parallel`);
+      console.log(`[idea-execution] ${pageSlug}: generating ${needsGeneration.length} downstream effects in parallel`);
 
       const results = await Promise.allSettled(
         needsGeneration.map(({ d, idx }) =>
           investigateDownstream({
             operatorId,
-            initiativeTitle: initiativePage.title,
-            initiativePageContent: initiativePage.content ?? "",
+            ideaTitle: ideaPage.title,
+            ideaPageContent: ideaPage.content ?? "",
             primary,
             state: d,
             businessContext: businessContextStr,
@@ -226,7 +226,7 @@ export async function executeInitiative(
         targetChangeId: null,
         description: `Execution exceeded $${TOTAL_COST_HARD_ABORT_CENTS / 100} cost cap (spent $${(state.totalCostCents / 100).toFixed(2)})`,
         severity: "blocking",
-        recommendation: "Reduce scope or reject the initiative",
+        recommendation: "Reduce scope or reject the idea",
       });
     }
 
@@ -244,7 +244,7 @@ export async function executeInitiative(
 
     if (hasBlocking || anyGenerationFailed) {
       await writeConcernState(operatorId, pageSlug, state);
-      await notifyConcerns(operatorId, pageSlug, initiativePage.title, state);
+      await notifyConcerns(operatorId, pageSlug, ideaPage.title, state);
       return;
     }
 
@@ -257,7 +257,7 @@ export async function executeInitiative(
     if (state.primary.status !== "applied") {
       // Primary apply failed
       await writeConcernState(operatorId, pageSlug, state);
-      await notifyConcerns(operatorId, pageSlug, initiativePage.title, state);
+      await notifyConcerns(operatorId, pageSlug, ideaPage.title, state);
       return;
     }
 
@@ -284,16 +284,16 @@ export async function executeInitiative(
     const allApplied = state.downstream.every(d => d.status === "applied");
     if (!allApplied) {
       await writeConcernState(operatorId, pageSlug, state);
-      await notifyConcerns(operatorId, pageSlug, initiativePage.title, state);
+      await notifyConcerns(operatorId, pageSlug, ideaPage.title, state);
       return;
     }
 
     // 12. Done — finalize
     state.completedAt = new Date().toISOString();
-    await finalizeImplemented(operatorId, pageSlug, state, initiativePage.title);
+    await finalizeImplemented(operatorId, pageSlug, state, ideaPage.title);
   } catch (err) {
-    console.error(`[initiative-execution] Error executing ${pageSlug}:`, err);
-    captureApiError(err, { route: "initiative-execution", initiativeSlug: pageSlug });
+    console.error(`[idea-execution] Error executing ${pageSlug}:`, err);
+    captureApiError(err, { route: "idea-execution", ideaSlug: pageSlug });
     // Reset to "accepted" so retry is possible
     await updatePageWithLock(operatorId, pageSlug, (p) => ({
       properties: { ...(p.properties ?? {}), status: "accepted" },
@@ -304,7 +304,7 @@ export async function executeInitiative(
 // ── User action: skip remaining downstream and implement ────────────────────
 
 /**
- * User clicked "Implement without downstream" on a concerns_raised initiative.
+ * User clicked "Implement without downstream" on a concerns_raised idea.
  * Applies the primary if not already applied, marks all non-applied downstream
  * as failed (with a "skipped by user" error), transitions to implemented.
  */
@@ -312,15 +312,15 @@ export async function skipDownstreamAndImplement(
   operatorId: string,
   pageSlug: string,
 ): Promise<void> {
-  const initiativePage = await prisma.knowledgePage.findFirst({
-    where: { operatorId, slug: pageSlug, pageType: "initiative", scope: "operator" },
+  const ideaPage = await prisma.knowledgePage.findFirst({
+    where: { operatorId, slug: pageSlug, pageType: "idea", scope: "operator" },
     select: { slug: true, title: true, properties: true },
   });
-  if (!initiativePage) throw new Error("Initiative not found");
+  if (!ideaPage) throw new Error("Idea not found");
 
   // primary is stable across retry/skip races (not mutated by the engine post-acceptance)
-  const props = (initiativePage.properties ?? {}) as Record<string, unknown>;
-  const primary = props.primary_deliverable as InitiativePrimaryDeliverable | null;
+  const props = (ideaPage.properties ?? {}) as Record<string, unknown>;
+  const primary = props.primary_deliverable as IdeaPrimaryDeliverable | null;
   if (!primary || !primary.proposedContent) {
     throw new Error("Primary deliverable missing — cannot implement");
   }
@@ -350,7 +350,7 @@ export async function skipDownstreamAndImplement(
   const state: ExecutionState = captured.state;
 
   const acceptedBy = (props.accepted_by as string) ?? null;
-  const extras: ApplyExtras = { acceptedBy, sourceInitiativeSlug: pageSlug };
+  const extras: ApplyExtras = { acceptedBy, sourceIdeaSlug: pageSlug };
 
   try {
     if (state.primary.status !== "applied") {
@@ -371,7 +371,7 @@ export async function skipDownstreamAndImplement(
     }
 
     state.completedAt = new Date().toISOString();
-    await finalizeImplemented(operatorId, pageSlug, state, initiativePage.title);
+    await finalizeImplemented(operatorId, pageSlug, state, ideaPage.title);
   } catch (err) {
     await updatePageWithLock(operatorId, pageSlug, (p) => ({
       properties: { ...(p.properties ?? {}), status: "concerns_raised" },
@@ -384,9 +384,9 @@ export async function skipDownstreamAndImplement(
 
 async function investigateDownstream(input: {
   operatorId: string;
-  initiativeTitle: string;
-  initiativePageContent: string;
-  primary: InitiativePrimaryDeliverable;
+  ideaTitle: string;
+  ideaPageContent: string;
+  primary: IdeaPrimaryDeliverable;
   state: DownstreamExecState;
   businessContext: string | null;
   companyName: string | null;
@@ -408,8 +408,8 @@ async function investigateDownstream(input: {
   }
 
   const promptInput: DownstreamInvestigationInput = {
-    initiativeTitle: input.initiativeTitle,
-    initiativePageContent: input.initiativePageContent,
+    ideaTitle: input.ideaTitle,
+    ideaPageContent: input.ideaPageContent,
     primary: input.primary,
     effect,
     targetPageCurrentContent: targetCurrent?.content ?? null,
@@ -432,7 +432,7 @@ async function investigateDownstream(input: {
   const agenticResult = await runAgenticLoop({
     operatorId,
     contextId: state.changeId,
-    contextType: "initiative_downstream",
+    contextType: "idea_downstream",
     cycleNumber: 1,
     systemPrompt,
     seedContext,
@@ -441,7 +441,7 @@ async function investigateDownstream(input: {
     outputSchema,
     softBudget: PER_DOWNSTREAM_SOFT_BUDGET,
     hardBudget: PER_DOWNSTREAM_HARD_BUDGET,
-    modelRoute: "initiativeDownstream",
+    modelRoute: "ideaDownstream",
   });
 
   return {
@@ -455,7 +455,7 @@ async function investigateDownstream(input: {
 
 async function runProgrammaticChecks(
   operatorId: string,
-  primary: InitiativePrimaryDeliverable,
+  primary: IdeaPrimaryDeliverable,
   state: ExecutionState,
 ): Promise<ExecConcern[]> {
   const concerns: ExecConcern[] = [];
@@ -551,12 +551,12 @@ async function runProgrammaticChecks(
 
 type ApplyExtras = {
   acceptedBy: string | null;
-  sourceInitiativeSlug: string;
+  sourceIdeaSlug: string;
 };
 
 async function applyPrimary(
   operatorId: string,
-  primary: InitiativePrimaryDeliverable,
+  primary: IdeaPrimaryDeliverable,
   state: ExecutionState,
   extras: ApplyExtras,
 ): Promise<void> {
@@ -642,7 +642,7 @@ async function applyChange(
         pageType: change.targetPageType,
         content: change.proposedContent,
         properties: change.proposedProperties ?? undefined,
-        synthesisPath: "initiative_execution",
+        synthesisPath: "idea_execution",
         synthesizedByModel: change.model,
       });
 
@@ -666,16 +666,16 @@ async function applyChange(
         content: change.proposedContent,
         properties: {
           ...(change.proposedProperties ?? {}),
-          document_type: "initiative_output",
+          document_type: "idea_output",
         },
-        synthesisPath: "initiative_execution",
+        synthesisPath: "idea_execution",
         synthesizedByModel: change.model,
       });
       return { appliedSlug: docSlug };
     }
     case "settings_change": {
       if (!change.targetPageSlug) {
-        console.warn("[initiative-execution] settings_change without targetPageSlug — skipping");
+        console.warn("[idea-execution] settings_change without targetPageSlug — skipping");
         return { appliedSlug: null };
       }
       await updatePageWithLock(operatorId, change.targetPageSlug, (p) => ({
@@ -718,7 +718,7 @@ async function finalizeImplemented(
   operatorId: string,
   pageSlug: string,
   state: ExecutionState,
-  initiativeTitle: string,
+  ideaTitle: string,
 ): Promise<void> {
   const pagesModified: string[] = [];
   if (state.primary.status === "applied" && state.primary.appliedSlug) {
@@ -756,20 +756,20 @@ async function finalizeImplemented(
 
   await sendNotificationToAdmins({
     operatorId,
-    type: "initiative_implemented",
-    title: `Initiative pushed: ${initiativeTitle.slice(0, 80)}`,
+    type: "idea_implemented",
+    title: `Idea pushed: ${ideaTitle.slice(0, 80)}`,
     body: `${pagesModified.length} page(s) modified.${failedDownstream.length > 0 ? ` ${failedDownstream.length} downstream skipped.` : ""}`,
     sourceType: "wiki_page",
     sourceId: pageSlug,
   }).catch(() => {});
 
-  console.log(`[initiative-execution] ${pageSlug} → implemented (${pagesModified.length} pages)`);
+  console.log(`[idea-execution] ${pageSlug} → implemented (${pagesModified.length} pages)`);
 }
 
 async function notifyConcerns(
   operatorId: string,
   pageSlug: string,
-  initiativeTitle: string,
+  ideaTitle: string,
   state: ExecutionState,
 ): Promise<void> {
   const blocking = [
@@ -784,9 +784,9 @@ async function notifyConcerns(
 
   await sendNotificationToAdmins({
     operatorId,
-    type: "initiative_concerns_raised",
-    title: `Initiative needs review: ${initiativeTitle.slice(0, 80)}`,
-    body: `${blocking} blocking concern(s), ${warnings} warning(s), ${failed} generation failure(s). Review in the initiative panel.`,
+    type: "idea_concerns_raised",
+    title: `Idea needs review: ${ideaTitle.slice(0, 80)}`,
+    body: `${blocking} blocking concern(s), ${warnings} warning(s), ${failed} generation failure(s). Review in the idea panel.`,
     sourceType: "wiki_page",
     sourceId: pageSlug,
   }).catch(() => {});
@@ -809,7 +809,7 @@ async function createProjectRecord(
   if (!change.targetPageSlug) return;
   if (!extras.acceptedBy) {
     console.warn(
-      `[initiative-execution] createProjectRecord: no acceptedBy user; skipping Project DB creation for ${change.targetPageSlug}`,
+      `[idea-execution] createProjectRecord: no acceptedBy user; skipping Project DB creation for ${change.targetPageSlug}`,
     );
     return;
   }
@@ -833,7 +833,7 @@ async function createProjectRecord(
         dueDate,
         config: {
           wikiPageSlug: change.targetPageSlug,
-          sourceInitiativeSlug: extras.sourceInitiativeSlug,
+          sourceIdeaSlug: extras.sourceIdeaSlug,
         },
       },
     });
@@ -846,17 +846,17 @@ async function createProjectRecord(
       },
     })).catch((err) => {
       console.warn(
-        `[initiative-execution] Failed to write project_id back to ${change.targetPageSlug}:`,
+        `[idea-execution] Failed to write project_id back to ${change.targetPageSlug}:`,
         err,
       );
     });
 
     console.log(
-      `[initiative-execution] Created Project record ${project.id} for wiki page ${change.targetPageSlug}`,
+      `[idea-execution] Created Project record ${project.id} for wiki page ${change.targetPageSlug}`,
     );
   } catch (err) {
     console.warn(
-      `[initiative-execution] Project DB creation failed for ${change.targetPageSlug}:`,
+      `[idea-execution] Project DB creation failed for ${change.targetPageSlug}:`,
       err,
     );
   }
@@ -893,7 +893,7 @@ async function syncProjectFromPropertyChanges(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data: updates as any,
     }).catch((err) => {
-      console.warn(`[initiative-execution] Project sync failed for ${p.id}:`, err);
+      console.warn(`[idea-execution] Project sync failed for ${p.id}:`, err);
     });
   }
 }

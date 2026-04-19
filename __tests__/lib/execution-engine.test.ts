@@ -121,7 +121,7 @@ describe("createExecutionPlan", () => {
 // ── executeStep — action mode ────────────────────────────────────────────────
 
 describe("executeStep — action mode", () => {
-  const basePlan = { id: "plan1", operatorId: "op1", sourceType: "initiative", sourceId: "init1" };
+  const basePlan = { id: "plan1", operatorId: "op1", sourceType: "idea", sourceId: "init1" };
   const baseStep = {
     id: "step1",
     planId: "plan1",
@@ -324,7 +324,7 @@ describe("executeStep — generate mode", () => {
       inputContext: JSON.stringify({ topic: "quarterly review" }),
       title: "Draft report",
       description: "Write a quarterly review report",
-      plan: { id: "plan1", operatorId: "op1", sourceType: "initiative", sourceId: "init1" },
+      plan: { id: "plan1", operatorId: "op1", sourceType: "idea", sourceId: "init1" },
     };
     (prisma.executionStep.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(step);
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
@@ -365,7 +365,7 @@ describe("executeStep — human_task mode", () => {
       inputContext: null,
       title: "Review document",
       description: "Please review the attached document",
-      plan: { id: "plan1", operatorId: "op1", sourceType: "initiative", sourceId: "init1" },
+      plan: { id: "plan1", operatorId: "op1", sourceType: "idea", sourceId: "init1" },
     };
     (prisma.executionStep.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(step);
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
@@ -423,7 +423,7 @@ describe("executeStep — last step completes plan", () => {
       inputContext: null,
       title: "Final step",
       description: "Generate summary",
-      plan: { id: "plan1", operatorId: "op1", sourceType: "initiative", sourceId: "init1" },
+      plan: { id: "plan1", operatorId: "op1", sourceType: "idea", sourceId: "init1" },
     };
     (prisma.executionStep.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(step);
     (prisma.executionStep.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
@@ -462,7 +462,7 @@ describe("advanceStep", () => {
     title: "Test step",
     description: "Desc",
     status: "awaiting_approval",
-    plan: { id: "plan1", operatorId: "op1", sourceType: "initiative", sourceId: "init1" },
+    plan: { id: "plan1", operatorId: "op1", sourceType: "idea", sourceId: "init1" },
   };
 
   it("approve — step approved, executeStep triggered", async () => {
@@ -553,7 +553,7 @@ describe("completeHumanStep", () => {
       status: "executing",
       assignedUserId: "user1",
       title: "Review doc",
-      plan: { id: "plan1", operatorId: "op1", sourceType: "initiative", sourceId: "init1" },
+      plan: { id: "plan1", operatorId: "op1", sourceType: "idea", sourceId: "init1" },
     };
     (prisma.executionStep.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(step);
     (prisma.executionStep.update as ReturnType<typeof vi.fn>).mockResolvedValue({});
@@ -592,7 +592,7 @@ describe("completeHumanStep", () => {
       status: "executing",
       assignedUserId: "user1",
       title: "Review doc",
-      plan: { id: "plan1", operatorId: "op1", sourceType: "initiative", sourceId: "init1" },
+      plan: { id: "plan1", operatorId: "op1", sourceType: "idea", sourceId: "init1" },
     };
     (prisma.executionStep.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue(step);
 

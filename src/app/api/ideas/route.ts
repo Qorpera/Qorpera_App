@@ -9,11 +9,11 @@ export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const statusFilter = params.get("status") ?? undefined;
 
-  // Query initiative wiki pages
+  // Query idea wiki pages
   const pages = await prisma.knowledgePage.findMany({
     where: {
       operatorId,
-      pageType: "initiative",
+      pageType: "idea",
       scope: "operator",
     },
     select: {
@@ -26,8 +26,8 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  // Dismissed initiatives are never listed — they fire a notification on dismissal,
-  // but don't deserve presence in the initiatives list. Detected initiatives are
+  // Dismissed ideas are never listed — they fire a notification on dismissal,
+  // but don't deserve presence in the ideas list. Detected ideas are
   // also hidden (pre-reasoning, user shouldn't see).
   const visiblePages = pages.filter(p => {
     const props = (p.properties ?? {}) as Record<string, unknown>;
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
       ownerPageSlug: ownerSlug,
       ownerName: ownerSlug ? ownerPageMap.get(ownerSlug) ?? null : null,
       proposalType: props.proposal_type ?? "general",
-      triggerSummary: p.title || "Untitled initiative",
+      triggerSummary: p.title || "Untitled idea",
       status: props.status ?? "proposed",
       rationale: (props.rationale as string)
         ?? proposalMatch?.[1]?.trim()

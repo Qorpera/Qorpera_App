@@ -236,7 +236,7 @@ const PROCESS: PageSchema = {
 
 const PROJECT: PageSchema = {
   pageType: "project",
-  description: "A bounded work initiative with defined scope and timeline.",
+  description: "A bounded work idea with defined scope and timeline.",
   sectionMenu: [
     "Objective", "Scope", "Team", "Deliverables",
     "Timeline & Milestones", "Risks & Issues", "Decisions", "Related Situations", "Status Updates",
@@ -249,7 +249,7 @@ const PROJECT: PageSchema = {
     start_date: { type: "date", required: false, owner: "synthesis", description: "Project start date" },
     target_date: { type: "date", required: false, owner: "synthesis", description: "Target completion date" },
     budget: { type: "string", required: false, owner: "synthesis", description: "Budget amount" },
-    spawned_from: { type: "page_ref", required: false, owner: "synthesis", description: "Originating situation/initiative slug" },
+    spawned_from: { type: "page_ref", required: false, owner: "synthesis", description: "Originating situation/idea slug" },
     parent_project: { type: "page_ref", required: false, owner: "synthesis", description: "Parent project_portfolio slug, if this project sits inside a portfolio" },
     completed_date: { type: "date", required: false, owner: "runtime", default: null, description: "Actual completion date" },
     progress: { type: "number", required: false, owner: "runtime", default: null, description: "Progress percentage 0\u2013100" },
@@ -271,7 +271,7 @@ const PROJECT_PORTFOLIO: PageSchema = {
     start_date: { type: "date", required: false, owner: "synthesis", description: "Portfolio start date" },
     target_date: { type: "date", required: false, owner: "synthesis", description: "Target completion date" },
     budget: { type: "string", required: false, owner: "synthesis", description: "Total portfolio budget" },
-    spawned_from: { type: "page_ref", required: false, owner: "synthesis", description: "Originating situation/initiative slug" },
+    spawned_from: { type: "page_ref", required: false, owner: "synthesis", description: "Originating situation/idea slug" },
     completed_date: { type: "date", required: false, owner: "runtime", default: null, description: "Actual completion date" },
   },
 };
@@ -296,8 +296,8 @@ const PROJECT_DELIVERABLE: PageSchema = {
   },
 };
 
-const INITIATIVE: PageSchema = {
-  pageType: "initiative",
+const IDEA: PageSchema = {
+  pageType: "idea",
   description: "A strategic proposal or improvement that may become a project.",
   sectionMenu: [
     "Trigger", "Evidence", "Investigation", "Proposal",
@@ -322,14 +322,14 @@ const INITIATIVE: PageSchema = {
         "rejected",
         "deferred",
       ],
-      description: "Initiative lifecycle status",
+      description: "Idea lifecycle status",
     },
     proposal_type: {
       type: "enum",
       required: false,
       owner: "synthesis",
       enumValues: ["wiki_update", "process_creation", "strategy_revision", "system_job_creation", "project_creation", "general"],
-      description: "What kind of change this initiative proposes",
+      description: "What kind of change this idea proposes",
     },
     severity: {
       type: "enum",
@@ -338,7 +338,7 @@ const INITIATIVE: PageSchema = {
       enumValues: ["low", "medium", "high", "critical"],
       description: "How urgent / impactful",
     },
-    owner: { type: "page_ref", required: false, owner: "synthesis", description: "Initiative owner person slug" },
+    owner: { type: "page_ref", required: false, owner: "synthesis", description: "Idea owner person slug" },
     domain: { type: "page_ref", required: false, owner: "synthesis", description: "Owning department" },
     priority: { type: "enum", required: false, owner: "synthesis", enumValues: ["low", "medium", "high", "critical"], description: "Priority level" },
     proposed_date: { type: "date", required: true, owner: "synthesis", description: "Date proposed" },
@@ -403,7 +403,7 @@ const SYSTEM_JOB: PageSchema = {
 
     // ── Deliverable shape ──
     deliverable_kind: { type: "enum", required: true, owner: "synthesis", enumValues: ["report", "proposals", "edits", "mixed"], description: "What the job produces. Drives output schema and rendering." },
-    trust_level: { type: "enum", required: true, owner: "synthesis", enumValues: ["observe", "propose", "act"], description: "Execution autonomy. observe=findings only. propose=initiatives require accept. act=initiatives auto-accept with receipt." },
+    trust_level: { type: "enum", required: true, owner: "synthesis", enumValues: ["observe", "propose", "act"], description: "Execution autonomy. observe=findings only. propose=ideas require accept. act=ideas auto-accept with receipt." },
     post_policy: { type: "enum", required: true, owner: "synthesis", enumValues: ["always", "importance_threshold", "actionable_only"], description: "When to publish a run's output" },
     importance_threshold: { type: "number", required: false, owner: "synthesis", description: "0–1 score gate, required when post_policy=importance_threshold" },
 
@@ -475,7 +475,7 @@ export const PAGE_SCHEMAS: Record<string, PageSchema> = {
   project_portfolio: PROJECT_PORTFOLIO,
   project: PROJECT,
   project_deliverable: PROJECT_DELIVERABLE,
-  initiative: INITIATIVE,
+  idea: IDEA,
   strategic_link: STRATEGIC_LINK,
   tool_system: TOOL_SYSTEM,
   system_job: SYSTEM_JOB,

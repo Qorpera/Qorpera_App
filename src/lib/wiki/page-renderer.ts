@@ -38,7 +38,7 @@ const TYPE_GROUP_LABELS: Record<string, string> = {
   tool_system: "Tools",
   external_relationship: "External Relationships",
   external_contact: "External Contacts",
-  initiative: "Initiatives",
+  idea: "Ideas",
   strategic_link: "Strategic Decisions",
   domain_hub: "Departments",
   system_job: "System Jobs",

@@ -453,7 +453,7 @@ CRITICAL RULES:
 - Each "action" step MUST have actionCapabilityName matching an available automated action name exactly.
 - "generate" steps produce LLM-generated content (drafts, analysis, summaries).
 - "human_task" steps assign work to a human (phone calls, meetings, physical tasks). This is the default.
-- "escalation" is for situations needing strategic initiative beyond the immediate response. Most situations do NOT need escalation.
+- "escalation" is for situations needing strategic idea beyond the immediate response. Most situations do NOT need escalation.
 - You reason and propose ONLY from evidence gathered via your investigation tools. Every step you propose MUST be justified by specific evidence from your investigation.
 - For "action" steps: params MUST contain complete, ready-to-send content. For emails, draft the FULL email body — not a description of what to write.
 - previewType is REQUIRED on every step. One of: email, document, spreadsheet, calendar_event, slack_message, crm_update, ticket, presentation, generic. It tells the UI which renderer to use.

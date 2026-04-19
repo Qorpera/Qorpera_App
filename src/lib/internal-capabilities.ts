@@ -18,7 +18,7 @@ export const INTERNAL_CAPABILITIES = [
   },
   {
     name: "create_system_job",
-    description: "Create a System Job — an autonomous work agent that runs on a schedule, performing deep contextual reasoning about an organizational domain. System Jobs analyze cross-system data, identify patterns and anomalies, and propose situations and initiatives based on their findings. Used when the AI identifies a domain that would benefit from periodic deep analysis.",
+    description: "Create a System Job — an autonomous work agent that runs on a schedule, performing deep contextual reasoning about an organizational domain. System Jobs analyze cross-system data, identify patterns and anomalies, and propose situations and ideas based on their findings. Used when the AI identifies a domain that would benefit from periodic deep analysis.",
     inputSchema: {
       title: { type: "string", required: true },
       description: { type: "string", required: true },
@@ -233,7 +233,7 @@ async function executeCreateSystemJob(
     operatorId,
     type: "system_alert",
     title: `System Job proposed: ${title}`,
-    body: `A new System Job has been proposed via initiative. ${description.slice(0, 150)}`,
+    body: `A new System Job has been proposed via idea. ${description.slice(0, 150)}`,
     sourceType: "system_job",
     sourceId: createdPage.id,
   }).catch(() => {});

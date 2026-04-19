@@ -6,7 +6,7 @@ import { fetchApi } from "@/lib/fetch-api";
 const TYPE_LABELS: Record<string, string> = {
   situation_proposed: "Situation Proposed",
   situation_resolved: "Situation Resolved",
-  initiative_proposed: "Initiative Proposed",
+  idea_proposed: "Idea Proposed",
   step_ready: "Step Ready",
   delegation_received: "Delegation Received",
   follow_up_triggered: "Follow-up Triggered",

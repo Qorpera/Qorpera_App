@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment, useId, useState, type CSSProperties } from "react";
-import type { DashboardCard } from "@/lib/initiative-dashboard-types";
-import type { ParsedDashboard } from "@/lib/initiative-page-parser";
+import type { DashboardCard } from "@/lib/idea-dashboard-types";
+import type { ParsedDashboard } from "@/lib/idea-page-parser";
 
 // ─── Style tokens ─────────────────────────────────────────────────────────────
 

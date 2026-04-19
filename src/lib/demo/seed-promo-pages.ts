@@ -5,7 +5,7 @@
  * The seed runner creates KnowledgePage records from these.
  */
 
-import type { InitiativeDashboard } from "@/lib/initiative-dashboard-types";
+import type { IdeaDashboard } from "@/lib/idea-dashboard-types";
 
 export interface PromoPage {
   slug: string;
@@ -15,10 +15,10 @@ export interface PromoPage {
   properties: Record<string, unknown>;
 }
 
-// Matches the exact format `injectDashboardSection` writes in initiative-reasoning.ts
-// so the parser in initiative-page-parser.ts reads embedded dashboards identically
+// Matches the exact format `injectDashboardSection` writes in idea-reasoning.ts
+// so the parser in idea-page-parser.ts reads embedded dashboards identically
 // to runtime-generated ones.
-function buildDashboardSection(dashboard: InitiativeDashboard): string {
+function buildDashboardSection(dashboard: IdeaDashboard): string {
   return `## Dashboard\n\n\`\`\`json\n${JSON.stringify(dashboard, null, 2)}\n\`\`\`\n`;
 }
 
@@ -574,16 +574,16 @@ export const PROCESS_PAGES: PromoPage[] = [
 ];
 
 // ══════════════════════════════════════════════════════════
-// INITIATIVES (3 pages)
+// IDEAS (3 pages)
 // ══════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════
-// INITIATIVE DASHBOARDS
-// Payloads embedded into the three initiative content strings below.
-// Format: parseInitiativePage → parseDashboardSection (see initiative-page-parser.ts).
+// IDEA DASHBOARDS
+// Payloads embedded into the three idea content strings below.
+// Format: parseIdeaPage → parseDashboardSection (see idea-page-parser.ts).
 // ══════════════════════════════════════════════════════════
 
-const DASHBOARD_SCOPE_CREEP: InitiativeDashboard = {
+const DASHBOARD_SCOPE_CREEP: IdeaDashboard = {
   cards: [
     {
       primitive: "impact_bar",
@@ -676,7 +676,7 @@ const DASHBOARD_SCOPE_CREEP: InitiativeDashboard = {
         {
           ref: "change-order-workflow",
           inferred: false,
-          summary: "Draft workflow spec attached to this initiative",
+          summary: "Draft workflow spec attached to this idea",
         },
       ],
       data: {
@@ -692,7 +692,7 @@ const DASHBOARD_SCOPE_CREEP: InitiativeDashboard = {
   ],
 };
 
-const DASHBOARD_PROFITABILITY: InitiativeDashboard = {
+const DASHBOARD_PROFITABILITY: IdeaDashboard = {
   cards: [
     {
       primitive: "conceptual_diagram",
@@ -765,7 +765,7 @@ const DASHBOARD_PROFITABILITY: InitiativeDashboard = {
   ],
 };
 
-const DASHBOARD_REPORTING: InitiativeDashboard = {
+const DASHBOARD_REPORTING: IdeaDashboard = {
   cards: [
     {
       primitive: "automation_loop",
@@ -866,10 +866,10 @@ const DASHBOARD_REPORTING: InitiativeDashboard = {
   ],
 };
 
-export const INITIATIVE_PAGES: PromoPage[] = [
+export const IDEA_PAGES: PromoPage[] = [
   {
     slug: "init-client-profitability",
-    pageType: "initiative",
+    pageType: "idea",
     title: "Client profitability below margin threshold on 3 engagements",
     properties: {
       status: "proposed",
@@ -923,11 +923,11 @@ Estimated margin recovery: 120-180K DKK annually. Meridian change order alone wo
 
 ## Timeline
 - 2026-04-12 — Pattern detected from billing analysis
-- 2026-04-14 — Initiative proposed`,
+- 2026-04-14 — Idea proposed`,
   },
   {
     slug: "init-reporting-automation",
-    pageType: "initiative",
+    pageType: "idea",
     title: "Monthly reporting costs 38 hours/month — 60% automatable",
     properties: {
       status: "proposed",
@@ -989,11 +989,11 @@ Time savings: ~23 hours/month (60% of 38 hours). Reliability: reports delivered 
 
 ## Timeline
 - 2026-04-13 — Pattern detected from activity analysis
-- 2026-04-14 — Initiative proposed`,
+- 2026-04-14 — Idea proposed`,
   },
   {
     slug: "init-scope-creep-process",
-    pageType: "initiative",
+    pageType: "idea",
     title: "Recurring delivery delays on same project type — scope creep pattern detected",
     properties: {
       status: "proposed",
@@ -1053,7 +1053,7 @@ Expected reduction in delivery delays: 60-80% for affected project types. Margin
 
 ## Timeline
 - 2026-04-13 — Pattern detected from situation history analysis
-- 2026-04-14 — Initiative proposed`,
+- 2026-04-14 — Idea proposed`,
   },
 ];
 
@@ -1670,7 +1670,7 @@ On the 1st of each month at 08:00 the job:
     properties: {
       status: "active",
       schedule: "0 17 * * 5",
-      description: "Friday reflective evaluation of the week's decisions and activity against stated purpose and strategic priorities. Surfaces drift and proposes corrective initiatives.",
+      description: "Friday reflective evaluation of the week's decisions and activity against stated purpose and strategic priorities. Surfaces drift and proposes corrective ideas.",
       owner: "anna-korsgaard",
       domain: "management",
       trust_level: "propose",
@@ -1695,15 +1695,15 @@ Company-wide. Inputs: decisions logged during the week (meetings, approvals, com
 Every Friday at 17:00 the job:
 
 1. Reads current company-level strategic priorities to anchor the evaluation lens.
-2. Scans the week's activity: decisions logged on wiki pages, significant communications, project status changes, resource allocation shifts, initiative proposals surfaced.
+2. Scans the week's activity: decisions logged on wiki pages, significant communications, project status changes, resource allocation shifts, idea proposals surfaced.
 3. For each material activity, evaluates alignment with stated purpose on a three-way scale: aligned, neutral, divergent.
 4. Produces a short narrative evaluation: what went well, where the company drifted, what the drift implies, what leadership should consider.
-5. If drift is material, proposes an initiative or flags a strategic-link candidate for review.
+5. If drift is material, proposes an idea or flags a strategic-link candidate for review.
 
 ## Output
 
 - Weekly evaluation narrative written to this wiki page's Execution History each run.
-- When drift is material, a proposed initiative or strategic_link page.
+- When drift is material, a proposed idea or strategic_link page.
 - Notification to Anna when evaluation is ready.
 
 ## Recipients
@@ -1715,7 +1715,7 @@ Every Friday at 17:00 the job:
 - **Cron:** \`0 17 * * 5\` (Fridays at 17:00 CET)
 - **Importance threshold:** 0.3
 - **Scope:** company_wide
-- **Trust level:** propose — evaluations are never published without review; initiatives surfaced for consideration, not auto-accepted
+- **Trust level:** propose — evaluations are never published without review; ideas surfaced for consideration, not auto-accepted
 
 ## Execution History
 
@@ -1725,9 +1725,9 @@ Every Friday at 17:00 the job:
 
   **Evaluation summary (unreviewed):** Five material decisions tracked this week across [[management]], [[sales]], and [[delivery]]. Three aligned directly with the stated Q2 priority of margin protection on active engagements — [[init-client-profitability]] proposed, [[init-scope-creep-process]] proposed, [[sit-overdue-invoices]] acted on. Two diverged: (1) the late-stage scope addition accepted on the Meridian engagement without change order ran counter to the stated margin-protection priority, and (2) the acceleration of the [[proj-launch-marketing-plan]] staffing ahead of the Q2 close of the ongoing [[proj-buyer-side-dd]] engagement created a sequencing tension that has not been surfaced in any leadership discussion this week.
 
-  **Proposed for leadership attention:** The sequencing tension between launch readiness and acquisition readiness is not visible in any current initiative. Consider surfacing it as a strategic_link candidate before it becomes a resource conflict in May.
+  **Proposed for leadership attention:** The sequencing tension between launch readiness and acquisition readiness is not visible in any current idea. Consider surfacing it as a strategic_link candidate before it becomes a resource conflict in May.
 
-  **Status:** Awaiting [[anna-korsgaard]]'s review. Draft initiative and strategic_link candidates not yet generated — will generate on request or after review sign-off.
+  **Status:** Awaiting [[anna-korsgaard]]'s review. Draft idea and strategic_link candidates not yet generated — will generate on request or after review sign-off.
 
 - **2026-04-11 (Friday, 17:00)** — 4 material decisions tracked. All aligned with stated priorities. No drift flagged. Reviewed and acknowledged by [[anna-korsgaard]] 2026-04-11 evening. Importance score: 0.18.
 
@@ -2912,7 +2912,7 @@ export const ALL_PROMO_PAGES: PromoPage[] = [
   ...PERSON_PAGES,
   ...CLIENT_PAGES,
   ...PROCESS_PAGES,
-  ...INITIATIVE_PAGES,
+  ...IDEA_PAGES,
   ...PROJECT_PAGES,
   ...SYSTEM_JOB_PAGES,
   ...DELIVERABLE_PAGES,

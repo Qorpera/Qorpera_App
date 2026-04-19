@@ -34,7 +34,7 @@ export interface ProcessWikiUpdatesParams {
   projectId?: string;
   situationId?: string;
   updates: WikiUpdate[];
-  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research" | "adversarial" | "document_intelligence" | "initiative_reasoning";
+  synthesisPath: "reasoning" | "background" | "onboarding" | "lint" | "investigation" | "research" | "reflection" | "living_research" | "adversarial" | "document_intelligence" | "idea_reasoning";
   synthesizedByModel: string;
   synthesisCostCents?: number;
   synthesisDurationMs?: number;
@@ -1188,7 +1188,7 @@ export async function updatePageWithLock(
 
     // Rebuild SystemJobIndex if this is a system_job page.
     // This hook fires on EVERY updatePageWithLock success, covering the many code paths
-    // that don't go through /api/wiki/[slug] (initiative-execution, situation-timeout-detector,
+    // that don't go through /api/wiki/[slug] (idea-execution, situation-timeout-detector,
     // learned-preferences, system-job reasoning, seed scripts, etc.).
     if (ctx.pageType === "system_job") {
       try {

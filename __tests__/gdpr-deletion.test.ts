@@ -98,7 +98,7 @@ vi.mock("@/lib/db", () => ({
     followUp: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     recurringTask: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     goal: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    initiative: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    idea: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     workStream: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     planAutonomy: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     priorityOverride: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },

@@ -31,7 +31,7 @@ const ProposedSituationSchema = z.object({
   evidence: z.array(z.string()),
 });
 
-const ProposedInitiativeSchema = z.object({
+const ProposedIdeaSchema = z.object({
   proposalType: z.enum([
     "project_creation",
     "policy_change",
@@ -71,7 +71,7 @@ const ProposalsOutputSchema = z.object({
   importance_score: z.number().min(0).max(1),
   analysisNarrative: z.string().min(20),
   proposed_situations: z.array(ProposedSituationSchema),
-  proposed_initiatives: z.array(ProposedInitiativeSchema),
+  proposed_ideas: z.array(ProposedIdeaSchema),
   findings: z.array(FindingSchema),
 });
 
@@ -86,7 +86,7 @@ const MixedOutputSchema = z.object({
   importance_score: z.number().min(0).max(1),
   analysisNarrative: z.string().optional(),
   proposed_situations: z.array(ProposedSituationSchema).optional(),
-  proposed_initiatives: z.array(ProposedInitiativeSchema).optional(),
+  proposed_ideas: z.array(ProposedIdeaSchema).optional(),
   findings: z.array(FindingSchema).optional(),
   wiki_edits: z.array(WikiEditSchema).optional(),
   report: z
@@ -101,7 +101,7 @@ const MixedOutputSchema = z.object({
 
 type FindingT = z.infer<typeof FindingSchema>;
 type ProposedSituationT = z.infer<typeof ProposedSituationSchema>;
-type ProposedInitiativeT = z.infer<typeof ProposedInitiativeSchema>;
+type ProposedIdeaT = z.infer<typeof ProposedIdeaSchema>;
 type WikiEditT = z.infer<typeof WikiEditSchema>;
 type ReportOutput = z.infer<typeof ReportOutputSchema>;
 type ProposalsOutput = z.infer<typeof ProposalsOutputSchema>;
@@ -406,14 +406,14 @@ async function executeSystemJob(args: {
         };
       });
 
-    // Active initiatives (dedup, cap 20)
-    const activeInitiativePages = await prisma.knowledgePage.findMany({
-      where: { operatorId: index.operatorId, pageType: "initiative", scope: "operator" },
+    // Active ideas (dedup, cap 20)
+    const activeIdeaPages = await prisma.knowledgePage.findMany({
+      where: { operatorId: index.operatorId, pageType: "idea", scope: "operator" },
       select: { title: true, properties: true },
       orderBy: { createdAt: "desc" },
       take: 20,
     });
-    const activeInitiatives = activeInitiativePages
+    const activeIdeas = activeIdeaPages
       .filter((p) => {
         const sp = (p.properties ?? {}) as Record<string, unknown>;
         return !["rejected", "failed", "completed"].includes(sp.status as string);
@@ -436,7 +436,7 @@ async function executeSystemJob(args: {
       companyName,
       priorRuns,
       activeSituations,
-      activeInitiatives,
+      activeIdeas,
       triggerContext,
     });
 
@@ -551,7 +551,7 @@ async function executeSystemJob(args: {
         index,
         wikiPage,
         situations: p.proposed_situations,
-        initiatives: p.proposed_initiatives,
+        ideas: p.proposed_ideas,
         triggerChain: [...triggerChain, wikiPage.slug],
       });
       proposedSlugs = res.proposedSlugs;
@@ -565,16 +565,16 @@ async function executeSystemJob(args: {
         triggerChain: [...triggerChain, wikiPage.slug],
       });
       editCount = res.editCount;
-      proposedSlugs = res.initiativeSlugs;
+      proposedSlugs = res.ideaSlugs;
     } else {
       // mixed — call all conditionally
       const m = output as MixedOutput;
-      if (m.proposed_situations?.length || m.proposed_initiatives?.length) {
+      if (m.proposed_situations?.length || m.proposed_ideas?.length) {
         const res = await handleProposalsOutput({
           index,
           wikiPage,
           situations: m.proposed_situations ?? [],
-          initiatives: m.proposed_initiatives ?? [],
+          ideas: m.proposed_ideas ?? [],
           triggerChain: [...triggerChain, wikiPage.slug],
         });
         proposedSlugs.push(...res.proposedSlugs);
@@ -588,7 +588,7 @@ async function executeSystemJob(args: {
           triggerChain: [...triggerChain, wikiPage.slug],
         });
         editCount += res.editCount;
-        proposedSlugs.push(...res.initiativeSlugs);
+        proposedSlugs.push(...res.ideaSlugs);
       }
       if (m.report) {
         const res = await handleReportOutput({
@@ -688,7 +688,7 @@ function countDispatchableOutputs(kind: DeliverableKind, output: AnyOutput): num
   }
   if (kind === "proposals") {
     const p = output as ProposalsOutput;
-    return p.proposed_situations.length + p.proposed_initiatives.length;
+    return p.proposed_situations.length + p.proposed_ideas.length;
   }
   if (kind === "edits") {
     const e = output as EditsOutput;
@@ -697,7 +697,7 @@ function countDispatchableOutputs(kind: DeliverableKind, output: AnyOutput): num
   const m = output as MixedOutput;
   return (
     (m.proposed_situations?.length ?? 0) +
-    (m.proposed_initiatives?.length ?? 0) +
+    (m.proposed_ideas?.length ?? 0) +
     (m.wiki_edits?.length ?? 0) +
     (m.report ? 1 : 0)
   );
@@ -768,10 +768,10 @@ async function handleProposalsOutput(params: {
   index: SystemJobIndexRow;
   wikiPage: WikiPageRow;
   situations: ProposedSituationT[];
-  initiatives: ProposedInitiativeT[];
+  ideas: ProposedIdeaT[];
   triggerChain: string[];
 }): Promise<{ proposedSlugs: string[] }> {
-  const { index, wikiPage, situations, initiatives, triggerChain } = params;
+  const { index, wikiPage, situations, ideas, triggerChain } = params;
   const props = (wikiPage.properties ?? {}) as Record<string, unknown>;
   const domainSlug = typeof props.domain === "string" ? props.domain : null;
   const ownerSlug = typeof props.owner === "string" ? props.owner : null;
@@ -860,9 +860,9 @@ async function handleProposalsOutput(params: {
     }
   }
 
-  for (const proposed of initiatives) {
+  for (const proposed of ideas) {
     try {
-      const slug = `initiative-${createId()}`;
+      const slug = `idea-${createId()}`;
 
       const articleBody = [
         `## Trigger`,
@@ -906,7 +906,7 @@ async function handleProposalsOutput(params: {
           operatorId: index.operatorId,
           slug,
           title: proposed.triggerSummary,
-          pageType: "initiative",
+          pageType: "idea",
           scope: "operator",
           status: "draft",
           content: articleBody,
@@ -939,13 +939,13 @@ async function handleProposalsOutput(params: {
       try {
         await emitEvent(
           {
-            type: "initiative.proposed",
+            type: "idea.proposed",
             operatorId: index.operatorId,
             payload: {
               proposalType: proposed.proposalType,
               source: "system_job",
               domain: domainSlug ?? null,
-              initiativeSlug: slug,
+              ideaSlug: slug,
               sourceJobId: wikiPage.id,
               sourceJobSlug: wikiPage.slug,
             },
@@ -953,20 +953,20 @@ async function handleProposalsOutput(params: {
           triggerChain,
         );
       } catch (err) {
-        console.warn(`[event-emit] initiative.proposed failed:`, err);
+        console.warn(`[event-emit] idea.proposed failed:`, err);
       }
 
       const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
-      await enqueueWorkerJob("reason_initiative", index.operatorId, {
+      await enqueueWorkerJob("reason_idea", index.operatorId, {
         operatorId: index.operatorId,
         pageSlug: slug,
       }).catch((err) => {
-        console.error(`[system-job] Failed to enqueue reason_initiative for ${slug}:`, err);
+        console.error(`[system-job] Failed to enqueue reason_idea for ${slug}:`, err);
       });
 
       proposedSlugs.push(slug);
     } catch (err) {
-      console.error(`[system-job] Failed to create initiative:`, err);
+      console.error(`[system-job] Failed to create idea:`, err);
     }
   }
 
@@ -979,14 +979,14 @@ async function handleEditsOutput(params: {
   edits: WikiEditT[];
   effectiveTrust: TrustLevel;
   triggerChain: string[];
-}): Promise<{ editCount: number; initiativeSlugs: string[] }> {
+}): Promise<{ editCount: number; ideaSlugs: string[] }> {
   const { index, wikiPage, edits, effectiveTrust, triggerChain } = params;
-  const initiativeSlugs: string[] = [];
+  const ideaSlugs: string[] = [];
   let editCount = 0;
 
   for (const edit of edits) {
     try {
-      // Apply first when trust=act so the initiative reflects the actual outcome.
+      // Apply first when trust=act so the idea reflects the actual outcome.
       let applyOutcome: "applied" | "skipped" | "failed" = "skipped";
       let applyError: string | null = null;
       if (effectiveTrust === "act") {
@@ -1003,7 +1003,7 @@ async function handleEditsOutput(params: {
         }
       }
 
-      const initiativeStatus =
+      const ideaStatus =
         effectiveTrust === "act"
           ? applyOutcome === "applied"
             ? "accepted"
@@ -1012,21 +1012,21 @@ async function handleEditsOutput(params: {
       const autoAccepted = effectiveTrust === "act" && applyOutcome === "applied";
 
       const slug = `init-wiki-update-${createId()}`;
-      const articleBody = buildWikiEditInitiativeBody(edit, wikiPage.title);
+      const articleBody = buildWikiEditIdeaBody(edit, wikiPage.title);
 
       await prisma.knowledgePage.create({
         data: {
           operatorId: index.operatorId,
           slug,
           title: `Wiki update: ${edit.target_slug}`,
-          pageType: "initiative",
+          pageType: "idea",
           scope: "operator",
           status: "draft",
           content: articleBody,
           contentTokens: Math.ceil(articleBody.length / 4),
           crossReferences: [edit.target_slug, wikiPage.slug],
           properties: {
-            status: initiativeStatus,
+            status: ideaStatus,
             auto_accepted: autoAccepted,
             apply_error: applyError,
             proposal_type: "wiki_update",
@@ -1047,18 +1047,18 @@ async function handleEditsOutput(params: {
           lastSynthesizedAt: new Date(),
         },
       });
-      initiativeSlugs.push(slug);
+      ideaSlugs.push(slug);
       editCount++;
 
       try {
         await emitEvent(
           {
-            type: "initiative.proposed",
+            type: "idea.proposed",
             operatorId: index.operatorId,
             payload: {
               proposalType: "wiki_update",
               source: "system_job",
-              initiativeSlug: slug,
+              ideaSlug: slug,
               sourceJobId: wikiPage.id,
               sourceJobSlug: wikiPage.slug,
               targetSlug: edit.target_slug,
@@ -1069,17 +1069,17 @@ async function handleEditsOutput(params: {
           triggerChain,
         );
       } catch (err) {
-        console.warn(`[event-emit] initiative.proposed failed:`, err);
+        console.warn(`[event-emit] idea.proposed failed:`, err);
       }
     } catch (err) {
-      console.error(`[system-job] Failed to create wiki_update initiative:`, err);
+      console.error(`[system-job] Failed to create wiki_update idea:`, err);
     }
   }
 
-  return { editCount, initiativeSlugs };
+  return { editCount, ideaSlugs };
 }
 
-function buildWikiEditInitiativeBody(edit: WikiEditT, jobTitle: string): string {
+function buildWikiEditIdeaBody(edit: WikiEditT, jobTitle: string): string {
   const lines = [
     `## Target`,
     `[[${edit.target_slug}]]`,
@@ -1182,7 +1182,7 @@ async function applyWikiEdit(edit: WikiEditT, operatorId: string): Promise<void>
 /**
  * Replace the body of a level-2 section (`## Name`). Returns the new content,
  * or null if the named section does not exist. Caller decides how to surface
- * the miss (typically: surface the error so the initiative reflects failure).
+ * the miss (typically: surface the error so the idea reflects failure).
  */
 function replaceSection(
   content: string,
@@ -1487,7 +1487,7 @@ function buildSeedContext(args: {
   companyName: string;
   priorRuns: ExecutionHistoryEntry[];
   activeSituations: Array<{ title: string; status: string; situationType: string }>;
-  activeInitiatives: Array<{ title: string; status: string; proposalType: string }>;
+  activeIdeas: Array<{ title: string; status: string; proposalType: string }>;
   triggerContext: TriggerContext;
 }): string {
   const parts: string[] = [];
@@ -1528,9 +1528,9 @@ function buildSeedContext(args: {
     }
   }
 
-  if (args.activeInitiatives.length > 0) {
-    parts.push(`\nACTIVE INITIATIVES (do NOT duplicate):`);
-    for (const i of args.activeInitiatives) {
+  if (args.activeIdeas.length > 0) {
+    parts.push(`\nACTIVE IDEAS (do NOT duplicate):`);
+    for (const i of args.activeIdeas) {
       parts.push(`  [${i.status}] [${i.proposalType}] ${i.title.slice(0, 120)}`);
     }
   }
@@ -1579,19 +1579,19 @@ function buildSystemPrompt(args: {
     return [
       preamble,
       ``,
-      `DELIVERABLE: PROPOSALS — situations and initiatives for the operator to act on.`,
+      `DELIVERABLE: PROPOSALS — situations and ideas for the operator to act on.`,
       `After investigation, produce JSON with:`,
       `- summary: 2–3 sentence executive summary`,
       `- importance_score: 0.0–1.0`,
       `- analysisNarrative: full analysis with evidence`,
       `- proposed_situations[]: things that need decisions NOW (each becomes a real situation)`,
-      `- proposed_initiatives[]: proposals for the operator to approve or reject`,
+      `- proposed_ideas[]: proposals for the operator to approve or reject`,
       `- findings[]: informational observations (trends, metrics, anomalies)`,
       ``,
-      `Initiative proposalType options: project_creation, policy_change, system_job_creation,`,
+      `Idea proposalType options: project_creation, policy_change, system_job_creation,`,
       `strategy_revision, wiki_update, resource_recommendation, general.`,
       `The proposal field MUST contain the actual work product, not just a description.`,
-      `Do NOT duplicate active situations/initiatives listed in seed context.`,
+      `Do NOT duplicate active situations/ideas listed in seed context.`,
       ``,
       budget,
       ``,
@@ -1616,7 +1616,7 @@ function buildSystemPrompt(args: {
       `  - rationale: why this edit improves the page`,
       ``,
       `Self-amendments are edits targeting this job's own slug — same shape, no special handling needed.`,
-      `Edits will be queued as initiatives for approval (or auto-applied at trust=act).`,
+      `Edits will be queued as ideas for approval (or auto-applied at trust=act).`,
       ``,
       budget,
       ``,
@@ -1632,12 +1632,12 @@ function buildSystemPrompt(args: {
     `After investigation, produce JSON with:`,
     `- summary, importance_score (both required)`,
     `- analysisNarrative (optional)`,
-    `- proposed_situations[], proposed_initiatives[], findings[] (optional)`,
+    `- proposed_situations[], proposed_ideas[], findings[] (optional)`,
     `- wiki_edits[] (optional)`,
     `- report { title, body_markdown, key_findings[], recommendations[] } (optional)`,
     ``,
     `Pick whichever shapes match what you actually found. Empty arrays are fine.`,
-    `Do NOT duplicate active situations/initiatives listed in seed context.`,
+    `Do NOT duplicate active situations/ideas listed in seed context.`,
     ``,
     budget,
     ``,

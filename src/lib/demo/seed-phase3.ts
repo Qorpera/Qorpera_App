@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Phase 3 seed data — Goals, Initiatives, Insights, Patterns,
+// Phase 3 seed data — Goals, Ideas, Insights, Patterns,
 // Recurring Tasks, Follow-ups, Notifications, Copilot Sessions, Delegations.
 // Pure data — no database operations.
 // ---------------------------------------------------------------------------
@@ -56,9 +56,9 @@ export const GOALS: GoalDef[] = [
   },
 ];
 
-// ── 2. Initiatives ────────────────────────────────────────────────────────
+// ── 2. Ideas ────────────────────────────────────────────────────────
 
-export type InitiativeDef = {
+export type IdeaDef = {
   goalTitle: string;
   aiEntityType: "dept" | "hq";
   aiEntityDept?: string;
@@ -80,7 +80,7 @@ export type InitiativeDef = {
   };
 };
 
-export const INITIATIVES: InitiativeDef[] = [
+export const IDEAS: IdeaDef[] = [
   {
     goalTitle: "Øg klientfastholdelse Q2",
     aiEntityType: "dept",
@@ -690,9 +690,9 @@ export type NotificationDef = {
 export const NOTIFICATIONS: NotificationDef[] = [
   // ── Unread (5) ──
   {
-    title: "Ny initiative foreslået",
-    body: "Salg-AI har foreslået en ny initiative: 'Q2 Klientfastholdelse' baseret på analyse af de seneste 6 måneders churn-data.",
-    sourceType: "initiative",
+    title: "Ny idea foreslået",
+    body: "Salg-AI har foreslået en ny idea: 'Q2 Klientfastholdelse' baseret på analyse af de seneste 6 måneders churn-data.",
+    sourceType: "idea",
     read: false,
     hoursAgo: 2,
   },
@@ -768,9 +768,9 @@ export const NOTIFICATIONS: NotificationDef[] = [
     hoursAgo: 120,
   },
   {
-    title: "Onboarding-initiative afsluttet",
-    body: "Initiativet 'Ny Kunde Onboarding Forbedring' er markeret som fuldført. Alle 4 plantrin er gennemført.",
-    sourceType: "initiative",
+    title: "Onboarding-idea afsluttet",
+    body: "Ideat 'Ny Kunde Onboarding Forbedring' er markeret som fuldført. Alle 4 plantrin er gennemført.",
+    sourceType: "idea",
     read: true,
     hoursAgo: 168,
   },

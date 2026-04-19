@@ -4,32 +4,32 @@ import { BaseLayout } from "./base-layout";
 import { Button } from "./components/Button";
 import { Section } from "./components/Section";
 
-interface InitiativeProposedEmailProps {
-  initiativeTitle: string;
+interface IdeaProposedEmailProps {
+  ideaTitle: string;
   domainName: string;
   rationale: string;
   viewUrl: string;
 }
 
-export function InitiativeProposedEmail({
-  initiativeTitle,
+export function IdeaProposedEmail({
+  ideaTitle,
   domainName,
   rationale,
   viewUrl,
-}: InitiativeProposedEmailProps) {
+}: IdeaProposedEmailProps) {
   return (
-    <BaseLayout previewText={`New initiative: ${initiativeTitle}`}>
+    <BaseLayout previewText={`New idea: ${ideaTitle}`}>
       <Section>
-        <Text style={heading}>New initiative proposed</Text>
-        <Text style={label}>Initiative</Text>
-        <Text style={value}>{initiativeTitle}</Text>
+        <Text style={heading}>New idea proposed</Text>
+        <Text style={label}>Idea</Text>
+        <Text style={value}>{ideaTitle}</Text>
         <Text style={label}>Department</Text>
         <Text style={value}>{domainName}</Text>
         <Text style={label}>Rationale</Text>
         <Text style={value}>{rationale}</Text>
       </Section>
       <Section>
-        <Button href={viewUrl}>Review Initiative</Button>
+        <Button href={viewUrl}>Review Idea</Button>
       </Section>
     </BaseLayout>
   );

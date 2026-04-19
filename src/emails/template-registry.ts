@@ -4,7 +4,7 @@ import { getEmailSubject } from "./email-strings";
 
 import { SituationProposedEmail } from "./situation-proposed";
 import { SituationResolvedEmail } from "./situation-resolved";
-import { InitiativeProposedEmail } from "./initiative-proposed";
+import { IdeaProposedEmail } from "./idea-proposed";
 import { StepReadyEmail } from "./step-ready";
 import { DelegationReceivedEmail } from "./delegation-received";
 import { FollowUpTriggeredEmail } from "./follow-up-triggered";
@@ -36,8 +36,8 @@ export async function renderNotificationEmail(
     case "situation_resolved":
       element = React.createElement(SituationResolvedEmail, props as any);
       break;
-    case "initiative_proposed":
-      element = React.createElement(InitiativeProposedEmail, props as any);
+    case "idea_proposed":
+      element = React.createElement(IdeaProposedEmail, props as any);
       break;
     case "step_ready":
       element = React.createElement(StepReadyEmail, props as any);

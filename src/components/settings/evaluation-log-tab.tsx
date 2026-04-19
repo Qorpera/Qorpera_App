@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
 
-type Classification = "action_required" | "awareness" | "irrelevant" | "initiative_candidate";
+type Classification = "action_required" | "awareness" | "irrelevant" | "idea_candidate";
 
 interface LogEntry {
   id: string;
@@ -33,7 +33,7 @@ const CLASSIFICATION_STYLES: Record<Classification, { label: string; color: stri
   action_required: { label: "Action Required", color: "var(--ok)", bg: "color-mix(in srgb, var(--ok) 12%, transparent)" },
   awareness: { label: "Awareness", color: "var(--accent)", bg: "color-mix(in srgb, var(--accent) 12%, transparent)" },
   irrelevant: { label: "Irrelevant", color: "var(--fg3)", bg: "color-mix(in srgb, var(--fg3) 12%, transparent)" },
-  initiative_candidate: { label: "Initiative", color: "var(--warn)", bg: "color-mix(in srgb, var(--warn) 12%, transparent)" },
+  idea_candidate: { label: "Idea", color: "var(--warn)", bg: "color-mix(in srgb, var(--warn) 12%, transparent)" },
 };
 
 const SOURCE_LABELS: Record<string, string> = {

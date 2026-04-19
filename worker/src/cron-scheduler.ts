@@ -3,7 +3,7 @@ import { auditPreFilters } from "@/lib/situation-audit";
 import { computePriorityScores } from "@/lib/prioritization-engine";
 
 import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
-import { assembleInitiativesFromBookmarks } from "@/lib/wiki-bookmark-assembly";
+import { assembleIdeasFromBookmarks } from "@/lib/wiki-bookmark-assembly";
 import { checkSituationTimeouts } from "@/lib/situation-timeout-detector";
 
 const timers: ReturnType<typeof setInterval>[] = [];
@@ -282,8 +282,8 @@ export function startCronScheduler() {
             if (!shouldScan) continue;
 
             const result = await runWikiStrategicScan(op.id);
-            if (result.initiativesCreated > 0 || result.situationsCreated > 0) {
-              console.log(`[cron:wiki-scanner] Operator ${op.id}: ${result.initiativesCreated} initiatives, ${result.situationsCreated} situations (${result.scanDepth} scan)`);
+            if (result.ideasCreated > 0 || result.situationsCreated > 0) {
+              console.log(`[cron:wiki-scanner] Operator ${op.id}: ${result.ideasCreated} ideas, ${result.situationsCreated} situations (${result.scanDepth} scan)`);
             }
           } catch (err) {
             console.error(`[cron:wiki-scanner] Operator ${op.id} failed:`, err);
@@ -366,10 +366,10 @@ export function startCronScheduler() {
             // Run bookmark assembly after living research if new bookmarks were created
             if (result.bookmarksEmitted > 0) {
               try {
-                const assembly = await assembleInitiativesFromBookmarks(op.id);
-                if (assembly.initiativesCreated > 0) {
+                const assembly = await assembleIdeasFromBookmarks(op.id);
+                if (assembly.ideasCreated > 0) {
                   console.log(
-                    `[cron:living-research] Operator ${op.id}: ${assembly.initiativesCreated} initiatives from bookmarks`,
+                    `[cron:living-research] Operator ${op.id}: ${assembly.ideasCreated} ideas from bookmarks`,
                   );
                 }
               } catch (err) {

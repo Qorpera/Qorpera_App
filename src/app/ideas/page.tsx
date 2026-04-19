@@ -12,13 +12,13 @@ import { SidePanel, type SaveStatus } from "@/components/execution/side-panel";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { useTranslations, useLocale } from "next-intl";
 import { formatRelativeTime } from "@/lib/format-helpers";
-import { parseInitiativePage } from "@/lib/initiative-page-parser";
+import { parseIdeaPage } from "@/lib/idea-page-parser";
 import { WikiText } from "@/components/wiki-text";
-import { DashboardCards, FailedCardPlaceholder } from "@/app/initiatives/components/DashboardCards";
+import { DashboardCards, FailedCardPlaceholder } from "@/app/ideas/components/DashboardCards";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-interface InitiativeItem {
+interface IdeaItem {
   id: string;
   ownerPageSlug: string | null;
   ownerName: string | null;
@@ -84,7 +84,7 @@ type ExecutionSummary = {
   failedDownstream: string[];
 };
 
-interface InitiativeDetail {
+interface IdeaDetail {
   id: string;
   ownerPageSlug: string | null;
   ownerName: string | null;
@@ -162,16 +162,16 @@ const ACTIVE_STATUSES = ["proposed", "accepted", "concerns_raised", "ready", "im
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export default function InitiativesPage() {
-  const t = useTranslations("initiatives");
+export default function IdeasPage() {
+  const t = useTranslations("ideas");
   const tc = useTranslations("common");
   const locale = useLocale();
   const isMobile = useIsMobile();
   const searchParams = useSearchParams();
-  const [initiatives, setInitiatives] = useState<InitiativeItem[]>([]);
+  const [ideas, setIdeas] = useState<IdeaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<InitiativeDetail | null>(null);
+  const [detail, setDetail] = useState<IdeaDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [filter, setFilter] = useState<"active" | "all">("active");
 
@@ -181,7 +181,7 @@ export default function InitiativesPage() {
   const [panelChatVisible, setPanelChatVisible] = useState(true);
   const sidebarWasCollapsed = useRef(false);
 
-  // Auto-collapse main nav sidebar when an initiative is entered, restore on exit
+  // Auto-collapse main nav sidebar when an idea is entered, restore on exit
   useEffect(() => {
     if (selectedId) {
       sidebarWasCollapsed.current = localStorage.getItem("sidebar-collapsed") === "true";
@@ -195,23 +195,23 @@ export default function InitiativesPage() {
     }
   }, [!!selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchInitiatives = useCallback(async () => {
+  const fetchIdeas = useCallback(async () => {
     try {
-      const res = await fetch("/api/initiatives");
+      const res = await fetch("/api/ideas");
       if (res.ok) {
         const data = await res.json();
-        setInitiatives(data.items);
+        setIdeas(data.items);
       }
     } catch {}
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchInitiatives(); }, [fetchInitiatives]);
+  useEffect(() => { fetchIdeas(); }, [fetchIdeas]);
 
   const fetchDetail = useCallback(async (id: string) => {
     setDetailLoading(true);
     try {
-      const res = await fetch(`/api/initiatives/${id}`);
+      const res = await fetch(`/api/ideas/${id}`);
       if (res.ok) setDetail(await res.json());
     } catch {}
     setDetailLoading(false);
@@ -222,7 +222,7 @@ export default function InitiativesPage() {
     let cancelled = false;
     setDetail(null);
     setDetailLoading(true);
-    fetch(`/api/initiatives/${selectedId}`)
+    fetch(`/api/ideas/${selectedId}`)
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (!cancelled && data) setDetail(data); })
       .catch(() => {})
@@ -230,40 +230,40 @@ export default function InitiativesPage() {
     return () => { cancelled = true; };
   }, [selectedId]);
 
-  const filteredInitiatives = useMemo(() =>
+  const filteredIdeas = useMemo(() =>
     filter === "active"
-      ? initiatives.filter(i => ACTIVE_STATUSES.includes(i.status))
-      : initiatives,
-    [initiatives, filter],
+      ? ideas.filter(i => ACTIVE_STATUSES.includes(i.status))
+      : ideas,
+    [ideas, filter],
   );
 
   useEffect(() => {
-    if (selectedId && !filteredInitiatives.some(i => i.id === selectedId)) {
+    if (selectedId && !filteredIdeas.some(i => i.id === selectedId)) {
       setSelectedId(null);
       setPanelOpen(false);
     }
-  }, [filteredInitiatives, selectedId]);
+  }, [filteredIdeas, selectedId]);
 
-  const patchInitiative = async (id: string, body: Record<string, unknown>) => {
+  const patchIdea = async (id: string, body: Record<string, unknown>) => {
     try {
-      const res = await fetch(`/api/initiatives/${id}`, {
+      const res = await fetch(`/api/ideas/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        fetchInitiatives();
+        fetchIdeas();
         if (selectedId === id) fetchDetail(id);
       }
     } catch (err) {
-      console.error("Failed to update initiative:", err);
+      console.error("Failed to update idea:", err);
     }
   };
 
   const runExecutionAction = useCallback(async (action: "retry" | "skip_downstream" | "abandon") => {
     if (!selectedId) return;
     try {
-      const res = await fetch(`/api/initiatives/${selectedId}/execution-action`, {
+      const res = await fetch(`/api/ideas/${selectedId}/execution-action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
@@ -272,14 +272,14 @@ export default function InitiativesPage() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? `${action} failed`);
       }
-      await fetchInitiatives();
+      await fetchIdeas();
       await fetchDetail(selectedId);
     } catch (err) {
       console.error(`Execution action ${action} failed:`, err);
     }
-  }, [selectedId, fetchInitiatives, fetchDetail]);
+  }, [selectedId, fetchIdeas, fetchDetail]);
 
-  const openInitiative = useCallback((id: string) => {
+  const openIdea = useCallback((id: string) => {
     setSelectedId(id);
     setPanelActiveTab("overview");
     setPanelOpen(true);
@@ -288,7 +288,7 @@ export default function InitiativesPage() {
   useEffect(() => {
     const urlId = searchParams?.get("id");
     if (urlId && urlId !== selectedId) {
-      openInitiative(urlId);
+      openIdea(urlId);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: mount-only URL→state sync, not bidirectional
   }, [searchParams]);
@@ -302,7 +302,7 @@ export default function InitiativesPage() {
     <AppShell>
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-        {/* ── Left: initiative list ── */}
+        {/* ── Left: idea list ── */}
         {(!isMobile || !selectedId) && (
         <div className={`${isMobile ? "w-full" : "w-[300px]"} flex-shrink-0 flex flex-col overflow-hidden`} style={{ borderRight: isMobile ? "none" : "1px solid var(--border)" }}>
           <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
@@ -335,12 +335,12 @@ export default function InitiativesPage() {
                 <div className="h-4 w-4 animate-spin rounded-full border border-border border-t-muted" />
               </div>
             )}
-            {filteredInitiatives.map(item => {
+            {filteredIdeas.map(item => {
               const typeConfig = PROPOSAL_TYPE_CONFIG[item.proposalType] ?? PROPOSAL_TYPE_CONFIG.general;
               return (
                 <button
                   key={item.id}
-                  onClick={() => openInitiative(item.id)}
+                  onClick={() => openIdea(item.id)}
                   className="w-full text-left px-4 py-2.5 transition"
                   style={{
                     borderBottom: "1px solid var(--border)",
@@ -358,7 +358,7 @@ export default function InitiativesPage() {
                     </span>
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", lineHeight: 1.35 }} className="pl-[15px] line-clamp-2">
-                    {item.triggerSummary || "Untitled initiative"}
+                    {item.triggerSummary || "Untitled idea"}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--fg4)" }} className="pl-[15px] mt-0.5 truncate">
                     {item.ownerName ?? "AI"}
@@ -366,7 +366,7 @@ export default function InitiativesPage() {
                 </button>
               );
             })}
-            {!loading && filteredInitiatives.length === 0 && (
+            {!loading && filteredIdeas.length === 0 && (
               <div className="px-4 py-8 text-center" style={{ fontSize: 13, color: "var(--fg4)" }}>
                 {t("empty")}
               </div>
@@ -394,13 +394,13 @@ export default function InitiativesPage() {
               </button>
             )}
             <div className="flex items-center justify-center h-full" style={{ fontSize: 13, color: "var(--fg4)" }}>
-              {t("selectInitiative")}
+              {t("selectIdea")}
             </div>
           </div>
 
           {/* Panel */}
           {selectedId && detail && panelOpen && (
-            <InitiativePanel
+            <IdeaPanel
               detail={detail}
               isOpen={panelOpen}
               onClose={closePanel}
@@ -409,7 +409,7 @@ export default function InitiativesPage() {
               isChatVisible={panelChatVisible}
               setIsChatVisible={setPanelChatVisible}
               runExecutionAction={runExecutionAction}
-              patchInitiative={patchInitiative}
+              patchIdea={patchIdea}
             />
           )}
         </div>
@@ -426,10 +426,10 @@ function ChangesetContainer({
   detail: d,
   onSelectChange,
 }: {
-  detail: InitiativeDetail;
+  detail: IdeaDetail;
   onSelectChange: (tab: string) => void;
 }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
   if (!d.primaryDeliverable) return null;
 
   type Row = {
@@ -527,9 +527,9 @@ function ChangesetContainer({
   );
 }
 
-// ── Initiative Panel ─────────────────────────────────────────────────────────
+// ── Idea Panel ─────────────────────────────────────────────────────────
 
-function InitiativePanel({
+function IdeaPanel({
   detail: d,
   isOpen,
   onClose,
@@ -538,9 +538,9 @@ function InitiativePanel({
   isChatVisible,
   setIsChatVisible,
   runExecutionAction,
-  patchInitiative,
+  patchIdea,
 }: {
-  detail: InitiativeDetail;
+  detail: IdeaDetail;
   isOpen: boolean;
   onClose: () => void;
   activeTab: string;
@@ -548,11 +548,11 @@ function InitiativePanel({
   isChatVisible: boolean;
   setIsChatVisible: (v: boolean) => void;
   runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
-  patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
+  patchIdea: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
 
-  // Chat/content split percentage. Stateless per open — InitiativePanel
+  // Chat/content split percentage. Stateless per open — IdeaPanel
   // unmounts when the panel closes (see page.tsx conditional render), so each
   // open starts fresh at 35. Drag mutations persist within a single session.
   const [chatWidth, setChatWidth] = useState(35);
@@ -567,7 +567,7 @@ function InitiativePanel({
   const downstream = d.downstreamEffects ?? [];
   const canEditPrimary = d.status === "proposed" && activeTab === "primary";
 
-  const { dashboard } = useMemo(() => parseInitiativePage(d.content), [d.content]);
+  const { dashboard } = useMemo(() => parseIdeaPage(d.content), [d.content]);
   const hasDashboardForDetails =
     dashboard.cards.length > 0 && dashboard.fallback !== "prose_only";
 
@@ -615,7 +615,7 @@ function InitiativePanel({
       onChatWidthChange={setChatWidth}
       chatElement={
         <ContextualChat
-          contextType="initiative"
+          contextType="idea"
           contextId={d.id}
           placeholder={t("discuss")}
           hints={[t("hintRoi"), t("hintDependencies")]}
@@ -653,7 +653,7 @@ function InitiativePanel({
 
       {/* ── Tab content ── */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
-        {activeTab === "overview" && <OverviewTab detail={d} onSelectChange={setActiveTab} runExecutionAction={runExecutionAction} patchInitiative={patchInitiative} />}
+        {activeTab === "overview" && <OverviewTab detail={d} onSelectChange={setActiveTab} runExecutionAction={runExecutionAction} patchIdea={patchIdea} />}
         {activeTab === "details" && <DetailsTab detail={d} />}
         {activeTab === "primary" && d.primaryDeliverable && (
           <PrimaryDeliverableTab
@@ -695,8 +695,8 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 // ── Overview Header ──────────────────────────────────────────────────────────
 
-function OverviewHeader({ detail: d }: { detail: InitiativeDetail }) {
-  const t = useTranslations("initiatives");
+function OverviewHeader({ detail: d }: { detail: IdeaDetail }) {
+  const t = useTranslations("ideas");
   const locale = useLocale();
   const typeConfig = PROPOSAL_TYPE_CONFIG[d.proposalType] ?? PROPOSAL_TYPE_CONFIG.general;
 
@@ -704,7 +704,7 @@ function OverviewHeader({ detail: d }: { detail: InitiativeDetail }) {
     try { return t(`status.${d.status}` as any); } catch { return d.status; }
   })();
 
-  const titleText = d.primaryDeliverable?.title || d.triggerSummary || "Untitled initiative";
+  const titleText = d.primaryDeliverable?.title || d.triggerSummary || "Untitled idea";
   const showTriggerSubtitle = !!d.primaryDeliverable?.title && !!d.triggerSummary
     && d.primaryDeliverable.title !== d.triggerSummary;
 
@@ -738,8 +738,8 @@ function OverviewHeader({ detail: d }: { detail: InitiativeDetail }) {
 
 // ── Overview Metadata Footer ─────────────────────────────────────────────────
 
-function OverviewMetaFooter({ detail: d }: { detail: InitiativeDetail }) {
-  const t = useTranslations("initiatives");
+function OverviewMetaFooter({ detail: d }: { detail: IdeaDetail }) {
+  const t = useTranslations("ideas");
   const locale = useLocale();
 
   const metaPills: Array<{ label: string; value: string }> = [];
@@ -775,12 +775,12 @@ function OverviewMetaFooter({ detail: d }: { detail: InitiativeDetail }) {
 
 function OverviewActionBar({
   detail: d,
-  patchInitiative,
+  patchIdea,
 }: {
-  detail: InitiativeDetail;
-  patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
+  detail: IdeaDetail;
+  patchIdea: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
   const tc = useTranslations("common");
 
   if (d.status !== "proposed") return null;
@@ -801,14 +801,14 @@ function OverviewActionBar({
         <button
           className="rounded-full text-[13px] font-semibold px-4 py-2 transition-colors"
           style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
-          onClick={() => patchInitiative(d.id, { action: "accept" })}
+          onClick={() => patchIdea(d.id, { action: "accept" })}
         >
           {t("accept")}
         </button>
         <button
           className="rounded-full text-[13px] font-medium px-4 py-2 transition-colors"
           style={{ background: "var(--elevated)", border: "1px solid var(--border)", color: "var(--fg2)" }}
-          onClick={() => patchInitiative(d.id, { action: "reject" })}
+          onClick={() => patchIdea(d.id, { action: "reject" })}
         >
           {tc("reject")}
         </button>
@@ -826,10 +826,10 @@ function BannerRow({
   detail: d,
   runExecutionAction,
 }: {
-  detail: InitiativeDetail;
+  detail: IdeaDetail;
   runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
 }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
 
   if (d.status === "dismissed" && d.dismissalReason) {
     return (
@@ -853,7 +853,7 @@ function BannerRow({
         detail={d}
         onAction={runExecutionAction}
         onDiscuss={() => {
-          const chatInput = document.getElementById("initiative-chat-input") as HTMLTextAreaElement | null;
+          const chatInput = document.getElementById("idea-chat-input") as HTMLTextAreaElement | null;
           chatInput?.focus();
         }}
       />
@@ -873,15 +873,15 @@ function OverviewTab({
   detail: d,
   onSelectChange,
   runExecutionAction,
-  patchInitiative,
+  patchIdea,
 }: {
-  detail: InitiativeDetail;
+  detail: IdeaDetail;
   onSelectChange: (tab: string) => void;
   runExecutionAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
-  patchInitiative: (id: string, body: Record<string, unknown>) => Promise<void>;
+  patchIdea: (id: string, body: Record<string, unknown>) => Promise<void>;
 }) {
-  const t = useTranslations("initiatives");
-  const { sections, dashboard, evidenceItems } = useMemo(() => parseInitiativePage(d.content), [d.content]);
+  const t = useTranslations("ideas");
+  const { sections, dashboard, evidenceItems } = useMemo(() => parseIdeaPage(d.content), [d.content]);
   const hasDashboard =
     dashboard.cards.length > 0 && dashboard.fallback !== "prose_only";
 
@@ -1012,16 +1012,16 @@ function OverviewTab({
       </div>
 
       <OverviewMetaFooter detail={d} />
-      <OverviewActionBar detail={d} patchInitiative={patchInitiative} />
+      <OverviewActionBar detail={d} patchIdea={patchIdea} />
     </div>
   );
 }
 
 // ── Details Tab ──────────────────────────────────────────────────────────────
 
-function DetailsTab({ detail: d }: { detail: InitiativeDetail }) {
-  const t = useTranslations("initiatives");
-  const { sections } = useMemo(() => parseInitiativePage(d.content), [d.content]);
+function DetailsTab({ detail: d }: { detail: IdeaDetail }) {
+  const t = useTranslations("ideas");
+  const { sections } = useMemo(() => parseIdeaPage(d.content), [d.content]);
 
   const blocks: Array<{ label: string; body: string }> = [];
   if (sections.investigation) blocks.push({ label: t("investigation"), body: sections.investigation });
@@ -1061,11 +1061,11 @@ function ExecutionConcernsBanner({
   onAction,
   onDiscuss,
 }: {
-  detail: InitiativeDetail;
+  detail: IdeaDetail;
   onAction: (action: "retry" | "skip_downstream" | "abandon") => Promise<void>;
   onDiscuss: () => void;
 }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
   const [submitting, setSubmitting] = useState<string | null>(null);
   const state = d.executionState;
   if (!state) return null;
@@ -1143,8 +1143,8 @@ function ExecutionConcernsBanner({
 
 // ── Execution Summary Block (implemented) ────────────────────────────────────
 
-function ExecutionSummaryBlock({ detail: d }: { detail: InitiativeDetail }) {
-  const t = useTranslations("initiatives");
+function ExecutionSummaryBlock({ detail: d }: { detail: IdeaDetail }) {
+  const t = useTranslations("ideas");
   const summary = d.executionSummary;
   if (!summary) return null;
 
@@ -1192,8 +1192,8 @@ function ExecutionSummaryBlock({ detail: d }: { detail: InitiativeDetail }) {
 
 // ── Concerns List + Card (used by Overview tab + downstream tabs) ────────────
 
-function ConcernsList({ concerns, detail }: { concerns: ExecConcern[]; detail: InitiativeDetail }) {
-  const t = useTranslations("initiatives");
+function ConcernsList({ concerns, detail }: { concerns: ExecConcern[]; detail: IdeaDetail }) {
+  const t = useTranslations("ideas");
   const blocking = concerns.filter((c) => c.severity === "blocking");
   const warnings = concerns.filter((c) => c.severity === "warning");
 
@@ -1219,10 +1219,10 @@ function ConcernCard({
   severity,
 }: {
   concern: ExecConcern;
-  detail: InitiativeDetail;
+  detail: IdeaDetail;
   severity: "warning" | "blocking";
 }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
   const bg = severity === "blocking"
     ? "color-mix(in srgb, var(--danger) 10%, transparent)"
     : "color-mix(in srgb, var(--warn) 10%, transparent)";
@@ -1269,7 +1269,7 @@ function ConcernCard({
 // ── Downstream status badge ──────────────────────────────────────────────────
 
 function DownstreamStatusBadge({ status }: { status: string }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
   const colors: Record<string, { bg: string; fg: string }> = {
     pending: { bg: "var(--elevated)", fg: "var(--fg3)" },
     generating: { bg: "var(--hover)", fg: "var(--fg2)" },
@@ -1417,14 +1417,14 @@ function PrimaryDeliverableTab({
   onSaveStatusChange,
   onForceSaveRegister,
 }: {
-  detail: InitiativeDetail;
+  detail: IdeaDetail;
   editable: boolean;
   editorRef: RefObject<DeliverableEditorHandle>;
   onEditorStateChange: (state: { canUndo: boolean; canRedo: boolean }) => void;
   onSaveStatusChange: (status: SaveStatus) => void;
   onForceSaveRegister: (fn: () => void) => void;
 }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
   const primary = d.primaryDeliverable!;
 
   // ── Autosave state ──
@@ -1432,7 +1432,7 @@ function PrimaryDeliverableTab({
   // editor's live markdown to compute dirty vs clean.
   const lastSavedRef = useRef(primary.proposedContent ?? "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const initiativeId = d.id;
+  const ideaId = d.id;
 
   const buildBody = useCallback((content: string) => ({
     deliverable: {
@@ -1453,7 +1453,7 @@ function PrimaryDeliverableTab({
     }
     onSaveStatusChange("saving");
     try {
-      const res = await fetch(`/api/initiatives/${initiativeId}/deliverable`, {
+      const res = await fetch(`/api/ideas/${ideaId}/deliverable`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildBody(content)),
@@ -1465,7 +1465,7 @@ function PrimaryDeliverableTab({
       console.error("Autosave failed", err);
       onSaveStatusChange("error");
     }
-  }, [initiativeId, buildBody, onSaveStatusChange]);
+  }, [ideaId, buildBody, onSaveStatusChange]);
 
   const forceSave = useCallback(() => {
     if (debounceRef.current) {
@@ -1529,7 +1529,7 @@ function PrimaryDeliverableTab({
       }
       const md = editorRef.current?.getMarkdown();
       if (md !== undefined && md !== lastSavedRef.current) {
-        fetch(`/api/initiatives/${initiativeId}/deliverable`, {
+        fetch(`/api/ideas/${ideaId}/deliverable`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(buildBody(md)),
@@ -1735,11 +1735,11 @@ function DownstreamEffectTab({
   effect,
   index,
 }: {
-  detail: InitiativeDetail;
+  detail: IdeaDetail;
   effect: DownstreamEffect;
   index: number;
 }) {
-  const t = useTranslations("initiatives");
+  const t = useTranslations("ideas");
   const state = d.executionState?.downstream?.[index];
   const title = d.resolvedTargetTitles[effect.targetPageSlug] ?? effect.targetPageSlug;
   const currentContent = effect.changeType === "update"

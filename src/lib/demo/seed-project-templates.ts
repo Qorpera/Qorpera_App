@@ -2104,7 +2104,7 @@ const templates: TemplateInput[] = [
           title: "Strategic Recommendations",
           generationMode: "human_authored",
           description:
-            "Synthesize analysis into a recommended strategic direction with prioritized initiatives, resource requirements, and success metrics.",
+            "Synthesize analysis into a recommended strategic direction with prioritized ideas, resource requirements, and success metrics.",
         },
       ],
     },
@@ -2206,7 +2206,7 @@ const templates: TemplateInput[] = [
           title: "Digital Strategy Alignment",
           generationMode: "ai_assisted",
           description:
-            "Assess how well the organization's digital initiatives align with business strategy and competitive requirements.",
+            "Assess how well the organization's digital ideas align with business strategy and competitive requirements.",
         },
         {
           id: "technology_landscape",
@@ -2429,7 +2429,7 @@ const templates: TemplateInput[] = [
           title: "Implementation Roadmap",
           generationMode: "human_authored",
           description:
-            "Prioritize savings initiatives by impact, feasibility, and risk. Create a phased implementation plan with P&L impact timeline.",
+            "Prioritize savings ideas by impact, feasibility, and risk. Create a phased implementation plan with P&L impact timeline.",
         },
       ],
     },
@@ -2610,7 +2610,7 @@ const templates: TemplateInput[] = [
           title: "Cultural Integration & Change Management",
           generationMode: "ai_assisted",
           description:
-            "Assess cultural differences, design alignment initiatives, and plan communication strategies for combined workforce.",
+            "Assess cultural differences, design alignment ideas, and plan communication strategies for combined workforce.",
         },
         {
           id: "synergy_tracking",
@@ -4980,7 +4980,7 @@ const templates: TemplateInput[] = [
           title: "Carbon Reduction Action Plan",
           generationMode: "human_authored",
           description:
-            "Define specific reduction initiatives with abatement cost, timeline, and responsible owners. Prioritize by cost-effectiveness and feasibility.",
+            "Define specific reduction ideas with abatement cost, timeline, and responsible owners. Prioritize by cost-effectiveness and feasibility.",
         },
       ],
     },

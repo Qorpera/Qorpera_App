@@ -10,9 +10,9 @@ export const notificationStrings: Record<string, NotificationTemplates> = {
       title: `Situation resolved: ${ctx.name || ""}`,
       body: ctx.summary || "A situation has been resolved.",
     }),
-    initiative_proposed: (ctx) => ({
-      title: `New initiative: ${ctx.name || "Review needed"}`,
-      body: ctx.summary || "A new initiative has been proposed.",
+    idea_proposed: (ctx) => ({
+      title: `New idea: ${ctx.name || "Review needed"}`,
+      body: ctx.summary || "A new idea has been proposed.",
     }),
     step_ready: (ctx) => ({
       title: `Step ready for review: ${ctx.name || ""}`,
@@ -60,9 +60,9 @@ export const notificationStrings: Record<string, NotificationTemplates> = {
       title: `Situation løst: ${ctx.name || ""}`,
       body: ctx.summary || "En situation er blevet løst.",
     }),
-    initiative_proposed: (ctx) => ({
-      title: `Nyt initiativ: ${ctx.name || "Gennemgang nødvendig"}`,
-      body: ctx.summary || "Et nyt initiativ er blevet foreslået.",
+    idea_proposed: (ctx) => ({
+      title: `Ny idé: ${ctx.name || "Gennemgang nødvendig"}`,
+      body: ctx.summary || "En ny idé er blevet foreslået.",
     }),
     step_ready: (ctx) => ({
       title: `Trin klar til gennemgang: ${ctx.name || ""}`,

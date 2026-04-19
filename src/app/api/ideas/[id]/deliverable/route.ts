@@ -61,7 +61,7 @@ export async function PATCH(
   const page = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
-      pageType: "initiative",
+      pageType: "idea",
       scope: "operator",
       slug: id,
     },
@@ -73,7 +73,7 @@ export async function PATCH(
   const currentStatus = (props.status as string | undefined) ?? "proposed";
   if (currentStatus !== "proposed") {
     return NextResponse.json(
-      { error: `Can only edit deliverable of proposed initiatives (current: ${currentStatus})` },
+      { error: `Can only edit deliverable of proposed ideas (current: ${currentStatus})` },
       { status: 409 }
     );
   }
@@ -138,7 +138,7 @@ export async function PATCH(
 
   if (raced) {
     return NextResponse.json(
-      { error: "Initiative state changed during edit. Refresh and try again." },
+      { error: "Idea state changed during edit. Refresh and try again." },
       { status: 409 }
     );
   }

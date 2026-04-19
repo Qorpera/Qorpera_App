@@ -232,22 +232,22 @@ function buildSeedJobs(ctx: SeedJobContext): SeedJobInput[] {
     crossReferences: ownerSlug ? [ownerSlug] : [],
   });
 
-  // Job 5 — Initiative Acceptance Audit (kind=mixed, cron + event)
+  // Job 5 — Idea Acceptance Audit (kind=mixed, cron + event)
   jobs.push({
-    slug: "initiative-acceptance-audit",
-    title: "Initiative Acceptance Audit",
+    slug: "idea-acceptance-audit",
+    title: "Idea Acceptance Audit",
     properties: {
       status: "active",
-      description: "Reviews recently accepted initiatives for policy compliance. Runs Friday afternoons and wakes on any accept.",
+      description: "Reviews recently accepted ideas for policy compliance. Runs Friday afternoons and wakes on any accept.",
       triggers: [
         { type: "cron", expression: "0 16 * * 5" },
-        { type: "event", eventType: "initiative.accepted", filter: {} },
+        { type: "event", eventType: "idea.accepted", filter: {} },
       ],
       schedule: "0 16 * * 5",
       deliverable_kind: "mixed",
       trust_level: "propose",
       post_policy: "actionable_only",
-      anchor_pages: ["governance-policies", "initiative-acceptance-criteria"],
+      anchor_pages: ["governance-policies", "idea-acceptance-criteria"],
       reach_mode: "agentic",
       owner: ownerSlug,
       recipients,

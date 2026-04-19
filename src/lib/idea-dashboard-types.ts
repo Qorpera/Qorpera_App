@@ -44,7 +44,7 @@ const BaseCardFields = {
 
 export const ImpactBarDataSchema = z.object({
   baseline: QuantifiedValueSchema.describe("The current state — what the metric is today."),
-  projected: QuantifiedValueSchema.describe("The proposed or projected state after the initiative is implemented."),
+  projected: QuantifiedValueSchema.describe("The proposed or projected state after the idea is implemented."),
   savings: z.object({
     typicalValue: z.number(),
     range: z.object({ low: z.number(), high: z.number() }).optional(),
@@ -159,7 +159,7 @@ export const DonutDataSchema = z.object({
   segments: z.array(z.object({
     label: z.string().max(40).describe("Legend label for this segment."),
     value: z.number().nonnegative().describe("Numeric value. Rendered as-is; all segments together form the total."),
-    flag: z.enum(["primary", "secondary", "tertiary"]).describe("Visual prominence: 'primary' is the focal segment (what the initiative addresses), 'secondary' and 'tertiary' fade into gray."),
+    flag: z.enum(["primary", "secondary", "tertiary"]).describe("Visual prominence: 'primary' is the focal segment (what the idea addresses), 'secondary' and 'tertiary' fade into gray."),
   })).min(2).max(8),
 });
 
@@ -186,15 +186,15 @@ export const DashboardCardSchema = z.discriminatedUnion("primitive", [
 ]);
 export type DashboardCard = z.infer<typeof DashboardCardSchema>;
 
-export const InitiativeDashboardSchema = z.object({
+export const IdeaDashboardSchema = z.object({
   cards: z.array(DashboardCardSchema).min(0).max(6).describe("Ordered dashboard cards. Zero cards is valid when combined with fallback='prose_only'. Max 6 to enforce restraint."),
   fallback: z.enum(["prose_only"]).optional().describe("Set to 'prose_only' when the engine judges no quantified or structural content is available to visualize. When set, cards should be empty."),
 });
-export type InitiativeDashboard = z.infer<typeof InitiativeDashboardSchema>;
+export type IdeaDashboard = z.infer<typeof IdeaDashboardSchema>;
 
 // Refinements applied post-schema. Keep as a separate export so callers can
 // choose whether to validate coherence strictly or accept a lenient structural match.
-export const InitiativeDashboardSchemaStrict = InitiativeDashboardSchema.refine(
+export const IdeaDashboardSchemaStrict = IdeaDashboardSchema.refine(
   (d) => !(d.fallback === "prose_only" && d.cards.length > 0),
   { message: "When fallback is 'prose_only', cards must be empty." },
 ).refine(
