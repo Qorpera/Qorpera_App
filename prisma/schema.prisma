@@ -107,8 +107,7 @@ model Operator {
   contentChunks        ContentChunk[]
   initiatives          Initiative[]
   operationalInsights  OperationalInsight[]
-  systemJobs           SystemJob[]
-  systemJobRuns        SystemJobRun[]
+  systemJobIndices     SystemJobIndex[]
   priorityOverrides    PriorityOverride[]
   appSettings          AppSetting[]
   onboardingAnalysis   OnboardingAnalysis?
@@ -793,73 +792,29 @@ model Initiative {
 
 
 
-model SystemJob {
-  id                   String    @id @default(cuid())
-  operatorId           String
-  title                String
-  description          String   @db.Text
-  cronExpression       String
-  scope                String    @default("domain")
-  status               String    @default("proposed")
-  source               String    @default("manual")
-  importanceThreshold  Float     @default(0.3)
-  autoDispatchFindings Boolean   @default(false)
-  consecutiveApprovals Int       @default(0)
+model SystemJobIndex {
+  id                    String    @id @default(cuid())
+  wikiPageId            String    @unique
+  operatorId            String
+  slug                  String
+  status                String    // "active" | "paused" | "disabled" | "draft"
+  triggerTypes          String[]  // subset of ["cron", "event"]
+  cronExpression        String?
+  nextRunAt             DateTime?
+  subscribedEvents      String[]
+  eventFilters          Json?
+  creatorUserIdSnapshot String?   // Snapshot at creation; intentionally not a User FK — preserves audit trail even if user deleted
+  creatorRoleSnapshot   String?   // "member" | "admin" | "superadmin" at creation — bounds trust_level at runtime
+  deliverableKind       String    @default("proposals") // "report" | "proposals" | "edits" | "mixed"
+  trustLevel            String    @default("propose")   // "observe" | "propose" | "act"
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  // Entity fields — deprecated, kept optional for backward compat
-  aiEntityId           String?   // @deprecated
-  domainEntityId       String?   // @deprecated
-  assigneeEntityId     String?   // @deprecated
-  scopeEntityId        String?   // @deprecated
+  wikiPage              KnowledgePage @relation(fields: [wikiPageId], references: [id], onDelete: Cascade)
+  operator              Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
-  // Wiki page fields — the new way
-  wikiPageSlug         String?   // wiki page describing what this job does
-  ownerPageSlug        String?   // person page who receives findings
-  domainPageSlug       String?   // domain hub this job monitors
-  targetPageSlug       String?   // target page for monitoring
-
-  // Merged from RecurringTask
-  executionPlanTemplate String?  // JSON — if set, generates execution plans instead of reasoning
-  autoApproveSteps     Boolean   @default(false)
-
-  lastTriggeredAt      DateTime?
-  nextTriggerAt        DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  archetypeSlug        String?
-
-  operator    Operator       @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-  runs        SystemJobRun[]
-
-  @@index([operatorId, status])
-  @@index([status, nextTriggerAt])
-}
-
-model SystemJobRun {
-  id                      String   @id @default(cuid())
-  systemJobId             String
-  operatorId              String
-  cycleNumber             Int
-  status                  String   @default("running") // running | completed | failed | compressed
-  importanceScore         Float?
-  summary                 String?
-  analysisNarrative       String?  @db.Text
-  findings                Json? // Array of { title, description, category }
-  proposedSituationCount  Int      @default(0)
-  proposedInitiativeCount Int      @default(0)
-  selfAmendments          Json? // Array of { type, description, rationale }
-  cycleComparison         Json? // { keyChanges[], priorRecommendationOutcomes[] }
-  rawReasoning            String?  @db.Text // Full LLM output for debugging
-  tokenCost               Float?
-  durationMs              Int?
-  errorMessage            String?
-  createdAt               DateTime @default(now())
-
-  systemJob SystemJob @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
-  operator  Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
-
-  @@index([systemJobId, cycleNumber])
-  @@index([operatorId, createdAt])
+  @@index([operatorId, status, nextRunAt])
+  @@unique([operatorId, slug])
 }
 
 model OperationalInsight {
@@ -1415,6 +1370,7 @@ model KnowledgePage {
   sourceDocument SourceDocument?        @relation(fields: [sourceDocumentId], references: [id])
   versions       KnowledgePageVersion[]
   bookmarks      WikiBookmark[]
+  systemJobIndex SystemJobIndex?
 
   @@unique([operatorId, slug])
   @@unique([operatorId, projectId, subjectEntityId, pageType])
