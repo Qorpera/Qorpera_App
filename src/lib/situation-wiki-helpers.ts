@@ -176,6 +176,22 @@ export async function createSituationWikiPage(params: CreateSituationPageParams)
     select: { id: true },
   });
 
+  try {
+    const { emitEvent } = await import("@/lib/system-job-events");
+    await emitEvent({
+      type: "situation.detected",
+      operatorId: params.operatorId,
+      payload: {
+        situationType: (params.properties.situation_type as string) ?? "unknown",
+        severity: typeof params.properties.severity === "number" ? params.properties.severity : 0.5,
+        domain: typeof params.properties.domain === "string" ? params.properties.domain : null,
+        situationSlug: params.slug,
+      },
+    });
+  } catch (err) {
+    console.warn(`[event-emit] situation.detected failed:`, err);
+  }
+
   return page.id;
 }
 
@@ -201,6 +217,13 @@ export async function updateSituationWikiPage(params: UpdateSituationPageParams)
     return;
   }
 
+  const priorPage = await prisma.knowledgePage.findUnique({
+    where: { id: existing.id },
+    select: { properties: true },
+  });
+  const priorStatus = (priorPage?.properties as Record<string, unknown> | null)?.status as string | undefined;
+  const newStatus = params.properties.status as string | undefined;
+
   // searchVector is a STORED generated column — auto-updates when content changes
   await prisma.knowledgePage.update({
     where: { id: existing.id },
@@ -219,6 +242,25 @@ export async function updateSituationWikiPage(params: UpdateSituationPageParams)
       lastSynthesizedAt: new Date(),
     },
   });
+
+  if (priorStatus !== newStatus && (newStatus === "resolved" || newStatus === "escalated")) {
+    const eventType = newStatus === "resolved" ? "situation.resolved" : "situation.escalated";
+    try {
+      const { emitEvent } = await import("@/lib/system-job-events");
+      await emitEvent({
+        type: eventType,
+        operatorId: params.operatorId,
+        payload: {
+          situationType: (params.properties.situation_type as string) ?? "unknown",
+          severity: typeof params.properties.severity === "number" ? params.properties.severity : 0.5,
+          domain: typeof params.properties.domain === "string" ? params.properties.domain : null,
+          situationSlug: params.slug,
+        },
+      });
+    } catch (err) {
+      console.warn(`[event-emit] ${eventType} failed:`, err);
+    }
+  }
 }
 
 // ── Slug generation ──────────────────────────────────────────────────────────

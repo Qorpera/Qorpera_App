@@ -733,6 +733,23 @@ async function handleInitiativeCandidate(
     },
   });
 
+  try {
+    const { emitEvent } = await import("@/lib/system-job-events");
+    await emitEvent({
+      type: "initiative.proposed",
+      operatorId,
+      payload: {
+        proposalType: "general",
+        source: (initiativeProps.source as string) ?? "content_detected",
+        domain: (initiativeProps.domain as string) ?? null,
+        initiativeSlug,
+        sourceJobId: null,
+      },
+    });
+  } catch (err) {
+    console.warn(`[event-emit] initiative.proposed failed:`, err);
+  }
+
   // Enqueue reasoning — the initiative reasoning engine will investigate and
   // either dismiss (not valuable) or promote to "proposed" (user sees it)
   const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");

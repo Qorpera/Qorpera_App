@@ -42,6 +42,7 @@ const TYPE_GROUP_LABELS: Record<string, string> = {
   strategic_link: "Strategic Decisions",
   domain_hub: "Departments",
   system_job: "System Jobs",
+  system_job_run_report: "System Jobs",
   other: "Other",
 };
 

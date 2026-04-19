@@ -2,7 +2,6 @@ import { prisma } from "@/lib/db";
 import { auditPreFilters } from "@/lib/situation-audit";
 import { computePriorityScores } from "@/lib/prioritization-engine";
 
-import { processSystemJobs } from "@/lib/system-job-reasoning";
 import { startSyncScheduler, stopSyncScheduler } from "@/lib/sync-scheduler";
 import { assembleInitiativesFromBookmarks } from "@/lib/wiki-bookmark-assembly";
 import { checkSituationTimeouts } from "@/lib/situation-timeout-detector";
@@ -191,11 +190,13 @@ export function startCronScheduler() {
     }, 5 * 60 * 1000),
   );
 
-  // ── System Jobs: every 15 minutes ────────────────────────────────
+  // ── System Jobs: cron trigger poll every 15 minutes ────────────
+  // Event-triggered jobs bypass this loop and are enqueued directly by the event bus.
   timers.push(
     setInterval(async () => {
       try {
-        const result = await processSystemJobs();
+        const { processCronTriggers } = await import("@/lib/system-job-reasoning");
+        const result = await processCronTriggers();
         if (result.triggered > 0 || result.compressed > 0) {
           console.log(`[cron:system-jobs] Processed ${result.processed}, triggered ${result.triggered}, compressed ${result.compressed}, errors ${result.errors}`);
         }
@@ -203,6 +204,63 @@ export function startCronScheduler() {
         console.error("[cron:system-jobs] Error:", err);
       }
     }, 15 * 60 * 1000),
+  );
+
+  // ── System Jobs: daily index reconcile ──────────────────────────
+  // Insurance against sustained rebuildSystemJobIndex failures from the wiki save hook.
+  // Finds system_job wiki pages that either have no SystemJobIndex row OR whose index
+  // is older than the page's own updatedAt. Rebuilds them.
+  timers.push(
+    setInterval(async () => {
+      try {
+        const operators = await prisma.operator.findMany({
+          where: { isTestOperator: false },
+          select: { id: true },
+        });
+        let totalRebuilt = 0;
+        for (const op of operators) {
+          try {
+            const pages = await prisma.knowledgePage.findMany({
+              where: { operatorId: op.id, pageType: "system_job", scope: "operator" },
+              select: { id: true, slug: true, operatorId: true, scope: true, properties: true, updatedAt: true },
+            });
+            if (pages.length === 0) continue;
+
+            const indexRows = await prisma.systemJobIndex.findMany({
+              where: { wikiPageId: { in: pages.map(p => p.id) } },
+              select: { wikiPageId: true, updatedAt: true },
+            });
+            const indexMap = new Map(indexRows.map(r => [r.wikiPageId, r.updatedAt]));
+
+            const { rebuildSystemJobIndex } = await import("@/lib/system-job-index");
+            for (const page of pages) {
+              const idxUpdatedAt = indexMap.get(page.id);
+              const needsRebuild = !idxUpdatedAt || idxUpdatedAt < page.updatedAt;
+              if (!needsRebuild) continue;
+              try {
+                await rebuildSystemJobIndex({
+                  wikiPageId: page.id,
+                  operatorId: op.id,
+                  slug: page.slug,
+                  scope: page.scope,
+                  properties: page.properties,
+                });
+                totalRebuilt++;
+              } catch (err) {
+                console.error(`[cron:sj-reconcile] Failed to rebuild ${page.slug}:`, err);
+              }
+            }
+          } catch (err) {
+            console.error(`[cron:sj-reconcile] Operator ${op.id} failed:`, err);
+          }
+        }
+        if (totalRebuilt > 0) {
+          console.log(`[cron:sj-reconcile] Rebuilt ${totalRebuilt} stale/missing SystemJobIndex rows`);
+        }
+      } catch (err) {
+        console.error("[cron:sj-reconcile] Error:", err);
+      }
+    }, 24 * 60 * 60 * 1000),
   );
 
   // ── Wiki Strategic Scanner: activity-aware interval ──
@@ -420,7 +478,7 @@ export function startCronScheduler() {
   // ── Sync Scheduler ──────────────────────────────────────────────────
   startSyncScheduler();
 
-  console.log("[cron] Started: detection(15m), audit(24h), insights(24h), priorities(6h), stale-jobs(5m), system-jobs(15m), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d), activity-cleanup(6h)");
+  console.log("[cron] Started: detection(15m), audit(24h), insights(24h), priorities(6h), stale-jobs(5m), system-jobs(15m cron + 24h reconcile), sync-scheduler, retention(24h), strategic-scan(2h), calendar-scanner(4h), timeout-check(4h), living-research(2h), quality-monitor(12h), quality-loop(7d), activity-cleanup(6h)");
 }
 
 export function stopCronScheduler() {

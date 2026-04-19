@@ -168,17 +168,22 @@ async function executeCreateSystemJob(
   const domainPageSlug = params.domainPageSlug ? String(params.domainPageSlug) : null;
 
   // Dedup check
-  const existing = await prisma.systemJob.findFirst({
+  const existing = await prisma.knowledgePage.findFirst({
     where: {
       operatorId,
+      pageType: "system_job",
+      scope: "operator",
       title: { contains: title, mode: "insensitive" },
-      status: { notIn: ["deactivated"] },
+      NOT: {
+        properties: { path: ["status"], string_contains: "disabled" },
+      },
     },
+    select: { id: true, slug: true, title: true },
   });
   if (existing) {
     return {
       type: "data",
-      payload: { systemJobId: existing.id, title: existing.title, alreadyExists: true },
+      payload: { systemJobId: existing.id, slug: existing.slug, title: existing.title, alreadyExists: true },
       description: `System Job already exists: ${existing.title}`,
     };
   }
@@ -190,7 +195,7 @@ async function executeCreateSystemJob(
 
   // Create wiki page for the job
   const slug = `system-job-${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
-  await prisma.knowledgePage.create({
+  const createdPage = await prisma.knowledgePage.create({
     data: {
       operatorId,
       slug,
@@ -206,22 +211,21 @@ async function executeCreateSystemJob(
       contentTokens: 0,
       lastSynthesizedAt: now,
     },
+    select: { id: true, operatorId: true, slug: true, scope: true, properties: true },
   });
 
-  const systemJob = await prisma.systemJob.create({
-    data: {
-      operatorId,
-      title,
-      description,
-      cronExpression,
-      scope,
-      wikiPageSlug: slug,
-      domainPageSlug,
-      status: "proposed",
-      source: "initiative",
-      nextTriggerAt,
-    },
-  });
+  try {
+    const { rebuildSystemJobIndex } = await import("@/lib/system-job-index");
+    await rebuildSystemJobIndex({
+      wikiPageId: createdPage.id,
+      operatorId: createdPage.operatorId!,
+      slug: createdPage.slug,
+      scope: createdPage.scope,
+      properties: createdPage.properties,
+    });
+  } catch (err) {
+    console.error(`[internal-capabilities] Failed to rebuild index for ${createdPage.slug}:`, err);
+  }
 
   // Notify admins
   const { sendNotificationToAdmins } = await import("@/lib/notification-dispatch");
@@ -231,18 +235,17 @@ async function executeCreateSystemJob(
     title: `System Job proposed: ${title}`,
     body: `A new System Job has been proposed via initiative. ${description.slice(0, 150)}`,
     sourceType: "system_job",
-    sourceId: systemJob.id,
+    sourceId: createdPage.id,
   }).catch(() => {});
 
   return {
     type: "data",
     payload: {
-      systemJobId: systemJob.id,
-      title: systemJob.title,
-      status: "proposed",
-      cronExpression: systemJob.cronExpression,
-      nextTriggerAt: systemJob.nextTriggerAt?.toISOString() ?? null,
+      slug: createdPage.slug,
+      title,
+      created: true,
+      nextTriggerAt: nextTriggerAt.toISOString(),
     },
-    description: `System Job proposed: ${title}. Requires admin approval to activate.`,
+    description: `System Job "${title}" created with slug ${createdPage.slug}. Next run: ${nextTriggerAt.toISOString()}.`,
   };
 }

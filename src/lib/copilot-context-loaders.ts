@@ -166,55 +166,62 @@ function formatHealthContext(
 export async function loadSystemJobsContext(
   operatorId: string,
 ): Promise<string | null> {
-  const jobs = await prisma.systemJob.findMany({
-    where: { operatorId },
-    orderBy: { createdAt: "desc" },
-    include: {
-      runs: {
-        orderBy: { createdAt: "desc" },
-        take: 1,
-        select: { summary: true, importanceScore: true, status: true, createdAt: true },
-      },
+  const pages = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "system_job", scope: "operator" },
+    select: {
+      id: true,
+      slug: true,
+      title: true,
+      properties: true,
+      createdAt: true,
     },
+    orderBy: { createdAt: "desc" },
   });
 
-  if (jobs.length === 0) return null;
+  if (pages.length === 0) return null;
 
   // Resolve domain names from wiki pages
-  const domainSlugs = jobs.map(j => j.domainPageSlug).filter(Boolean) as string[];
+  const domainSlugs = pages
+    .map(p => (p.properties as Record<string, unknown> | null)?.domain)
+    .filter((s): s is string => typeof s === "string");
   const pageNameMap = new Map<string, string>();
   if (domainSlugs.length > 0) {
-    const pages = await prisma.knowledgePage.findMany({
+    const domainPages = await prisma.knowledgePage.findMany({
       where: { operatorId, slug: { in: [...new Set(domainSlugs)] }, scope: "operator" },
       select: { slug: true, title: true },
     });
-    for (const p of pages) pageNameMap.set(p.slug, p.title);
+    for (const p of domainPages) pageNameMap.set(p.slug, p.title);
   }
 
   const lines: string[] = ["SYSTEM JOBS CONTEXT:\n"];
 
-  lines.push(`Total jobs: ${jobs.length} (${jobs.filter(j => j.status === "active").length} active, ${jobs.filter(j => j.status === "paused").length} paused, ${jobs.filter(j => j.status === "proposed").length} proposed)\n`);
+  // Status counts from wiki properties
+  const activeCount = pages.filter(p => (p.properties as Record<string, unknown> | null)?.status === "active").length;
+  const pausedCount = pages.filter(p => (p.properties as Record<string, unknown> | null)?.status === "paused").length;
+  const draftCount = pages.filter(p => (p.properties as Record<string, unknown> | null)?.status === "draft").length;
 
-  for (const job of jobs) {
-    const latestRun = job.runs[0];
-    lines.push(`## ${job.title} [${job.status}]`);
-    const domainName = job.domainPageSlug ? pageNameMap.get(job.domainPageSlug) : null;
-    if (domainName) lines.push(`  Domain: ${domainName}`);
-    lines.push(`  Schedule: ${job.cronExpression}`);
-    lines.push(`  Importance threshold: ${(job.importanceThreshold * 100).toFixed(0)}%`);
-    lines.push(`  Description: ${job.description}`);
-    if (job.lastTriggeredAt) {
-      lines.push(`  Last triggered: ${job.lastTriggeredAt.toISOString().split("T")[0]}`);
+  lines.push(`Total jobs: ${pages.length} (${activeCount} active, ${pausedCount} paused, ${draftCount} draft)\n`);
+
+  for (const page of pages) {
+    const props = (page.properties ?? {}) as Record<string, unknown>;
+    const status = typeof props.status === "string" ? props.status : "unknown";
+    const latestSummary = typeof props.latest_run_summary === "string" ? props.latest_run_summary : null;
+    const latestStatus = typeof props.latest_run_status === "string" ? props.latest_run_status : null;
+    const importance = typeof props.latest_run_importance === "number" ? props.latest_run_importance : null;
+
+    lines.push(`## ${page.title} [${status}]`);
+    lines.push(`  Slug: ${page.slug}`);
+
+    const domainSlug = typeof props.domain === "string" ? props.domain : null;
+    if (domainSlug) {
+      lines.push(`  Domain: ${pageNameMap.get(domainSlug) ?? domainSlug}`);
     }
-    if (job.nextTriggerAt) {
-      lines.push(`  Next trigger: ${job.nextTriggerAt.toISOString()}`);
+
+    if (latestSummary || latestStatus) {
+      const importanceStr = importance !== null ? ` (importance ${importance.toFixed(2)})` : "";
+      lines.push(`  Latest run: ${latestStatus ?? "unknown"}${importanceStr} — ${latestSummary ?? "no summary"}`);
     }
-    if (latestRun) {
-      lines.push(`  Latest run: ${latestRun.status}${latestRun.importanceScore != null ? ` (importance: ${(latestRun.importanceScore * 100).toFixed(0)}%)` : ""}`);
-      if (latestRun.summary) {
-        lines.push(`  Summary: ${latestRun.summary.slice(0, 300)}`);
-      }
-    }
+
     lines.push("");
   }
 

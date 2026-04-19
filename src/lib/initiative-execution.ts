@@ -627,7 +627,6 @@ async function applyChange(
       // Sync changed properties to DB record if this page is backed by one
       if (change.proposedProperties) {
         await syncProjectFromPropertyChanges(operatorId, change.targetPageSlug, change.proposedProperties);
-        await syncSystemJobFromPropertyChanges(operatorId, change.targetPageSlug, change.proposedProperties);
       }
       return { appliedSlug: change.targetPageSlug };
     }
@@ -647,11 +646,10 @@ async function applyChange(
         synthesizedByModel: change.model,
       });
 
-      // Conditionally create the corresponding DB record for project/system_job pages
+      // Conditionally create the corresponding DB record for project pages.
+      // system_job pages are registered via the SystemJobIndex rebuild hook inside createPage (wiki-engine).
       if (change.targetPageType === "project") {
         await createProjectRecord(operatorId, change, extras);
-      } else if (change.targetPageType === "system_job") {
-        await createSystemJobRecord(operatorId, change);
       }
       return { appliedSlug: change.targetPageSlug };
     }
@@ -864,61 +862,6 @@ async function createProjectRecord(
   }
 }
 
-async function createSystemJobRecord(
-  operatorId: string,
-  change: WikiCreateChange,
-): Promise<void> {
-  if (!change.targetPageSlug) return;
-  const props = change.proposedProperties ?? {};
-  const description = (props.description as string | undefined)
-    ?? change.proposedContent.slice(0, 500);
-  const cronExpression = (props.cron_expression as string | undefined)
-    ?? (props.schedule as string | undefined)
-    ?? "0 9 * * 1"; // default: Monday 09:00 if unspecified
-
-  let nextTriggerAt: Date | null = null;
-  try {
-    const { CronExpressionParser } = await import("cron-parser");
-    nextTriggerAt = CronExpressionParser.parse(cronExpression).next().toDate();
-  } catch (err) {
-    console.warn(
-      `[initiative-execution] Invalid cron "${cronExpression}" for ${change.targetPageSlug}; next trigger left null:`,
-      err,
-    );
-  }
-
-  try {
-    const job = await prisma.systemJob.create({
-      data: {
-        operatorId,
-        title: change.title || change.targetPageSlug,
-        description,
-        cronExpression,
-        scope: (props.scope as string) ?? "domain",
-        status: (props.status as string) ?? "active",
-        source: "initiative",
-        importanceThreshold: typeof props.importance_threshold === "number"
-          ? (props.importance_threshold as number)
-          : 0.3,
-        wikiPageSlug: change.targetPageSlug,
-        ownerPageSlug: (props.owner as string | undefined) ?? null,
-        domainPageSlug: (props.domain as string | undefined) ?? null,
-        targetPageSlug: (props.target_page as string | undefined) ?? null,
-        nextTriggerAt,
-      },
-    });
-
-    console.log(
-      `[initiative-execution] Created SystemJob record ${job.id} for wiki page ${change.targetPageSlug}`,
-    );
-  } catch (err) {
-    console.warn(
-      `[initiative-execution] SystemJob DB creation failed for ${change.targetPageSlug}:`,
-      err,
-    );
-  }
-}
-
 // ── Property sync helpers (wiki_update) ─────────────────────────────────────
 
 async function syncProjectFromPropertyChanges(
@@ -955,54 +898,3 @@ async function syncProjectFromPropertyChanges(
   }
 }
 
-async function syncSystemJobFromPropertyChanges(
-  operatorId: string,
-  wikiPageSlug: string,
-  newProperties: Record<string, unknown>,
-): Promise<void> {
-  const jobs = await prisma.systemJob.findMany({
-    where: { operatorId, wikiPageSlug },
-    select: { id: true, cronExpression: true },
-  });
-  if (jobs.length === 0) return;
-
-  const updates: Record<string, unknown> = {};
-  if (typeof newProperties.status === "string") updates.status = newProperties.status;
-  if (typeof newProperties.description === "string") updates.description = newProperties.description;
-
-  // Accept both cron_expression and schedule (the wiki schema canonical property)
-  const nextCron = (typeof newProperties.cron_expression === "string"
-    ? newProperties.cron_expression
-    : typeof newProperties.schedule === "string"
-    ? newProperties.schedule
-    : undefined);
-  if (nextCron) {
-    updates.cronExpression = nextCron;
-    try {
-      const { CronExpressionParser } = await import("cron-parser");
-      updates.nextTriggerAt = CronExpressionParser.parse(nextCron).next().toDate();
-    } catch {
-      // keep existing nextTriggerAt on parse failure
-    }
-  }
-
-  if (typeof newProperties.importance_threshold === "number") {
-    updates.importanceThreshold = newProperties.importance_threshold;
-  }
-  if (typeof newProperties.scope === "string") updates.scope = newProperties.scope;
-  if (typeof newProperties.owner === "string") updates.ownerPageSlug = newProperties.owner;
-  if (typeof newProperties.domain === "string") updates.domainPageSlug = newProperties.domain;
-  if (typeof newProperties.target_page === "string") updates.targetPageSlug = newProperties.target_page;
-
-  if (Object.keys(updates).length === 0) return;
-
-  for (const j of jobs) {
-    await prisma.systemJob.update({
-      where: { id: j.id },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data: updates as any,
-    }).catch((err) => {
-      console.warn(`[initiative-execution] SystemJob sync failed for ${j.id}:`, err);
-    });
-  }
-}

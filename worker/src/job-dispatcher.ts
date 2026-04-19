@@ -337,6 +337,20 @@ const handlers: Record<string, (payload: JobPayload) => Promise<void>> = {
     console.log(`[clean_activity] Operator ${operatorId}: ${result.pagesCleanedUp} pages, ${result.entriesRemoved} entries removed, ${result.entriesCompressed} compressed`);
   },
 
+  async run_system_job(payload) {
+    const { systemJobIndexId, triggerContext, triggerChain } = payload as {
+      systemJobIndexId: string;
+      triggerContext: { triggerType: "cron" | "event"; eventType?: string; payload?: Record<string, unknown> };
+      triggerChain?: string[];
+    };
+    const { runSystemJobByIndex } = await import("@/lib/system-job-reasoning");
+    await runSystemJobByIndex({
+      systemJobIndexId,
+      triggerContext,
+      triggerChain: triggerChain ?? [],
+    });
+  },
+
 };
 
 export async function dispatchJob(jobType: string, payload: JobPayload): Promise<void> {

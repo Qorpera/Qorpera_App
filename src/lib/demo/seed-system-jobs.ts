@@ -1,125 +1,317 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { rebuildSystemJobIndex } from "@/lib/system-job-index";
 
 /**
- * Seed default system jobs for a new operator.
- * Called after onboarding confirmation. Idempotent — skips jobs that already exist by title.
+ * Seed default system jobs for a new operator as wiki pages.
+ * Called after onboarding confirmation and from the admin seed-synthetic route.
+ * Idempotent via upsert on (operatorId, slug).
+ *
+ * Returns the number of jobs created or updated.
  */
 export async function seedDefaultSystemJobs(operatorId: string): Promise<number> {
-  // Find a domain hub wiki page for domainPageSlug
-  const domainHub = await prisma.knowledgePage.findFirst({
-    where: { operatorId, pageType: "domain_overview" },
-    select: { slug: true },
-  });
-
-  // Find the admin user's wiki page slug for ownerPageSlug
   const adminUser = await prisma.user.findFirst({
     where: { operatorId, role: "admin" },
-    select: { wikiPageSlug: true },
+    select: { id: true, wikiPageSlug: true },
   });
-  const ownerSlug = adminUser?.wikiPageSlug ?? null;
 
-  const defaults: Array<{
-    title: string;
-    description: string;
-    cronExpression: string;
-    scope: string;
-    importanceThreshold?: number;
-  }> = [
-    {
-      title: "Competitive Intelligence Monitor",
-      description: `Monitor the competitive landscape for this company.
-Investigate: What are competitors doing? Are there new entrants? What are the pricing trends?
-Search the web for competitor announcements, product launches, pricing changes, funding rounds.
-Read our wiki strategy pages to understand our positioning and identify threats or opportunities.
-Propose initiatives when you find something that requires a strategic response.`,
-      cronExpression: "0 8 * * 1,4",
-      scope: "company_wide",
-    },
-    {
-      title: "Marketing & Growth Tracker",
-      description: `Track marketing and growth activities for this company.
-Investigate: What marketing activities should be happening? What content should be published? Are we meeting our outreach targets?
-Read wiki pages about marketing strategy, target audience, and content plans.
-Compare what SHOULD be happening against what IS happening (check activity signals, communications).
-Propose initiatives for content creation, campaign launches, outreach improvements.
-Search the web for industry trends and marketing best practices relevant to our market.`,
-      cronExpression: "0 9 * * 1,3,5",
-      scope: "company_wide",
-    },
-    {
-      title: "Financial Health Review",
-      description: `Monitor the financial health of this company.
-Investigate: What is the current runway? Are there cost optimization opportunities? Are billing/pricing assumptions holding?
-Read wiki pages about financial strategy, pricing model, cost structure.
-Check financial signals and accounting data for anomalies.
-Propose initiatives for cost reductions, pricing adjustments, or financial process improvements.`,
-      cronExpression: "0 7 * * 1",
-      scope: "company_wide",
-    },
-    {
-      title: "Legal & Compliance Watch",
-      description: `Monitor legal and regulatory compliance for this company.
-Investigate: What legal steps are pending (incorporation, contracts, IP)? Are there regulatory changes affecting us?
-Read wiki pages about legal status, compliance requirements, data protection.
-Search the web for regulatory updates (EU AI Act, GDPR changes, Danish business law).
-Propose initiatives for legal actions, compliance updates, or contract needs.`,
-      cronExpression: "0 8 * * 3",
-      scope: "company_wide",
-    },
-    {
-      title: "Product & Engineering Health",
-      description: `Monitor the product and engineering health of this company.
-Investigate: Are there architectural decisions that need revisiting? Bug patterns? Performance concerns? Feature gaps?
-Read wiki pages about product strategy, technical architecture, known issues.
-Check activity signals for development patterns.
-Propose initiatives for technical improvements, feature development, or architecture changes.`,
-      cronExpression: "0 9 * * 2,4",
-      scope: "company_wide",
-    },
-    {
-      title: "Strategic Planning Review",
-      description: `Conduct a strategic review of the company's overall direction.
-Investigate: Are we executing on our strategy? What are the biggest risks and opportunities?
-Read ALL wiki pages to build a comprehensive picture.
-Search the web for market developments, funding landscape, potential partners.
-Compare stated strategy against actual execution signals.
-Propose initiatives for strategic pivots, partnership opportunities, or priority changes.
-This job should have a higher bar — only propose when something genuinely warrants strategic attention.`,
-      cronExpression: "0 7 * * 5",
-      scope: "company_wide",
-      importanceThreshold: 0.5,
-    },
-  ];
+  const domainHubs = await prisma.knowledgePage.findMany({
+    where: { operatorId, pageType: "domain_hub", scope: "operator" },
+    select: { slug: true, title: true },
+    take: 20,
+  });
+
+  const normalizeKey = (s: string): string =>
+    s.toLowerCase().replace(/^domain[-_]?(hub[-_])?/, "");
+
+  const domainMap = new Map<string, string>();
+  for (const d of domainHubs) {
+    domainMap.set(normalizeKey(d.slug), d.slug);
+  }
+
+  const firstDomain = domainHubs[0]?.slug ?? null;
+  const pickDomain = (preferred: string): string | null =>
+    domainMap.get(normalizeKey(preferred)) ?? firstDomain;
+
+  const ownerSlug = adminUser?.wikiPageSlug ?? null;
+  const adminUserId = adminUser?.id ?? null;
+
+  const seedJobs = buildSeedJobs({
+    ownerSlug,
+    adminUserId,
+    pickDomain,
+    allDomainSlugs: domainHubs.map(d => d.slug),
+  });
 
   let created = 0;
-  const { CronExpressionParser } = await import("cron-parser");
-
-  for (const job of defaults) {
-    const existing = await prisma.systemJob.findFirst({
-      where: { operatorId, title: job.title },
-    });
-    if (existing) continue;
-
-    const interval = CronExpressionParser.parse(job.cronExpression);
-    const nextTrigger = interval.next().toDate();
-
-    await prisma.systemJob.create({
-      data: {
-        operatorId,
-        title: job.title,
-        description: job.description,
-        cronExpression: job.cronExpression,
-        scope: job.scope,
-        status: "active",
-        importanceThreshold: job.importanceThreshold ?? 0.3,
-        nextTriggerAt: nextTrigger,
-        source: "onboarding",
-        ownerPageSlug: ownerSlug,
-        domainPageSlug: domainHub?.slug ?? null,
-      },
-    });
+  for (const job of seedJobs) {
+    await createOrUpdateJobPage(operatorId, job);
     created++;
   }
 
   return created;
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface SeedJobInput {
+  slug: string;
+  title: string;
+  properties: Record<string, unknown>;
+  crossReferences: string[];
+}
+
+interface SeedJobContext {
+  ownerSlug: string | null;
+  adminUserId: string | null;
+  pickDomain: (preferred: string) => string | null;
+  allDomainSlugs: string[];
+}
+
+// ── Upsert helper ────────────────────────────────────────────────────────────
+
+async function createOrUpdateJobPage(operatorId: string, job: SeedJobInput): Promise<void> {
+  const content = renderJobContent(job);
+
+  const page = await prisma.knowledgePage.upsert({
+    where: { operatorId_slug: { operatorId, slug: job.slug } },
+    create: {
+      operatorId,
+      slug: job.slug,
+      title: job.title,
+      pageType: "system_job",
+      scope: "operator",
+      status: "verified",
+      content,
+      contentTokens: Math.ceil(content.length / 4),
+      crossReferences: job.crossReferences,
+      properties: job.properties as Prisma.InputJsonValue,
+      synthesisPath: "onboarding",
+      synthesizedByModel: "seed",
+      confidence: 1.0,
+      lastSynthesizedAt: new Date(),
+    },
+    update: {
+      title: job.title,
+      content,
+      contentTokens: Math.ceil(content.length / 4),
+      crossReferences: job.crossReferences,
+      properties: job.properties as Prisma.InputJsonValue,
+      status: "verified",
+    },
+  });
+
+  // Direct prisma.knowledgePage.upsert bypasses the /api/wiki/[slug] hook,
+  // so we rebuild the SystemJobIndex explicitly.
+  await rebuildSystemJobIndex({
+    wikiPageId: page.id,
+    operatorId,
+    slug: page.slug,
+    scope: page.scope,
+    properties: page.properties,
+  });
+}
+
+// ── The five jobs ────────────────────────────────────────────────────────────
+
+function buildSeedJobs(ctx: SeedJobContext): SeedJobInput[] {
+  const { ownerSlug, adminUserId, pickDomain, allDomainSlugs } = ctx;
+  const recipients = ownerSlug ? [ownerSlug] : [];
+
+  const jobs: SeedJobInput[] = [];
+
+  // Job 1 — Weekly Performance Evaluation (kind=proposals, cron-only, trust=propose)
+  const managementDomain = pickDomain("management");
+  jobs.push({
+    slug: "weekly-performance-evaluation",
+    title: "Weekly Performance Evaluation & Purpose Orientation",
+    properties: {
+      status: "active",
+      description: "Evaluates the week's operating activity against stated purpose, surfacing drift and strategic-link candidates for leadership.",
+      triggers: [{ type: "cron", expression: "0 17 * * 5" }],
+      schedule: "0 17 * * 5",
+      deliverable_kind: "proposals",
+      trust_level: "propose",
+      post_policy: "importance_threshold",
+      importance_threshold: 0.3,
+      anchor_pages: [managementDomain, "company-overview"].filter(Boolean),
+      reach_mode: "domain_bounded",
+      domain_scope: managementDomain ? [managementDomain] : [],
+      owner: ownerSlug,
+      domain: managementDomain,
+      recipients,
+      budget_soft_tool_calls: 15,
+      budget_hard_tool_calls: 25,
+      dedup_window_runs: 3,
+      creator_user_id_snapshot: adminUserId,
+      creator_role_snapshot: "admin",
+    },
+    crossReferences: [managementDomain, ownerSlug].filter((x): x is string => Boolean(x)),
+  });
+
+  // Job 2 — Overdue Invoices Daily Check (kind=report, cron-only, trust=observe)
+  const financeDomain = pickDomain("finance");
+  jobs.push({
+    slug: "overdue-invoices-daily-check",
+    title: "Overdue Invoices — Daily Report",
+    properties: {
+      status: "active",
+      description: "Daily morning report of overdue invoices, aging buckets, and collection priorities.",
+      triggers: [{ type: "cron", expression: "0 8 * * 1-5" }],
+      schedule: "0 8 * * 1-5",
+      deliverable_kind: "report",
+      trust_level: "observe",
+      post_policy: "always",
+      anchor_pages: [financeDomain, "ar-aging-policy"].filter(Boolean),
+      reach_mode: "pinned_only",
+      owner: ownerSlug,
+      domain: financeDomain,
+      recipients,
+      budget_soft_tool_calls: 8,
+      budget_hard_tool_calls: 12,
+      creator_user_id_snapshot: adminUserId,
+      creator_role_snapshot: "admin",
+    },
+    crossReferences: [financeDomain, ownerSlug].filter((x): x is string => Boolean(x)),
+  });
+
+  // Job 3 — Strategic Link Candidate Scout (kind=edits, cron-only, trust=act)
+  const strategyDomain = pickDomain("strategy");
+  jobs.push({
+    slug: "strategic-link-scout",
+    title: "Strategic Link Candidate Scout",
+    properties: {
+      status: "active",
+      description: "Scans weekly for new strategic-link candidates and appends to the watchlist wiki page.",
+      triggers: [{ type: "cron", expression: "0 9 * * 1" }],
+      schedule: "0 9 * * 1",
+      deliverable_kind: "edits",
+      trust_level: "act",
+      post_policy: "actionable_only",
+      anchor_pages: [strategyDomain, "strategic-link-watchlist"].filter(Boolean),
+      reach_mode: "agentic",
+      owner: ownerSlug,
+      domain: strategyDomain,
+      recipients,
+      budget_soft_tool_calls: 12,
+      budget_hard_tool_calls: 20,
+      creator_user_id_snapshot: adminUserId,
+      creator_role_snapshot: "admin",
+    },
+    crossReferences: [strategyDomain, ownerSlug].filter((x): x is string => Boolean(x)),
+  });
+
+  // Job 4 — Situation Escalation Monitor (kind=proposals, event-only)
+  jobs.push({
+    slug: "situation-escalation-monitor",
+    title: "Situation Escalation Monitor",
+    properties: {
+      status: "active",
+      description: "Wakes on any high-severity situation escalation and evaluates whether executive attention is warranted.",
+      triggers: [
+        {
+          type: "event",
+          eventType: "situation.escalated",
+          filter: { severity: { op: "gte", value: 0.8 } },
+        },
+      ],
+      schedule: "",
+      deliverable_kind: "proposals",
+      trust_level: "propose",
+      post_policy: "always",
+      anchor_pages: ["escalation-playbook"],
+      reach_mode: "domain_bounded",
+      domain_scope: allDomainSlugs,
+      owner: ownerSlug,
+      recipients,
+      budget_soft_tool_calls: 6,
+      budget_hard_tool_calls: 10,
+      creator_user_id_snapshot: adminUserId,
+      creator_role_snapshot: "admin",
+    },
+    crossReferences: ownerSlug ? [ownerSlug] : [],
+  });
+
+  // Job 5 — Initiative Acceptance Audit (kind=mixed, cron + event)
+  jobs.push({
+    slug: "initiative-acceptance-audit",
+    title: "Initiative Acceptance Audit",
+    properties: {
+      status: "active",
+      description: "Reviews recently accepted initiatives for policy compliance. Runs Friday afternoons and wakes on any accept.",
+      triggers: [
+        { type: "cron", expression: "0 16 * * 5" },
+        { type: "event", eventType: "initiative.accepted", filter: {} },
+      ],
+      schedule: "0 16 * * 5",
+      deliverable_kind: "mixed",
+      trust_level: "propose",
+      post_policy: "actionable_only",
+      anchor_pages: ["governance-policies", "initiative-acceptance-criteria"],
+      reach_mode: "agentic",
+      owner: ownerSlug,
+      recipients,
+      budget_soft_tool_calls: 10,
+      budget_hard_tool_calls: 18,
+      creator_user_id_snapshot: adminUserId,
+      creator_role_snapshot: "admin",
+    },
+    crossReferences: ownerSlug ? [ownerSlug] : [],
+  });
+
+  return jobs;
+}
+
+// ── Content rendering ────────────────────────────────────────────────────────
+
+function renderJobContent(job: SeedJobInput): string {
+  const props = job.properties;
+  const triggers = (props.triggers as Array<{ type: string; expression?: string; eventType?: string }>) ?? [];
+  const triggerLines = triggers.map(t => {
+    if (t.type === "cron") return `- Cron: \`${t.expression}\``;
+    if (t.type === "event") return `- Event: \`${t.eventType}\``;
+    return `- ${t.type}`;
+  }).join("\n");
+
+  const anchors = Array.isArray(props.anchor_pages) && (props.anchor_pages as string[]).length > 0
+    ? `Always reads anchor pages: ${(props.anchor_pages as string[]).map(s => `[[${s}]]`).join(", ")}.`
+    : "No pinned anchor pages.";
+
+  const recipientsList = Array.isArray(props.recipients) && (props.recipients as string[]).length > 0
+    ? (props.recipients as string[]).map(r => `- [[${r}]]`).join("\n")
+    : "No recipients configured.";
+
+  return `# ${job.title}
+
+## Purpose
+
+${props.description ?? ""}
+
+## Scope
+
+Reach mode: \`${props.reach_mode ?? "agentic"}\`. ${anchors}
+
+## Method
+
+On each trigger, the agent reads anchor pages, optionally explores the wider wiki (per reach mode), and produces a \`${props.deliverable_kind}\` deliverable.
+
+## Output
+
+Deliverable kind: **${props.deliverable_kind}**. Trust level: **${props.trust_level}**. Post policy: **${props.post_policy}**${typeof props.importance_threshold === "number" ? ` (threshold ${props.importance_threshold})` : ""}.
+
+## Recipients
+
+${recipientsList}
+
+## Configuration
+
+Triggers:
+${triggerLines || "- (none)"}
+
+Budget: soft ${props.budget_soft_tool_calls ?? 15} / hard ${props.budget_hard_tool_calls ?? 25} tool calls.
+
+## Execution History
+
+_No runs yet._
+`;
 }

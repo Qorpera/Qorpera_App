@@ -261,6 +261,10 @@ export async function PATCH(
   if (page) {
     const { updatePageWithLock } = await import("@/lib/wiki-engine");
 
+    const pageProps = (page.properties ?? {}) as Record<string, unknown>;
+    const proposalType = (pageProps.proposal_type as string) ?? "general";
+    const domain = (pageProps.domain as string) ?? null;
+
     if (action === "reject") {
       await updatePageWithLock(operatorId, page.slug, (p) => ({
         properties: { ...(p.properties ?? {}), status: "rejected" },
@@ -274,6 +278,21 @@ export async function PATCH(
         sourceType: "wiki_page",
         sourceId: page.slug,
       }).catch(() => {});
+
+      try {
+        const { emitEvent } = await import("@/lib/system-job-events");
+        await emitEvent({
+          type: "initiative.rejected",
+          operatorId,
+          payload: {
+            proposalType,
+            domain,
+            initiativeSlug: page.slug,
+          },
+        });
+      } catch (err) {
+        console.warn(`[event-emit] initiative.rejected failed:`, err);
+      }
 
       return NextResponse.json({ id: page.slug, status: "rejected" });
     }
@@ -289,6 +308,21 @@ export async function PATCH(
         accepted_by: user.id,
       },
     }));
+
+    try {
+      const { emitEvent } = await import("@/lib/system-job-events");
+      await emitEvent({
+        type: "initiative.accepted",
+        operatorId,
+        payload: {
+          proposalType,
+          domain,
+          initiativeSlug: page.slug,
+        },
+      });
+    } catch (err) {
+      console.warn(`[event-emit] initiative.accepted failed:`, err);
+    }
 
     const { enqueueWorkerJob } = await import("@/lib/worker-dispatch");
     await enqueueWorkerJob("execute_initiative", operatorId, {

@@ -7,7 +7,7 @@
 
 // ─── Types ──────────────────────────────────────────────
 
-export type PropertyType = "string" | "number" | "boolean" | "date" | "enum" | "page_ref" | "page_ref[]";
+export type PropertyType = "string" | "number" | "boolean" | "date" | "enum" | "page_ref" | "page_ref[]" | "json";
 export type PropertyOwner = "synthesis" | "runtime";
 
 export interface PropertyDef {
@@ -388,22 +388,65 @@ const TOOL_SYSTEM: PageSchema = {
 
 const SYSTEM_JOB: PageSchema = {
   pageType: "system_job",
-  description: "A scheduled automated job run by the system.",
+  description: "A scheduled or event-triggered automated agent. Config lives on this page; runs execute per its deliverable kind.",
   sectionMenu: [
     "Purpose", "Scope", "Method", "Output", "Recipients", "Configuration", "Execution History",
   ],
   properties: {
-    status: { type: "enum", required: true, owner: "synthesis", enumValues: ["active", "paused", "disabled"], description: "Job status" },
-    schedule: { type: "string", required: true, owner: "synthesis", description: "Cron expression or human-readable schedule" },
+    // ── Lifecycle ──
+    status: { type: "enum", required: true, owner: "synthesis", enumValues: ["active", "paused", "disabled", "draft"], description: "Job lifecycle status" },
     description: { type: "string", required: true, owner: "synthesis", description: "Short one-paragraph job description" },
-    owner: { type: "page_ref", required: false, owner: "synthesis", description: "Job owner person slug" },
-    domain: { type: "page_ref", required: false, owner: "synthesis", description: "Owning department" },
-    trust_level: { type: "enum", required: false, owner: "synthesis", enumValues: ["observe", "propose", "act"], description: "Execution trust level" },
-    auto_approve_steps: { type: "boolean", required: false, owner: "synthesis", description: "Whether steps auto-approve" },
+
+    // ── Triggers (v2: array of cron and/or event entries) ──
+    triggers: { type: "json", required: false, owner: "synthesis", description: "Array of trigger entries: {type:'cron',expression:string} | {type:'event',eventType:string,filter:object}" },
+    schedule: { type: "string", required: false, owner: "synthesis", description: "Legacy cron string — kept for back-compat readout only; triggers is authoritative" },
+
+    // ── Deliverable shape ──
+    deliverable_kind: { type: "enum", required: true, owner: "synthesis", enumValues: ["report", "proposals", "edits", "mixed"], description: "What the job produces. Drives output schema and rendering." },
+    trust_level: { type: "enum", required: true, owner: "synthesis", enumValues: ["observe", "propose", "act"], description: "Execution autonomy. observe=findings only. propose=initiatives require accept. act=initiatives auto-accept with receipt." },
+    post_policy: { type: "enum", required: true, owner: "synthesis", enumValues: ["always", "importance_threshold", "actionable_only"], description: "When to publish a run's output" },
+    importance_threshold: { type: "number", required: false, owner: "synthesis", description: "0–1 score gate, required when post_policy=importance_threshold" },
+
+    // ── Scope / reach ──
+    anchor_pages: { type: "json", required: false, owner: "synthesis", description: "Array of wiki page slugs always read first by the agent" },
+    reach_mode: { type: "enum", required: false, owner: "synthesis", enumValues: ["pinned_only", "domain_bounded", "agentic"], description: "How the agent decides what else to read" },
+    domain_scope: { type: "json", required: false, owner: "synthesis", description: "Array of domain slugs that bound agentic reach when reach_mode=domain_bounded" },
+
+    // ── People ──
+    owner: { type: "page_ref", required: false, owner: "synthesis", description: "Responsible person slug" },
+    domain: { type: "page_ref", required: false, owner: "synthesis", description: "Primary domain/department" },
+    recipients: { type: "json", required: false, owner: "synthesis", description: "Array of person slugs to notify when a deliverable is ready" },
+
+    // ── Budget ──
+    budget_soft_tool_calls: { type: "number", required: false, owner: "synthesis", description: "Soft tool-call budget for the agentic loop (default 15)" },
+    budget_hard_tool_calls: { type: "number", required: false, owner: "synthesis", description: "Hard tool-call cap (default 25)" },
+    dedup_window_runs: { type: "number", required: false, owner: "synthesis", description: "Number of prior runs to consider when deduping proposed outputs (default 3)" },
+
+    // ── Permissions snapshot (runtime-owned, set on create; NOT live-joined to User — preserves audit trail if user deleted) ──
+    creator_user_id_snapshot: { type: "string", required: false, owner: "runtime", description: "User ID snapshot at creation — preserves audit trail; not a live lookup" },
+    creator_role_snapshot: { type: "enum", required: false, owner: "runtime", enumValues: ["member", "admin", "superadmin"], description: "Creator role at creation time — bounds trust_level at runtime" },
+
+    // ── Runtime state (set by scheduler/reasoner) ──
     last_run: { type: "date", required: false, owner: "runtime", default: null, description: "Last execution timestamp" },
-    next_run: { type: "date", required: false, owner: "runtime", default: null, description: "Next scheduled execution" },
+    next_run: { type: "date", required: false, owner: "runtime", default: null, description: "Next scheduled execution (null for event-only jobs)" },
     latest_run_summary: { type: "string", required: false, owner: "runtime", default: null, description: "One-line synopsis of most recent run" },
-    latest_run_status: { type: "enum", required: false, owner: "runtime", default: null, enumValues: ["completed", "awaiting_review", "failed", "running"], description: "Status of the most recent run" },
+    latest_run_status: { type: "enum", required: false, owner: "runtime", default: null, enumValues: ["completed", "awaiting_review", "failed", "running", "compressed"], description: "Status of the most recent run" },
+
+    // ── Legacy (kept for compat, unused in v2) ──
+    auto_approve_steps: { type: "boolean", required: false, owner: "synthesis", description: "Deprecated — use trust_level=act instead" },
+  },
+};
+
+const SYSTEM_JOB_RUN_REPORT: PageSchema = {
+  pageType: "system_job_run_report",
+  description: "A single run output for a report-kind system job. Child page of a system_job.",
+  sectionMenu: ["Summary", "Key findings", "Recommendations", "Body"],
+  properties: {
+    parent_job_slug: { type: "page_ref", required: true, owner: "runtime", description: "Parent system_job slug" },
+    run_date: { type: "date", required: true, owner: "runtime", description: "When this run occurred" },
+    importance_score: { type: "number", required: false, owner: "runtime", description: "0–1 reasoner importance score" },
+    tool_calls: { type: "number", required: false, owner: "runtime", description: "Tool-call count for this run" },
+    cost_cents: { type: "number", required: false, owner: "runtime", description: "API cost in cents" },
   },
 };
 
@@ -436,6 +479,7 @@ export const PAGE_SCHEMAS: Record<string, PageSchema> = {
   strategic_link: STRATEGIC_LINK,
   tool_system: TOOL_SYSTEM,
   system_job: SYSTEM_JOB,
+  system_job_run_report: SYSTEM_JOB_RUN_REPORT,
   other: OTHER,
 };
 

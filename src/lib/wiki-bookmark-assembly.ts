@@ -282,6 +282,23 @@ Respond with ONLY a JSON array:
           },
         });
 
+        try {
+          const { emitEvent } = await import("@/lib/system-job-events");
+          await emitEvent({
+            type: "initiative.proposed",
+            operatorId,
+            payload: {
+              proposalType: "project_creation",
+              source: "bookmark_assembly",
+              domain: null,
+              initiativeSlug: slug,
+              sourceJobId: null,
+            },
+          });
+        } catch (err) {
+          console.warn(`[event-emit] initiative.proposed failed:`, err);
+        }
+
         // Mark bookmarks as resolved
         await prisma.wikiBookmark.updateMany({
           where: { id: { in: bookmarkIds }, operatorId },

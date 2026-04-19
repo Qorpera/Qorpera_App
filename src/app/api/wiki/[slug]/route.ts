@@ -183,5 +183,23 @@ export async function PATCH(
     data,
   });
 
+  // Rebuild system-job index if this page is a system_job (operator-scoped only;
+  // KnowledgePage.operatorId is nullable for system-scoped pages).
+  if (updated.pageType === "system_job" && updated.operatorId) {
+    try {
+      const { rebuildSystemJobIndex } = await import("@/lib/system-job-index");
+      await rebuildSystemJobIndex({
+        wikiPageId: updated.id,
+        operatorId: updated.operatorId,
+        slug: updated.slug,
+        scope: updated.scope,
+        properties: updated.properties,
+      });
+    } catch (err) {
+      console.error(`[wiki-save] Failed to rebuild system-job index for ${updated.slug}:`, err);
+      // Non-fatal — the page still saved. Index will be rebuilt on next save or manual refresh.
+    }
+  }
+
   return NextResponse.json(updated);
 }

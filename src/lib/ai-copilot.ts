@@ -1782,7 +1782,7 @@ export async function executeTool(
         // Create wiki page for this job
         const slug = `system-job-${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
         const now = new Date();
-        await prisma.knowledgePage.create({
+        const createdPage = await prisma.knowledgePage.create({
           data: {
             operatorId,
             slug,
@@ -1798,24 +1798,23 @@ export async function executeTool(
             contentTokens: 0,
             lastSynthesizedAt: now,
           },
+          select: { id: true, operatorId: true, slug: true, scope: true, properties: true },
         });
 
-        const job = await prisma.systemJob.create({
-          data: {
-            operatorId,
-            title,
-            description,
-            cronExpression,
-            wikiPageSlug: slug,
-            scope,
-            status: "active",
-            source: "manual",
-            importanceThreshold: 0.3,
-            nextTriggerAt,
-          },
-        });
+        try {
+          const { rebuildSystemJobIndex } = await import("@/lib/system-job-index");
+          await rebuildSystemJobIndex({
+            wikiPageId: createdPage.id,
+            operatorId: createdPage.operatorId!,
+            slug: createdPage.slug,
+            scope: createdPage.scope,
+            properties: createdPage.properties,
+          });
+        } catch (err) {
+          console.error(`[ai-copilot] Failed to rebuild index for ${createdPage.slug}:`, err);
+        }
 
-        return `System job "${title}" created successfully (ID: ${job.id}). Wiki page created at [[${slug}]]. It will first run ${nextTriggerAt.toISOString().split("T")[0]}. Schedule: ${cronExpression}. You can view and manage it on the System Jobs page.`;
+        return `System job "${title}" created successfully. Wiki page created at [[${slug}]]. It will first run ${nextTriggerAt.toISOString().split("T")[0]}. Schedule: ${cronExpression}. You can view and manage it on the System Jobs page.`;
       } catch (err) {
         return `Failed to create system job: ${err instanceof Error ? err.message : "Unknown error"}`;
       }

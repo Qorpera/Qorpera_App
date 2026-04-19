@@ -175,7 +175,7 @@ export async function createPage(params: {
       synthesisDurationMs: params.synthesisDurationMs ?? null,
       lastSynthesizedAt: new Date(),
     },
-    select: { id: true },
+    select: { id: true, operatorId: true, slug: true, pageType: true, scope: true, properties: true },
   });
 
   // Update citedByPages counter on referenced pages
@@ -184,6 +184,22 @@ export async function createPage(params: {
       where: { operatorId: params.operatorId, scope: "operator", slug: { in: crossReferences } },
       data: { citedByPages: { increment: 1 } },
     });
+  }
+
+  // Rebuild SystemJobIndex if this is a system_job page.
+  if (created.pageType === "system_job" && created.operatorId) {
+    try {
+      const { rebuildSystemJobIndex } = await import("@/lib/system-job-index");
+      await rebuildSystemJobIndex({
+        wikiPageId: created.id,
+        operatorId: created.operatorId,
+        slug: created.slug,
+        scope: created.scope,
+        properties: created.properties,
+      });
+    } catch (err) {
+      console.error(`[wiki-engine] Failed to rebuild system-job index for new page ${created.slug}:`, err);
+    }
   }
 
   // Trigger verification
@@ -1168,6 +1184,32 @@ export async function updatePageWithLock(
       // Version conflict — retry
       if (attempt < maxRetries) continue;
       throw new Error(`Version conflict after ${maxRetries} retries: ${slug}`);
+    }
+
+    // Rebuild SystemJobIndex if this is a system_job page.
+    // This hook fires on EVERY updatePageWithLock success, covering the many code paths
+    // that don't go through /api/wiki/[slug] (initiative-execution, situation-timeout-detector,
+    // learned-preferences, system-job reasoning, seed scripts, etc.).
+    if (ctx.pageType === "system_job") {
+      try {
+        const { rebuildSystemJobIndex } = await import("@/lib/system-job-index");
+        // Fetch the current saved state — CAS just wrote this row so it's the post-update version
+        const saved = await prisma.knowledgePage.findUnique({
+          where: { id: ctx.id },
+          select: { id: true, operatorId: true, slug: true, scope: true, properties: true },
+        });
+        if (saved && saved.operatorId) {
+          await rebuildSystemJobIndex({
+            wikiPageId: saved.id,
+            operatorId: saved.operatorId,
+            slug: saved.slug,
+            scope: saved.scope,
+            properties: saved.properties,
+          });
+        }
+      } catch (err) {
+        console.error(`[wiki-engine] Failed to rebuild system-job index for ${ctx.slug}:`, err);
+      }
     }
 
     // Return updated context
