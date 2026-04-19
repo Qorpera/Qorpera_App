@@ -332,11 +332,11 @@ function JobDetailPanel({ detail }: { detail: JobDetail }) {
               </blockquote>
             ),
             a: ({ href, children }) => {
-              if (href?.startsWith("wiki:")) {
-                const slug = href.slice(5);
+              if (href?.startsWith("/wiki/")) {
                 return (
                   <Link
-                    href={`/wiki?page=${encodeURIComponent(slug)}`}
+                    href={href}
+                    prefetch={false}
                     style={{ color: "var(--accent)", textDecoration: "underline", textDecorationStyle: "dotted" }}
                   >
                     {children}

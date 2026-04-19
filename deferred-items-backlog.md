@@ -4,6 +4,26 @@ Small issues logged from reviews. Not blocking, not scoped to the current work �
 
 ---
 
+## Unauth deep-link loses context after /login
+
+**Logged:** 2026-04-19 (from v0.3.57 review)
+**Severity:** UX polish. Not wiki-specific — applies to every protected route.
+
+Hitting `/wiki/mikkel-toft` (or any authed page) while logged out causes `src/middleware.ts:114-116` to redirect to `/login` without a `?next=/wiki/mikkel-toft` param. After login, the user lands on the default page instead of the one they bookmarked.
+
+**Fix:** 2-3 line change in the session-cookie-missing branch — append `url.searchParams.set("next", req.nextUrl.pathname + req.nextUrl.search)` before `redirect(url)`, and have `/login` honor `?next=` on successful auth.
+
+---
+
+## 308 stickiness of the legacy /wiki?page= redirect
+
+**Logged:** 2026-04-19 (from v0.3.57 review)
+**Severity:** Documentation — no action needed unless the wiki URL shape is revisited.
+
+`src/middleware.ts` issues a 308 (permanent) for `/wiki?page=X → /wiki/X`. Browsers and CDNs may cache the redirect aggressively. Chosen deliberately over 301 to preserve HTTP method and because 308's caching is less universal than 301's. If the wiki URL scheme ever changes again, flip to 302/307 for a grace period before committing to the new permanent mapping.
+
+---
+
 ## WikiText slice cuts wiki-link tokens
 
 **Logged:** 2026-04-17 (v0.3.42 review)

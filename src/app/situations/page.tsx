@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { ContextualChat } from "@/components/contextual-chat";
@@ -387,6 +387,7 @@ export default function SituationsPage() {
   const [isPreviewFullScreen, setIsPreviewFullScreen] = useState(false);
   const [isChatVisible, setIsChatVisible] = useState(true);
   const sidebarWasCollapsed = useRef(false);
+  const searchParams = useSearchParams();
 
   // Auto-collapse main nav sidebar when a situation is entered, restore on exit
   useEffect(() => {
@@ -401,6 +402,15 @@ export default function SituationsPage() {
       }
     }
   }, [!!selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deep-link support: /situations?id=X auto-selects the situation.
+  // Runs on mount and whenever searchParams change.
+  useEffect(() => {
+    const urlId = searchParams?.get("id");
+    if (urlId && urlId !== selectedId) {
+      setSelectedId(urlId);
+    }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for approve-action events from email preview footer
   useEffect(() => {

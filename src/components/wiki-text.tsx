@@ -36,6 +36,7 @@ function WikiTextInner({ text, crossReferences, className, style, asParagraphs }
         <Link
           key={`${keyPrefix}-${i}`}
           href={`/wiki/${t.slug}`}
+          prefetch={false}
           style={{ color: "var(--link, #3B82F6)", textDecoration: "underline" }}
         >
           {label}

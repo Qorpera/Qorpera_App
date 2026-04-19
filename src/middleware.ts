@@ -54,6 +54,19 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Legacy /wiki?page=X → /wiki/X redirect (preserves other query params).
+  // Runs before auth so bookmarked/old links upgrade unconditionally.
+  // Exact match — if next.config ever enables `trailingSlash: true`, also match "/wiki/".
+  if (pathname === "/wiki") {
+    const legacyPage = req.nextUrl.searchParams.get("page");
+    if (legacyPage) {
+      const url = req.nextUrl.clone();
+      url.pathname = `/wiki/${encodeURIComponent(legacyPage)}`;
+      url.searchParams.delete("page");
+      return NextResponse.redirect(url, 308);
+    }
+  }
+
   // CSRF protection for mutation requests — checked BEFORE public path bypass.
   // Webhooks are exempt (external services don't send Origin headers).
   if (!SAFE_METHODS.includes(req.method) && !pathname.startsWith("/api/webhooks")) {

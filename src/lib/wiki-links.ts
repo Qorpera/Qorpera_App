@@ -68,7 +68,7 @@ export function resolveWikiLinks(text: string, lookup?: WikiLinkLookup): string 
 
 /**
  * Replace [[slug]] / [page:slug] markers with a Markdown wiki link
- * (`[Title](wiki:slug)`) so a Markdown renderer can turn them into clickable
+ * (`[Title](/wiki/slug)`) so a Markdown renderer can turn them into clickable
  * cross-page navigation.
  */
 export function replaceWikiLinksWithMarkdown(text: string, lookup?: WikiLinkLookup): string {
@@ -76,7 +76,7 @@ export function replaceWikiLinksWithMarkdown(text: string, lookup?: WikiLinkLook
   return tokenize(text)
     .map((t) => {
       if (t.kind === "text") return t.value;
-      return `[${resolveLabel(t.slug, lookup)}](wiki:${t.slug})`;
+      return `[${resolveLabel(t.slug, lookup)}](/wiki/${t.slug})`;
     })
     .join("");
 }
