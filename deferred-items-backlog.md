@@ -58,3 +58,14 @@ Either works. (2) is cleaner if we later unify parsing into a shared tokenizer (
 `src/lib/wiki-engine.ts:695` defines a local regex to pull unique slugs out of page content for storage in `KnowledgePage.crossReferences`. Same grammar as the tokenizer in `src/lib/wiki-links.ts`, but storage-layer rather than render-layer.
 
 **Fix:** replace the local regex with `tokenize(content).filter(t => t.kind === "link").map(t => t.slug)` (dedupe with Set). Small, easy — do it next time wiki-engine is open for edits.
+
+---
+
+## Wiki access control — pre-pilot blocker
+
+**Logged:** 2026-04-19 (flagged sessions: system-jobs prompt 3, 6, 8 — third deferral)
+**Severity:** Pilot-blocking if any pilot operator has members with restricted scope.
+
+No runtime scope filtering exists. `visibleToRoles` is a ghost field. System Jobs API now returns `triggers`, `recipients`, `domainScope`, `reachMode`, `anchorPages`, `executionHistory`, `linkedInitiatives`, `runReports`, `creatorUserIdSnapshot` — all of which should respect per-user scope. Extending the leak surface each session until this is addressed.
+
+**Needs:** per-user domain-scope model (or formalized `visibleToRoles` with a `canAccessPage` helper), retrofitted into every reasoning-tool wiki read AND every GET route returning wiki-page data. Cross-cutting. Not a one-prompt fix — worth raising as its own session before or alongside pilot prep, not at the end.
